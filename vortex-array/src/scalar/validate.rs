@@ -13,7 +13,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -166,15 +165,6 @@ impl Scalar {
                     "binary dtype expected Binary value, got {value}",
                 );
             }
-            _ => return Self::validate_detailed_nested(dtype, value),
-        }
-
-        Ok(())
-    }
-
-    /// The detailed check for non-null values outside the leaf fast path.
-    fn validate_detailed_nested(dtype: &DType, value: &ScalarValue) -> VortexResult<()> {
-        match dtype {
             DType::Decimal(dec_dtype, _) => {
                 let ScalarValue::Decimal(dvalue) = value else {
                     vortex_bail!("decimal dtype expected Decimal value, got {value}");
@@ -299,14 +289,7 @@ impl Scalar {
             DType::Extension(ext_dtype) => {
                 Self::validate_detailed(ext_dtype.storage_dtype(), Some(value))?;
 
-                return ext_dtype.validate_storage_value(value);
-            }
-            DType::Null
-            | DType::Bool(_)
-            | DType::Primitive(..)
-            | DType::Utf8(_)
-            | DType::Binary(_) => {
-                vortex_panic!("nested validation requires a non-leaf dtype, got {dtype}");
+                ext_dtype.validate_storage_value(value)?;
             }
         }
 
