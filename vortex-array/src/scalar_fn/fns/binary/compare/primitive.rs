@@ -1,239 +1,160 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native comparison of primitive arrays with packed bitmap output.
+//! Primitive comparison execution through [`RowFn`].
+//!
+//! [`PrimitiveCompare`] delegates decoding, constant handling, validity, and packed Boolean output
+//! to the row executor. Its row kernel contains only the comparison selected by [`CompareOperator`].
 
-use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_buffer::collect_bool_word;
-use vortex_compute::lane_kernels::bit_buffer_from_words;
-use vortex_compute::lane_kernels::collect_bits;
-use vortex_compute::lane_kernels::collect_zip_bits;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
+use crate::array::VTable;
+use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
-use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::compare::compare_validity;
-use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::unstable::row::RowFn;
+use crate::scalar_fn::unstable::row::RowInputs;
+use crate::scalar_fn::unstable::row::RowVisitor;
+use crate::scalar_fn::unstable::row::execute_row_inputs;
 
 /// Compare two primitive arrays of the same [`PType`].
 ///
-/// Floats use a total ordering over their bit patterns, including NaN signs and payloads.
-/// Equality is bitwise, so signed zeros and distinct NaN payloads remain distinct.
+/// Floats compare with Vortex's total ordering over their bit patterns: a `NaN` with the sign bit
+/// set sorts below `-inf`, any other `NaN` sorts above `+inf`, and `-0.0 < +0.0`. Equality is
+/// bitwise, so distinct `NaN` payloads are not equal.
 pub(super) fn compare_primitive(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
-    nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let ptype = PType::try_from(lhs.dtype())?;
-    match_each_native_ptype!(ptype, |T| {
-        compare_primitive_typed::<T>(lhs, rhs, op, nullability, ctx)
-    })
-}
 
-fn compare_primitive_typed<T: NativePType>(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    op: CompareOperator,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let len = lhs.len();
-    let lhs = PrimitiveOperand::<T>::try_new(lhs, ctx)?;
-    let rhs = PrimitiveOperand::<T>::try_new(rhs, ctx)?;
-    if lhs.len() != rhs.len() {
-        vortex_bail!(
-            "compare operator requires equal lengths, got {} and {}",
-            lhs.len(),
-            rhs.len()
-        );
+    // The row loop vectorizes worse with a constant first operand, so keep the constant on the
+    // right. Comparing encodings avoids two dynamic downcasts on every call.
+    let constant = VTable::id(&Constant);
+    if lhs.encoding_id() == constant && rhs.encoding_id() != constant {
+        let args = CompareArgs::new(rhs, lhs, ptype);
+        return execute_row_inputs(&PrimitiveCompare, &op.swap(), &args, ctx);
     }
 
-    let validity = compare_validity(lhs.validity(), rhs.validity(), nullability)?;
-
-    let bits = match (&lhs, &rhs) {
-        (
-            PrimitiveOperand::Array { values: lhs, .. },
-            PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slices(lhs, rhs, op, ctx.allocator()),
-        (
-            PrimitiveOperand::Array { values: lhs, .. },
-            PrimitiveOperand::Constant { value: rhs, .. },
-        ) => compare_slice_constant(lhs, *rhs, op, ctx.allocator()),
-        (
-            PrimitiveOperand::Constant { value: lhs, .. },
-            PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slice_constant(rhs, *lhs, op.swap(), ctx.allocator()),
-        (
-            PrimitiveOperand::Constant { value: lhs, .. },
-            PrimitiveOperand::Constant { value: rhs, .. },
-        ) => {
-            // Unreachable through `execute_compare` (constant-constant is folded there), but
-            // cheap to answer anyway.
-            BitBuffer::full_in(apply_op(*lhs, *rhs, op), len, ctx.allocator().clone())
-        }
-        (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => {
-            return Ok(
-                ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), len)
-                    .into_array(),
-            );
-        }
-    };
-
-    Ok(BoolArray::try_new(bits, validity)?.into_array())
-}
-
-#[allow(clippy::inline_always)]
-#[inline(always)]
-fn apply_op<T: NativePType>(lhs: T, rhs: T, op: CompareOperator) -> bool {
-    match op {
-        CompareOperator::Eq => lhs.is_eq(rhs),
-        CompareOperator::NotEq => !lhs.is_eq(rhs),
-        CompareOperator::Gt => lhs.is_gt(rhs),
-        CompareOperator::Gte => lhs.is_ge(rhs),
-        CompareOperator::Lt => lhs.is_lt(rhs),
-        CompareOperator::Lte => lhs.is_le(rhs),
-    }
-}
-
-fn compare_slices<T: NativePType>(
-    lhs: &[T],
-    rhs: &[T],
-    op: CompareOperator,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    // Dispatch the operator outside the lane loop so each instantiation vectorizes a single
-    // branch-free predicate.
-    match op {
-        CompareOperator::Eq => {
-            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator)
-        }
-        CompareOperator::NotEq => {
-            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator)
-        }
-        CompareOperator::Gt => collect_zip_bits_dispatch(lhs, rhs, T::is_gt, allocator),
-        CompareOperator::Gte => collect_zip_bits_dispatch(lhs, rhs, T::is_ge, allocator),
-        CompareOperator::Lt => collect_zip_bits_dispatch(lhs, rhs, T::is_lt, allocator),
-        CompareOperator::Lte => collect_zip_bits_dispatch(lhs, rhs, T::is_le, allocator),
-    }
-}
-
-fn compare_slice_constant<T: NativePType>(
-    lhs: &[T],
-    rhs: T,
-    op: CompareOperator,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    match op {
-        CompareOperator::Eq => collect_bits_dispatch(lhs, |a: T| a.is_eq(rhs), allocator),
-        CompareOperator::NotEq => collect_bits_dispatch(lhs, |a: T| !a.is_eq(rhs), allocator),
-        CompareOperator::Gt => collect_bits_dispatch(lhs, |a: T| a.is_gt(rhs), allocator),
-        CompareOperator::Gte => collect_bits_dispatch(lhs, |a: T| a.is_ge(rhs), allocator),
-        CompareOperator::Lt => collect_bits_dispatch(lhs, |a: T| a.is_lt(rhs), allocator),
-        CompareOperator::Lte => collect_bits_dispatch(lhs, |a: T| a.is_le(rhs), allocator),
-    }
-}
-
-fn collect_bits_dispatch<T: NativePType>(
-    values: &[T],
-    f: impl Fn(T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    // This type check folds away during monomorphization. Word packing improves float32
-    // comparisons; wider types retain the lane kernel to avoid AVX2 constant-case regressions.
-    if matches!(T::PTYPE, PType::I8 | PType::U8 | PType::F32) {
-        collect_bits_narrow(values, f, allocator)
-    } else {
-        collect_bits(values, f, allocator)
-    }
-}
-
-fn collect_zip_bits_dispatch<T: NativePType>(
-    lhs: &[T],
-    rhs: &[T],
-    f: impl Fn(T, T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-    if matches!(T::PTYPE, PType::I64 | PType::U64 | PType::F64) {
-        // Fill-and-pack improves wide array pairs on NEON. Constants keep their existing loop.
-        return collect_zip_bits_wide(lhs, rhs, f, allocator);
-    }
-
-    if matches!(T::PTYPE, PType::I8 | PType::U8 | PType::F32) {
-        collect_zip_bits_narrow(lhs, rhs, f, allocator)
-    } else {
-        collect_zip_bits(lhs, rhs, f, allocator)
-    }
-}
-
-fn collect_bits_narrow<T: Copy>(
-    values: &[T],
-    f: impl Fn(T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    let (chunks, tail) = values.as_chunks::<64>();
-    let mut words = BufferMut::<u64>::zeroed_in(values.len().div_ceil(64), allocator.clone());
-    // Fixed-size chunks let the compiler prove the predicate's indexing stays in bounds.
-    for (word, chunk) in words.iter_mut().zip(chunks) {
-        *word = collect_bool_word(64, |i| f(chunk[i]));
-    }
-    if !tail.is_empty() {
-        words[chunks.len()] = collect_bool_word(tail.len(), |i| f(tail[i]));
-    }
-    bit_buffer_from_words(words, values.len())
-}
-
-fn collect_zip_bits_narrow<T: Copy>(
-    lhs: &[T],
-    rhs: &[T],
-    f: impl Fn(T, T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    assert_eq!(lhs.len(), rhs.len());
-    let (left_chunks, left_tail) = lhs.as_chunks::<64>();
-    let (right_chunks, right_tail) = rhs.as_chunks::<64>();
-    let mut words = BufferMut::<u64>::zeroed_in(lhs.len().div_ceil(64), allocator.clone());
-    for ((word, left), right) in words.iter_mut().zip(left_chunks).zip(right_chunks) {
-        *word = collect_bool_word(64, |i| f(left[i], right[i]));
-    }
-    if !left_tail.is_empty() {
-        words[left_chunks.len()] =
-            collect_bool_word(left_tail.len(), |i| f(left_tail[i], right_tail[i]));
-    }
-    bit_buffer_from_words(words, lhs.len())
-}
-
-/// Keep the predicate free of bounds checks so NEON can fuse comparison and bitmap packing.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
-fn collect_zip_bits_wide<T: Copy>(
-    lhs: &[T],
-    rhs: &[T],
-    f: impl Fn(T, T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    assert_eq!(lhs.len(), rhs.len());
-    BitBuffer::collect_bool_multiversioned_in(
-        lhs.len(),
-        |index| {
-            // SAFETY: the collector calls with `index < lhs.len()`, and the slice lengths match.
-            let (lhs, rhs) = unsafe { (*lhs.get_unchecked(index), *rhs.get_unchecked(index)) };
-            f(lhs, rhs)
-        },
-        allocator.clone(),
+    execute_row_inputs(
+        &PrimitiveCompare,
+        &op,
+        &CompareArgs::new(lhs, rhs, ptype),
+        ctx,
     )
+}
+
+/// Borrowed comparison operands with their dtypes, so a call does not allocate.
+struct CompareArgs<'a> {
+    arrays: [&'a ArrayRef; 2],
+    dtypes: [DType; 2],
+}
+
+impl<'a> CompareArgs<'a> {
+    /// Pair two primitive operands of the same [`PType`] with their dtypes.
+    ///
+    /// The dtypes are rebuilt as primitive values rather than cloned, so the compiler knows their
+    /// variant and drops them without a runtime match.
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn new(lhs: &'a ArrayRef, rhs: &'a ArrayRef, ptype: PType) -> Self {
+        Self {
+            arrays: [lhs, rhs],
+            dtypes: [
+                DType::Primitive(ptype, lhs.dtype().nullability()),
+                DType::Primitive(ptype, rhs.dtype().nullability()),
+            ],
+        }
+    }
+}
+
+impl RowInputs for CompareArgs<'_> {
+    fn num_inputs(&self) -> usize {
+        2
+    }
+
+    fn row_count(&self) -> usize {
+        self.arrays[0].len()
+    }
+
+    fn input(&self, index: usize) -> &ArrayRef {
+        self.arrays[index]
+    }
+
+    fn dtypes(&self) -> Option<&[DType]> {
+        Some(&self.dtypes)
+    }
+}
+
+/// Internal row execution for primitive comparison operators.
+#[derive(Clone)]
+struct PrimitiveCompare;
+
+impl RowFn for PrimitiveCompare {
+    type Options = CompareOperator;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        // `PrimitiveCompare` is a private implementation detail of `Binary`: it is never registered
+        // or serialized independently. Reusing the public ID keeps execution errors attributed to
+        // `Binary`. If this type becomes registrable, it needs its own ID and persistence contract.
+        ScalarFnVTable::id(&Binary)
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        op: &Self::Options,
+        args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        let [lhs_dtype, _] = args else {
+            vortex_bail!(
+                "a primitive comparison requires two operands, got {}",
+                args.len(),
+            );
+        };
+        let ptype = PType::try_from(lhs_dtype)?;
+
+        match_each_native_ptype!(ptype, |T| { visit_compare::<T, V>(*op, visitor) })
+    }
+}
+
+fn visit_compare<T, V>(op: CompareOperator, visitor: V) -> VortexResult<V::VisitResult>
+where
+    T: NativePType,
+    V: RowVisitor,
+{
+    match op {
+        CompareOperator::Eq => visit_compare_with::<T, V>(visitor, T::is_eq),
+        CompareOperator::NotEq => visit_compare_with::<T, V>(visitor, |lhs, rhs| !lhs.is_eq(rhs)),
+        CompareOperator::Gt => visit_compare_with::<T, V>(visitor, T::is_gt),
+        CompareOperator::Gte => visit_compare_with::<T, V>(visitor, T::is_ge),
+        CompareOperator::Lt => visit_compare_with::<T, V>(visitor, T::is_lt),
+        CompareOperator::Lte => visit_compare_with::<T, V>(visitor, T::is_le),
+    }
+}
+
+fn visit_compare_with<T, V>(
+    visitor: V,
+    compare: impl Fn(T, T) -> bool,
+) -> VortexResult<V::VisitResult>
+where
+    T: NativePType,
+    V: RowVisitor,
+{
+    visitor.visit_bool::<(T, T), true>(move |(lhs, rhs)| compare(lhs, rhs))
 }

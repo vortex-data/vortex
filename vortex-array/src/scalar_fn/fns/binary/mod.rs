@@ -44,7 +44,6 @@ mod compare;
 pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
-mod primitive_operand;
 
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
