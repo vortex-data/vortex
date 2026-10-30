@@ -73,8 +73,12 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::Edition;
+use vortex::editions::EditionDeclaration;
+use vortex::editions::EditionFamily;
+use vortex::editions::EditionId;
+use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
-use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -92,12 +96,37 @@ pub fn configure_allocator() {
     unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, -1) };
 }
 
+const BENCH_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "bench",
+    origin: "vortex-bench",
+    doc: "Unstable components that benchmarks write, without the rest of the unstable edition.",
+};
+
+/// The list layout from the unstable edition, on its own.
+const UNSTABLE_BENCH: EditionId = EditionId::new("bench", 2026, 10, 0);
+
+static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: UNSTABLE_BENCH,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.list")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     session
-        .enable_edition(UNSTABLE)
-        .vortex_expect("unstable edition is registered");
+        .editions()
+        .declare_family(&BENCH_EDITION_FAMILY)
+        .vortex_expect("bench edition family is valid");
+    session
+        .register_edition(&UNSTABLE_BENCH_DECLARATION)
+        .vortex_expect("bench edition declaration is valid");
+    session
+        .enable_edition(UNSTABLE_BENCH)
+        .vortex_expect("bench edition is registered");
     session
 });
 
