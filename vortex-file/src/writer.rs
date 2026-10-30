@@ -25,6 +25,7 @@ use vortex_array::ArrayRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::min::Min;
+use vortex_array::aggregate_fn::fns::sort_order::SortOrder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::iter::ArrayIterator;
@@ -302,6 +303,22 @@ impl VortexWriteOptions {
         let dtype = stream.dtype().clone();
         if enforce_editions {
             validate_dtype_editions(&self.session, &dtype)?;
+        }
+
+        // TODO (joacoc): could this validation be moved out of here?
+        //
+        // `SortOrder` supports non-nullable structs, but storing the result requires
+        // a root statistics entry, and the current file-stats layout omits it.
+        for aggregate in self.file_statistics.iter().flatten() {
+            if let Some(options) = aggregate.as_opt::<SortOrder>() {
+                options.validate(&dtype)?;
+                if !dtype.is_nullable() {
+                    vortex_bail!(
+                        "File sort keys for non-nullable struct roots are not supported yet: \
+                         the statistics layout has no root entry"
+                    );
+                }
+            }
         }
 
         let (mut ptr, eof) = SequenceId::root().split();

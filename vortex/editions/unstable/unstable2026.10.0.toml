@@ -26,6 +26,7 @@ layouts = [
 dtypes = []
 aggregates = [
     "vortex.bloom_filter.sbbf",
+    "vortex.sort_order",
     "vortex.sum_v2",
 ]
 
@@ -46,5 +47,6 @@ layouts = [
 dtypes = []
 aggregates = [
     "vortex.bloom_filter.sbbf",
+    "vortex.sort_order",
     "vortex.sum_v2",
 ]
