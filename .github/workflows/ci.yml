@@ -704,24 +704,41 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      # The only job that needs flatc: builds use the checked-in bindings.
-      - uses: ./.github/actions/setup-flatc
-      - name: Install nightly for cbindgen macro expansion
-        # The C++ API asan build also needs rust-src to build the sanitized std.
-        run: |
-          rustup toolchain install $NIGHTLY_TOOLCHAIN \
-            --component rust-src,rustfmt,clippy,llvm-tools-preview
-      - name: Install Ninja for CMake integration tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
+      - parallel:
+          # The only job that needs flatc: builds use the checked-in bindings.
+          - uses: ./.github/actions/setup-flatc
+          - name: Install nightly for cbindgen macro expansion
+            # The C++ API asan build also needs rust-src to build the sanitized std.
+            run: |
+              rustup toolchain install $NIGHTLY_TOOLCHAIN \
+                --component rust-src,rustfmt,clippy,llvm-tools-preview
+          - name: Install Ninja for CMake integration tests
+            run: |
+              sudo apt-get update
+              sudo apt-get install -y ninja-build
 
       # Generated source files and C API
-      - name: "regenerate the FlatBuffers and Protocol Buffers bindings"
-        # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
-        run: |
-          cargo run --profile ci -p xtask -- generate-flatbuffers
-          cargo run --profile ci -p xtask -- generate-proto
+      - parallel:
+          - name: "regenerate the FlatBuffers and Protocol Buffers bindings"
+            # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
+            run: |
+              cargo run --profile ci -p xtask -- generate-flatbuffers
+              cargo run --profile ci -p xtask -- generate-proto
+          - name: "regenerate FFI header and test the C API"
+            env:
+              # Nightly regenerates cinclude/vortex.h with cbindgen during the build.
+              RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
+            run: |
+              cmake -S vortex-ffi -B "${RUNNER_TEMP}/ffi-c-build" \
+                -DCMAKE_LINKER_TYPE=MOLD \
+                -DBUILD_SHARED_LIBS=ON \
+                -DVORTEX_CARGO_PROFILE=ci \
+                -DVORTEX_BUILD_TESTS=ON
+              cmake --build "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
+              ctest --test-dir "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)" --output-on-failure
+          # Populate the registry cache for the lockfile-selected offline fixtures.
+          - name: Fetch Cargo dependencies for offline fixtures
+            run: cargo fetch --locked
       - name: "regenerate the edition records"
         run: |
           cargo run --profile ci -p xtask -- generate-editions
@@ -732,18 +749,6 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || 'HEAD^' }}"
           cargo run --profile ci -p xtask -- check-editions --base "$BASE"
-      - name: "regenerate FFI header and test the C API"
-        env:
-          # Nightly regenerates cinclude/vortex.h with cbindgen during the build.
-          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
-        run: |
-          cmake -S vortex-ffi -B "${RUNNER_TEMP}/ffi-c-build" \
-            -DCMAKE_LINKER_TYPE=MOLD \
-            -DBUILD_SHARED_LIBS=ON \
-            -DVORTEX_CARGO_PROFILE=ci \
-            -DVORTEX_BUILD_TESTS=ON
-          cmake --build "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)"
-          ctest --test-dir "${RUNNER_TEMP}/ffi-c-build" --parallel "$(nproc)" --output-on-failure
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain
@@ -774,10 +779,6 @@ jobs:
             | xargs -I{} -n1 flatc -I fbs.head --conform-includes fbs.develop --conform fbs.develop/{} fbs.head/{}
 
       # C++ API and CMake integration
-      # Populate the registry cache for the lockfile-selected offline fixtures.
-      - name: Fetch Cargo dependencies for offline fixtures
-        if: "!cancelled()"
-        run: cargo fetch --locked
       - parallel:
           - name: Build C++ tests and examples (asan)
             if: "!cancelled()"
