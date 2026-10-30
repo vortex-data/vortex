@@ -28,8 +28,8 @@ jobs:
       - name: Capture boot and filesystem details
         run: |
           cat /etc/os-release
-          systemd-analyze time
-          systemd-analyze critical-chain rolaunch.service cloud-config.service
+          sudo systemd-analyze time
+          sudo systemd-analyze critical-chain rolaunch.service cloud-config.service
           findmnt -n -o SOURCE,FSTYPE,SIZE /
           df -h /
           rustup toolchain list
