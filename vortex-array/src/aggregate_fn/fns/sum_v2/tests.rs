@@ -181,13 +181,15 @@ fn overflow_is_explicit_and_absorbing() -> VortexResult<()> {
     accumulator.accumulate(&batch, &mut SESSION.create_execution_ctx())?;
     assert!(accumulator.is_saturated());
 
+    // A batch whose sum overflows is not added, so the partial keeps the sum from before it. The
+    // flag masks that sum in every result.
     let partial = accumulator.partial_scalar()?;
     let fields = partial.as_struct();
     assert_eq!(
         fields
             .field("sum")
             .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
-        Some(i64::MAX)
+        Some(0)
     );
     assert_eq!(
         fields

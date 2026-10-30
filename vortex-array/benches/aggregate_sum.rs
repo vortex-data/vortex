@@ -267,3 +267,52 @@ fn sum_v2_i32_nulls_scattered(bencher: Bencher) {
         })
         .bench_refs(|(a, ctx)| sum_v2(a, ctx));
 }
+
+#[divan::bench]
+fn sum_u64(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(8);
+    let data: Vec<u64> = (0..N).map(|_| rng.random_range(0..2000)).collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<u64>(Stat::Sum, ctx));
+}
+
+#[divan::bench]
+fn sum_i64_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(9);
+    let data: Vec<Option<i64>> = (0..N)
+        .map(|_| rng.random_bool(0.5).then(|| rng.random_range(-1000..1000)))
+        .collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<i64>(Stat::Sum, ctx));
+}
+
+#[divan::bench]
+fn sum_f64_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(10);
+    let data: Vec<Option<f64>> = (0..N)
+        .map(|_| {
+            rng.random_bool(0.5)
+                .then(|| rng.random_range(-1000.0..1000.0))
+        })
+        .collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_as::<f64>(Stat::Sum, ctx));
+}

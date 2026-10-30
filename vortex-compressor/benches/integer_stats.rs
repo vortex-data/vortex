@@ -30,34 +30,37 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 const LEN: usize = 64 * 1024;
 
+/// Counting distinct values over a nullable array is the slowest case, so it runs on less data.
+const SMALL_LEN: usize = 16 * 1024;
+
 fn main() {
     LazyLock::force(&SESSION);
     divan::main();
 }
 
 /// Runs of up to 8 values, drawn from 1024 distinct values.
-fn values() -> Buffer<u32> {
+fn values(len: usize) -> Buffer<u32> {
     let mut rng = StdRng::seed_from_u64(0);
-    let mut values = Vec::with_capacity(LEN);
-    while values.len() < LEN {
+    let mut values = Vec::with_capacity(len);
+    while values.len() < len {
         let value: u32 = rng.random_range(0..1024);
         let run = rng.random_range(1..=8);
-        values.extend(std::iter::repeat_n(value, run.min(LEN - values.len())));
+        values.extend(std::iter::repeat_n(value, run.min(len - values.len())));
     }
     Buffer::from(values)
 }
 
 /// One value in ten null, at random, so almost every chunk of 64 values has a null.
-fn sparse_nulls() -> Validity {
+fn sparse_nulls(len: usize) -> Validity {
     let mut rng = StdRng::seed_from_u64(1);
-    Validity::from(BitBuffer::from_iter((0..LEN).map(|_| rng.random_bool(0.9))))
+    Validity::from(BitBuffer::from_iter((0..len).map(|_| rng.random_bool(0.9))))
 }
 
 /// Computes the statistics of a fresh array each iteration, so that the bounds cached on the array
 /// by a previous iteration are not reused. With `count_distinct_values`, every statistic is
 /// computed, as when a dictionary scheme is enabled.
-fn bench_stats(bencher: Bencher, validity: Validity, count_distinct_values: bool) {
-    let values = values();
+fn bench_stats(bencher: Bencher, len: usize, validity: Validity, count_distinct_values: bool) {
+    let values = values(len);
     bencher
         .with_inputs(|| {
             (
@@ -78,20 +81,20 @@ fn bench_stats(bencher: Bencher, validity: Validity, count_distinct_values: bool
 
 #[divan::bench]
 fn integer_stats_non_null(bencher: Bencher) {
-    bench_stats(bencher, Validity::NonNullable, false);
+    bench_stats(bencher, LEN, Validity::NonNullable, false);
 }
 
 #[divan::bench]
 fn integer_stats_nullable(bencher: Bencher) {
-    bench_stats(bencher, sparse_nulls(), false);
+    bench_stats(bencher, LEN, sparse_nulls(LEN), false);
 }
 
 #[divan::bench]
 fn integer_stats_all_non_null(bencher: Bencher) {
-    bench_stats(bencher, Validity::NonNullable, true);
+    bench_stats(bencher, LEN, Validity::NonNullable, true);
 }
 
 #[divan::bench]
 fn integer_stats_all_nullable(bencher: Bencher) {
-    bench_stats(bencher, sparse_nulls(), true);
+    bench_stats(bencher, SMALL_LEN, sparse_nulls(SMALL_LEN), true);
 }
