@@ -46,8 +46,11 @@ pub(super) fn string_dictionary_chunks(
             let offsets = concat.row_offsets();
             for index in (0..offsets.len()).rev() {
                 let child_start = offset + offsets[index];
-                let child_end =
-                    offset + offsets.get(index + 1).copied().unwrap_or(plan.row_count());
+                let child_end = offset
+                    + offsets
+                        .get(index + 1)
+                        .copied()
+                        .unwrap_or_else(|| plan.row_count());
                 if child_start < rows.end && rows.start < child_end {
                     pending.push((concat.child_required(index)?, child_start));
                 }
