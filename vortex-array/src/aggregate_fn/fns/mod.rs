@@ -20,6 +20,7 @@ pub mod min;
 pub mod min_max;
 pub mod nan_count;
 pub mod null_count;
+pub mod sort_order;
 pub mod sum;
 pub mod sum_v2;
 pub mod uncompressed_size_in_bytes;
