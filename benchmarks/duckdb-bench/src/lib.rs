@@ -70,7 +70,7 @@ impl DuckClient {
             );
         }
 
-        tracing::info!(db_path = %db_path.display(), "Opening DuckDB");
+        tracing::debug!(db_path = %db_path.display(), "Opening DuckDB");
 
         if delete_database && db_path.exists() {
             if format == Format::OnDiskDuckDB {

@@ -141,7 +141,7 @@ pub fn resolve_data_url(remote_data_dir: Option<&str>, local_subdir: &str) -> Re
                     local_subdir,
                 );
             }
-            tracing::info!(
+            tracing::debug!(
                 concat!(
                     "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                     "If it does not, you should kill this command, locally generate the files ",

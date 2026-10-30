@@ -165,6 +165,19 @@ def write_combined_ingest_output(output_path: Path, input_paths: list[Path]) -> 
                     output.write(line)
 
 
+@contextmanager
+def ci_log_group(title: str) -> Iterator[None]:
+    """Fold the output printed inside into a collapsible group when running in GitHub Actions."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        yield
+        return
+    console.print(f"::group::{title}", markup=False, highlight=False, soft_wrap=True)
+    try:
+        yield
+    finally:
+        console.print("::endgroup::", markup=False, highlight=False, soft_wrap=True)
+
+
 def drop_os_caches() -> None:
     """Try to drop OS caches and "sync" if runners have passwordless sudo"""
     try:
@@ -391,30 +404,31 @@ def run(
 
                     try:
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
-                        for query_id in query_ids:
-                            part_ingest_output = None
-                            if ingest_temp_dir is not None:
-                                part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
-                                run_idx += 1
+                        with ci_log_group(f"{target}: {len(query_ids)} queries"):
+                            for query_id in query_ids:
+                                part_ingest_output = None
+                                if ingest_temp_dir is not None:
+                                    part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
+                                    run_idx += 1
 
-                            drop_os_caches()
+                                drop_os_caches()
 
-                            executor.run(
-                                benchmark=benchmark,
-                                formats=[target.format],
-                                query=query_id,
-                                iterations=iterations,
-                                options=bench_opts,
-                                track_memory=track_memory,
-                                samply=samply,
-                                sample_rate=sample_rate,
-                                tracing=tracing,
-                                runner=runner,
-                                ingest_output=part_ingest_output,
-                                on_result=stream,
-                            )
-                            if part_ingest_output is not None:
-                                ingest_output_parts.append(part_ingest_output)
+                                executor.run(
+                                    benchmark=benchmark,
+                                    formats=[target.format],
+                                    query=query_id,
+                                    iterations=iterations,
+                                    options=bench_opts,
+                                    track_memory=track_memory,
+                                    samply=samply,
+                                    sample_rate=sample_rate,
+                                    tracing=tracing,
+                                    runner=runner,
+                                    ingest_output=part_ingest_output,
+                                    on_result=stream,
+                                )
+                                if part_ingest_output is not None:
+                                    ingest_output_parts.append(part_ingest_output)
 
                         console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
                     except RuntimeError as exc:

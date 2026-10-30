@@ -594,7 +594,7 @@ where
             .map(|p| p.to_string())
             .unwrap_or_else(|| format!("*.{}", extension));
 
-        tracing::info!(
+        tracing::debug!(
             name,
             base_dir,
             pattern,
