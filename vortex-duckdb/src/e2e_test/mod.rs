@@ -3,10 +3,8 @@
 
 //! End-to-end tests for DuckDB scans and pushdown.
 //!
-//! Shared native test fixtures own the DuckDB objects borrowed by the conversion tests.
+//! These tests exercise the registered extension through scans, spatial pushdown, and S3 reads.
 
-#[cfg(test)]
-mod constant_filter;
 #[cfg(test)]
 mod s3_test;
 #[cfg(all(test, duckdb_release))]

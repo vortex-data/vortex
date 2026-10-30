@@ -203,3 +203,28 @@ extern "C" duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, s
     }
     return reinterpret_cast<duckdb_value>(&(*vec)[idx]);
 }
+
+#ifdef VORTEX_DUCKDB_TEST_HARNESS
+// DuckDB 2.0 can use expression filters for SQL comparisons, so test legacy filters directly.
+// The caller owns the returned filter, which owns a copy of the literal.
+extern "C" duckdb_vx_table_filter duckdb_vx_test_constant_equality_filter(duckdb_value value) noexcept {
+    if (!value) {
+        return nullptr;
+    }
+
+    try {
+        auto &constant = *reinterpret_cast<Value *>(value);
+        if (constant.IsNull()) {
+            return nullptr;
+        }
+        auto filter = new LegacyConstantFilter(ExpressionType::COMPARE_EQUAL, constant);
+        return reinterpret_cast<duckdb_vx_table_filter>(filter);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+extern "C" void duckdb_vx_test_destroy_constant_equality_filter(duckdb_vx_table_filter filter) noexcept {
+    delete reinterpret_cast<LegacyConstantFilter *>(filter);
+}
+#endif
