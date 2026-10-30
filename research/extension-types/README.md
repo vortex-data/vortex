@@ -1,0 +1,64 @@
+# Extension types
+
+Extension types are meant to work like Rust newtypes: an opaque wrapper over a storage type, with
+behavior added on purpose. On `develop`, extension types inherit storage behavior in many places.
+That causes wrong results, panics, and code paths that disagree with each other.
+
+| Part | Content |
+| --- | --- |
+| [1. Why extension types must be opaque](01-why-opaque.md) | The argument for an opaque default |
+| [2. Current problems](02-current-problems.md) | What is wrong on `develop` |
+| [3. Design](03-design.md) | The proposed model, the alternatives, and the open questions |
+| [4. Urgent changes](04-urgent-changes.md) | Fixes to make now, before the larger design |
+| [5. Implementation](05-implementation.md) | Phases, the dependency graph, order, tests and compatibility |
+
+## Summary
+
+- An extension type gives new meaning to storage values. A storage operation is correct for an
+  extension type only when it agrees with that meaning, and only the extension type knows when it
+  agrees. So the safe default is to inherit no semantic behavior.
+- On `develop`, the same cast or comparison can return a correct value, a wrong value, or an error.
+  The outcome depends on the encoding of the input, and on whether one row or the whole array is
+  read.
+- The proposal: extension types are opaque by default. A typing check rejects every semantic
+  operation that no claim, rule or declaration covers. Rewrite rules turn the allowed ones into
+  storage operations. The kernels of generic operations, statistics and pruning see only storage.
+- Each extension dtype makes claims about its storage, such as `Eq` and `Ord`. Each function
+  declares how it uses extension operands, and a function that runs on storage says how its result
+  gets the extension dtype back. Each type also owns rewrite rules for its own operations, such as
+  casts. Engines convert operands of different dtypes before Vortex sees them.
+- A design pass on 2026-10-29 settled this mechanism. Part 3 describes it, and part 5 has the new
+  phase plan.
+- A second pass on 2026-10-30 settled nullability. An extension type cannot choose its top-level
+  nullability, which is always the nullability of its storage. It owns its nested nullability.
+  Each type declares its storage dtype from its metadata, and reads check the stored storage
+  against that declaration. `Timestamp` accepts every `i64`.
+- A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
+  wrapper. So code finds them without any knowledge of extension types.
+- [`../decisions.md`](../decisions.md) records which of these points are decided and which are
+  still open.
+- Some fixes are urgent, because they cause wrong results or panics. They cover implicit casts
+  through storage, comparisons against raw storage, storage checks, and panics on reads and on
+  nullability changes.
+
+## Agent documents
+
+- [`agents/findings.md`](agents/findings.md): every finding, with file and line references,
+  reproductions, observed and expected behavior, and fix sketches.
+- [`agents/design-notes.md`](agents/design-notes.md): API sketches, invariants, rewrite rules, the
+  claims of each type, the validation model, and file lists for each phase.
+- [`agents/probe.rs`](agents/probe.rs) and [`agents/probe_followup.rs`](agents/probe_followup.rs):
+  the throwaway tests that reproduced the confirmed findings.
+
+## Evidence
+
+The findings come from reading `develop` at `5fc5cb8`, and from two throwaway tests in debug
+builds. A second read on 2026-10-29 checked them against `develop` at `1d09649bbd`. Every urgent
+change (U1 to U9) was still needed there, and the catalog lists what changed. A third pass on
+2026-10-30 added three findings at `493967ce33`, after U5 merged. Findings marked "lead" in the
+agent catalog are not confirmed. No performance claim is measured.
+
+## Related
+
+The [Decimal notes](../decimal/README.md) use `Decimal` as a test of this design. They also place
+this plan in a larger graph of type work.
