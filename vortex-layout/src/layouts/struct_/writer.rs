@@ -223,8 +223,7 @@ impl LayoutStrategy for StructStrategy {
             .zip_eq(column_names)
             .enumerate()
             .map(move |(index, ((dtype, recv), name))| {
-                let column_stream =
-                    SequentialStreamAdapter::new(dtype, recv.boxed()).sendable();
+                let column_stream = SequentialStreamAdapter::new(dtype, recv.boxed()).sendable();
                 let child_eof = eof.split_off();
                 let session = session.clone();
                 let is_validity = index == 0 && is_nullable;
