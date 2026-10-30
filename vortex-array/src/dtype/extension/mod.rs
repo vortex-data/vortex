@@ -55,3 +55,6 @@ mod sealed {
     /// This can be the **only** implementor for [`super::typed::DynExtDType`].
     impl<V: ExtVTable> Sealed for ExtDType<V> {}
 }
+
+#[cfg(test)]
+mod tests;

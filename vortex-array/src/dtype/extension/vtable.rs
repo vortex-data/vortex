@@ -46,6 +46,15 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// This is called when constructing an [`ExtDType`] and should check both storage dtype and
     /// extension metadata.
+    ///
+    /// The result **must not** depend on the top-level nullability of the storage dtype. Array
+    /// operations control whether values can be null, so extension types must accept either
+    /// nullability. [`ExtDType::with_nullability`] relies on this contract to change nullability
+    /// without validating again. Validators can still constrain nullability inside nested storage
+    /// types.
+    ///
+    /// Violating this contract can produce a dtype that the validator rejects. It does not cause
+    /// undefined behavior.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
     // Methods related to the extension scalar values.
@@ -67,9 +76,9 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate and unpack a native value from the storage [`ScalarValue`].
     ///
-    /// Note that [`ExtVTable::validate_dtype()`] is always called first to validate the storage
-    /// [`crate::dtype::DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will
-    /// verify that the storage value is compatible with the storage dtype on construction.
+    /// The storage dtype and metadata satisfy [`Self::validate_dtype`].
+    /// [`Scalar`](crate::scalar::Scalar) construction also verifies that the storage value is
+    /// compatible with the storage dtype.
     ///
     /// # Errors
     ///
