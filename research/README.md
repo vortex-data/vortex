@@ -9,8 +9,10 @@ Reviews on 2026-10-22, 2026-10-23 and 2026-10-26 updated the Decimal notes and
 `develop` at `1d09649bbd`, and the Decimal plan was updated for the PRs that merged or opened
 since 2026-10-26. A design pass later on 2026-10-29 settled the extension type mechanism (claims,
 function declarations and result mappings), and part 5 of the extension notes has a new phase plan.
-Part 4 of the Decimal notes holds the implementation plan for `Widen` and the canonical decimal fix.
-The tracking issues [#10701](https://github.com/vortex-data/vortex/issues/10701) and
+On 2026-10-30, a second design pass settled extension nullability and the storage declaration
+(X25 to X34 in [`decisions.md`](decisions.md)). Its new findings are for `develop` at
+`493967ce33`. Part 4 of the Decimal notes holds the implementation plan for `Widen` and the
+canonical decimal fix. The tracking issues [#10701](https://github.com/vortex-data/vortex/issues/10701) and
 [#10733](https://github.com/vortex-data/vortex/issues/10733) hold the state of each PR. The
 decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
 `develop` at `dbaf5f8` (2026-10-22).

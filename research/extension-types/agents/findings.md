@@ -551,7 +551,10 @@ Terms:
   any integer days type (`encodings/datetime-parts/src/canonical.rs:69`), the metadata stores the
   days type (`encodings/datetime-parts/src/array.rs:67`), `TemporalScheme` narrows the days child
   (`vortex-btrblocks/src/schemes/temporal.rs:95`), and `compare_dtp` already handles a narrowing
-  cast that fails (`encodings/datetime-parts/src/compute/compare.rs:242-257`).
+  cast that fails (`encodings/datetime-parts/src/compute/compare.rs:242-257`). D28 marks that
+  `narrow` call for a later decision, so internal children can stop narrowing their dtype. The
+  `i64` days part still works then: the integer compressor stores the days in few bits whatever
+  the declared width, and only the decoded days child grows to 8 bytes per row.
 
 ### EXT-B1: DataFusion converts extension values to storage values
 
