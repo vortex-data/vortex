@@ -33,6 +33,7 @@ from .config import (
     parse_targets_json,
     resolve_axis_targets,
 )
+from .data_cache import S3DataCache, cached_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .storage.store import ResultStore
@@ -226,6 +227,13 @@ def prepare_data(
     ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
+    s3_cache: Annotated[
+        str | None,
+        typer.Option(
+            "--s3-cache",
+            help="s3://bucket/prefix caching base data of benchmarks whose generation is slow",
+        ),
+    ] = None,
 ) -> None:
     """Generate benchmark data for explicitly requested formats."""
     if format and formats_json:
@@ -259,8 +267,13 @@ def prepare_data(
         console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 
     try:
+        cache = S3DataCache(s3_cache) if s3_cache else None
+        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root) if cache else None
+        restored = cache is not None and dataset is not None and cache.restore(dataset)
         subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as exc:
+        if cache is not None and dataset is not None and not restored:
+            cache.save(dataset)
+    except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
 
