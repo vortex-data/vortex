@@ -53,6 +53,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ChunkPlanner;
+use super::FILTERED_ROWS_PER_CHUNK;
 use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::PrunePlanner;
@@ -835,6 +836,109 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
     };
     assert_eq!(scope.rows, 7..2002);
     assert!(matches!(chunks.compute()?, PlannerOutput::Done));
+    Ok(())
+}
+
+#[rstest]
+#[case::unpruned(None, false, vec![0..131_072, 131_072..262_144])]
+#[case::all_kept(Some(262_144), false, vec![0..131_072, 131_072..262_144])]
+#[case::mostly_kept(Some(196_608), false, vec![0..131_072, 131_072..196_608])]
+#[case::half_kept(Some(131_072), false, vec![0..32_768, 32_768..65_536, 65_536..98_304, 98_304..131_072])]
+#[case::sparse(Some(65_536), false, vec![0..32_768, 32_768..65_536])]
+#[case::cheap_column(Some(65_536), true, vec![0..65_536])]
+#[tokio::test]
+async fn pruning_subdivides_sparse_work(
+    #[case] kept_rows: Option<usize>,
+    #[case] cheap_column: bool,
+    #[case] expected: Vec<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let values = PrimitiveArray::from_iter(0i32..262_144).into_array();
+    let dtype = values.dtype().clone();
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(
+                dtype.clone(),
+                stream::iter([Ok((sequence.advance(), values))]),
+            )
+            .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let mut scan = builder(&session, &segments, &layout)?
+        .with_some_filter(Some(gt(root(), lit(-1i32)).bind(&dtype)?))
+        .prepare()?;
+    if !cheap_column {
+        scan.chunk_rows = FILTERED_ROWS_PER_CHUNK;
+    }
+    let scan = Arc::new(scan);
+    let kept = kept_rows.map(|kept| Mask::from_iter((0..262_144).map(|row| row < kept)));
+    let mut planner = ChunkPlanner::new(
+        Arc::clone(&scan),
+        scan.rows().clone(),
+        scan.selection().clone(),
+        kept,
+    );
+    let mut actual = Vec::new();
+    loop {
+        match planner.compute()? {
+            PlannerOutput::Spawn(scope, _) => actual.push(scope.rows),
+            PlannerOutput::Done => break,
+            _ => vortex_bail!("chunk planning did not produce a work scope"),
+        }
+    }
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn unfiltered_tasks_keep_output_batches_bounded() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let values = PrimitiveArray::from_iter(0i32..262_144).into_array();
+    let dtype = values.dtype().clone();
+    let projection = pack([("ints", root())], false.into()).bind(&dtype)?;
+    let expected = StructArray::from_fields(&[("ints", values.clone())])?;
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter([Ok((sequence.advance(), values))]))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let scan = Arc::new(
+        builder(&session, &segments, &layout)?
+            .with_projection(projection.clone())
+            .prepare()?,
+    );
+    let mut planner = compose(&scan, scan.rows().clone());
+    let PlannerOutput::Spawn(scope, _) = planner.compute()? else {
+        vortex_bail!("unfiltered scan did not produce a work scope");
+    };
+    assert_eq!(scope.rows, 0..262_144);
+    assert!(matches!(planner.compute()?, PlannerOutput::Done));
+
+    let arrays = run_rows(&scan, scan.rows().clone()).await?;
+    assert_eq!(
+        arrays.iter().map(|array| array.len()).collect::<Vec<_>>(),
+        [65_536; 4]
+    );
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, projection.dtype().clone())?.into_array(),
+        expected,
+        &mut session.create_execution_ctx()
+    );
     Ok(())
 }
 

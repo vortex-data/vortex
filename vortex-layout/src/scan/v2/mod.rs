@@ -208,7 +208,8 @@ impl ScanBuilder {
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
-            MAX_ROWS_PER_CHUNK
+            // Amortize task setup over several output batches, each still capped at 64K rows.
+            4 * MAX_ROWS_PER_CHUNK
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
