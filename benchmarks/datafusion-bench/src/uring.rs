@@ -40,13 +40,19 @@ static FACTORY: Mutex<Option<Arc<LocalUringFactory>>> = Mutex::new(None);
 /// Returns the configured completion factory, or `None` for the existing reader.
 pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFactory>>> {
     let backend = std::env::var("VORTEX_IO_BACKEND").unwrap_or_default();
-    if backend.is_empty() || backend == "legacy" {
+    factory_for_backend(scan_v2, &backend)
+}
+
+fn factory_for_backend(
+    scan_v2: bool,
+    backend: &str,
+) -> anyhow::Result<Option<Arc<dyn VortexReaderFactory>>> {
+    if !scan_v2 || backend.is_empty() || backend == "legacy" {
         return Ok(None);
     }
     if backend == "memory" || backend == "memory-per-core" {
         return Ok(Some(crate::memory::factory()?));
     }
-    anyhow::ensure!(scan_v2, "Completion I/O requires VORTEX_SCAN_V2=1");
     if backend == "future-file" || backend == "future-object-store" {
         return Ok(Some(Arc::new(FutureReaderFactory {
             runtime: TokioRuntime::new(tokio::runtime::Handle::current()),
@@ -65,7 +71,7 @@ pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFacto
         .transpose()?
         .unwrap_or_else(|| get_available_parallelism().unwrap_or(1));
     let per_core_reactors = backend.starts_with("per-core-reactor-");
-    let (mode, rings, mapped) = match backend.strip_suffix("-unmerged").unwrap_or(&backend) {
+    let (mode, rings, mapped) = match backend.strip_suffix("-unmerged").unwrap_or(backend) {
         "per-core-buffered" => (FileMode::Buffered, None, false),
         "per-core-direct" => (FileMode::Direct, None, false),
         "per-core-reactor-buffered" => (FileMode::Buffered, Some(workers), false),
@@ -361,4 +367,23 @@ pub fn release_mappings() -> usize {
             .filter(|file| file.release_mapping())
             .count()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::factory_for_backend;
+
+    #[test]
+    fn v1_keeps_its_reader_when_completion_backends_are_configured() -> anyhow::Result<()> {
+        for backend in [
+            "shared-1-mapped",
+            "shared-2-mapped",
+            "per-core-mapped",
+            "future-file",
+            "memory",
+        ] {
+            assert!(factory_for_backend(false, backend)?.is_none(), "{backend}");
+        }
+        Ok(())
+    }
 }
