@@ -82,13 +82,6 @@ jobs:
           python3 scripts/compress-split.py --gpu-decompress --emit-ingest-records
       - name: Fetch baseline from the benchmarks database
         uses: ./.github/actions/fetch-bench-baseline
-        with:
-          pr-records: results.ingest.jsonl
-          output: base.ingest.jsonl
-          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
-          region: ${{ vars.RDS_BENCH_REGION }}
-          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
-          database: ${{ vars.RDS_BENCH_DB_NAME }}
 
       - name: Publish results
         shell: bash

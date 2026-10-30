@@ -58,7 +58,8 @@ _KINDS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     ),
 }
 
-_INTEGER_DIMS = frozenset({"query_idx"})
+# Rows read per query while looking for an identity's newest reachable commit.
+_PAGE_SIZE = 200
 
 
 def parse_args() -> argparse.Namespace:
@@ -110,58 +111,83 @@ def reachable_commits() -> list[str]:
     return commits.split()
 
 
-def _identity_join(kind: str, identities: list[tuple]) -> tuple[str, list[list]]:
-    """Return a join of `t` against the PR identities, and its array parameters."""
+def identity_condition(kind: str, identity: tuple) -> tuple[str, list]:
+    """Return a `WHERE` condition on `t` matching one identity, and its parameters.
+
+    Absent dims match with `IS NULL` rather than `IS NOT DISTINCT FROM`, which
+    no index can serve, so each lookup is a range scan of the table's chart or
+    summary index instead of a scan of the whole table.
+    """
 
     _table, dims, _values = _KINDS[kind]
-    arrays = [[identity[i] for identity in identities] for i in range(len(dims))]
-    casts = ", ".join("%s::integer[]" if dim in _INTEGER_DIMS else "%s::text[]" for dim in dims)
-    conditions = " AND ".join(f"t.{dim} IS NOT DISTINCT FROM p.{dim}" for dim in dims)
-    return f"JOIN unnest({casts}) AS p({', '.join(dims)}) ON {conditions}", arrays
+    conditions = []
+    params = []
+    for dim, value in zip(dims, identity):
+        if value is None:
+            conditions.append(f"t.{dim} IS NULL")
+        else:
+            conditions.append(f"t.{dim} = %s")
+            params.append(value)
+    return " AND ".join(conditions), params
 
 
-def newest_baseline_commit(conn: Connection, identities: dict[str, list[tuple]], commits: list[str]) -> str | None:
-    """Return the newest reachable commit that recorded any PR identity."""
+def newest_baseline_commit(
+    conn: Connection, identities: dict[str, list[tuple]], reachable: set[str]
+) -> tuple[str, object] | None:
+    """Return the newest reachable commit that recorded any PR identity, with its timestamp.
+
+    Each identity's rows are read newest first, a page at a time, until one is from a commit
+    reachable from `HEAD`. That is usually the first page: the baseline is the PR's merge base
+    or close to it. One query per identity, as Postgres plans a `UNION ALL` of them far worse.
+    """
 
     newest = None
     for kind, keys in identities.items():
         table, _dims, _values = _KINDS[kind]
-        join, arrays = _identity_join(kind, keys)
-        row = conn.execute(
-            f"""
-            SELECT t.commit_sha, c.timestamp
-              FROM {table} t
-              JOIN commits c ON c.commit_sha = t.commit_sha
-              {join}
-             WHERE t.commit_sha = ANY(%s::text[])
-             ORDER BY c.timestamp DESC, t.commit_sha DESC
-             LIMIT 1
-            """,
-            [*arrays, commits],
-        ).fetchone()
-        if row is not None and (newest is None or (row[1], row[0]) > (newest[1], newest[0])):
-            newest = row
-    return None if newest is None else newest[0]
+        # `query_measurements` carries its commit's timestamp at the end of its summary index,
+        # so its rows come back newest first straight from an index range scan.
+        if table == "query_measurements":
+            source, timestamp = "query_measurements t", "t.commit_timestamp"
+        else:
+            source, timestamp = f"{table} t JOIN commits c ON c.commit_sha = t.commit_sha", "c.timestamp"
+        for identity in keys:
+            where, params = identity_condition(kind, identity)
+            before = None
+            while True:
+                page = conn.execute(
+                    f"SELECT t.commit_sha, {timestamp} FROM {source}"
+                    f" WHERE {where} AND {timestamp} IS NOT NULL"
+                    + (f" AND {timestamp} < %s" if before is not None else "")
+                    + f" ORDER BY {timestamp} DESC LIMIT {_PAGE_SIZE}",
+                    [*params, before] if before is not None else params,
+                ).fetchall()
+                found = next((row for row in page if row[0] in reachable), None)
+                if found is not None or len(page) < _PAGE_SIZE:
+                    break
+                before = page[-1][1]
+            if found is not None and (newest is None or (found[1], found[0]) > (newest[1], newest[0])):
+                newest = (found[0], found[1])
+    return newest
 
 
-def baseline_records(conn: Connection, identities: dict[str, list[tuple]], commit_sha: str) -> list[dict]:
+def baseline_records(
+    conn: Connection, identities: dict[str, list[tuple]], commit_sha: str, commit_timestamp: object
+) -> list[dict]:
     """Return the rows `commit_sha` recorded for the PR identities, as ingest records."""
 
     records = []
     for kind, keys in identities.items():
         table, dims, values = _KINDS[kind]
-        join, arrays = _identity_join(kind, keys)
         columns = ("commit_sha", *dims, *values)
-        rows = conn.execute(
-            f"""
-            SELECT {", ".join(f"t.{column}" for column in columns)}
-              FROM {table} t
-              {join}
-             WHERE t.commit_sha = %s
-            """,
-            [*arrays, commit_sha],
-        ).fetchall()
-        records.extend({"kind": kind, **dict(zip(columns, row))} for row in rows)
+        for identity in keys:
+            where, params = identity_condition(kind, identity)
+            where += " AND t.commit_sha = %s"
+            params.append(commit_sha)
+            if table == "query_measurements":
+                where += " AND t.commit_timestamp = %s"
+                params.append(commit_timestamp)
+            rows = conn.execute(f"SELECT {', '.join(f't.{c}' for c in columns)} FROM {table} t WHERE {where}", params)
+            records.extend({"kind": kind, **dict(zip(columns, row))} for row in rows.fetchall())
     return records
 
 
@@ -203,9 +229,10 @@ def main() -> None:
     if identities:
         commits = reachable_commits()
         with connect_postgres(args.postgres, args.region) as conn:
-            commit_sha = newest_baseline_commit(conn, identities, commits)
-            if commit_sha is not None:
-                records = baseline_records(conn, identities, commit_sha)
+            newest = newest_baseline_commit(conn, identities, set(commits))
+            if newest is not None:
+                commit_sha, commit_timestamp = newest
+                records = baseline_records(conn, identities, commit_sha, commit_timestamp)
                 print(f"Baseline commit {commit_sha}: {len(records)} records")
     if not records:
         print("No baseline found; the report shows PR measurements without comparison.")

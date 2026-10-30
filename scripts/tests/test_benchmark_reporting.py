@@ -675,11 +675,14 @@ def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
 def test_baseline_fetch_matches_absent_dims_as_equal() -> None:
     fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
 
-    join, arrays = fetch._identity_join("compression_size", [("taxi", None, "parquet"), ("taxi", "gpu", "lance")])
+    absent = fetch.identity_condition("compression_size", ("taxi", None, "parquet"))
+    present = fetch.identity_condition("compression_size", ("taxi", "gpu", "lance"))
 
-    assert "unnest(%s::text[], %s::text[], %s::text[]) AS p(dataset, dataset_variant, format)" in join
-    assert "t.dataset_variant IS NOT DISTINCT FROM p.dataset_variant" in join
-    assert arrays == [["taxi", "taxi"], [None, "gpu"], ["parquet", "lance"]]
+    assert absent == ("t.dataset = %s AND t.dataset_variant IS NULL AND t.format = %s", ["taxi", "parquet"])
+    assert present == (
+        "t.dataset = %s AND t.dataset_variant = %s AND t.format = %s",
+        ["taxi", "gpu", "lance"],
+    )
 
 
 def test_report_compares_ingest_records(tmp_path: Path) -> None:
