@@ -611,33 +611,6 @@ jobs:
           cargo nextest run --cargo-profile ci --locked --no-fail-fast \
             -p vortex-buffer -p vortex-mask -p vortex-array
 
-  btrblocks-golden:
-    name: "Rust (btrblocks golden corpus)"
-    timeout-minutes: 10
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      # The golden suite pins compressor decisions for the core-only and explicitly enabled
-      # edition configurations. Compact compression additionally needs its optional schemes.
-      - name: Golden corpus (edition configurations)
-        run: |
-          cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden
-      - name: Golden corpus (compact, zstd + pco)
-        run: |
-          cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
-            --features zstd,pco -E 'test(golden_compact)'
-
   build-java:
     name: "Java"
     runs-on: >-
@@ -678,84 +651,6 @@ jobs:
         with:
           command: check ${{ matrix.checks }}
 
-  cmake-integration-test:
-    name: "CMake integration (test)"
-    timeout-minutes: 10
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/tag=cmake-integration-test', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-      - name: Install Ninja for CMake integration tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-      # Populate the registry cache for the lockfile-selected offline fixtures.
-      - name: Fetch Cargo dependencies for offline fixtures
-        run: cargo fetch --locked
-      - name: Test CMake integration
-        run: python3 -m unittest discover -s vortex-ffi/cmake/tests -v
-
-  cxx-api:
-    name: "C++ API"
-    # Leave room for cold, per-build-tree Cargo artifacts, including sanitized std.
-    timeout-minutes: 15
-    env:
-      # symbolizing error backtrace on debug .so is slow
-      RUST_LIB_BACKTRACE: 0
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-      - name: Build C++ tests and examples (asan)
-        env:
-          RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
-        run: |
-          cmake -S lang/cpp -B build \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_LINKER_TYPE=MOLD \
-            -DVORTEX_CARGO_PROFILE=ci \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DVORTEX_SANITIZER=asan \
-            -DVORTEX_SANITIZE_RUST_STD=ON \
-            -DVORTEX_BUILD_TESTS=ON \
-            -DVORTEX_BUILD_EXAMPLES=ON
-          cmake --build build --parallel "$(nproc)"
-      - name: Show C++ API compiler cache statistics
-        if: github.repository == 'vortex-data/vortex'
-        run: sccache --show-stats
-      - name: Run C++ tests
-        run: ctest --test-dir build --output-on-failure
-      - name: Run C++ examples
-        run: |
-          cd build/examples
-          ./writer people0.vortex
-          ./writer people1.vortex
-          ./writer me.vortex
-
-          ./scan '*.vortex'
-          ./dtype me.vortex
-
-          ./reader
-
   sqllogic-test:
     name: "SQL logic tests"
     needs: duckdb-ready
@@ -784,117 +679,18 @@ jobs:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
           message-format-flag: "--cargo-message-format"
 
-  duckdb-s3-test:
-    name: "DuckDB S3 tests"
-    needs: duckdb-ready
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
-          || 'ubuntu-latest' }}
-    timeout-minutes: 30
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - parallel:
-          - name: Build DuckDB tests
-            shell: bash
-            run: |
-              cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --no-run
-          - name: Start RustFS
-            shell: bash
-            run: |
-              curl -sSL https://dl.rustfs.com/artifacts/rustfs/release/rustfs-linux-x86_64-musl-latest.zip \
-                -o "${RUNNER_TEMP}/rustfs.zip"
-              unzip -o -q "${RUNNER_TEMP}/rustfs.zip" rustfs -d "${RUNNER_TEMP}"
-              chmod +x "${RUNNER_TEMP}/rustfs"
-              mkdir -p "${RUNNER_TEMP}/rustfs-data"
-              RUSTFS_ACCESS_KEY=rustfsadmin RUSTFS_SECRET_KEY=rustfsadmin \
-                "${RUNNER_TEMP}/rustfs" "${RUNNER_TEMP}/rustfs-data" --address 127.0.0.1:9000 &
-              until curl -sf http://127.0.0.1:9000/health; do sleep 1; done
-              curl -sf -X PUT "http://127.0.0.1:9000/vortex-test" \
-                --user "rustfsadmin:rustfsadmin" --aws-sigv4 "aws:amz:us-east-1:s3"
-      - name: Run tests
-        shell: bash
-        env:
-          AWS_ACCESS_KEY_ID: rustfsadmin
-          AWS_SECRET_ACCESS_KEY: rustfsadmin
-          AWS_ENDPOINT: "http://127.0.0.1:9000"
-          AWS_REGION: "us-east-1"
-          AWS_ALLOW_HTTP: "true"
-          VORTEX_DUCKDB_S3_URI: "s3://vortex-test/duckdb"
-        run: |
-          cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --run-ignored all s3_
-
-  wasm-integration:
-    name: "WASM integration smoke test"
+  # Consolidates the former `generated-files`, `cxx-api` and `cmake-integration-test` jobs, which
+  # each spent most of their time on runner boot and setup. The generated-file checks run first so
+  # that the C++ and CMake build outputs cannot dirty the tree before the porcelain check. Later
+  # groups run under `!cancelled()` so a failure in one check does not hide the others.
+  c-cxx-generated:
+    name: "Generated sources, C/C++ API and CMake integration"
+    # Leave room for cold, per-build-tree Cargo artifacts, including sanitized std.
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
           || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - parallel:
-          - uses: ./.github/actions/setup-prebuild
-            with:
-              enable-sccache: "true"
-              targets: "wasm32-wasip1,wasm32-unknown-unknown"
-          - name: Setup Wasmer
-            uses: wasmerio/setup-wasmer@ba7631cb2d521612aa7ac5b13cb76fb77e824a1a  # v3
-            with:
-              version: "v7.4.0"
-      - name: Verify Wasmer installation
-        run: wasmer --version
-      - run: cargo build --profile ci --target wasm32-wasip1
-        working-directory: ./wasm-test
-      - run: wasmer run ./target/wasm32-wasip1/ci/wasm-test.wasm
-        working-directory: ./wasm-test
-      - run: RUSTFLAGS='--cfg getrandom_backend="unsupported"' cargo build --profile ci --target wasm32-unknown-unknown
-        working-directory: ./wasm-test
-      - name: "Check wasm32-unknown-unknown does not need wasm-bindgen"
-        # Pure wasm hosts (e.g. wasmtime) cannot provide wasm-bindgen's JS imports.
-        shell: bash
-        working-directory: ./wasm-test
-        run: |
-          ! cargo tree --target wasm32-unknown-unknown -e normal --prefix none \
-            | grep -E '^(wasm-bindgen|js-sys) '
-
-      # Checks each publishable crate on its own, to catch features that only unify in wasm-test.
-      - name: "Check publishable crates for wasm32-unknown-unknown"
-        uses: ./.github/actions/check-rebuild
-        with:
-          command: >-
-            RUSTFLAGS='-A warnings --cfg getrandom_backend="unsupported"'
-            cargo hack check --profile ci --locked --ignore-private --target wasm32-unknown-unknown
-            --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp
-            --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd
-            --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest
-            --exclude vortex-parquet-variant
-      - name: "Make sure no files changed after build"
-        run: |
-          git status --porcelain
-          test -z "$(git status --porcelain)"
-
-  generated-files:
-    name: "Generated source files and C API"
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
-          || 'ubuntu-latest' }}
-    timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -911,7 +707,16 @@ jobs:
       # The only job that needs flatc: builds use the checked-in bindings.
       - uses: ./.github/actions/setup-flatc
       - name: Install nightly for cbindgen macro expansion
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
+        # The C++ API asan build also needs rust-src to build the sanitized std.
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN \
+            --component rust-src,rustfmt,clippy,llvm-tools-preview
+      - name: Install Ninja for CMake integration tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # Generated source files and C API
       - name: "regenerate the FlatBuffers and Protocol Buffers bindings"
         # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
         run: |
@@ -947,6 +752,7 @@ jobs:
       # Schemas live under `<crate>/flatbuffers/` but resolve includes against those dirs
       # collectively, so flatten each revision into one tree for flatc to compare.
       - name: "Collect flatbuffer schemas from this revision and from develop"
+        if: "!cancelled()"
         run: |
           git fetch origin develop --depth 1
           collect() {
@@ -961,7 +767,174 @@ jobs:
           collect HEAD "$RUNNER_TEMP/fbs.head"
           collect origin/develop "$RUNNER_TEMP/fbs.develop"
       - name: "Verify flatbuffer back-compat"
+        if: "!cancelled()"
         working-directory: ${{ runner.temp }}
         run: |
           find fbs.develop/ -type f -name "*.fbs" | sed 's|^fbs.develop/||' \
             | xargs -I{} -n1 flatc -I fbs.head --conform-includes fbs.develop --conform fbs.develop/{} fbs.head/{}
+
+      # C++ API and CMake integration
+      # Populate the registry cache for the lockfile-selected offline fixtures.
+      - name: Fetch Cargo dependencies for offline fixtures
+        if: "!cancelled()"
+        run: cargo fetch --locked
+      - parallel:
+          - name: Build C++ tests and examples (asan)
+            if: "!cancelled()"
+            env:
+              RUSTUP_TOOLCHAIN: ${{ env.NIGHTLY_TOOLCHAIN }}
+              # symbolizing error backtrace on debug .so is slow
+              RUST_LIB_BACKTRACE: 0
+            run: |
+              cmake -S lang/cpp -B build \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_LINKER_TYPE=MOLD \
+                -DVORTEX_CARGO_PROFILE=ci \
+                -DBUILD_SHARED_LIBS=ON \
+                -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_CXX_COMPILER=clang++ \
+                -DVORTEX_SANITIZER=asan \
+                -DVORTEX_SANITIZE_RUST_STD=ON \
+                -DVORTEX_BUILD_TESTS=ON \
+                -DVORTEX_BUILD_EXAMPLES=ON
+              cmake --build build --parallel "$(nproc)"
+          - name: Test CMake integration
+            if: "!cancelled()"
+            run: |
+              # These tests assert on the compiler and Cargo wrappers they observe, so run them
+              # without the sccache wrappers that setup-prebuild exports for the other builds.
+              unset RUSTC_WRAPPER CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
+              python3 -m unittest discover -s vortex-ffi/cmake/tests -v
+      - name: Show C++ API compiler cache statistics
+        if: "!cancelled() && github.repository == 'vortex-data/vortex'"
+        run: sccache --show-stats
+      - name: Run C++ tests
+        if: "!cancelled()"
+        env:
+          RUST_LIB_BACKTRACE: 0
+        run: ctest --test-dir build --output-on-failure
+      - name: Run C++ examples
+        if: "!cancelled()"
+        env:
+          RUST_LIB_BACKTRACE: 0
+        run: |
+          cd build/examples
+          ./writer people0.vortex
+          ./writer people1.vortex
+          ./writer me.vortex
+
+          ./scan '*.vortex'
+          ./dtype me.vortex
+
+          ./reader
+
+  # Consolidates the former `btrblocks-golden`, `wasm-integration` and `duckdb-s3-test` jobs,
+  # which each spent most of their time on runner boot and setup. The job waits for the DuckDB
+  # mirror like the old DuckDB S3 job did, but only the DuckDB steps depend on its result. Later
+  # steps run under `!cancelled()` so a failure in one check does not hide the others.
+  integration-smoke:
+    name: "Integration smoke tests (btrblocks golden, WASM, DuckDB S3)"
+    needs: duckdb-ready
+    if: ${{ !cancelled() }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            if: github.repository == 'vortex-data/vortex'
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: "true"
+              targets: "wasm32-wasip1,wasm32-unknown-unknown"
+          - name: Setup Wasmer
+            uses: wasmerio/setup-wasmer@ba7631cb2d521612aa7ac5b13cb76fb77e824a1a  # v3
+            with:
+              version: "v7.4.0"
+      - name: Verify Wasmer installation
+        run: wasmer --version
+      # The wasm builds use their own workspace and target directory under ./wasm-test, so they
+      # do not contend with the workspace builds for Cargo's build lock.
+      - parallel:
+          - name: Build DuckDB tests
+            if: needs.duckdb-ready.result == 'success'
+            shell: bash
+            run: |
+              cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --no-run
+          - name: Start RustFS
+            if: needs.duckdb-ready.result == 'success'
+            shell: bash
+            run: |
+              curl -sSL https://dl.rustfs.com/artifacts/rustfs/release/rustfs-linux-x86_64-musl-latest.zip \
+                -o "${RUNNER_TEMP}/rustfs.zip"
+              unzip -o -q "${RUNNER_TEMP}/rustfs.zip" rustfs -d "${RUNNER_TEMP}"
+              chmod +x "${RUNNER_TEMP}/rustfs"
+              mkdir -p "${RUNNER_TEMP}/rustfs-data"
+              RUSTFS_ACCESS_KEY=rustfsadmin RUSTFS_SECRET_KEY=rustfsadmin \
+                "${RUNNER_TEMP}/rustfs" "${RUNNER_TEMP}/rustfs-data" --address 127.0.0.1:9000 &
+              until curl -sf http://127.0.0.1:9000/health; do sleep 1; done
+              curl -sf -X PUT "http://127.0.0.1:9000/vortex-test" \
+                --user "rustfsadmin:rustfsadmin" --aws-sigv4 "aws:amz:us-east-1:s3"
+          # The golden suite pins compressor decisions for the core-only and explicitly enabled
+          # edition configurations. Compact compression additionally needs its optional schemes.
+          - name: Golden corpus (edition configurations)
+            run: |
+              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden
+          - run: cargo build --profile ci --target wasm32-wasip1
+            working-directory: ./wasm-test
+      - parallel:
+          - name: Golden corpus (compact, zstd + pco)
+            if: "!cancelled()"
+            run: |
+              cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
+                --features zstd,pco -E 'test(golden_compact)'
+          - name: Run tests
+            if: "!cancelled() && needs.duckdb-ready.result == 'success'"
+            shell: bash
+            env:
+              AWS_ACCESS_KEY_ID: rustfsadmin
+              AWS_SECRET_ACCESS_KEY: rustfsadmin
+              AWS_ENDPOINT: "http://127.0.0.1:9000"
+              AWS_REGION: "us-east-1"
+              AWS_ALLOW_HTTP: "true"
+              VORTEX_DUCKDB_S3_URI: "s3://vortex-test/duckdb"
+            run: |
+              cargo nextest run --cargo-profile ci --locked -p vortex-duckdb --run-ignored all s3_
+          - run: wasmer run ./target/wasm32-wasip1/ci/wasm-test.wasm
+            if: "!cancelled()"
+            working-directory: ./wasm-test
+          - run: RUSTFLAGS='--cfg getrandom_backend="unsupported"' cargo build --profile ci --target wasm32-unknown-unknown
+            if: "!cancelled()"
+            working-directory: ./wasm-test
+      - name: "Check wasm32-unknown-unknown does not need wasm-bindgen"
+        # Pure wasm hosts (e.g. wasmtime) cannot provide wasm-bindgen's JS imports.
+        if: "!cancelled()"
+        shell: bash
+        working-directory: ./wasm-test
+        run: |
+          ! cargo tree --target wasm32-unknown-unknown -e normal --prefix none \
+            | grep -E '^(wasm-bindgen|js-sys) '
+
+      # Checks each publishable crate on its own, to catch features that only unify in wasm-test.
+      - name: "Check publishable crates for wasm32-unknown-unknown"
+        if: "!cancelled()"
+        uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            RUSTFLAGS='-A warnings --cfg getrandom_backend="unsupported"'
+            cargo hack check --profile ci --locked --ignore-private --target wasm32-unknown-unknown
+            --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp
+            --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd
+            --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest
+            --exclude vortex-parquet-variant
+      - name: "Make sure no files changed after build"
+        if: "!cancelled()"
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
