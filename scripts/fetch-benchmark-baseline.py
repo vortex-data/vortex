@@ -14,9 +14,9 @@ Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
 matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
 compares the two record files.
 
-It connects the same way `post-ingest.py` does: as `bench_ingest`, with an RDS IAM token
-minted from the AWS credentials of the assumed `GH_BENCH_INGEST_ROLE_ARN` role. The
-transaction is read-only.
+It connects as the read-only `bench_pr_read` Postgres user, with an RDS IAM token minted
+(by `post-ingest.py`'s token helper) from the AWS credentials of the assumed
+`GH_BENCH_READ_ROLE_ARN` role, over verify-full TLS. The session is read-only.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
         "--postgres",
         metavar="DSN",
         required=True,
-        help="Libpq DSN of the benchmarks database, as accepted by post-ingest.py --postgres.",
+        help="Libpq DSN of the benchmarks database. Without a password, an RDS IAM token is minted.",
     )
     parser.add_argument("--region", default=None, help="AWS region for RDS IAM token minting.")
     return parser.parse_args()
@@ -166,7 +166,7 @@ def baseline_records(conn: Connection, identities: dict[str, list[tuple]], commi
 
 
 def post_ingest_module() -> ModuleType:
-    """Load `scripts/post-ingest.py`, whose database connector this script reuses."""
+    """Load `scripts/post-ingest.py`, whose RDS IAM token helper this script reuses."""
 
     path = Path(__file__).resolve().parent / "post-ingest.py"
     spec = importlib.util.spec_from_file_location("post_ingest", path)
@@ -176,14 +176,33 @@ def post_ingest_module() -> ModuleType:
     return module
 
 
+def connect_postgres(dsn: str, region: str | None) -> Connection:
+    """Open a read-only, verify-full TLS connection, minting an RDS IAM token if the DSN has no password."""
+
+    import psycopg
+    from psycopg import conninfo
+
+    params = conninfo.conninfo_to_dict(dsn)
+    if params.setdefault("sslmode", "verify-full") != "verify-full":
+        raise SystemExit(f"--postgres requires sslmode=verify-full; DSN specified {params['sslmode']!r}.")
+    if not params.get("password"):
+        params["password"] = post_ingest_module()._rds_iam_token(
+            host=params["host"], port=int(params.get("port", 5432)), user=params["user"], region=region
+        )
+    params["connect_timeout"] = 10
+    params["options"] = "-c statement_timeout=30000"
+    conn = psycopg.connect(**params)
+    conn.read_only = True
+    return conn
+
+
 def main() -> None:
     args = parse_args()
     identities = identities_by_kind(read_records(args.pr_records))
     records: list[dict] = []
     if identities:
         commits = reachable_commits()
-        with post_ingest_module().connect_postgres(args.postgres, args.region) as conn:
-            conn.read_only = True
+        with connect_postgres(args.postgres, args.region) as conn:
             commit_sha = newest_baseline_commit(conn, identities, commits)
             if commit_sha is not None:
                 records = baseline_records(conn, identities, commit_sha)

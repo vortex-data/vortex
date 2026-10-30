@@ -3,10 +3,9 @@
 
 name: "Fetch benchmark baseline"
 description: >-
-  Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres the same
-  way post-ingest.py writes it: assume the ingest role over OIDC and sign in as bench_ingest with
-  an RDS IAM token. If the role cannot be assumed, it writes no baseline and the report says the
-  baseline could not be read.
+  Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres: assume the
+  read-only benchmarks role over OIDC and sign in as bench_pr_read with an RDS IAM token. If the
+  role cannot be assumed, it writes no baseline and the report says the baseline could not be read.
 
 inputs:
   pr-records:
@@ -16,7 +15,7 @@ inputs:
     description: "Where to write the baseline records"
     required: true
   role-arn:
-    description: "The benchmarks ingest role (vars.GH_BENCH_INGEST_ROLE_ARN)"
+    description: "The read-only benchmarks role (vars.GH_BENCH_READ_ROLE_ARN)"
     required: false
     default: ""
   region:
@@ -60,11 +59,11 @@ runs:
         set -Eeu -o pipefail
         if [[ "$AWS_OUTCOME" != "success" ]]; then
           # No baseline file tells the report that the baseline could not be read.
-          echo "::warning::Could not assume the benchmarks ingest role; reporting without a baseline."
+          echo "::warning::Could not assume the read-only benchmarks role; reporting without a baseline."
           exit 0
         fi
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
-        DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
+        DSN="postgresql://bench_pr_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
         uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
           --postgres "$DSN" --region "$AWS_REGION"
