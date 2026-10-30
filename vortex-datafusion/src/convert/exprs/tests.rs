@@ -19,6 +19,8 @@ use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::common::DFSchema;
 use datafusion::execution::context::ExecutionProps;
@@ -776,6 +778,35 @@ fn test_comparison_literal_metadata_is_not_replaced(
     assert!(!converts(&predicate, &schema)?);
 
     Ok(())
+}
+
+#[test]
+fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    field.try_with_extension_type(ArrowUuid)?;
+    let bytes = *b"0123456789abcdef";
+    let values = FixedSizeBinaryArray::try_from_iter([bytes].into_iter())?;
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![field.clone()])),
+        vec![Arc::new(values)],
+    )?;
+
+    let mut literal_field = field;
+    literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
+    literal_field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_METADATA_KEY.into(), "unrelated payload".into());
+    let literal = df_expr::Literal::new_with_metadata(
+        ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
+        Some(FieldMetadata::new_from_field(&literal_field)),
+    );
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("id", 0)),
+        DFOperator::Eq,
+        Arc::new(literal),
+    ));
+
+    assert_native_matches(predicate, batch)
 }
 
 #[test]
