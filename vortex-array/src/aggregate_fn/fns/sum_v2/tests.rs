@@ -31,6 +31,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::RunEnd;
 use crate::arrays::StructArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -392,5 +393,157 @@ fn finalize_struct_applies_partial_and_struct_validity(
     let result = SumV2.finalize(dtypes.args(&options), partials)?;
     let expected = PrimitiveArray::from_option_iter(expected).into_array();
     assert_arrays_eq!(&result, &expected, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+/// Grouped `sum_v2` of `elements` over list-view `groups` of `(offset, size)`.
+fn grouped_sum_v2(
+    elements: &ArrayRef,
+    groups: &[(u32, u32)],
+    validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let groups = ListViewArray::try_new(
+        elements.clone(),
+        PrimitiveArray::from_iter(groups.iter().map(|&(offset, _)| offset)).into_array(),
+        PrimitiveArray::from_iter(groups.iter().map(|&(_, size)| size)).into_array(),
+        validity,
+        ctx,
+    )?
+    .into_array();
+    let mut accumulator = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        elements.dtype().clone(),
+    )?;
+    accumulator.accumulate_list(&groups, ctx)?;
+    accumulator.finish()
+}
+
+/// Scalar `sum_v2` of each group's slice, null for null groups: what the grouped kernels must
+/// match.
+fn reference_sums(
+    elements: &ArrayRef,
+    groups: &[(u32, u32)],
+    validity: &Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let dtype = SumV2
+        .return_dtype(&NumericalAggregateOpts::default(), elements.dtype())
+        .ok_or_else(|| vortex_error::vortex_err!("no sum dtype"))?;
+    let valid = validity.execute_mask(groups.len(), ctx)?;
+    let mut builder =
+        crate::builders::builder_with_capacity_in(&dtype, groups.len(), ctx.allocator());
+    for (group, &(offset, size)) in groups.iter().enumerate() {
+        let sum = if valid.value(group) {
+            let slice = elements.slice(offset as usize..(offset + size) as usize)?;
+            sum_v2(&slice, ctx)?
+        } else {
+            Scalar::null(dtype.clone())
+        };
+        builder.append_scalar(&sum)?;
+    }
+    Ok(builder.finish())
+}
+
+fn run_end(ends: ArrayRef, values: ArrayRef) -> ArrayRef {
+    RunEnd::new(ends, values, &mut SESSION.create_execution_ctx()).into_array()
+}
+
+fn chunked(chunks: Vec<ArrayRef>) -> ArrayRef {
+    let dtype = chunks[0].dtype().clone();
+    ChunkedArray::try_new(chunks, dtype)
+        .expect("chunks share a dtype")
+        .into_array()
+}
+
+/// Grouped `sum_v2` over bool and chunked elements matches summing each group on its own: groups
+/// that span chunks, skip empty chunks, come out of order, are null or empty, or overflow only
+/// once their parts are added.
+#[rstest]
+#[case::bool(
+    BoolArray::from_iter([Some(true), None, Some(false), Some(true), None, None, Some(true)]).into_array(),
+    vec![(0, 4), (4, 2), (2, 0), (1, 6), (3, 1)],
+    Validity::from_iter([true, true, true, true, false]),
+)]
+#[case::chunked_primitive(
+    chunked(vec![
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
+        PrimitiveArray::from_option_iter(Vec::<Option<i32>>::new()).into_array(),
+        PrimitiveArray::from_option_iter([Some(4i32), Some(5), None, Some(7)]).into_array(),
+    ]),
+    vec![(0, 2), (2, 3), (5, 2), (0, 7), (3, 0), (1, 1), (6, 1)],
+    Validity::from_iter([true, true, true, true, true, true, false]),
+)]
+#[case::chunked_bool(
+    chunked(vec![
+        BoolArray::from_iter([Some(true), Some(true), None]).into_array(),
+        BoolArray::from_iter([Some(false), Some(true)]).into_array(),
+        BoolArray::from_iter([None, Some(true), Some(true)]).into_array(),
+    ]),
+    vec![(6, 2), (0, 8), (2, 3), (4, 0)],
+    Validity::NonNullable,
+)]
+#[case::chunked_overflow(
+    chunked(vec![
+        PrimitiveArray::from_iter([i64::MAX, 1]).into_array(),
+        PrimitiveArray::from_iter([1i64, -5]).into_array(),
+    ]),
+    vec![(0, 3), (1, 2), (0, 1), (2, 2)],
+    Validity::NonNullable,
+)]
+#[case::nested_chunks(
+    chunked(vec![
+        chunked(vec![
+            PrimitiveArray::from_iter([1u8, 2]).into_array(),
+            PrimitiveArray::from_iter([3u8]).into_array(),
+        ]),
+        PrimitiveArray::from_iter([4u8, 5, 6]).into_array(),
+    ]),
+    vec![(0, 6), (2, 2), (1, 4)],
+    Validity::NonNullable,
+)]
+#[case::run_end(
+    run_end(
+        buffer![2u32, 5, 6, 9].into_array(),
+        PrimitiveArray::from_option_iter([Some(3u64), None, Some(7), Some(1)]).into_array(),
+    ),
+    vec![(0, 9), (1, 3), (2, 4), (5, 0), (8, 1), (3, 2)],
+    Validity::from_iter([true, true, true, true, true, false]),
+)]
+#[case::run_end_bool(
+    run_end(
+        buffer![3u8, 4, 8].into_array(),
+        BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
+    ),
+    vec![(0, 8), (2, 3), (4, 4)],
+    Validity::NonNullable,
+)]
+#[case::run_end_sliced(
+    run_end(
+        buffer![2u32, 5, 6, 9].into_array(),
+        PrimitiveArray::from_option_iter([Some(-3i32), Some(4), None, Some(9)]).into_array(),
+    )
+    .slice(1..8)?,
+    vec![(0, 7), (1, 4), (6, 1)],
+    Validity::NonNullable,
+)]
+#[case::run_end_overflow(
+    run_end(
+        buffer![2u32, 4].into_array(),
+        PrimitiveArray::from_iter([i64::MAX / 2, 1]).into_array(),
+    ),
+    vec![(0, 4), (0, 1), (1, 2)],
+    Validity::NonNullable,
+)]
+fn grouped_kernels_match_per_group_sums(
+    #[case] elements: ArrayRef,
+    #[case] groups: Vec<(u32, u32)>,
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let result = grouped_sum_v2(&elements, &groups, validity.clone(), &mut ctx)?;
+    let expected = reference_sums(&elements, &groups, &validity, &mut ctx)?;
+    assert_arrays_eq!(&result, &expected, &mut ctx);
     Ok(())
 }

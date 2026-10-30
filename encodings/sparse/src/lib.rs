@@ -83,8 +83,9 @@ use vortex_array::session::ArraySessionExt;
 
 /// Initialize Sparse encoding in the given session.
 ///
-/// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
-/// (`IsConstant`, `Sum`, `SumV2`, `MinMax`, `NullCount`, `NanCount`).
+/// Registers the Sparse array vtable, parent execution kernels, aggregate kernels
+/// (`IsConstant`, `Sum`, `SumV2`, `MinMax`, `NullCount`, `NanCount`), and the grouped `SumV2`
+/// kernel.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Sparse);
     kernel::initialize(session);
@@ -104,6 +105,11 @@ pub fn initialize(session: &VortexSession) {
         Sparse.id(),
         Some(SumV2.id()),
         &compute::sum::SparseSumKernel,
+    );
+    aggregate_fns.register_grouped_encoding_kernel(
+        Sparse.id(),
+        SumV2.id(),
+        &compute::sum::SparseGroupedSumV2Kernel,
     );
     aggregate_fns.register_aggregate_kernel(
         Sparse.id(),
