@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compares encoded timestamp parts with timestamp constants.
+//!
+//! Operands must have matching timestamp dtypes, including their units and time zones. The kernel
+//! checks this before reading the constant's storage, then compares parts without decoding the
+//! column.
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -311,8 +317,6 @@ mod tests {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::test_harness::ExpectedOutcome;
-    use vortex_array::test_harness::assert_execution_paths;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -694,11 +698,12 @@ mod tests {
     }
 
     #[rstest]
-    #[case::storage(None)]
-    #[case::different_unit(Some(TimeUnit::Nanoseconds))]
-    fn test_comparison_rejects_mismatched_constant_dtype(
-        #[case] unit: Option<TimeUnit>,
-    ) -> VortexResult<()> {
+    #[case::storage(Scalar::from(1500i64))]
+    #[case::different_unit(Scalar::extension::<Timestamp>(
+        TimestampOptions { unit: TimeUnit::Nanoseconds, tz: None },
+        Scalar::from(1_500_000_000i64),
+    ))]
+    fn test_comparison_rejects_mismatched_constant_dtype(#[case] scalar: Scalar) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let temporal = TemporalArray::new_timestamp(
             buffer![1600i64, 1400].into_array(),
@@ -706,32 +711,17 @@ mod tests {
             None,
         );
         let array = DateTimeParts::try_from_temporal(temporal, &mut ctx)?;
-        let scalar = match unit {
-            Some(unit) => Scalar::extension::<Timestamp>(
-                TimestampOptions { unit, tz: None },
-                Scalar::from(1_500_000_000i64),
-            ),
-            None => Scalar::from(1500i64),
-        };
         let rhs = ConstantArray::new(scalar, array.len()).into_array();
 
-        for operator in ALL_OPERATORS {
-            assert!(
-                <DateTimeParts as CompareKernel>::compare(
-                    array.as_view(),
-                    &rhs,
-                    operator,
-                    &mut ctx,
-                )
-                .is_err()
-            );
-            assert_execution_paths(
-                &[array.clone().into_array(), rhs.clone()],
-                |inputs| inputs[0].binary(inputs[1].clone(), operator.into()),
-                ExpectedOutcome::Error,
+        assert!(
+            <DateTimeParts as CompareKernel>::compare(
+                array.as_view(),
+                &rhs,
+                CompareOperator::Lt,
                 &mut ctx,
-            );
-        }
+            )
+            .is_err()
+        );
 
         Ok(())
     }

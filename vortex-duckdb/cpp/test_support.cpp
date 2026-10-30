@@ -7,7 +7,8 @@
 
 using namespace duckdb;
 
-extern "C" duckdb_vx_table_filter duckdb_vx_test_constant_filter(duckdb_value value) noexcept {
+// The caller owns the returned filter, which owns a copy of the literal.
+extern "C" duckdb_vx_table_filter duckdb_vx_test_constant_equality_filter(duckdb_value value) noexcept {
     if (!value) {
         return nullptr;
     }
@@ -24,6 +25,6 @@ extern "C" duckdb_vx_table_filter duckdb_vx_test_constant_filter(duckdb_value va
     }
 }
 
-extern "C" void duckdb_vx_test_destroy_constant_filter(duckdb_vx_table_filter filter) noexcept {
+extern "C" void duckdb_vx_test_destroy_constant_equality_filter(duckdb_vx_table_filter filter) noexcept {
     delete reinterpret_cast<LegacyConstantFilter *>(filter);
 }

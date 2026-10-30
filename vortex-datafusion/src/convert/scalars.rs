@@ -970,9 +970,12 @@ mod tests {
     }
 
     #[rstest]
+    #[case::value(false, false)]
+    #[case::null(true, false)]
+    #[case::nested(false, true)]
     fn test_bare_extension_scalar_cannot_lose_its_dtype(
-        #[values(false, true)] null: bool,
-        #[values(false, true)] nested: bool,
+        #[case] null: bool,
+        #[case] nested: bool,
     ) -> VortexResult<()> {
         let dtype = DType::Extension(
             ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),

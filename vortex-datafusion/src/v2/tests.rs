@@ -19,7 +19,6 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
-use datafusion_common::metadata::FieldMetadata;
 use datafusion_common::stats::Precision;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
@@ -52,12 +51,12 @@ async fn vortex_source() -> anyhow::Result<VortexDataSource> {
 }
 
 async fn vortex_source_from_batch(batch: RecordBatch) -> anyhow::Result<VortexDataSource> {
-    vortex_source_from_batch_with_session(batch, VortexSession::default()).await
+    vortex_source_from_batch_with_session(batch, &VortexSession::default()).await
 }
 
 async fn vortex_source_from_batch_with_session(
     batch: RecordBatch,
-    session: VortexSession,
+    session: &VortexSession,
 ) -> anyhow::Result<VortexDataSource> {
     let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
@@ -67,7 +66,7 @@ async fn vortex_source_from_batch_with_session(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(VortexDataSource::builder(file.data_source()?, session)
+    Ok(VortexDataSource::builder(file.data_source()?, session.clone())
         .with_arrow_schema(schema)
         .build()
         .await?)
@@ -299,43 +298,55 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     Ok(())
 }
 
+/// Extension dtypes covered by both static and dynamic filter tests.
+enum ExtensionFilterType {
+    Uuid,
+    Json,
+}
+
 /// Input values and Arrow metadata shared by the static and dynamic extension filter tests.
 struct ExtensionFilterFixture {
     session: VortexSession,
     batch: RecordBatch,
+    /// Storage-typed literals in batch order, with a null in the final row.
     values: Vec<ScalarValue>,
 }
 
 impl ExtensionFilterFixture {
-    fn new(json: bool) -> anyhow::Result<Self> {
+    fn new(extension_type: ExtensionFilterType) -> anyhow::Result<Self> {
         let session = VortexSession::default();
         vortex_json::initialize(&session);
-        let (mut field, values) = if json {
-            (
-                Field::new("value", DataType::Utf8, true),
-                vec![
-                    ScalarValue::Utf8(Some(r#"{"x":1}"#.into())), //
-                    ScalarValue::Utf8(Some(r#"{"x":2}"#.into())), //
-                    ScalarValue::Utf8(Some(r#"{"x":3}"#.into())), //
-                    ScalarValue::Utf8(None),                      //
-                ],
-            )
-        } else {
-            (
-                Field::new("value", DataType::FixedSizeBinary(16), true),
-                vec![
-                    ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde1".to_vec())), //
-                    ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde2".to_vec())), //
-                    ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde3".to_vec())), //
-                    ScalarValue::FixedSizeBinary(16, None),                               //
-                ],
-            )
+
+        let (field, values) = match extension_type {
+            ExtensionFilterType::Uuid => {
+                let mut field = Field::new("value", DataType::FixedSizeBinary(16), true);
+                field.try_with_extension_type(ArrowUuid)?;
+
+                (
+                    field,
+                    vec![
+                        ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde1".to_vec())), //
+                        ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde2".to_vec())), //
+                        ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcde3".to_vec())), //
+                        ScalarValue::FixedSizeBinary(16, None),                               //
+                    ],
+                )
+            }
+            ExtensionFilterType::Json => {
+                let mut field = Field::new("value", DataType::Utf8, true);
+                field.try_with_extension_type(ArrowJson::default())?;
+
+                (
+                    field,
+                    vec![
+                        ScalarValue::Utf8(Some(r#"{"x":1}"#.into())), //
+                        ScalarValue::Utf8(Some(r#"{"x":2}"#.into())), //
+                        ScalarValue::Utf8(Some(r#"{"x":3}"#.into())), //
+                        ScalarValue::Utf8(None),                      //
+                    ],
+                )
+            }
         };
-        if json {
-            field.try_with_extension_type(ArrowJson::default())?;
-        } else {
-            field.try_with_extension_type(ArrowUuid)?;
-        }
 
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![
@@ -359,40 +370,36 @@ impl ExtensionFilterFixture {
         Arc::new(df_expr::Column::new(self.batch.schema().field(1).name(), 1))
     }
 
-    fn literal(&self, index: usize, metadata: bool) -> Arc<dyn PhysicalExpr> {
-        let metadata =
-            metadata.then(|| FieldMetadata::new_from_field(self.batch.schema().field(1)));
-        Arc::new(df_expr::Literal::new_with_metadata(
-            self.values[index].clone(),
-            metadata,
-        ))
+    fn literal(&self, index: usize) -> Arc<dyn PhysicalExpr> {
+        Arc::new(df_expr::Literal::new(self.values[index].clone()))
     }
 
-    fn comparison(&self, index: usize, metadata: bool) -> Arc<dyn PhysicalExpr> {
+    fn comparison(&self, index: usize) -> Arc<dyn PhysicalExpr> {
         Arc::new(df_expr::BinaryExpr::new(
             self.column(),
             Operator::Eq,
-            self.literal(index, metadata),
+            self.literal(index),
         ))
     }
 
-    fn membership(&self, metadata: bool) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
+    fn membership(&self) -> anyhow::Result<Arc<dyn PhysicalExpr>> {
         Ok(Arc::new(df_expr::InListExpr::try_new(
             self.column(),
-            vec![self.literal(1, metadata), self.literal(1, metadata)],
+            vec![self.literal(1), self.literal(1)],
             false,
             &self.batch.schema(),
         )?))
     }
 
     async fn source(&self) -> anyhow::Result<VortexDataSource> {
-        vortex_source_from_batch_with_session(self.batch.clone(), self.session.clone()).await
+        vortex_source_from_batch_with_session(self.batch.clone(), &self.session).await
     }
 }
 
 /// Collects row identifiers so the tests compare the scan restriction separately from its residual.
 async fn scan_ids(plan: Arc<dyn ExecutionPlan>) -> anyhow::Result<Vec<i32>> {
     let batches = datafusion_physical_plan::collect(plan, SessionContext::new().task_ctx()).await?;
+
     Ok(batches
         .iter()
         .flat_map(|batch| {
@@ -407,20 +414,20 @@ async fn scan_ids(plan: Arc<dyn ExecutionPlan>) -> anyhow::Result<Vec<i32>> {
 }
 
 #[rstest]
-#[case::uuid(false)]
-#[case::json(true)]
+#[case::uuid(ExtensionFilterType::Uuid)]
+#[case::json(ExtensionFilterType::Json)]
 #[tokio::test]
 async fn test_extension_comparison_literals_are_pushed_down(
-    #[case] json: bool,
-    #[values(false, true)] metadata: bool,
-    #[values(false, true)] reverse: bool,
+    #[case] extension_type: ExtensionFilterType,
+    #[values(false, true)] reverse_operands: bool,
 ) -> anyhow::Result<()> {
-    let fixture = ExtensionFilterFixture::new(json)?;
-    let (left, right) = if reverse {
-        (fixture.literal(1, metadata), fixture.column())
+    let fixture = ExtensionFilterFixture::new(extension_type)?;
+    let (left, right) = if reverse_operands {
+        (fixture.literal(1), fixture.column())
     } else {
-        (fixture.column(), fixture.literal(1, metadata))
+        (fixture.column(), fixture.literal(1))
     };
+
     let filter = Arc::new(df_expr::BinaryExpr::new(left, Operator::Eq, right));
     let pushed = fixture
         .source()
@@ -430,42 +437,42 @@ async fn test_extension_comparison_literals_are_pushed_down(
     let source = pushed
         .updated_node
         .ok_or_else(|| anyhow!("filter was not pushed"))?;
+
     assert_eq!(scan_ids(Arc::new(DataSourceExec::new(source))).await?, [2]);
 
     Ok(())
 }
 
 #[rstest]
-#[case::uuid(false)]
-#[case::json(true)]
+#[case::uuid(ExtensionFilterType::Uuid)]
+#[case::json(ExtensionFilterType::Json)]
 #[tokio::test]
 async fn test_extension_membership_literals_are_pushed_down(
-    #[case] json: bool,
-    #[values(false, true)] metadata: bool,
+    #[case] extension_type: ExtensionFilterType,
 ) -> anyhow::Result<()> {
-    let fixture = ExtensionFilterFixture::new(json)?;
+    let fixture = ExtensionFilterFixture::new(extension_type)?;
     let pushed = fixture
         .source()
         .await?
-        .try_pushdown_filters(vec![fixture.membership(metadata)?], &ConfigOptions::new())?;
+        .try_pushdown_filters(vec![fixture.membership()?], &ConfigOptions::new())?;
     assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
     let source = pushed
         .updated_node
         .ok_or_else(|| anyhow!("filter was not pushed"))?;
+
     assert_eq!(scan_ids(Arc::new(DataSourceExec::new(source))).await?, [2]);
 
     Ok(())
 }
 
 #[rstest]
-#[case::uuid(false)]
-#[case::json(true)]
+#[case::uuid(ExtensionFilterType::Uuid)]
+#[case::json(ExtensionFilterType::Json)]
 #[tokio::test]
 async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
-    #[case] json: bool,
-    #[values(false, true)] metadata: bool,
+    #[case] extension_type: ExtensionFilterType,
 ) -> anyhow::Result<()> {
-    let fixture = ExtensionFilterFixture::new(json)?;
+    let fixture = ExtensionFilterFixture::new(extension_type)?;
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![fixture.column()],
         df_expr::lit(true),
@@ -481,14 +488,15 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
     let unsupported = Arc::new(df_expr::BinaryExpr::new(
         fixture.column(),
         Operator::IsNotDistinctFrom,
-        fixture.literal(1, metadata),
+        fixture.literal(1),
     ));
+
     for (predicate, expected_scan, expected_result) in [
         (df_expr::lit(true), vec![1, 2, 3, 4], vec![1, 2, 3, 4]), //
-        (fixture.comparison(0, metadata), vec![1], vec![1]),      //
-        (fixture.comparison(2, metadata), vec![3], vec![3]),      //
-        (fixture.comparison(3, metadata), vec![], vec![]),        //
-        (fixture.membership(metadata)?, vec![2], vec![2]),        //
+        (fixture.comparison(0), vec![1], vec![1]),              //
+        (fixture.comparison(2), vec![3], vec![3]),              //
+        (fixture.comparison(3), vec![], vec![]),                //
+        (fixture.membership()?, vec![2], vec![2]),              //
         (
             unsupported as Arc<dyn PhysicalExpr>,
             vec![1, 2, 3, 4],
@@ -498,6 +506,7 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
         bound.update(predicate)?;
         let scan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
         assert_eq!(scan_ids(Arc::clone(&scan)).await?, expected_scan);
+
         let residual = Arc::new(FilterExec::try_new(
             Arc::clone(&bound) as Arc<dyn PhysicalExpr>,
             scan.reset_state()?,

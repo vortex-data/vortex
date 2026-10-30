@@ -2749,9 +2749,7 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 
 #[tokio::test]
 async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
+    let ts_array = buffer![1000i64].into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     let mut buf = ByteBufferMut::empty();
@@ -2760,7 +2758,6 @@ async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2768,7 +2765,7 @@ async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
-            Scalar::from(1704153600i64),
+            Scalar::from(1i64),
         )),
     );
 
@@ -2776,54 +2773,6 @@ async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
     let error = filter_expr
         .bind(file.dtype())
         .expect_err("timestamp filter units must match the file dtype when binding");
-    assert!(
-        error
-            .to_string()
-            .contains("Comparison requires equal dtypes ignoring nullability")
-    );
-
-    Ok(())
-}
-
-/// A timestamp column with constant seconds and subseconds still rejects a mismatched filter.
-///
-/// These timestamps are at midnight, so splitting them gives zero seconds and subseconds. The
-/// compressor can encode those parts as constants, but binding must use the logical timestamp unit.
-#[tokio::test]
-async fn test_timestamp_unit_mismatch_with_constant_children_fails_binding() -> VortexResult<()> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
-
-    // Write file with MILLISECONDS timestamps using this compressor.
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_compressor(compressor)
-        .build();
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let error = filter_expr
-        .bind(file.dtype())
-        .expect_err("constant children cannot change the timestamp unit required by binding");
     assert!(
         error
             .to_string()

@@ -4,12 +4,16 @@
 //! Native comparison kernels.
 //!
 //! [`execute_compare`] dispatches on the logical [`DType`] of its operands and evaluates every
-//! comparison directly over Vortex canonical arrays — bit buffers for booleans, lane kernels from
+//! comparison directly over Vortex canonical arrays: bit buffers for booleans, lane kernels from
 //! `vortex-compute` for primitives and decimals, binary views for strings/bytes, and a row-wise
 //! comparator for nested types. There is no Arrow fallback.
 //!
 //! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
 //! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//!
+//! Operands must have matching logical dtypes, ignoring nullability. Binding and execution check
+//! this before any fast path or encoding kernel runs. Extensions with matching dtypes compare
+//! through their storage; an extension value cannot be compared with a storage-typed operand.
 
 use std::cmp::Ordering;
 
@@ -43,11 +47,11 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+
 mod nested;
 pub(crate) use nested::build_comparator as build_row_comparator;
+
 mod primitive;
-#[cfg(test)]
-mod tests;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -55,6 +59,10 @@ mod tests;
 /// without first decompressing. The adaptor normalizes operand order so `array` is always
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
+    /// Compares `lhs` with `rhs`, or returns `None` to use the default comparison path.
+    ///
+    /// Operand dtypes must match, ignoring nullability. [`CompareExecuteAdaptor`] checks this before
+    /// dispatch; direct callers must satisfy the same requirement.
     fn compare(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
@@ -69,7 +77,10 @@ pub trait CompareKernel: VTable {
 /// this adaptor extracts the comparison operator and other operand, normalizes operand order
 /// (swapping the operator if the encoded array is on the RHS), and delegates to the kernel.
 #[derive(Default, Debug)]
-pub struct CompareExecuteAdaptor<V>(pub V);
+pub struct CompareExecuteAdaptor<V>(
+    /// The encoding whose comparison kernel handles the normalized operands.
+    pub V,
+);
 
 impl<V> ExecuteParentKernel<V> for CompareExecuteAdaptor<V>
 where
@@ -170,7 +181,10 @@ pub(crate) fn execute_compare(
     compare_arrays(lhs, rhs, op, ctx)
 }
 
-/// Dispatch a comparison to the native kernel for the operands' logical dtype.
+/// Dispatches operands with matching logical dtypes to their native comparison kernel.
+///
+/// The caller checks the logical dtypes before fast paths run. Extension storage dtypes are checked
+/// again after unwrapping, before dispatch to the storage kernel.
 fn compare_arrays(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -210,7 +224,8 @@ fn compare_arrays(
 
 /// Returns the storage of an extension array or constant.
 ///
-/// The caller must first require matching extension dtypes, ignoring nullability.
+/// The array must have an extension dtype. The caller checks that both comparison operands have
+/// matching logical dtypes before unwrapping either one.
 fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     if let Some(constant) = array.as_opt::<Constant>() {
         return Ok(ConstantArray::new(
@@ -219,7 +234,9 @@ fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<A
         )
         .into_array());
     }
+
     let ext = array.clone().execute::<ExtensionArray>(ctx)?;
+
     Ok(ext.storage_array().clone())
 }
 
@@ -235,16 +252,16 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
 
     let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-    // We use `partial_cmp` to ensure we do not lose a type mismatch error.
+    // Some values, such as variants, have no scalar ordering even when their dtypes match.
     let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
         vortex_err!(
-            "Cannot compare scalars with incompatible types: {} and {}",
+            "Scalar comparison requires comparable values, got {} and {}",
             lhs.dtype(),
             rhs.dtype()
         )
     })?;
 
-    let b = match operator {
+    let result = match operator {
         CompareOperator::Eq => ordering.is_eq(),
         CompareOperator::NotEq => ordering.is_ne(),
         CompareOperator::Gt => ordering.is_gt(),
@@ -253,7 +270,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
         CompareOperator::Lte => ordering.is_le(),
     };
 
-    Ok(Scalar::bool(b, nullability))
+    Ok(Scalar::bool(result, nullability))
 }
 
 /// Checks the shared dtype requirement before comparison fast paths or encoding kernels run.
@@ -288,3 +305,6 @@ pub(super) fn compare_validity(
 ) -> VortexResult<Validity> {
     Ok(lhs.and(rhs)?.union_nullability(nullability))
 }
+
+#[cfg(test)]
+mod tests;

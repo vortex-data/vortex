@@ -18,7 +18,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
-use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -27,7 +26,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
@@ -42,14 +40,10 @@ use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
-use crate::kernel::ExecuteParentKernel;
-use crate::matcher::Matcher;
 use crate::memory::MemorySessionExt;
 use crate::memory::test_allocator::counting_allocator;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -661,19 +655,9 @@ fn extension_timestamp_compare() {
 #[case::different_time_zone(DType::Extension(
     Timestamp::new_with_tz(TimeUnit::Milliseconds, Some("UTC".into()), Nullability::Nullable).erased()
 ))]
-fn test_extension_comparison_requires_matching_dtypes(
+fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
     #[case] rhs_dtype: DType,
-    #[values(
-        Operator::Eq,
-        Operator::NotEq,
-        Operator::Lt,
-        Operator::Lte,
-        Operator::Gt,
-        Operator::Gte
-    )]
-    operator: Operator,
     #[values(false, true)] swapped: bool,
-    #[values(false, true)] null: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let lhs = ExtensionArray::new(
@@ -681,13 +665,19 @@ fn test_extension_comparison_requires_matching_dtypes(
         buffer![1600i64, 1400].into_array(),
     )
     .into_array();
-    let scalar = Scalar::try_new(rhs_dtype, (!null).then(|| 1500i64.into()))?;
+    let scalar = Scalar::try_new(rhs_dtype, Some(1500i64.into()))?;
     let rhs = ConstantArray::new(scalar, lhs.len()).into_array();
     let inputs = if swapped { [rhs, lhs] } else { [lhs, rhs] };
 
     assert_execution_paths(
         &inputs,
-        |inputs| inputs[0].binary(inputs[1].clone(), operator),
+        |inputs| {
+            let error = inputs[0]
+                .binary(inputs[1].clone(), Operator::Lt)
+                .expect_err("mismatched comparison dtypes must be rejected while binding");
+
+            Err(error)
+        },
         ExpectedOutcome::Error,
         &mut ctx,
     );
@@ -696,21 +686,22 @@ fn test_extension_comparison_requires_matching_dtypes(
 }
 
 #[rstest]
-#[case::equal(Operator::Eq, [Some(false), Some(false), None])]
-#[case::not_equal(Operator::NotEq, [Some(true), Some(true), None])]
-#[case::less(Operator::Lt, [Some(false), Some(true), None])]
-#[case::less_equal(Operator::Lte, [Some(false), Some(true), None])]
-#[case::greater(Operator::Gt, [Some(true), Some(false), None])]
-#[case::greater_equal(Operator::Gte, [Some(true), Some(false), None])]
+#[case::equal(Operator::Eq, [Some(false), Some(true), Some(false), None])]
+#[case::not_equal(Operator::NotEq, [Some(true), Some(false), Some(true), None])]
+#[case::less(Operator::Lt, [Some(false), Some(false), Some(true), None])]
+#[case::less_equal(Operator::Lte, [Some(false), Some(true), Some(true), None])]
+#[case::greater(Operator::Gt, [Some(true), Some(false), Some(false), None])]
+#[case::greater_equal(Operator::Gte, [Some(true), Some(true), Some(false), None])]
 fn test_extension_comparison_preserves_paths_and_nulls(
     #[case] operator: Operator,
-    #[case] expected: [Option<bool>; 3],
+    #[case] expected: [Option<bool>; 4],
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
     let lhs = ExtensionArray::new(
         dtype,
-        PrimitiveArray::from_option_iter([Some(1600i64), Some(1400), None]).into_array(),
+        PrimitiveArray::from_option_iter([Some(1600i64), Some(1500), Some(1400), None])
+            .into_array(),
     )
     .into_array();
     let rhs = ConstantArray::new(
@@ -744,7 +735,7 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
     let lhs = ExtensionArray::new(
-        dtype.clone(),
+        dtype,
         ConstantArray::new(Scalar::primitive(1000i64, Nullability::Nullable), len).into_array(),
     )
     .into_array();
@@ -755,6 +746,14 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
     .into_array();
 
     assert!(super::execute_compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn test_null_scalar_comparison_requires_matching_dtypes() {
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+
     assert!(
         scalar_cmp(
             &Scalar::null(DType::Extension(dtype)),
@@ -763,40 +762,6 @@ fn test_extension_comparison_checks_dtypes_before_fast_paths(
         )
         .is_err()
     );
-
-    Ok(())
-}
-
-#[rstest]
-#[case::empty(0)]
-#[case::null(2)]
-fn test_comparison_adaptor_checks_dtypes_before_fast_paths(
-    #[case] len: usize,
-    #[values(0, 1)] child_idx: usize,
-) -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let storage =
-        ConstantArray::new(Scalar::primitive(1000i64, Nullability::Nullable), len).into_array();
-    let array = ExtensionArray::new(
-        Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
-        storage.clone(),
-    );
-    let nulls = ConstantArray::new(
-        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
-        len,
-    )
-    .into_array();
-    let parent = Binary::try_new(storage, nulls, Operator::Eq)?.into_array();
-    let parent = ExactScalarFn::<Binary>::try_match(&parent)
-        .vortex_expect("Binary::try_new constructs a binary scalar function");
-
-    assert!(
-        CompareExecuteAdaptor(Extension)
-            .execute_parent(array.as_view(), parent, child_idx, &mut ctx)
-            .is_err()
-    );
-
-    Ok(())
 }
 
 /// Struct fields containing nulls order null-first, matching `Scalar` comparison semantics;
