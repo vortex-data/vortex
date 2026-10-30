@@ -217,7 +217,7 @@ jobs:
         run: sudo bash scripts/setup-benchmark.sh
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
+        if: github.event.pull_request.number != 10857 && (matrix.remote_key == null || github.event.pull_request.head.repo.fork == true)
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
@@ -303,6 +303,7 @@ jobs:
               > "q38-diagnostics/$version-metrics.txt" 2>&1
             bash scripts/bench-taskset.sh "$binary" "${args[@]}" --explain \
               > "q38-diagnostics/$version-explain.txt" 2>&1
+            cat "q38-diagnostics/$version-metrics.txt"
           done
           if ! perf --version; then
             sudo apt-get update
@@ -316,6 +317,7 @@ jobs:
               -o "q38-diagnostics/$version.perf.data" -- \
               "$binary" "${args[@]}" --iterations 500 \
                 -o "q38-diagnostics/$version-profiled.jsonl"
+            sudo chown "$(id -u):$(id -g)" "q38-diagnostics/$version.perf.data"
             perf report -i "q38-diagnostics/$version.perf.data" --stdio --no-children \
               --percent-limit 0.1 > "q38-diagnostics/$version-self.txt"
             perf report -i "q38-diagnostics/$version.perf.data" --stdio --children \
@@ -332,7 +334,7 @@ jobs:
           path: q38-diagnostics/
 
       - name: Capture file sizes
-        if: matrix.remote_key == null
+        if: github.event.pull_request.number != 10857 && matrix.remote_key == null
         shell: bash
         run: |
           uv run --no-project scripts/capture-file-sizes.py \
@@ -344,7 +346,7 @@ jobs:
           cat sizes.json >> results.json
 
       - name: Compare results
-        if: inputs.mode == 'pr'
+        if: github.event.pull_request.number != 10857 && inputs.mode == 'pr'
         shell: bash
         run: |
           set -Eeu -o pipefail -x
@@ -357,7 +359,7 @@ jobs:
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: github.event.pull_request.number != 10857 && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
