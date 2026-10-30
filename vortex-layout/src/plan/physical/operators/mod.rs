@@ -46,11 +46,7 @@ pub(crate) const UNBOUNDED: usize = usize::MAX;
 /// The rest is optimized with `session` before it goes back into the inlet. A slice is lazy, so
 /// without this, each take would wrap the rest in one more slice, and every later take would
 /// optimize the full chain of slices again.
-fn take_rows(
-    inlet: &mut Inlet<'_>,
-    len: usize,
-    session: &VortexSession,
-) -> VortexResult<ArrayRef> {
+fn take_rows(inlet: &mut Inlet<'_>, len: usize, session: &VortexSession) -> VortexResult<ArrayRef> {
     let mut pieces: SmallVec<[ArrayRef; 2]> = SmallVec::new();
     let mut left = len;
     while left > 0 {
