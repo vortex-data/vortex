@@ -13,8 +13,8 @@
 :::
 
 An extensible ecosystem for compressed columnar data. Spans in-memory arrays,
-on-disk file formats, over-the-wire protocols, and integrations with query engines — all built
-around the latest research from the database community.
+on-disk file formats, over-the-wire protocols, and integrations with query
+engines — all built around the latest research from the database community.
 
 ## Where to start
 
@@ -28,10 +28,9 @@ from Parquet, compress your data, and query it.
 :::
 
 :::{container} card
-[**Use with a query engine**](user-guide/index.md)
+[**Use from a query engine**](user-guide/index.md)
 
-Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
-accelerated queries over compressed data.
+Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, or **Ray**.
 :::
 
 :::{container} card
