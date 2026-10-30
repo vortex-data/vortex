@@ -33,6 +33,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 use vortex_error::VortexResult;
 use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
@@ -70,7 +72,7 @@ pub(crate) trait DynReduceParentKernel: Debug + Send + Sync + 'static {
 pub(crate) type ReduceParentKernelRef = Arc<dyn DynReduceParentKernel>;
 
 /// A snapshot of the session's parent-reduce kernels, as the optimizer consults them.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ParentReduceKernels {
     /// Kernels keyed by hashed `(parent, child)` pair.
     kernels: Arc<HashMap<ReduceParentFnId, Arc<[ReduceParentKernelRef]>>>,
@@ -245,7 +247,21 @@ type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKer
 pub struct ArrayKernels {
     reduce_parent: ReduceParentRegistry,
     reduce_parent_children: ArcSwapMap<Id, Arc<[Id]>>,
+    /// Both parent-reduce maps, published together after each registration.
+    ///
+    /// The optimizer reads the kernels each time it is called without an execution context, from
+    /// many threads at once. Borrowing this published value does not write to a shared reference
+    /// count, unlike taking a new snapshot of each map.
+    reduce_parent_published: Arc<ReduceParentPublished>,
     execute_parent: ExecuteParentRegistry,
+}
+
+#[derive(Debug, Default)]
+struct ReduceParentPublished {
+    kernels: ArcSwap<ParentReduceKernels>,
+    /// Held while the maps are read and the result is stored, so that a registration cannot
+    /// replace a newer published value with an older one.
+    publish: Mutex<()>,
 }
 
 impl Default for ArrayKernels {
@@ -260,6 +276,7 @@ impl ArrayKernels {
         Self {
             reduce_parent: ReduceParentRegistry::default(),
             reduce_parent_children: ArcSwapMap::default(),
+            reduce_parent_published: Arc::default(),
             execute_parent: ExecuteParentRegistry::default(),
         }
     }
@@ -312,6 +329,18 @@ impl ArrayKernels {
             }) as ReduceParentKernelRef,
         );
         self.record_reduce_parent_child(parent, child);
+        self.publish_reduce_parent();
+    }
+
+    /// Publishes the current parent-reduce maps for [`Self::with_reduce_parent_kernels`].
+    fn publish_reduce_parent(&self) {
+        let _publish = self.reduce_parent_published.publish.lock();
+        self.reduce_parent_published
+            .kernels
+            .store(Arc::new(ParentReduceKernels {
+                kernels: self.reduce_parent.snapshot(),
+                children: self.reduce_parent_children.snapshot(),
+            }));
     }
 
     /// Record that `parent` has parent-reduce kernels for `child`, so the optimizer probes only the
@@ -335,7 +364,9 @@ impl ArrayKernels {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        reduce_parent_with_kernels(&self.reduce_parent_snapshot(), parent, child, child_idx)
+        self.with_reduce_parent_kernels(|kernels| {
+            reduce_parent_with_kernels(kernels, parent, child, child_idx)
+        })
     }
 
     /// Register [`ExecuteParentFn`]s for `(parent, child)`.
@@ -399,10 +430,15 @@ impl ArrayKernels {
 
     /// Return the currently published parent-reduce kernel snapshot.
     pub(crate) fn reduce_parent_snapshot(&self) -> ParentReduceKernels {
-        ParentReduceKernels {
-            kernels: self.reduce_parent.snapshot(),
-            children: self.reduce_parent_children.snapshot(),
-        }
+        self.with_reduce_parent_kernels(ParentReduceKernels::clone)
+    }
+
+    /// Passes the currently published parent-reduce kernels to `f` without copying them.
+    pub(crate) fn with_reduce_parent_kernels<R>(
+        &self,
+        f: impl FnOnce(&ParentReduceKernels) -> R,
+    ) -> R {
+        f(&self.reduce_parent_published.kernels.load())
     }
 
     /// Return the currently published execute-parent kernel snapshot.

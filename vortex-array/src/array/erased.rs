@@ -110,6 +110,11 @@ impl ArrayRef {
         &self.0.optimized
     }
 
+    /// Returns whether another owner holds this array too.
+    pub(crate) fn is_shared(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
+    }
+
     /// Returns the Arc::as_ptr().addr() of the underlying array.
     /// This function is used in a couple of places, and we should migrate them to using array_eq.
     #[doc(hidden)]

@@ -45,7 +45,8 @@ pub(crate) const UNBOUNDED: usize = usize::MAX;
 ///
 /// The rest is optimized with `session` before it goes back into the inlet. A slice is lazy, so
 /// without this, each take would wrap the rest in one more slice, and every later take would
-/// optimize the full chain of slices again.
+/// optimize the full chain of slices again. The rows taken are optimized too, so the stages that
+/// read them, possibly through many parents, get an optimized array.
 fn take_rows(inlet: &mut Inlet<'_>, len: usize, session: &VortexSession) -> VortexResult<ArrayRef> {
     let mut pieces: SmallVec<[ArrayRef; 2]> = SmallVec::new();
     let mut left = len;
@@ -58,7 +59,11 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize, session: &VortexSession) -> Vort
             pieces.extend(inlet.take());
         } else {
             let rest = front.slice(left..front.len())?.optimize(session)?;
-            pieces.push(std::mem::replace(front, rest).slice(0..left)?);
+            pieces.push(
+                std::mem::replace(front, rest)
+                    .slice(0..left)?
+                    .optimize(session)?,
+            );
             left = 0;
         }
     }
@@ -67,7 +72,9 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize, session: &VortexSession) -> Vort
     }
     let dtype = pieces[0].dtype().clone();
     // SAFETY: the pieces come from one inlet, whose batches share its sink's dtype.
-    Ok(unsafe { ChunkedArray::new_unchecked(pieces, dtype) }.into_array())
+    unsafe { ChunkedArray::new_unchecked(pieces, dtype) }
+        .into_array()
+        .optimize(session)
 }
 
 /// Joins arrays covering consecutive rows into one.

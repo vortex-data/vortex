@@ -23,6 +23,7 @@ ignored = ["prost-types"]
 workspace = true
 
 [dependencies]
+arc-swap = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }

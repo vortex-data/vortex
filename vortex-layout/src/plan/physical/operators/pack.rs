@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -118,7 +119,9 @@ impl Operator for PackSource {
         } else {
             Validity::NonNullable
         };
-        let array = assemble(&self.fields, arrays, validity).into_array();
+        let array = assemble(&self.fields, arrays, validity)
+            .into_array()
+            .optimize(&session)?;
         Ok(Step::Final(array))
     }
 }
