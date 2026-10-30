@@ -3,9 +3,10 @@
 
 name: "Fetch benchmark baseline"
 description: >-
-  Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres as the
-  read-only bench_read role. Without a password (fork PRs get no secrets), it writes no
-  baseline and the report says the baseline could not be read.
+  Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres the same
+  way post-ingest.py writes it: assume the ingest role over OIDC and sign in as bench_ingest with
+  an RDS IAM token. If the role cannot be assumed, it writes no baseline and the report says the
+  baseline could not be read.
 
 inputs:
   pr-records:
@@ -14,10 +15,13 @@ inputs:
   output:
     description: "Where to write the baseline records"
     required: true
-  password:
-    description: "Password of the bench_read Postgres role"
+  role-arn:
+    description: "The benchmarks ingest role (vars.GH_BENCH_INGEST_ROLE_ARN)"
     required: false
     default: ""
+  region:
+    description: "AWS region of the benchmarks RDS instance"
+    required: true
   endpoint:
     description: "Hostname of the benchmarks RDS instance"
     required: true
@@ -28,22 +32,39 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # The credentials stay in step outputs so the job's existing AWS credentials, which later
+    # steps such as the S3 cleanup still use, are not replaced.
+    - name: Configure AWS credentials for the benchmarks database (OIDC)
+      id: aws
+      if: inputs.role-arn != ''
+      continue-on-error: true
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.region }}
+        output-credentials: true
+        output-env-credentials: false
     - name: Fetch baseline
       shell: bash
       env:
         PR_RECORDS: ${{ inputs.pr-records }}
         OUTPUT: ${{ inputs.output }}
-        PGPASSWORD: ${{ inputs.password }}
+        AWS_OUTCOME: ${{ steps.aws.outcome }}
+        AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+        AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+        AWS_REGION: ${{ inputs.region }}
         RDS_BENCH_INSTANCE_ENDPOINT: ${{ inputs.endpoint }}
         RDS_BENCH_DB_NAME: ${{ inputs.database }}
       run: |
         set -Eeu -o pipefail
-        if [[ -z "$PGPASSWORD" ]]; then
+        if [[ "$AWS_OUTCOME" != "success" ]]; then
           # No baseline file tells the report that the baseline could not be read.
-          echo "::warning::No benchmarks database credential; reporting without a baseline."
+          echo "::warning::Could not assume the benchmarks ingest role; reporting without a baseline."
           exit 0
         fi
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
-        DSN="postgresql://bench_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
-        uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" --postgres "$DSN"
+        DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
+        uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
+          --postgres "$DSN" --region "$AWS_REGION"

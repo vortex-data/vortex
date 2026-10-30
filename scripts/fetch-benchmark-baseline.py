@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["psycopg[binary]"]
+# dependencies = ["psycopg[binary]", "boto3"]
 # ///
 
 # SPDX-License-Identifier: Apache-2.0
@@ -14,16 +14,19 @@ Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
 matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
 compares the two record files.
 
-The connection uses the read-only `bench_read` role. Its password comes from
-`$PGPASSWORD`, so it never appears in the process arguments.
+It connects the same way `post-ingest.py` does: as `bench_ingest`, with an RDS IAM token
+minted from the AWS credentials of the assumed `GH_BENCH_INGEST_ROLE_ARN` role. The
+transaction is read-only.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import subprocess
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -66,8 +69,9 @@ def parse_args() -> argparse.Namespace:
         "--postgres",
         metavar="DSN",
         required=True,
-        help="Libpq DSN for the read-only bench_read role, with sslmode=verify-full.",
+        help="Libpq DSN of the benchmarks database, as accepted by post-ingest.py --postgres.",
     )
+    parser.add_argument("--region", default=None, help="AWS region for RDS IAM token minting.")
     return parser.parse_args()
 
 
@@ -161,17 +165,15 @@ def baseline_records(conn: Connection, identities: dict[str, list[tuple]], commi
     return records
 
 
-def connect(dsn: str) -> Connection:
-    import psycopg
-    from psycopg import conninfo
+def post_ingest_module() -> ModuleType:
+    """Load `scripts/post-ingest.py`, whose database connector this script reuses."""
 
-    params = conninfo.conninfo_to_dict(dsn)
-    if params.get("sslmode", "verify-full") != "verify-full":
-        raise SystemExit("--postgres requires sslmode=verify-full")
-    params["sslmode"] = "verify-full"
-    params["options"] = f"{params.get('options') or ''} -c search_path=public -c statement_timeout=60000".strip()
-    params["connect_timeout"] = 10
-    return psycopg.connect(**params)
+    path = Path(__file__).resolve().parent / "post-ingest.py"
+    spec = importlib.util.spec_from_file_location("post_ingest", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def main() -> None:
@@ -180,7 +182,7 @@ def main() -> None:
     records: list[dict] = []
     if identities:
         commits = reachable_commits()
-        with connect(args.postgres) as conn:
+        with post_ingest_module().connect_postgres(args.postgres, args.region) as conn:
             conn.read_only = True
             commit_sha = newest_baseline_commit(conn, identities, commits)
             if commit_sha is not None:

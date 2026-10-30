@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
   gpu-compress-bench:
@@ -84,7 +85,8 @@ jobs:
         with:
           pr-records: results.ingest.jsonl
           output: base.ingest.jsonl
-          password: ${{ secrets.BENCH_READ_PASSWORD }}
+          role-arn: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
           endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
           database: ${{ vars.RDS_BENCH_DB_NAME }}
 
