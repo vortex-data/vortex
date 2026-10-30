@@ -31,14 +31,13 @@ on:
           - "pr-full"
 
 permissions:
-  actions: read
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
   sql:
-    uses: vortex-data/vortex/.github/workflows/sql-bench-matrix.yml@b6159a4009eb647b0cb1a45938f43407a8f76a11
+    uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "pr"
