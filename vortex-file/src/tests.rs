@@ -2748,7 +2748,7 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 }
 
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
     // Write file with MILLISECONDS timestamps
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
@@ -2773,24 +2773,24 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("timestamp filter units must match the file dtype when binding");
+    assert!(
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
+    );
 
     Ok(())
 }
 
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
+/// A timestamp column with constant seconds and subseconds still rejects a mismatched filter.
 ///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
+/// These timestamps are at midnight, so splitting them gives zero seconds and subseconds. The
+/// compressor can encode those parts as constants, but binding must use the logical timestamp unit.
 #[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
+async fn test_timestamp_unit_mismatch_with_constant_children_fails_binding() -> VortexResult<()> {
     let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
 
     // Write file with MILLISECONDS timestamps using this compressor.
@@ -2809,7 +2809,6 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2822,16 +2821,13 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("constant children cannot change the timestamp unit required by binding");
     assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())
