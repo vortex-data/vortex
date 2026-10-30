@@ -18,8 +18,10 @@ use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
+use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::arrays::Widen;
+use crate::arrays::widen::WidenArraySlotsExt;
 use crate::session::ArraySessionExt;
 
 /// Writes [`Widen`] arrays using an existing encoding's wire form.
@@ -36,7 +38,7 @@ impl ArrayPlugin for WidenPlugin {
     }
 
     fn write_ids(&self) -> Vec<ArrayId> {
-        vec![ArrayVTable::id(&Primitive)]
+        vec![ArrayVTable::id(&Primitive), ArrayVTable::id(&Decimal)]
     }
 
     fn serialize(
@@ -48,9 +50,18 @@ impl ArrayPlugin for WidenPlugin {
         // (#10733), and write it only where the writer permits it. This method cannot see the
         // permitted IDs today.
 
+        let widen = array.as_::<Widen>();
+        let source = if array.dtype().is_decimal() {
+            // A decimal node stores its width in metadata and takes its precision from the
+            // containing format, so the narrow child node is correct under the parent dtype.
+            widen.values()
+        } else {
+            array
+        };
+
         // The child validity can be lazy, so the writer needs recursive canonicalization to
         // produce nodes that it can store.
-        let canonical = array
+        let canonical = source
             .clone()
             .execute::<RecursiveCanonical>(&mut session.create_execution_ctx())?
             .0

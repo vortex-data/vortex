@@ -24,6 +24,8 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::Bool;
 use crate::arrays::ChunkedArray;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -32,6 +34,7 @@ use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenPlugin;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -189,6 +192,90 @@ fn empty_session_can_register_widen_writer() -> VortexResult<()> {
     );
     assert!(!ids.contains(&ArrayVTable::id(&Widen)));
     assert_arrays_eq!(decoded, widen, &mut session.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
+fn decimal_widen_writes_narrow_bytes() -> VortexResult<()> {
+    let values = [-999_999_999i32, 0, 999_999_999];
+    let child = DecimalArray::from_iter(values, DecimalDType::new(9, 2));
+    let widen = widen_over(
+        child,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable),
+    )?;
+    let ctx = ArrayContext::empty();
+    let serialized = SerializedArray::try_from(serialize_blob(&widen, &ctx, &SESSION)?)?;
+    let read_ctx = ReadContext::new(ctx.to_ids());
+
+    assert_eq!(
+        read_ctx.resolve(serialized.encoding_id()),
+        Some(ArrayVTable::id(&Decimal))
+    );
+    assert_eq!(serialized.nbuffers(), 1);
+    let buffer = serialized.buffer(0)?;
+    assert_eq!(buffer.len(), 4 * widen.len());
+    let expected_bytes = values
+        .into_iter()
+        .flat_map(i32::to_le_bytes)
+        .collect::<Vec<_>>();
+    assert_eq!(buffer.as_host().as_slice(), expected_bytes);
+    let decoded = serialized.decode(widen.dtype(), widen.len(), &read_ctx, &SESSION)?;
+    assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[rstest]
+#[case::nullable(DecimalArray::from_option_iter(
+    [Some(-999_999_999i32), None, Some(42)], DecimalDType::new(9, 2),
+), 38)]
+#[case::all_null(DecimalArray::new(
+    buffer![i32::MIN, i32::MAX], DecimalDType::new(9, 2), Validity::AllInvalid,
+), 38)]
+#[case::empty(DecimalArray::from_iter(Vec::<i32>::new(), DecimalDType::new(9, 2)), 38)]
+#[case::i128_child(DecimalArray::from_iter(
+    [i128::MIN / 2, 0, i128::MAX / 2], DecimalDType::new(38, 0),
+), 76)]
+fn decimal_widen_round_trip(
+    #[case] child: DecimalArray,
+    #[case] precision: u8,
+) -> VortexResult<()> {
+    let scale = child.dtype().as_decimal_opt().unwrap().scale();
+    let widen = widen_over(
+        child,
+        DType::Decimal(
+            DecimalDType::new(precision, scale),
+            Nullability::NonNullable,
+        ),
+    )?;
+    let (decoded, ids) = serialize_round_trip(&widen, &SESSION)?;
+
+    assert!(!ids.contains(&ArrayVTable::id(&Widen)));
+    assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
+
+    Ok(())
+}
+
+#[test]
+fn decimal_widen_nested_round_trip() -> VortexResult<()> {
+    let child = DecimalArray::from_option_iter(
+        [Some(-999_999_999i32), None, Some(42)],
+        DecimalDType::new(9, 2),
+    );
+    let widen = widen_over(
+        child,
+        DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable),
+    )?;
+    let nested = StructArray::from_fields(&[("decimal", widen.clone())])?.into_array();
+    let chunked = ChunkedArray::try_new(vec![widen.clone(), widen.clone()], widen.dtype().clone())?
+        .into_array();
+
+    for array in [nested, chunked] {
+        let (decoded, ids) = serialize_round_trip(&array, &SESSION)?;
+        assert!(!ids.contains(&ArrayVTable::id(&Widen)));
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
+    }
 
     Ok(())
 }

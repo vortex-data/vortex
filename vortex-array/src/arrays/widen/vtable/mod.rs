@@ -33,6 +33,10 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::decimal::copy_to_canonical_width;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::array::validate_dtypes;
@@ -40,13 +44,16 @@ use crate::arrays::widen::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::match_each_decimal_value_type;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 
 /// The encoding of a [`WidenArray`].
 #[derive(Clone, Debug)]
 pub struct Widen;
 
-/// A [`Widen`]-encoded integer array.
+/// A [`Widen`]-encoded integer or decimal array.
 pub type WidenArray = Array<Widen>;
 
 impl VTable for Widen {
@@ -121,7 +128,17 @@ impl VTable for Widen {
         WidenSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // NB: Decimals copy their values instead of yielding a cast. A decimal cast keeps a stored
+        // width that already holds the target precision, so it can return values wider than the
+        // canonical width of the logical dtype.
+        if let DType::Decimal(decimal_dtype, _) = array.dtype() {
+            let decimal_dtype = *decimal_dtype;
+            let array = require_child!(array, array.values(), WidenSlots::VALUES => Decimal);
+            let widened = copy_decimal_values(array.values().as_::<Decimal>(), decimal_dtype, ctx)?;
+            return Ok(ExecutionResult::done(widened.into_array()));
+        }
+
         // Yield a cast, not a canonical array, so that one kernel decodes and widens the values.
         let widened = array.values().cast(array.dtype().clone())?;
         Ok(ExecutionResult::done(widened))
@@ -144,4 +161,30 @@ impl VTable for Widen {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Copies the executed decimal `values` of a [`WidenArray`] into the canonical width of
+/// `decimal_dtype`, the logical dtype of the `Widen`.
+fn copy_decimal_values(
+    values: ArrayView<'_, Decimal>,
+    decimal_dtype: DecimalDType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DecimalArray> {
+    let validity = values.validity()?;
+    let mask = validity.execute_mask(values.len(), ctx)?;
+    let buffer = match_each_decimal_value_type!(values.values_type(), |T| {
+        copy_to_canonical_width(values.buffer::<T>().as_slice(), &mask, decimal_dtype)?
+    });
+
+    // SAFETY: the copy has the parent canonical width and the child length. Widen construction
+    // guarantees the same scale and a parent precision that holds the child, and the unchanged
+    // child validity has the same length.
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            buffer,
+            decimal_dtype.canonical_values_type(),
+            decimal_dtype,
+            validity,
+        )
+    })
 }

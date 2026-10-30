@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests of the `Widen` encoding.
+//! Tests of the `Widen` encoding over integer and decimal values.
 //!
-//! The named fixtures cover signed and unsigned values, each kind of validity and a single row.
-//! The `compute` tests run their operations over them.
+//! The named integer fixtures cover signed and unsigned values, each kind of validity and a single
+//! row, and the `compute` tests run their operations over them. The `decimal` modules build their
+//! own decimal fixtures, and compare each result with the result on the canonical array.
 
 mod aggregates;
 mod compute;
+mod decimal;
+mod decimal_fallback;
 mod encoding;
 mod numeric;
 mod serde;
@@ -28,6 +31,7 @@ use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::validity::Validity;
 
@@ -47,6 +51,16 @@ fn stored_ptype(array: &ArrayRef) -> PType {
         Some(widen) => widen.values().dtype().as_ptype(),
         None => array.dtype().as_ptype(),
     }
+}
+
+/// Returns the decimal dtype of the values child, or of `array` when it is not a `Widen`.
+fn stored_decimal_dtype(array: &ArrayRef) -> DecimalDType {
+    let dtype = match array.as_opt::<Widen>() {
+        Some(widen) => widen.values().dtype().as_decimal_opt().copied(),
+        None => array.dtype().as_decimal_opt().copied(),
+    };
+
+    dtype.vortex_expect("the fixture has a decimal dtype")
 }
 
 /// Returns `array` executed to its canonical form.
