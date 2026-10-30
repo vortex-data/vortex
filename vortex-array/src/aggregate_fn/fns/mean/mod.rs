@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -150,8 +151,27 @@ impl BinaryCombined for Mean {
         Ok(Scalar::primitive(value, Nullability::Nullable))
     }
 
-    fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("mean is not yet serializable");
+    fn serialize(&self, options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![
+            u8::from(options.0.skip_nans),
+            u8::from(options.1.skip_nans),
+        ]))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<CombinedOptions<Self>> {
+        match metadata {
+            &[sum @ 0..=1, count @ 0..=1] => Ok(PairOptions(
+                NumericalAggregateOpts { skip_nans: sum != 0 },
+                NumericalAggregateOpts {
+                    skip_nans: count != 0,
+                },
+            )),
+            _ => vortex_bail!("Invalid Mean options: expected two boolean bytes"),
+        }
     }
 }
 
