@@ -79,5 +79,7 @@ target/release/s3-measure --source "file://$PWD/fixtures/" --allow-local \
   --warmup-seconds 0 --timeout-seconds 60
 ```
 
+`RESULTS.md` records measured hot and cold p50/p90/p99/p99.9 latencies from a CI run.
+
 This is the first part of a stack: measurement, then learned RAM modelling, then opt-in SQL,
 random-access and compression/decompression benchmark integration. Real S3 remains the reference.
