@@ -91,10 +91,10 @@ impl SegmentSink for BufferedSegmentSink {
         };
 
         if let Some(padding) = padding_buffer {
-            let _ = self.buffers.send(padding).await;
+            drop(self.buffers.send(padding).await);
         }
         for buffer in buffers {
-            let _ = self.buffers.send(buffer).await;
+            drop(self.buffers.send(buffer).await);
         }
 
         Ok(segment_id)

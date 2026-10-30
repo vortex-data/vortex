@@ -191,7 +191,7 @@ impl LayoutStrategy for StructStrategy {
                     Err(e) => {
                         let e: Arc<VortexError> = Arc::new(e);
                         for tx in column_streams_tx.iter() {
-                            let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
+                            drop(tx.send(Err(VortexError::from(Arc::clone(&e)))).await);
                         }
                         return Err(VortexError::from(e));
                     }
