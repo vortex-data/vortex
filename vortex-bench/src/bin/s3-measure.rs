@@ -51,23 +51,19 @@ struct Args {
     /// Identity of this measurement window, retained separately from the actual CI run ID.
     #[arg(long)]
     measurement_id: String,
-    #[arg(
-        long,
-        value_delimiter = ',',
-        default_value = "4096,65536,262144,1048576,8388608"
-    )]
+    #[arg(long, value_delimiter = ',', required = true)]
     sizes: Vec<u64>,
-    #[arg(long, value_delimiter = ',', default_value = "1,4,16,64")]
+    #[arg(long, value_delimiter = ',', required = true)]
     concurrency: Vec<usize>,
-    #[arg(long, default_value_t = 64)]
+    #[arg(long)]
     requests: usize,
-    #[arg(long, default_value_t = 3)]
+    #[arg(long)]
     rounds: usize,
-    #[arg(long, default_value_t = 20261028)]
+    #[arg(long)]
     seed: u64,
-    #[arg(long, default_value_t = 20.0)]
+    #[arg(long)]
     warmup_seconds: f64,
-    #[arg(long, default_value_t = 60.0)]
+    #[arg(long)]
     timeout_seconds: f64,
     /// Exercise the collector using files; these traces are ineligible for S3 model training.
     #[arg(long)]
@@ -89,7 +85,7 @@ struct Request {
     requested_concurrency: usize,
     inflight_at_start: usize,
     start_ms: f64,
-    started_unix_ms: u128,
+    started_unix_ms: u64,
     response_ms: Option<f64>,
     first_byte_ms: Option<f64>,
     duration_ms: f64,
@@ -116,7 +112,9 @@ impl Request {
             requested_concurrency: 1,
             inflight_at_start: 1,
             start_ms,
-            started_unix_ms: epoch.unix_ms + elapsed.as_millis(),
+            started_unix_ms: epoch.unix_ms
+                + elapsed.as_secs() * 1000
+                + u64::from(elapsed.subsec_millis()),
             response_ms: None,
             first_byte_ms: None,
             duration_ms: 0.0,
@@ -129,7 +127,7 @@ impl Request {
 
 struct Epoch {
     start: Instant,
-    unix_ms: u128,
+    unix_ms: u64,
 }
 
 #[derive(Default)]
@@ -288,7 +286,7 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
     let timeout = Duration::from_secs_f64(args.timeout_seconds);
     let epoch = Epoch {
         start: Instant::now(),
-        unix_ms: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
+        unix_ms: u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?,
     };
     let catalog_start = Instant::now();
     let mut objects =
@@ -502,6 +500,7 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use clap::error::ErrorKind;
     use object_store::memory::InMemory;
     use object_store::throttle::ThrottleConfig;
     use object_store::throttle::ThrottledStore;
@@ -588,6 +587,57 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn sweep_settings_are_required_and_support_192_concurrent_requests() -> anyhow::Result<()> {
+        let command = [
+            "s3-measure",
+            "--source",
+            "s3://bucket/prefix/",
+            "--output",
+            "trace.jsonl",
+            "--measurement-id",
+            "test",
+            "--sizes",
+            "4096,8388608",
+            "--concurrency",
+            "1,64,192",
+            "--requests",
+            "192",
+            "--rounds",
+            "3",
+            "--seed",
+            "42",
+            "--warmup-seconds",
+            "20",
+            "--timeout-seconds",
+            "60",
+        ];
+        let args = Args::try_parse_from(command)?;
+        assert_eq!(args.concurrency, vec![1, 64, 192]);
+        assert_eq!(args.requests, 192);
+        for flag in [
+            "--sizes",
+            "--concurrency",
+            "--requests",
+            "--rounds",
+            "--seed",
+            "--warmup-seconds",
+            "--timeout-seconds",
+        ] {
+            let mut missing = command.to_vec();
+            let index = missing
+                .iter()
+                .position(|arg| *arg == flag)
+                .context("Missing test argument")?;
+            missing.drain(index..index + 2);
+            let error = Args::try_parse_from(missing)
+                .err()
+                .context("Collector accepted incomplete sweep settings")?;
+            assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument, "{flag}");
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn measured_ranges_are_consumed_and_identified() -> anyhow::Result<()> {
