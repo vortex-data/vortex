@@ -92,6 +92,10 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 }
 
 
+# Benchmarks that run their Vortex scans on the planner-driven V2 scan. The others use V1.
+SCAN_V2_BENCHMARKS: frozenset[Benchmark] = frozenset({Benchmark.TPCH, Benchmark.TPCDS, Benchmark.CLICKBENCH})
+
+
 def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:
     """Return the engines `benchmark` supports, defaulting to every engine when unrestricted."""
     return BENCHMARK_ENGINES.get(benchmark, frozenset(Engine))

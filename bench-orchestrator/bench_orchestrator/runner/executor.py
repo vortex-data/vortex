@@ -14,7 +14,7 @@ from typing import final
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import Benchmark, Engine, Format
+from ..config import SCAN_V2_BENCHMARKS, Benchmark, Engine, Format
 
 console = Console()
 
@@ -55,6 +55,7 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
+            cmd.extend(["--scan-v2", str(benchmark in SCAN_V2_BENCHMARKS).lower()])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
