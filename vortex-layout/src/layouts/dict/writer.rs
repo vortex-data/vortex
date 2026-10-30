@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use async_channel::SendError;
+use async_channel::Sender;
+use async_channel::bounded;
 use async_stream::stream;
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -17,12 +20,14 @@ use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::pin_mut;
 use futures::stream::BoxStream;
+use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
@@ -34,7 +39,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -92,16 +96,27 @@ impl Default for DictLayoutConstraints {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DictLayoutOptions {
     pub constraints: DictLayoutConstraints,
+    /// Number of leading rows the probe compressor sees when deciding whether to use a dictionary.
+    pub probe_len: usize,
+}
+
+impl Default for DictLayoutOptions {
+    fn default() -> Self {
+        Self {
+            constraints: DictLayoutConstraints::default(),
+            probe_len: 8192,
+        }
+    }
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
 /// appropriate by the btrblocks compressor. Current implementation only
-/// checks the first chunk to decide whether to apply dict layout and
-/// encodes chunks into dictionaries. When the dict constraints are hit, a
-/// new dictionary is created.
+/// checks the first [`probe_len`](DictLayoutOptions::probe_len) rows to decide whether to apply
+/// dict layout and encodes chunks into dictionaries. When the dict constraints are hit, a new
+/// dictionary is created.
 #[derive(Clone)]
 pub struct DictStrategy {
     codes: Arc<dyn LayoutStrategy>,
@@ -151,16 +166,16 @@ impl LayoutStrategy for DictStrategy {
         let dtype = stream.dtype().clone();
 
         // 0. decide if chunks are eligible for dict encoding
-        let (stream, first_chunk) = peek_first_chunk(stream).await?;
+        let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        let should_fallback = match first_chunk {
+        let should_fallback = match sample {
             None => true, // empty stream
-            Some(chunk) => {
+            Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
                     .probe_compressor
-                    .compress_chunk(&chunk, &mut exec_ctx)?;
+                    .compress_chunk(&sample, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };
@@ -392,9 +407,9 @@ type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
 struct DictionaryTransformer {
     input: DictionaryStream,
-    active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
+    active_codes_tx: Option<Sender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
-    pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
+    pending_send: Option<BoxFuture<'static, Result<(), SendError<SequencedChunk>>>>,
 }
 
 impl DictionaryTransformer {
@@ -442,7 +457,7 @@ impl Stream for DictionaryTransformer {
                 }))) => {
                     if self.active_codes_tx.is_none() {
                         // Start a new group
-                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
+                        let (codes_tx, codes_rx) = bounded::<SequencedChunk>(1);
                         let (values_tx, values_rx) = oneshot::channel();
 
                         self.active_codes_tx = Some(codes_tx.clone());
@@ -458,11 +473,8 @@ impl Stream for DictionaryTransformer {
                             ));
 
                         // Create output streams.
-                        let codes_stream = SequentialStreamAdapter::new(
-                            codes_dtype,
-                            codes_rx.into_stream().boxed(),
-                        )
-                        .sendable();
+                        let codes_stream =
+                            SequentialStreamAdapter::new(codes_dtype, codes_rx.boxed()).sendable();
 
                         let values_future = async move {
                             values_rx
@@ -512,19 +524,35 @@ impl Stream for DictionaryTransformer {
     }
 }
 
-async fn peek_first_chunk(
+/// Peeks chunks until they hold `probe_len` rows, returning the stream with those chunks back in
+/// front and its first `probe_len` rows, or `None` if the stream is empty.
+async fn peek_probe_sample(
     mut stream: BoxStream<'static, SequencedChunk>,
+    probe_len: usize,
 ) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
-    match stream.next().await {
-        None => Ok((stream.boxed(), None)),
-        Some(Err(e)) => Err(e),
-        Some(Ok((sequence_id, chunk))) => {
-            let chunk_clone = chunk.clone();
-            let reconstructed_stream =
-                once(async move { Ok((sequence_id, chunk_clone)) }).chain(stream);
-            Ok((reconstructed_stream.boxed(), Some(chunk)))
-        }
+    let mut peeked = Vec::new();
+    let mut peeked_len = 0;
+    while peeked_len < probe_len {
+        let Some(item) = stream.next().await else {
+            break;
+        };
+        let (sequence_id, chunk) = item?;
+        peeked_len += chunk.len();
+        peeked.push((sequence_id, chunk));
     }
+    let sample_len = peeked_len.min(probe_len);
+    let sample = match peeked.as_slice() {
+        [] => return Ok((stream, None)),
+        [(_, chunk)] => chunk.slice(0..sample_len)?,
+        [(_, first), ..] => ChunkedArray::try_new(
+            peeked.iter().map(|(_, chunk)| chunk.clone()),
+            first.dtype().clone(),
+        )?
+        .into_array()
+        .slice(0..sample_len)?,
+    };
+    let stream = iter(peeked.into_iter().map(Ok)).chain(stream).boxed();
+    Ok((stream, Some(sample)))
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
@@ -571,30 +599,52 @@ fn remainder(array: &ArrayRef, encoded_len: usize) -> VortexResult<Option<ArrayR
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use futures::StreamExt;
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
+    use vortex_array::builders::dict::dict_encode;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::root;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_session::VortexSession;
 
     use super::DictChunkLabeler;
+    use super::DictLayoutOptions;
+    use super::DictStrategy;
     use super::DictStreamState;
     use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
+    use crate::LayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::dict::Dict;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialStream;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
+    use crate::test::new_session;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -747,6 +797,84 @@ mod tests {
         for (values, expected) in dictionaries.into_iter().zip(["a", big.as_str(), "b"]) {
             assert_arrays_eq!(values, VarBinArray::from(vec![expected]), &mut ctx);
         }
+        Ok(())
+    }
+
+    /// The probe sees the first `probe_len` rows however the stream is chunked, and every chunk
+    /// it peeked at is still written.
+    #[rstest]
+    #[case::small_chunks(10, 10, true)]
+    #[case::shorter_than_probe(5, 10, false)]
+    #[case::one_large_chunk(1, 200, true)]
+    fn probe_samples_leading_rows(
+        #[case] nchunks: usize,
+        #[case] chunk_len: usize,
+        #[case] dict: bool,
+    ) -> VortexResult<()> {
+        const PROBE_LEN: usize = 100;
+        let probed_len = Arc::new(AtomicUsize::new(0));
+        let probed_len2 = Arc::clone(&probed_len);
+        // Dictionary-encodes only a full-size sample, so the decision shows how many rows it saw.
+        let probe = move |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+            probed_len2.store(chunk.len(), Ordering::Relaxed);
+            if chunk.len() < PROBE_LEN {
+                return Ok(chunk.clone());
+            }
+            let chunk = chunk.clone().execute::<Canonical>(ctx)?.into_array();
+            Ok(dict_encode(&chunk, ctx)?.into_array())
+        };
+        let strategy = DictStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            DictLayoutOptions {
+                probe_len: PROBE_LEN,
+                ..Default::default()
+            },
+            Arc::new(probe),
+        );
+
+        let values =
+            PrimitiveArray::from_iter((0i32..3).cycle().take(nchunks * chunk_len)).into_array();
+        let dtype = values.dtype().clone();
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let chunks = (0..nchunks)
+            .map(|i| {
+                let chunk = values.slice(i * chunk_len..(i + 1) * chunk_len)?;
+                Ok((sequence_id.advance(), chunk))
+            })
+            .collect::<Vec<VortexResult<_>>>();
+        let segments = Arc::new(TestSegments::default());
+
+        let actual = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    SequentialStreamAdapter::new(dtype, futures::stream::iter(chunks)).sendable(),
+                    eof,
+                    &session,
+                )
+                .await?;
+            assert_eq!(layout.is::<Dict>(), dict);
+
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let row_count = layout.row_count();
+            reader
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root().bind(reader.dtype())?,
+                    MaskFuture::new_true(usize::try_from(row_count)?),
+                )?
+                .await
+        })?;
+
+        assert_eq!(
+            probed_len.load(Ordering::Relaxed),
+            PROBE_LEN.min(nchunks * chunk_len)
+        );
+        assert_arrays_eq!(actual, values, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 }

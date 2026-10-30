@@ -14,11 +14,16 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -358,7 +363,7 @@ impl Sel {
 }
 
 /// Joins arrays covering consecutive rows into one.
-fn join(dtype: &vortex_array::dtype::DType, arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+fn join(dtype: &DType, arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
     Ok(ChunkedArray::try_new(arrays, dtype.clone())?.into_array())
 }
 
@@ -621,9 +626,14 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
-fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> VortexResult<()> {
+fn take_waits_for_whole_values_and_keeps_them(
+    #[case] predicate: bool,
+    #[values(3, 1536)] values_len: usize,
+) -> VortexResult<()> {
     let mut store = Store::default();
-    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let values =
+        VarBinViewArray::from_iter_str((0..values_len).map(|row| ["a", "b", "c"][row % 3]))
+            .into_array();
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
     let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let mut plan = lower(&layout)?;
@@ -691,6 +701,44 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
         "a new cache reads the values again"
     );
     assert_view(&expected, &rows, &mask, fresh.arrays)
+}
+
+#[rstest]
+#[case::utf8(DType::Utf8(true.into()))]
+#[case::binary(DType::Binary(true.into()))]
+fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinArray::from_iter(
+        (0..1536).map(|row| (row != 1).then_some(b"value".as_slice())),
+        dtype.clone(),
+    )
+    .into_array();
+    let codes =
+        PrimitiveArray::from_option_iter([Some(1535u32), Some(1), None, Some(0)]).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let plan = lower(&layout)?;
+    let mask = Mask::new_true(4);
+    let result = run(&store, &plan, 0..4, mask.clone(), delivery(Delivery::Lifo))?;
+
+    // The values' take kernel must remain visible instead of requiring the shared wrapper
+    // to canonicalize the whole dictionary before gathering the selected entries.
+    assert!(
+        result
+            .arrays
+            .iter()
+            .all(|array| array.as_::<Dict>().values().is::<VarBin>())
+    );
+    let expected = VarBinArray::from_iter(
+        [
+            Some(b"value".as_slice()),
+            None,
+            None,
+            Some(b"value".as_slice()),
+        ],
+        dtype,
+    )
+    .into_array();
+    assert_view(&expected, &(0..4), &mask, result.arrays)
 }
 
 #[test]

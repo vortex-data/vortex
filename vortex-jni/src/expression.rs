@@ -28,6 +28,7 @@ use vortex::VortexSessionDefault;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::MapDType;
@@ -576,7 +577,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalDecimal(
 }
 
 /// Decode a two's-complement big-endian byte array (Java `BigInteger.toByteArray()` format)
-/// into the smallest [`DecimalValue`] variant that can hold the precision.
+/// into the [`DecimalValue`] variant of the canonical width of the precision.
 fn decimal_value_from_be_bytes(
     bytes: &[u8],
     dtype: &DecimalDType,
@@ -585,32 +586,17 @@ fn decimal_value_from_be_bytes(
         throw_runtime!("decimal unscaled value must have at least one byte");
     }
     let value = i256_from_twos_complement_be(bytes);
-    // Pick the narrowest backing integer that fits the dtype's precision.
-    let required_bits = dtype.required_bit_width();
-    if required_bits <= 8 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i8"))?;
-        Ok(DecimalValue::I8(v))
-    } else if required_bits <= 16 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i16"))?;
-        Ok(DecimalValue::I16(v))
-    } else if required_bits <= 32 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i32"))?;
-        Ok(DecimalValue::I32(v))
-    } else if required_bits <= 64 {
-        let v =
-            BigCast::from(value).ok_or_else(|| vortex_err!("decimal value does not fit in i64"))?;
-        Ok(DecimalValue::I64(v))
-    } else if required_bits <= 128 {
-        let v = value
-            .maybe_i128()
-            .ok_or_else(|| vortex_err!("decimal value does not fit in i128"))?;
-        Ok(DecimalValue::I128(v))
-    } else {
-        Ok(DecimalValue::I256(value))
-    }
+
+    let values_type = dtype.canonical_values_type();
+    let overflow = || vortex_err!("decimal value does not fit in {values_type}");
+    Ok(match values_type {
+        DecimalType::I8 => DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I16 => DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I32 => DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I64 => DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I128 => DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?),
+        DecimalType::I256 => DecimalValue::I256(value),
+    })
 }
 
 /// Sign-extend a two's-complement big-endian byte slice into an `i256`.
@@ -685,7 +671,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
         } else {
             Nullability::NonNullable
         };
-        let ext = Timestamp::new_with_tz(unit, tz, nullability);
+        let ext = Timestamp::try_new_with_tz(unit, tz, nullability)?;
         let dtype = DType::Extension(ext.erased());
         if is_null_flag {
             return Ok(into_raw(lit(Scalar::null(dtype))));
@@ -1062,4 +1048,30 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalNull(
         };
         Ok(into_raw(lit(Scalar::null(dtype))))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::dtype::DecimalDType;
+    use vortex::scalar::DecimalValue;
+
+    use super::decimal_value_from_be_bytes;
+    use crate::errors::JNIError;
+
+    /// Precision 19 holds values above `i64::MAX`, so the value must use the canonical `i128`.
+    #[rstest]
+    #[case::max(9_999_999_999_999_999_999)]
+    #[case::min(-9_999_999_999_999_999_999)]
+    fn decimal_value_at_precision_19_uses_i128(#[case] unscaled: i128) -> Result<(), JNIError> {
+        let dtype = DecimalDType::try_new(19, 0)?;
+
+        let value = decimal_value_from_be_bytes(&unscaled.to_be_bytes(), &dtype)?;
+
+        assert!(
+            matches!(value, DecimalValue::I128(v) if v == unscaled),
+            "expected DecimalValue::I128({unscaled}), got {value:?}"
+        );
+        Ok(())
+    }
 }

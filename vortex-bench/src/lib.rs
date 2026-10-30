@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use anyhow::bail;
 use appian::AppianBenchmark;
 use clap::ValueEnum;
+use clickbench::CLICKBENCH_FILES;
 use clickbench::ClickBenchBenchmark;
 use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
@@ -74,6 +75,12 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::Edition;
+use vortex::editions::EditionDeclaration;
+use vortex::editions::EditionFamily;
+use vortex::editions::EditionId;
+use vortex::editions::EditionMember;
+use vortex::editions::EditionSessionExt;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -91,11 +98,45 @@ pub fn configure_allocator() {
     unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, -1) };
 }
 
+const BENCH_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "bench",
+    origin: "vortex-bench",
+    doc: "Unstable components that benchmarks write, without the rest of the unstable edition.",
+};
+
+/// The list layout from the unstable edition, on its own.
+const UNSTABLE_BENCH: EditionId = EditionId::new("bench", 2026, 10, 0);
+
+static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: UNSTABLE_BENCH,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.list")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
     session
+        .editions()
+        .declare_family(&BENCH_EDITION_FAMILY)
+        .vortex_expect("bench edition family is valid");
+    session
+        .register_edition(&UNSTABLE_BENCH_DECLARATION)
+        .vortex_expect("bench edition declaration is valid");
+    session
 });
+
+/// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
+///
+/// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
+fn enable_unstable_bench_edition() {
+    SESSION
+        .enable_edition(UNSTABLE_BENCH)
+        .vortex_expect("bench edition is registered");
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -389,8 +430,9 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::ClickBench => {
             let flavor = opts.get_as::<Flavor>("flavor").unwrap_or_default();
+            let files = opts.get_as::<u32>("files").unwrap_or(CLICKBENCH_FILES);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = ClickBenchBenchmark::new(flavor, None, remote_data_dir)?;
+            let benchmark = ClickBenchBenchmark::new(flavor, files, None, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::ClickBenchSorted => {
@@ -411,6 +453,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {
+            enable_unstable_bench_edition();
             let scale_factor = opts.get_as::<u64>(SCALE_FACTOR_KEY).unwrap_or(1);
             let mut benchmark = StatPopGenBenchmark::new(scale_factor)?;
             if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
@@ -434,6 +477,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {
+            enable_unstable_bench_edition();
             let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
             let mut benchmark = PolarSignalsBenchmark::new(scale_factor)?;
             if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
@@ -563,15 +607,6 @@ where
             .pattern(name, load_format)
             .map(|p| p.to_string())
             .unwrap_or_else(|| format!("*.{}", extension));
-
-        tracing::info!(
-            name,
-            base_dir,
-            pattern,
-            format = load_format.name(),
-            "Registering DuckDB {}",
-            object_type.to_lowercase()
-        );
 
         sql_statements.push(format!(
             "CREATE {object_type} IF NOT EXISTS {name} AS SELECT * FROM read_{extension}('{base_dir}/{pattern}');\n",

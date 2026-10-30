@@ -204,3 +204,17 @@ fn float_statistics_require_no_nans(
     assert_eq!(stats.sum_value, expected(3.0));
     Ok(())
 }
+
+#[test]
+fn uncompressed_size_is_not_reported_as_byte_size() -> VortexResult<()> {
+    let stats = StatsSet::of(
+        Stat::UncompressedSizeInBytes,
+        VortexPrecision::exact(4096u64),
+    );
+    let dtype = DType::Utf8(Nullability::NonNullable);
+    assert_eq!(
+        stats_set_to_df(&stats, &dtype)?.byte_size,
+        Precision::Absent
+    );
+    Ok(())
+}

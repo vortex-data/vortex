@@ -423,6 +423,26 @@ mod tests {
     }
 
     #[test]
+    fn test_set_validity_values_with_bit_buffer_offset() {
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = Vector::with_capacity(&logical_type, 100);
+
+        let bits = (0..80).map(|i| i % 3 == 0).collect::<Vec<_>>();
+        let bit_buffer = BitBuffer::from(bits.as_slice()).slice(2..80);
+        assert_eq!(bit_buffer.offset(), 2);
+        let mask = Mask::from(bit_buffer);
+
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 5, 60, None) };
+
+        assert!(!all_null);
+
+        let validity = unsafe { vector.validity_bitslice_mut(60).unwrap() };
+        for i in 0..60 {
+            assert_eq!(validity[i], bits[i + 2 + 5]);
+        }
+    }
+
+    #[test]
     fn test_set_validity_values_64bit_alignment() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(&logical_type, 100);

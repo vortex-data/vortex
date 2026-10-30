@@ -379,7 +379,7 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
-        let expected = BoolArray::from_iter([false, false, false]).into_array();
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         let optimized = expr.optimize()?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
@@ -396,7 +396,7 @@ mod tests {
 
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
-        let expected = BoolArray::from_iter([true, true, true]).into_array();
+        let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         let optimized = expr.optimize()?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())

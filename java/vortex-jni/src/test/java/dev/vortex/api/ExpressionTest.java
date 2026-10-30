@@ -22,6 +22,25 @@ public final class ExpressionTest {
     }
 
     @Test
+    public void timestampLiteralsRejectInvalidMetadata() {
+        assertThrows(
+                RuntimeException.class,
+                () -> Expression.literalTimestamp(0L, Expression.TimeUnit.SECONDS, "Not/A/Timezone"));
+        assertThrows(
+                RuntimeException.class,
+                () -> Expression.nullLiteralTimestamp(Expression.TimeUnit.SECONDS, "Not/A/Timezone"));
+        assertThrows(RuntimeException.class, () -> Expression.nullLiteralTimestamp(Expression.TimeUnit.DAYS, null));
+    }
+
+    @Test
+    public void timestampLiteralsRejectOutOfRangeValues() {
+        assertThrows(
+                RuntimeException.class,
+                () -> Expression.literalTimestamp(Long.MAX_VALUE, Expression.TimeUnit.SECONDS, null));
+        assertNotNull(Expression.literalTimestamp(0L, Expression.TimeUnit.SECONDS, "UTC"));
+    }
+
+    @Test
     public void rowIdxBuildsAndComposes() {
         assertNotNull(Expression.rowIdx());
         // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression

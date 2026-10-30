@@ -12,30 +12,13 @@ permissions:
   contents: write
 
 jobs:
-  commit-metadata:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Upload Commit Metadata
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
-
-          sudo apt-get update && sudo apt-get install -y jq
-          bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
-
   build:
     timeout-minutes: 60
+    # GitHub drops runner labels longer than 255 characters, and the job then waits for a runner
+    # forever. With the long `family` list and the longest benchmark id, this label is close.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -53,6 +36,8 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
       - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -88,7 +73,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family={1}/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={2}{3}', github.run_id, matrix.benchmark.simulated_s3 && 'c8gd.16xlarge' || 'c8gd.metal-24xl', matrix.benchmark.id, matrix.benchmark.variant_id)
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={2}{3}', github.run_id, matrix.benchmark.simulated_s3 && 'c8gd.16xlarge' || 'c8gd.metal-24xl', matrix.benchmark.id, matrix.benchmark.variant_id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -111,7 +96,7 @@ jobs:
             v4_ingest: true
           - id: string-bench
             name: String Encoding
-            v4_ingest: false
+            v4_ingest: true
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -153,17 +138,6 @@ jobs:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
-      - name: Prepare benchmark data for simulated S3
-        if: matrix.benchmark.simulated_s3
-        shell: bash
-        env:
-          AWS_REGION: "us-east-1"
-        run: |
-          set -Eeu -o pipefail -x
-
-          target/release_debug/${{ matrix.benchmark.id }} --prepare-data \
-            --formats parquet,vortex,lance
-
       - name: Install uv for LitData
         if: matrix.benchmark.id == 'random-access-bench' && !matrix.benchmark.simulated_s3
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -184,6 +158,30 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             litdata==0.2.76 torch pyarrow numpy
           echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
+
+      # Download and convert all benchmark data up front, so the benchmark step below only
+      # contains timed runs. The data is written with the same settings the benchmark uses.
+      - name: Generate ${{ matrix.benchmark.name }} data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+          REMOTE_DATA_DIR: ${{ matrix.benchmark.simulated_s3 && 's3://vortex-bench/' || matrix.benchmark.remote_data_dir }}
+        run: |
+          bench="${{ matrix.benchmark.id }}"
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
+            ${REMOTE_DATA_DIR:+--remote-data-dir "$REMOTE_DATA_DIR"}
+
+      - name: Upload benchmark data to S3
+        if: ${{ !matrix.benchmark.simulated_s3 && matrix.benchmark.remote_data_dir != null }}
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          set -Eeu -o pipefail -x
+
+          aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
+          aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
@@ -234,15 +232,8 @@ jobs:
             results.ingest.jsonl
             benchmarks/s3/profiles/ci-us-east-1-c8gd16.json
 
-      - name: Upload Benchmark Results
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
-
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website for suites that emit v4 records; a failure here fails the job.
-      # All suites also upload S3 results above. string-bench does not emit
-      # results.ingest.jsonl, so these steps are disabled for it.
       # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
       # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
       # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
@@ -280,6 +271,7 @@ jobs:
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
       - name: Alert incident.io

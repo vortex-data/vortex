@@ -38,7 +38,12 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
+use vortex_bench::compress::CompressOp;
+use vortex_bench::measurements::CompressionTimingMeasurement;
 use vortex_bench::measurements::CustomUnitMeasurement;
+use vortex_bench::v3;
+use vortex_bench::v3::V3Record;
+use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
 use vortex_btrblocks::schemes::integer::DeltaScheme;
@@ -46,50 +51,39 @@ use vortex_btrblocks::schemes::string::FSSTScheme;
 use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
-use vortex_onpair::DEFAULT_CONFIG;
 
+use crate::Candidate;
 use crate::StringColumn;
-use crate::StringEncoder;
 use crate::duration_ms;
 use crate::median;
-use crate::onpair_label;
 use crate::prepare_column;
 use crate::throughput;
 use crate::verify_canonicalized;
 
 /// The btrblocks string schemes that `BtrBlocksCompressorBuilder::from_session` can
-/// choose between. Forcing one encoder excludes every entry except its own
-/// scheme, so this list must track the default scheme set: add a row whenever a
+/// choose between. Forcing one encoder excludes every entry, then adds back its
+/// own configured scheme, so this list must track the default scheme set: add a row whenever a
 /// new string encoder becomes selectable by default (e.g. Zstd).
 fn default_string_scheme_ids() -> Vec<SchemeId> {
     vec![
         StringDictScheme.id(),
         FSSTScheme.id(),
-        OnPairScheme.id(),
+        OnPairScheme::default().id(),
         NullDominatedSparseScheme.id(),
     ]
 }
 
-impl StringEncoder {
-    /// The btrblocks string scheme that produces this encoder's on-disk arrays.
-    fn scheme_id(self) -> SchemeId {
+impl Candidate {
+    /// The btrblocks string scheme that produces this candidate's on-disk
+    /// arrays, configured as the candidate is.
+    ///
+    /// The compressor holds `'static` schemes, so a configured OnPair scheme is
+    /// leaked: this runs once per (column, candidate), outside every timed region.
+    fn scheme(&self) -> &'static dyn Scheme {
         match self {
-            Self::OnPair => OnPairScheme.id(),
-            Self::Fsst => FSSTScheme.id(),
+            Self::OnPair(config) => Box::leak(Box::new(OnPairScheme::new(config.max_dict_bits))),
+            Self::Fsst => &FSSTScheme,
         }
-    }
-}
-
-/// Label for one encoder on the serialized path, carrying the configuration the
-/// file was written with, e.g. `onpair-12` or `fsst`. Changing that config
-/// renames the metric and so restarts its benchmark history, which is intended:
-/// neither size nor read time is comparable across dictionary budgets.
-fn serialized_encoder_label(encoder: StringEncoder) -> String {
-    match encoder {
-        // The config `OnPairScheme` compresses with. When btrblocks gains a
-        // configurable budget, pass the benchmark's own config here.
-        StringEncoder::OnPair => onpair_label(&DEFAULT_CONFIG),
-        StringEncoder::Fsst => encoder.label().to_string(),
     }
 }
 
@@ -166,21 +160,56 @@ impl SerializedResult {
             ms(format!("read/{suffix}"), &self.read_runs),
         ]
     }
+
+    /// Emit the size, write (`encode`) and read (`decode`) results as records for the
+    /// shared `compression_sizes` and `compression_times` tables.
+    ///
+    /// The dataset is namespaced under `strings/` and the encoder goes in
+    /// `dataset_variant`, so these rows never share a key with `compress-bench` rows.
+    pub fn v3_records(&self) -> Vec<V3Record> {
+        let dataset = format!("strings/{}", self.name);
+        let variant = Some(self.encoder.as_str());
+        let time = |op, runs: &[Duration]| {
+            let timing = CompressionTimingMeasurement {
+                name: format!("{dataset}/{}", self.encoder),
+                format: Format::OnDiskVortex,
+                time: median(runs),
+            };
+            let all_runtimes_ns = runs
+                .iter()
+                .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                .collect();
+            v3::compression_time_record(&timing, &dataset, variant, op, all_runtimes_ns)
+        };
+        vec![
+            v3::compression_size_record(
+                &dataset,
+                variant,
+                Format::OnDiskVortex,
+                self.file_bytes,
+                self.uncompressed_bytes,
+            ),
+            time(CompressOp::Compress, &self.write_runs),
+            time(CompressOp::Decompress, &self.read_runs),
+        ]
+    }
 }
 
-/// Build the file writer strategy that forces one selected string scheme while
+/// Build the file writer strategy that forces one configured string scheme while
 /// leaving editioned non-string child compression enabled.
 fn serialized_write_strategy(
     session: &VortexSession,
-    encoder: StringEncoder,
+    candidate: &Candidate,
 ) -> Arc<dyn LayoutStrategy> {
-    let forced = encoder.scheme_id();
-    let compressor = BtrBlocksCompressorBuilder::from_session(session).exclude_schemes(
-        default_string_scheme_ids()
-            .into_iter()
-            .filter(|&id| id != forced)
-            .chain([DeltaScheme::default().id()]),
-    );
+    // Drop every default string scheme, including the forced one's default
+    // configuration, then add back the forced scheme as the candidate configures it.
+    let compressor = BtrBlocksCompressorBuilder::from_session(session)
+        .exclude_schemes(
+            default_string_scheme_ids()
+                .into_iter()
+                .chain([DeltaScheme::default().id()]),
+        )
+        .with_new_scheme(candidate.scheme());
     WriteStrategyBuilder::from_session(session)
         .with_btrblocks_builder(compressor)
         .build()
@@ -242,7 +271,7 @@ async fn read_serialized_buffer(session: &VortexSession, data: Bytes) -> Result<
     Ok(start.elapsed())
 }
 
-/// Write one reference file, then check it is uniformly `encoder`-encoded and,
+/// Write one reference file, then check it is uniformly `candidate`-encoded and,
 /// when `verify` is set, that it decodes back to the input. Runs once, outside
 /// every timed region: its size is the reported `size` metric.
 async fn prepare_serialized_file(
@@ -250,11 +279,13 @@ async fn prepare_serialized_file(
     column: &StringColumn,
     input: &ArrayRef,
     canonical: &VarBinViewArray,
-    encoder: StringEncoder,
+    candidate: &Candidate,
     verify: bool,
     ctx: &mut ExecutionCtx,
 ) -> Result<SerializedFile> {
-    let strategy = serialized_write_strategy(session, encoder);
+    let strategy = serialized_write_strategy(session, candidate);
+    let encoder = candidate.family();
+    let label = candidate.label();
     let data = write_serialized_file(session, input, &strategy).await?;
     let file_bytes = data.len() as u64;
 
@@ -266,7 +297,7 @@ async fn prepare_serialized_file(
     if let Some(unexpected) = chunks.iter().find(|array| !encoder.matches(array)) {
         bail!(
             "serialized column {} contains {} instead of {encoder} — the file was not \
-             uniformly {encoder}-encoded (is {encoder} the smallest scheme?)",
+             uniformly {label}-encoded",
             column.name,
             unexpected.encoding_id(),
         );
@@ -277,7 +308,7 @@ async fn prepare_serialized_file(
             .into_array()
             .execute::<VarBinViewArray>(ctx)?;
         verify_canonicalized(
-            &format!("{} [serialized read {encoder}]", column.name),
+            &format!("{} [serialized read {label}]", column.name),
             canonical,
             &canonicalized,
             ctx,
@@ -292,14 +323,14 @@ async fn prepare_serialized_file(
 }
 
 /// Time fresh in-memory serialized writes and reads for one string column and
-/// encoder, on the given session's runtime.
+/// encoder candidate, on the given session's runtime.
 pub async fn bench_serialized_with_session(
     session: &VortexSession,
     column: &StringColumn,
     iterations: usize,
     warmup: usize,
     verify: bool,
-    encoder: StringEncoder,
+    candidate: &Candidate,
 ) -> Result<SerializedResult> {
     crate::validate_iterations(iterations)?;
     let mut ctx = session.create_execution_ctx();
@@ -308,11 +339,11 @@ pub async fn bench_serialized_with_session(
     let input = canonical.clone().into_array();
     let rows = canonical.len();
     let serialized = prepare_serialized_file(
-        session, column, &input, &canonical, encoder, verify, &mut ctx,
+        session, column, &input, &canonical, candidate, verify, &mut ctx,
     )
     .await?;
 
-    let label = serialized_encoder_label(encoder);
+    let label = candidate.label();
     tracing::debug!(
         "{} [{label}]: {rows} rows, {} file bytes in {} row splits",
         column.name,
@@ -408,8 +439,7 @@ mod tests {
         );
     }
 
-    /// Also pins the encoder labels: a change to the btrblocks OnPair default
-    /// renames the tracked metrics and restarts their history.
+    /// Also pins the encoder labels, which name the tracked metrics.
     #[test]
     fn serialized_benchmark_smoke_tests_each_encoder() -> Result<()> {
         let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
@@ -417,12 +447,13 @@ mod tests {
         let session = VortexSession::default().with_handle(runtime.handle());
         session.enable_edition(CORE_2026_08_3)?;
 
-        for (encoder, expected_label) in [
-            (StringEncoder::OnPair, "onpair-12"),
-            (StringEncoder::Fsst, "fsst"),
+        for (candidate, expected_label) in [
+            (Candidate::on_pair(12)?, "onpair-12"),
+            (Candidate::on_pair(16)?, "onpair-16"),
+            (Candidate::Fsst, "fsst"),
         ] {
             let result = runtime.block_on(bench_serialized_with_session(
-                &session, &column, 1, 0, true, encoder,
+                &session, &column, 1, 0, true, &candidate,
             ))?;
 
             assert_eq!(result.encoder, expected_label);
@@ -463,7 +494,7 @@ mod tests {
             &column,
             &input,
             &canonical,
-            StringEncoder::Fsst,
+            &Candidate::Fsst,
             true,
             &mut ctx,
         ))?;

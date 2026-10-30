@@ -80,8 +80,8 @@ impl ColumnExporter for FixedSizeListExporter {
         self.elements_exporter
             .export(offset * list_size, len * list_size, elements_vector, ctx)?;
 
-        // TODO(connor): We must flatten the child vector to ensure any child dictionary views
-        // (namely UTF-8 string views in dictionaries) are materialized.
+        // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
+        // string views in dictionaries) are materialized.
         // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
         // detailed explanation on why we need this for now.
         elements_vector.flatten();

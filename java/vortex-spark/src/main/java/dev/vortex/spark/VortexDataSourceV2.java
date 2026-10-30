@@ -23,7 +23,10 @@ import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Expressions;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
+import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
@@ -123,6 +126,26 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
         return dataSchema;
     }
 
+    /** Returns {@code type} with every field, array element and map value nullable, at any depth. */
+    static StructType asNullable(StructType type) {
+        return (StructType) asNullable((DataType) type);
+    }
+
+    private static DataType asNullable(DataType type) {
+        if (type instanceof StructType struct) {
+            return new StructType(Stream.of(struct.fields())
+                    .map(f -> new StructField(f.name(), asNullable(f.dataType()), true, f.metadata()))
+                    .toArray(StructField[]::new));
+        }
+        if (type instanceof ArrayType array) {
+            return DataTypes.createArrayType(asNullable(array.elementType()), true);
+        }
+        if (type instanceof MapType map) {
+            return DataTypes.createMapType(asNullable(map.keyType()), asNullable(map.valueType()), true);
+        }
+        return type;
+    }
+
     /**
      * Infers partition transforms by inspecting Hive-style {@code key=value} segments in the first listed file path.
      *
@@ -179,7 +202,9 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
     public Table getTable(StructType schema, Transform[] partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
         ImmutableList<String> paths = getPathsOrEmpty(uncased);
-        return new VortexTable(paths, schema, buildDataSourceOptions(properties), partitioning);
+        // Whether inferred from one file, given by the user or stored in a catalog, the schema cannot promise that
+        // every file is free of nulls, so like Spark's file sources the table reads every field as nullable.
+        return new VortexTable(paths, asNullable(schema), buildDataSourceOptions(properties), partitioning);
     }
 
     /**

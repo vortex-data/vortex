@@ -67,7 +67,12 @@ pub enum BenchmarkDataset {
     #[serde(rename = "tpcds")]
     TpcDS { scale_factor: String },
     #[serde(rename = "clickbench")]
-    ClickBench { flavor: Flavor },
+    ClickBench {
+        flavor: Flavor,
+        /// How many partitioned files ran, when fewer than the complete dataset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<u32>,
+    },
     #[serde(rename = "clickbench-sorted")]
     ClickBenchSorted,
     #[serde(rename = "public-bi")]
@@ -114,9 +119,12 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::Appian => write!(f, "appian"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
-            BenchmarkDataset::ClickBench { flavor, .. } => match flavor {
-                Flavor::Partitioned => write!(f, "clickbench-partitioned"),
-                Flavor::Single => write!(f, "clickbench-single"),
+            BenchmarkDataset::ClickBench { flavor, files } => match (flavor, files) {
+                (Flavor::Partitioned, Some(files)) => {
+                    write!(f, "clickbench-partitioned(files={files})")
+                }
+                (Flavor::Partitioned, None) => write!(f, "clickbench-partitioned"),
+                (Flavor::Single, _) => write!(f, "clickbench-single"),
             },
             BenchmarkDataset::ClickBenchSorted => write!(f, "clickbench-sorted"),
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),

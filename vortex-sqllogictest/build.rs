@@ -6,5 +6,7 @@
 fn main() {
     // Propagate DuckDB rpath from vortex-duckdb
     let duckdb_lib = std::env::var("DEP_DUCKDB_LIB_DIR").unwrap();
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+    if !std::env::var("TARGET").unwrap().contains("windows") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+    }
 }

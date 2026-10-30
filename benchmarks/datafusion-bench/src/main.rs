@@ -120,9 +120,9 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
-    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H).
-    #[arg(long, action = clap::ArgAction::Set)]
-    scan_v2: Option<bool>,
+    /// Use the planner-driven V2 Vortex scan.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    scan_v2: bool,
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
@@ -136,10 +136,7 @@ async fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
-    let scan_v2 = args.scan_v2.unwrap_or_else(|| {
-        matches!(args.benchmark, BenchmarkArg::TpcH)
-            && !std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "0")
-    });
+    let scan_v2 = args.scan_v2;
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;

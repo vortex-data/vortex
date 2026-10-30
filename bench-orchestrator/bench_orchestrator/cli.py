@@ -22,6 +22,7 @@ from .ci_matrix import MATRIX_PRESETS, resolve_matrix
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
+    BENCHMARK_SCAN_V2,
     Benchmark,
     BenchmarkTarget,
     BuildConfig,
@@ -33,6 +34,7 @@ from .config import (
     parse_targets_json,
     resolve_axis_targets,
 )
+from .data_cache import S3DataCache, cached_dataset
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .storage.store import ResultStore
@@ -165,6 +167,25 @@ def write_combined_ingest_output(output_path: Path, input_paths: list[Path]) -> 
                     output.write(line)
 
 
+def format_query_reading(result_lines: list[str]) -> str:
+    """Summarize the timings a query reported, e.g. "median 12.34 ms (min 12.01, max 13.20, n=10)"."""
+    for line in result_lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("unit") != "ns" or "all_runtimes" not in record:
+            continue
+        runtimes_ms = [runtime / 1e6 for runtime in record["all_runtimes"]]
+        median_ms = record["value"] / 1e6
+        if not runtimes_ms:
+            return f"median {median_ms:.2f} ms"
+        return (
+            f"median {median_ms:.2f} ms (min {min(runtimes_ms):.2f}, max {max(runtimes_ms):.2f}, n={len(runtimes_ms)})"
+        )
+    return "no timing reported"
+
+
 def drop_os_caches() -> None:
     """Try to drop OS caches and "sync" if runners have passwordless sudo"""
     try:
@@ -207,6 +228,13 @@ def prepare_data(
     ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
+    s3_cache: Annotated[
+        str | None,
+        typer.Option(
+            "--s3-cache",
+            help="s3://bucket/prefix caching base data of benchmarks whose generation is slow",
+        ),
+    ] = None,
 ) -> None:
     """Generate benchmark data for explicitly requested formats."""
     if format and formats_json:
@@ -240,8 +268,13 @@ def prepare_data(
         console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 
     try:
+        cache = S3DataCache(s3_cache) if s3_cache else None
+        dataset = cached_dataset(benchmark, bench_opts, builder.workspace_root) if cache else None
+        restored = cache is not None and dataset is not None and cache.restore(dataset)
         subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as exc:
+        if cache is not None and dataset is not None and not restored:
+            cache.save(dataset)
+    except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
 
@@ -367,6 +400,8 @@ def run(
     console.print(f"\n[bold]Running {benchmark.value} benchmark[/bold]")
     console.print(f"  Targets: {', '.join(map(str, config.targets))}")
     console.print(f"  Iterations: {iterations}")
+    if any(target.engine in {Engine.DATAFUSION, Engine.DUCKDB} for target in config.targets):
+        console.print(f"  Vortex scan: {'V2' if BENCHMARK_SCAN_V2[benchmark] else 'V1'}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
@@ -385,13 +420,17 @@ def run(
             for backend, backend_targets in backend_groups.items():
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
                 for target in backend_targets:
+                    query_results: list[str] = []
 
                     def stream(line: str) -> None:
+                        query_results.append(line)
                         write_result_line(line, ctx.write_raw_json, compatibility_file)
 
                     try:
                         query_ids = executor.list_queries(benchmark, query_list, exclude_list)
-                        for query_id in query_ids:
+                        for i, query_id in enumerate(query_ids, start=1):
+                            query_results.clear()
+                            started = datetime.now()
                             part_ingest_output = None
                             if ingest_temp_dir is not None:
                                 part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
@@ -415,6 +454,15 @@ def run(
                             )
                             if part_ingest_output is not None:
                                 ingest_output_parts.append(part_ingest_output)
+
+                            elapsed = (datetime.now() - started).total_seconds()
+                            console.print(
+                                f"{datetime.now():%H:%M:%S} {target} query {query_id} [{i}/{len(query_ids)}]: "
+                                f"{format_query_reading(query_results)}, took {elapsed:.1f}s",
+                                markup=False,
+                                highlight=False,
+                                soft_wrap=True,
+                            )
 
                         console.print(f"[green]{target}: {len(query_ids)} queries[/green]")
                     except RuntimeError as exc:

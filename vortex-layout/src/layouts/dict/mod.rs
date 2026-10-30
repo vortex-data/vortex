@@ -202,7 +202,8 @@ mod tests {
     use super::Dict;
     use super::DictLayoutMetadata;
     use crate::LayoutBuildContext;
-    use crate::LayoutVTablePlugin;
+    use crate::LayoutDeserialization;
+    use crate::LayoutPlugin;
     use crate::layout_children;
     use crate::test::SESSION;
 
@@ -219,13 +220,16 @@ mod tests {
             session: &SESSION,
             array_read_ctx: &read_ctx,
         };
-        let result = LayoutVTablePlugin::build(
+        let result = LayoutPlugin::deserialize(
             &Dict,
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-            0,
-            &metadata,
-            vec![],
-            children.as_ref(),
+            LayoutDeserialization {
+                serialized_id: LayoutPlugin::id(&Dict),
+                dtype: &DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 0,
+                metadata: &metadata,
+                segment_ids: vec![],
+                children: children.as_ref(),
+            },
             &build_ctx,
         );
         assert!(result.is_err_and(|err| {

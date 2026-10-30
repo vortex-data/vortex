@@ -46,16 +46,16 @@ impl Default for SingleThreadRuntime {
 }
 
 struct Sender {
-    scheduling: kanal::Sender<SpawnAsync<'static>>,
-    cpu: kanal::Sender<SpawnSync<'static>>,
-    blocking: kanal::Sender<SpawnSync<'static>>,
+    scheduling: async_channel::Sender<SpawnAsync<'static>>,
+    cpu: async_channel::Sender<SpawnSync<'static>>,
+    blocking: async_channel::Sender<SpawnSync<'static>>,
 }
 
 impl Sender {
     fn new(local: &Rc<LocalExecutor<'static>>) -> Self {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnAsync>();
-        let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnSync>();
-        let (blocking_send, blocking_recv) = kanal::unbounded::<SpawnSync>();
+        let (scheduling_send, scheduling_recv) = async_channel::unbounded::<SpawnAsync>();
+        let (cpu_send, cpu_recv) = async_channel::unbounded::<SpawnSync>();
+        let (blocking_send, blocking_recv) = async_channel::unbounded::<SpawnSync>();
 
         // We pass weak references to the local execution into the async tasks such that the task's
         // reference doesn't keep the execution alive after the runtime is dropped.
@@ -65,7 +65,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = scheduling_recv.as_async().recv().await {
+                while let Ok(spawn) = scheduling_recv.recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         // Ignore send errors since it means the caller immediately detached.
                         drop(
@@ -82,7 +82,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = cpu_recv.as_async().recv().await {
+                while let Ok(spawn) = cpu_recv.recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
@@ -98,7 +98,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = blocking_recv.as_async().recv().await {
+                while let Ok(spawn) = blocking_recv.recv().await {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
@@ -125,7 +125,7 @@ impl Sender {
 impl Executor for Sender {
     fn spawn(&self, future: BoxFuture<'static, ()>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.scheduling.send(SpawnAsync {
+        if let Err(e) = self.scheduling.try_send(SpawnAsync {
             future,
             task_callback: send,
         }) {
@@ -138,7 +138,7 @@ impl Executor for Sender {
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.cpu.send(SpawnSync {
+        if let Err(e) = self.cpu.try_send(SpawnSync {
             sync: cpu,
             task_callback: send,
         }) {
@@ -151,7 +151,7 @@ impl Executor for Sender {
 
     fn spawn_blocking_io(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
-        if let Err(e) = self.blocking.send(SpawnSync {
+        if let Err(e) = self.blocking.try_send(SpawnSync {
             sync: work,
             task_callback: send,
         }) {

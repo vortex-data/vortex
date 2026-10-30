@@ -23,6 +23,7 @@ use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
 use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
+use tracing::debug;
 use tracing::info;
 use tracing::trace;
 use vortex::VortexSessionDefault;
@@ -87,7 +88,7 @@ fn calculate_concurrency() -> usize {
     let max_concurrency = get_available_parallelism().unwrap_or(1) as u64;
     let concurrency = (available_gb / MEMORY_PER_STREAM_GB).clamp(MIN_CONCURRENCY, max_concurrency);
 
-    info!(
+    debug!(
         "Available memory: {}GB, maximum concurrency is: {}",
         available_gb, concurrency
     );
