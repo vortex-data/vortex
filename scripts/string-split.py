@@ -59,6 +59,8 @@ def run_combinations() -> None:
                 "gh-json",
                 "-o",
                 str(PARTS_DIR / f"{i}.gh.json"),
+                "--ingest-jsonl",
+                str(PARTS_DIR / f"{i}.ingest.jsonl"),
             ]
             print("+", " ".join(args), flush=True)
             subprocess.run(args, check=True)
@@ -79,6 +81,7 @@ def merge(pattern: str, out_path: str) -> None:
 def main() -> None:
     run_combinations()
     merge(f"{PARTS_DIR}/*.gh.json", "results.json")
+    merge(f"{PARTS_DIR}/*.ingest.jsonl", "results.ingest.jsonl")
 
 
 if __name__ == "__main__":

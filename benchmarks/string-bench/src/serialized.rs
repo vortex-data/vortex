@@ -38,7 +38,11 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_bench::Format;
+use vortex_bench::compress::CompressOp;
+use vortex_bench::measurements::CompressionTimingMeasurement;
 use vortex_bench::measurements::CustomUnitMeasurement;
+use vortex_bench::v3;
+use vortex_bench::v3::V3Record;
 use vortex_btrblocks::Scheme;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::SchemeId;
@@ -154,6 +158,39 @@ impl SerializedResult {
             },
             ms(format!("write/{suffix}"), &self.write_runs),
             ms(format!("read/{suffix}"), &self.read_runs),
+        ]
+    }
+
+    /// Emit the size, write (`encode`) and read (`decode`) results as records for the
+    /// shared `compression_sizes` and `compression_times` tables.
+    ///
+    /// The dataset is namespaced under `strings/` and the encoder goes in
+    /// `dataset_variant`, so these rows never share a key with `compress-bench` rows.
+    pub fn v3_records(&self) -> Vec<V3Record> {
+        let dataset = format!("strings/{}", self.name);
+        let variant = Some(self.encoder.as_str());
+        let time = |op, runs: &[Duration]| {
+            let timing = CompressionTimingMeasurement {
+                name: format!("{dataset}/{}", self.encoder),
+                format: Format::OnDiskVortex,
+                time: median(runs),
+            };
+            let all_runtimes_ns = runs
+                .iter()
+                .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                .collect();
+            v3::compression_time_record(&timing, &dataset, variant, op, all_runtimes_ns)
+        };
+        vec![
+            v3::compression_size_record(
+                &dataset,
+                variant,
+                Format::OnDiskVortex,
+                self.file_bytes,
+                self.uncompressed_bytes,
+            ),
+            time(CompressOp::Compress, &self.write_runs),
+            time(CompressOp::Decompress, &self.read_runs),
         ]
     }
 }

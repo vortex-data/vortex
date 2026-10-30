@@ -90,7 +90,7 @@ jobs:
             v4_ingest: true
           - id: string-bench
             name: String Encoding
-            v4_ingest: false
+            v4_ingest: true
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -200,8 +200,6 @@ jobs:
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website for suites that emit v4 records; a failure here fails the job.
-      # string-bench does not emit results.ingest.jsonl, so these steps are disabled for it
-      # and its results are not stored.
       # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
       # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
       # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
