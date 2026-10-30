@@ -20,7 +20,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
-use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
@@ -30,6 +29,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::RepeatedArray;
 use crate::arrays::StructArray;
 use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
@@ -461,7 +461,7 @@ fn constant_canonical_fixed_size_list_array(
 ///
 /// A fixed-size list holds its elements back to back, so the rows cannot share one range the way a
 /// list view's can. Uniform elements stay a [`ConstantArray`] covering the whole run; otherwise the
-/// row materializes once and the run chunks that single copy.
+/// row materializes once and the run tiles that single copy.
 fn tile_fixed_size_list_elements(
     values: &[Scalar],
     element_dtype: &DType,
@@ -490,14 +490,9 @@ fn tile_fixed_size_list_elements(
                 return tile;
             }
 
-            // SAFETY: every chunk is `tile` itself, so they share its dtype and none is empty.
-            unsafe {
-                ChunkedArray::new_unchecked(
-                    std::iter::repeat_n(tile, len).collect::<Vec<_>>(),
-                    element_dtype.clone(),
-                )
-            }
-            .into_array()
+            RepeatedArray::try_new(tile, elements_len)
+                .vortex_expect("a non-empty tile repeats to any length")
+                .into_array()
         }
     }
 }
@@ -521,7 +516,6 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
-    use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
@@ -530,14 +524,15 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Repeated;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::arrays::listview::ListViewRebuildMode;
+    use crate::arrays::repeated::RepeatedArraySlotsExt;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -1072,7 +1067,7 @@ mod tests {
         }
     }
 
-    /// Mixed elements should materialize once, with every row chunking that one copy.
+    /// Mixed elements should materialize once, with every row tiling that one copy.
     #[test]
     fn test_canonicalize_fixed_size_list_tiles_one_copy_of_mixed_elements() {
         let mut ctx = SESSION.create_execution_ctx();
@@ -1092,16 +1087,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(canonical.elements().len(), 2 * LEN);
+        let repeated = canonical.elements().as_::<Repeated>();
         assert_eq!(
-            canonical.elements().as_::<Chunked>().nchunks(),
-            LEN,
+            repeated.child().len(),
+            2,
             "every row should reference the same tile rather than hold its own copy",
         );
-        let chunks = canonical.elements().as_::<Chunked>();
-        let tile_ptr = chunks.chunk(0).buffer_handles()[0].as_host().as_ptr();
-        for chunk in chunks.iter_chunks() {
-            assert_eq!(chunk.buffer_handles()[0].as_host().as_ptr(), tile_ptr);
-        }
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),

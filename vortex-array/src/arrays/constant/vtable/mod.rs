@@ -424,14 +424,12 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::FixedSizeList;
     use crate::arrays::ListView;
     use crate::arrays::Struct;
-    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -752,8 +750,8 @@ mod tests {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(dtype), 3))
     }
 
-    /// A fixed-size list whose elements are all the same scalar tiles a constant array, so the
-    /// tile's chunks stay constant-encoded rather than materializing a value per row.
+    /// A fixed-size list whose elements are all the same scalar repeats a constant array, so the
+    /// elements collapse into one constant array rather than materializing a value per row.
     #[test]
     fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -777,12 +775,10 @@ mod tests {
 
         let elements = result.as_::<FixedSizeList>().elements().clone();
         assert!(
-            elements
-                .as_::<Chunked>()
-                .iter_chunks()
-                .all(|chunk| chunk.is::<Constant>()),
+            elements.is::<Constant>(),
             "a uniform tile should have stayed constant-encoded",
         );
+        assert_eq!(elements.len(), 2_000);
         Ok(())
     }
 
