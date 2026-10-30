@@ -12,7 +12,8 @@ function declarations and result mappings), and part 5 of the extension notes ha
 On 2026-10-30, a second design pass settled extension nullability and the storage declaration
 (X25 to X34 in [`decisions.md`](decisions.md)). Its new findings are for `develop` at
 `493967ce33`. Part 4 of the Decimal notes holds the implementation plan for `Widen` and the
-canonical decimal fix. The tracking issues [#10701](https://github.com/vortex-data/vortex/issues/10701) and
+canonical decimal fix. The tracking issues
+[#10701](https://github.com/vortex-data/vortex/issues/10701) and
 [#10733](https://github.com/vortex-data/vortex/issues/10733) hold the state of each PR. The
 decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
 `develop` at `dbaf5f8` (2026-10-22).
