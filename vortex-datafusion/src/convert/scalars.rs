@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Converts scalar values between Vortex and DataFusion.
-//!
-//! A bare DataFusion scalar cannot carry extension metadata. Extensions without a dedicated
-//! DataFusion scalar representation must cross a field-aware Arrow boundary instead.
-
 use std::sync::Arc;
 
 use arrow_array::Array;
@@ -141,15 +136,16 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 vortex_bail!("Variant scalars aren't supported with DF")
             }
             DType::Extension(ext) => {
+                let storage_scalar = self.as_extension().to_storage_scalar();
+
                 let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
-                    vortex_bail!(
-                        "DataFusion ScalarValue requires a dedicated extension representation, got {}",
-                        self.dtype()
-                    );
+                    // Unknown extension type: perform scalar conversion using the canonical
+                    // scalar DType.
+                    return storage_scalar.try_to_df();
                 };
 
-                // Temporal extension types in Vortex have dedicated DataFusion scalar types.
-                let storage_scalar = self.as_extension().to_storage_scalar();
+                // Special handling: temporal extension types in Vortex correspond to Arrow's
+                // temporal physical types.
                 let pv = storage_scalar.as_primitive();
                 match temporal {
                     TemporalMetadata::Timestamp(unit, tz) => match unit {
@@ -395,7 +391,6 @@ mod tests {
     use datafusion_common::arrow::datatypes::i256 as arrow_i256;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
-    use vortex::array::EmptyMetadata;
     use vortex::buffer::ByteBuffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
@@ -404,7 +399,6 @@ mod tests {
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
     use vortex::dtype::UnionVariants;
-    use vortex::dtype::extension::ExtDType;
     use vortex::dtype::i256;
     use vortex::error::VortexExpect;
     use vortex::extension::datetime::Date;
@@ -412,7 +406,6 @@ mod tests {
     use vortex::extension::datetime::Timestamp;
     use vortex::scalar::DecimalValue;
     use vortex::scalar::Scalar;
-    use vortex_json::Json;
 
     use super::*;
 
@@ -967,45 +960,6 @@ mod tests {
         let err = scalar.try_to_df().unwrap_err();
 
         assert!(err.to_string().contains("unsupported scalar type"), "{err}");
-    }
-
-    #[rstest]
-    #[case::value(false, false)]
-    #[case::null(true, false)]
-    #[case::nested(false, true)]
-    fn test_bare_extension_scalar_cannot_lose_its_dtype(
-        #[case] null: bool,
-        #[case] nested: bool,
-    ) -> VortexResult<()> {
-        let dtype = DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::Nullable))?.erased(),
-        );
-        let scalar = Scalar::try_new(
-            dtype.clone(),
-            (!null).then(|| vortex::scalar::ScalarValue::from(r#"{"x":1}"#)),
-        )?;
-        let scalar = if nested {
-            Scalar::struct_(
-                DType::Struct(
-                    StructFields::new(FieldNames::from(["json"]), vec![dtype]),
-                    Nullability::NonNullable,
-                ),
-                vec![scalar],
-            )
-        } else {
-            scalar
-        };
-
-        let error = scalar
-            .try_to_df()
-            .expect_err("extension metadata cannot fit in a ScalarValue");
-        assert!(
-            error
-                .to_string()
-                .contains("requires a dedicated extension representation")
-        );
-
-        Ok(())
     }
 
     /// Wraps `value` in a `ScalarValue::RunEndEncoded`, as DataFusion represents a scalar taken
