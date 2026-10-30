@@ -107,6 +107,30 @@ impl ChunkPlanner {
             kept,
         }
     }
+
+    /// The planner of `rows` as a single chunk, for an engine that has already cut the scan into
+    /// units of work of its own, such as the layout splits of a file. Cutting such a unit again on
+    /// the chunk grid would leave a short chunk wherever the unit's edges miss the grid, and every
+    /// chunk slices and decodes the segments it overlaps.
+    pub fn single(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        selection: Selection,
+        kept: Option<Mask>,
+    ) -> Self {
+        let chunks = (!rows.is_empty())
+            .then(|| rows.clone())
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into_iter();
+        Self {
+            scan,
+            rows,
+            chunks,
+            selection,
+            kept,
+        }
+    }
 }
 
 impl IoConsumer for ChunkPlanner {
