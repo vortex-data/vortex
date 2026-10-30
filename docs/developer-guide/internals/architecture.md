@@ -68,7 +68,7 @@ Language bindings expose Vortex to non-Rust environments.
 | `vortex-python/`   | Python bindings via PyO3 and Maturin  |
 | `java/vortex-jni/` | Java JNI bindings                     |
 | `vortex-ffi/`      | C FFI bindings (generates `vortex.h`) |
-| `vortex-cxx/`      | C++ wrapper around the C FFI          |
+| `lang/cpp/`        | C++ wrapper around the C FFI          |
 
 ## Integrations
 

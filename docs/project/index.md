@@ -6,7 +6,6 @@ maxdepth: 2
 ---
 
 community
-roadmap
 contributing
 changelog/index
 ../references

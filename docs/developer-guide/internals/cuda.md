@@ -134,6 +134,3 @@ Vortex arrays with on-device buffer handles can be converted to Apache Arrow `De
 format for interoperability with other GPU libraries. An `ArrayStream` of Vortex arrays
 that have been executed on the GPU can be exported as a stream of Arrow DeviceArrays without
 copying data back to the host.
-
-Future work includes direct conversion to cuDF DataFrames, enabling zero-copy handoff to
-RAPIDS libraries for GPU-accelerated analytics.

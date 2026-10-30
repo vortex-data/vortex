@@ -54,10 +54,3 @@ ID, dtype, row count, and lazy children. Only the unsized tail containing the vt
 `PlanVTable` also carries `id` and a `Metadata` codec. Operators with no unrecoverable state
 already serialize their metadata; the ones holding a read context or a bound expression return
 `None` until those codecs exist.
-
-## Future work
-
-Plans currently stop at construction and optimization. Still to come: a plan registry and foreign
-operator placeholder so third-party operators survive a round trip, a serialization envelope, and
-an execution stage that walks an optimized plan, reads the referenced segments, and returns the
-query result.

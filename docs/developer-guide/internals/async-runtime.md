@@ -67,26 +67,3 @@ pool.set_workers(4);
 
 Each worker is a standard OS thread running `block_on(executor.run(...))` in a loop. When the
 worker count is reduced, excess workers are signalled to shut down gracefully.
-
-### Pitfalls
-
-The CRT model has known pitfalls that are not yet fully resolved. The most significant is
-ensuring that background I/O continues to be processed when the calling thread is occupied
-with CPU-bound work. Because the CRT relies on explicit driving, a thread that is busy
-evaluating a compute kernel is not polling the executor, which can stall in-flight I/O
-requests. Spawning a worker pool mitigates this, but introduces its own trade-offs around
-thread count and coordination overhead.
-
-These problems require further investigation into alternate designs, such as separating I/O
-polling from task execution, or using different thread pools for CPU-bound and I/O-bound work.
-
-## Experimentation
-
-The runtime abstraction exists precisely to enable experimentation with new threading models
-without changing the rest of the Vortex stack. Some directions under consideration include:
-
-- Separate thread pools for CPU-intensive work (decompression, compute kernels) and I/O work
-  (disk reads, network calls).
-- Cooperative yielding within long-running compute tasks to allow I/O progress.
-- Runtime-aware I/O scheduling that batches and coalesces reads based on the capabilities of
-  the underlying storage (local disk vs. object store vs. network).

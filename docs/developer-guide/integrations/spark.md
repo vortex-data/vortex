@@ -49,9 +49,3 @@ Native Vortex arrays are exported to Arrow via the C Data Interface, then wrappe
 columnar batch format using custom `ArrowColumnVector` wrappers. This avoids a copy between
 the Rust and JVM heaps -- the Arrow buffers remain in native memory and are accessed from Java
 through direct byte buffers.
-
-## Future Work
-
-The current integration builds directly on the native file and scan APIs via JNI. Future work
-will migrate it to use the [Scan API](/concepts/scanning) `Source` trait, which will provide a
-standard interface for file discovery, partitioning, and pushdown.

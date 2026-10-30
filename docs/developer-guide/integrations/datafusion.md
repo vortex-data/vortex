@@ -1,8 +1,53 @@
 # DataFusion
 
-The `vortex-datafusion` crate integrates Vortex as a native file format in Apache DataFusion.
-It registers a `FileFormat` and `FileSource` so that DataFusion's query planner can discover,
-partition, and scan Vortex files using the same machinery it uses for Parquet and CSV.
+Vortex provides a
+[`vortex-datafusion`](https://crates.io/crates/vortex-datafusion) crate for
+`.vortex` file support in DataFusion.
+
+## Setup and registration
+
+Add the dependency:
+
+```toml
+[dependencies]
+vortex-datafusion = "<version>"
+```
+
+Register the Vortex format with a `SessionContext`:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [setup]
+:end-before: [setup]
+:::
+
+Create an external table and query it:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [create]
+:end-before: [create]
+:::
+
+You can also register a `ListingTable` directly:
+
+:::{literalinclude} ../../vortex-datafusion/examples/vortex_table.rs
+:language: rust
+:dedent:
+:start-after: [register]
+:end-before: [register]
+:::
+
+Write query results to Vortex using `INSERT INTO`:
+
+:::{literalinclude} ../../vortex-datafusion/src/persistent/tests.rs
+:language: rust
+:dedent:
+:start-after: [write]
+:end-before: [write]
+:::
 
 ## Registration
 
@@ -24,18 +69,6 @@ executor schedules them.
 Layout readers are cached across partitions using a shared concurrent map keyed by file path.
 This avoids redundant footer parsing when the same file is accessed by multiple partitions or
 repeated queries.
-
-## Threading Model
-
-DataFusion runs on Tokio, and the Vortex integration operates entirely within that async
-context. The Vortex session is configured with `with_tokio()` to capture the current Tokio
-runtime handle. All I/O -- file opens, segment reads, object store fetches -- is dispatched as
-Tokio tasks and scheduled across Tokio's multi-threaded executor.
-
-DataFusion's physical executor manages parallelism by assigning partitions to its own task pool.
-Each partition opens its files and drives a `ScanBuilder` that returns an async stream of
-record batches. Multiple partitions execute concurrently, with DataFusion controlling the degree
-of parallelism.
 
 ## Filter and Projection Pushdown
 
@@ -65,13 +98,3 @@ schema.
 
 Vortex arrays produced by the scan are converted to Arrow `RecordBatch`es for consumption by
 DataFusion. Batches are sliced to respect DataFusion's configured batch size preference.
-
-## Future Work
-
-The current integration builds directly on the `ScanBuilder` and layout reader APIs. Future work
-will migrate it to use the [Scan API](/concepts/scanning) `Source` trait, which will simplify
-the integration by providing a standard interface for file discovery, partitioning, and pushdown
-that is shared across all engine integrations.
-
-Better support for dynamic expressions would enable use-cases like top-k queries, where the scan's
-filter expression is updated during execution as the query engine discovers tighter bounds.

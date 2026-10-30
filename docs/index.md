@@ -13,8 +13,8 @@
 :::
 
 An extensible ecosystem for compressed columnar data. Spans in-memory arrays,
-on-disk file formats, over-the-wire protocols, and integrations with query engines — all built
-around the latest research from the database community.
+on-disk file formats, over-the-wire protocols, and integrations with query
+engines — all built around the latest research from the database community.
 
 ## Where to start
 
@@ -28,10 +28,9 @@ from Parquet, compress your data, and query it.
 :::
 
 :::{container} card
-[**Use with a query engine**](user-guide/index.md)
+[**Use from a query engine**](user-guide/index.md)
 
-Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
-accelerated queries over compressed data.
+Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, or **Ray**.
 :::
 
 :::{container} card
@@ -63,22 +62,6 @@ internals. Build and benchmark locally.
 :::
 
 ::::
-
-## Highlights
-
-- **Compressed arrays**: Operate directly on compressed data with encodings like
-  [FastLanes](https://github.com/spiraldb/fastlanes),
-  [FSST](https://github.com/spiraldb/fsst), and
-  [ALP](https://github.com/spiraldb/alp) — no decompression needed for many operations.
-
-- **Extensible file format**: Zero-allocation reads, FlatBuffer metadata for O(1) column access,
-  and [editions](specs/versioning.md) for writing formats supported by older readers.
-
-- **Query engine integration**: Filter and projection pushdown through the Scan API, with native
-  integrations for DataFusion, DuckDB, Spark, Trino, and Ray.
-
-- **Language bindings**: First-class support for Python (PyO3), Java (JNI + Spark/Trino connectors),
-  and C/C++ (FFI).
 
 ```{toctree}
 ---
