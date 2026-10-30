@@ -646,7 +646,7 @@ fn finalize_done(
         result
     };
 
-    if let Some(expected_dtype) = expected_dtype {
+    if cfg!(debug_assertions) {
         vortex_ensure_eq!(
             output.len(),
             expected_len,
