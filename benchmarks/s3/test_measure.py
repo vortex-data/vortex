@@ -67,8 +67,9 @@ class MeasurementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "trace.jsonl"
             self.write(path, self.records())
-            _, rows = measure.read_window(path)
+            _, rows, samples = measure.read_window(path)
             self.assertEqual(len(rows), 4)
+            self.assertEqual(len(samples), 8)
             self.assertTrue(all(r["headers_median_ms"] == 1 and r["body_p90_ms"] == 2 for r in rows))
             self.assertAlmostEqual(rows[0]["aggregate_mib_per_second"], 8 / 1048576 / 0.01)
 
@@ -85,6 +86,75 @@ class MeasurementTests(unittest.TestCase):
             for message, change in cases:
                 with self.subTest(message=message):
                     records = self.records()
+                    change(records)
+                    self.write(path, records)
+                    with self.assertRaisesRegex(ValueError, message):
+                        measure.read_window(path)
+
+    def cold(self, records: list[dict]) -> list[dict]:
+        records[0].update(
+            cold_source="s3://test/cold/",
+            cold_concurrency=2,
+            cold_requests={"4": 2, "8": 2},
+            cold_objects=[],
+        )
+        complete = records.pop()
+        for size in (4, 8):
+            for ordinal in range(2):
+                records.append(
+                    {
+                        "kind": "request",
+                        "phase": "cold",
+                        "path": f"cold/{size}/{ordinal}.bin",
+                        "status": "complete",
+                        "bytes": size,
+                        "range": {"start": 0, "end": size},
+                        "round": 0,
+                        "ordinal": ordinal,
+                        "requested_concurrency": 2,
+                        "started_unix_ms": 7200000,
+                        "last_modified_unix_ms": 0,
+                        "response_ms": 10.0,
+                        "first_byte_ms": 12.0,
+                        "duration_ms": 20.0,
+                    }
+                )
+            records.append(
+                {
+                    "kind": "cell_summary",
+                    "phase": "cold",
+                    "round": 0,
+                    "range_bytes": size,
+                    "requested_concurrency": 2,
+                    "requests": 2,
+                    "bytes": size * 2,
+                    "errors": 0,
+                    "seconds": 0.02,
+                    "peak_inflight": 2,
+                    "avg_inflight": 2.0,
+                }
+            )
+        records.append(complete)
+        return records
+
+    def test_cold_reads_are_reported_separately_and_once_per_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trace.jsonl"
+            self.write(path, self.cold(self.records()))
+            _, rows, samples = measure.read_window(path)
+            cold = [r for r in rows if r["phase"] == "cold"]
+            self.assertEqual([r["bytes_per_request"] for r in cold], [4, 8])
+            self.assertTrue(all(r["total_p999_ms"] == 20 and r["min_hours_since_write"] == 2 for r in cold))
+            tails = measure.tails(samples)
+            pooled = [r for r in tails if r["concurrency"] == "all"]
+            self.assertEqual([(r["phase"], r["bytes_per_request"]) for r in pooled][:2], [("cold", 4), ("cold", 8)])
+            self.assertIn("| cold | 4 | 2 |", measure.tail_markdown(tails))
+            for message, change in (
+                ("more than once", lambda records: records[-3].update(path="cold/8/0.bin")),
+                ("Cold coverage", lambda records: records.pop(-3)),
+            ):
+                with self.subTest(message=message):
+                    records = self.cold(self.records())
                     change(records)
                     self.write(path, records)
                     with self.assertRaisesRegex(ValueError, message):
