@@ -33,7 +33,6 @@
 //! [`TableProvider`]: datafusion_catalog::TableProvider
 //! [`DataSource`]: datafusion_datasource::source::DataSource
 
-mod dynamic_filters;
 mod source;
 mod table;
 

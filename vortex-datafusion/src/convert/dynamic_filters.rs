@@ -30,10 +30,11 @@ use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use super::arrow_predicate::dynamic_predicate;
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
 
-pub(super) fn convert_dynamic_filter(
+pub(crate) fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
@@ -71,6 +72,12 @@ pub(super) fn convert_dynamic_filter(
     // A DataFusion dynamic filter may replace its entire body, regardless of its current shape.
     let mut columns = collect_columns(&expression).into_iter().collect::<Vec<_>>();
     columns.sort_unstable_by_key(|column| column.index());
+    let key_schema = Arc::new(Schema::new(
+        columns
+            .iter()
+            .map(|column| Arc::clone(&schema.fields()[column.index()]))
+            .collect::<Vec<_>>(),
+    ));
     let inputs = columns
         .iter()
         .map(|column| get_item(column.name(), root()))
@@ -87,6 +94,7 @@ pub(super) fn convert_dynamic_filter(
             expression,
             schema,
             scope_projection,
+            key_schema,
             converter,
         }),
         inputs,
@@ -97,6 +105,7 @@ struct DataFusionDynamicFilter {
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     scope_projection: Expression,
+    key_schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
 }
 
@@ -118,16 +127,36 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
     }
 
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
-        let converted = snapshot_physical_expr(Arc::clone(&self.expression))
-            .ok()
-            .and_then(|snapshot| {
-                pruning_conjuncts(&snapshot, &self.schema, self.converter.as_ref())
-            });
-        // The producing DataFusion operator retains exact enforcement when conversion fails.
-        let expression = converted.map_or_else(
-            || lit(true),
-            |expr| replace(expr, &root(), self.scope_projection.clone()),
-        );
+        let expression = match snapshot_physical_expr(Arc::clone(&self.expression)) {
+            Ok(snapshot) => {
+                let converted = self
+                    .converter
+                    .try_convert(&snapshot, &self.schema)
+                    .ok()
+                    .flatten()
+                    .filter(is_infallible);
+                if let Some(expression) = converted {
+                    replace(expression, &root(), self.scope_projection.clone())
+                } else {
+                    let bounds = pruning_conjuncts(
+                        &snapshot,
+                        &self.schema,
+                        self.converter.as_ref(),
+                    )
+                    .map(|expression| replace(expression, &root(), self.scope_projection.clone()));
+                    let predicate = dynamic_predicate(
+                        snapshot,
+                        Arc::clone(&self.key_schema),
+                        self.scope_projection.clone(),
+                    );
+                    match (bounds, predicate) {
+                        (Some(bounds), Some(predicate)) => and(bounds, predicate),
+                        (bound, None) | (None, bound) => bound.unwrap_or_else(|| lit(true)),
+                    }
+                }
+            }
+            Err(_) => lit(true),
+        };
         expression.bind(scope)
     }
 }
@@ -158,13 +187,24 @@ fn pruning_conjuncts(
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::ArrayRef;
+    use arrow_array::Int32Array;
+    use arrow_array::RecordBatch;
+    use arrow_array::StringViewArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use datafusion_common::hash_utils::create_hashes;
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use datafusion_physical_expr::expressions::IsNullExpr;
     use datafusion_physical_expr::expressions::NegativeExpr;
     use datafusion_physical_expr::expressions::NotExpr;
     use datafusion_physical_plan::expressions as df_expr;
+    use datafusion_physical_plan::joins::HashTableLookupExpr;
+    use datafusion_physical_plan::joins::Map;
+    use datafusion_physical_plan::joins::SeededRandomState;
+    use datafusion_physical_plan::joins::join_hash_map::JoinHashMapU32;
+    use datafusion_physical_plan::joins::utils::JoinHashMapType;
     use vortex::VortexSessionDefault;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
@@ -181,6 +221,92 @@ mod tests {
 
     fn unsupported(column: Arc<dyn PhysicalExpr>) -> Arc<dyn PhysicalExpr> {
         above(Arc::new(NegativeExpr::new(column)), -25)
+    }
+
+    #[test]
+    fn live_hash_membership_filters_composite_view_keys_and_preserves_nulls() -> anyhow::Result<()>
+    {
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "id",
+                Arc::new(Int32Array::from(vec![0, 1, 2, 3, 4, 5])) as ArrayRef,
+            ),
+            (
+                "number",
+                Arc::new(Int32Array::from(vec![
+                    Some(1),
+                    Some(1),
+                    Some(2),
+                    None,
+                    Some(3),
+                    Some(4),
+                ])) as ArrayRef,
+            ),
+            (
+                "text",
+                Arc::new(StringViewArray::from(vec![
+                    Some("one"),
+                    Some("other"),
+                    Some("two"),
+                    Some("null"),
+                    Some("three"),
+                    None,
+                ])) as ArrayRef,
+            ),
+        ])?;
+        let keys = vec![
+            Arc::new(Column::new("number", 1)) as Arc<dyn PhysicalExpr>,
+            Arc::new(Column::new("text", 2)) as Arc<dyn PhysicalExpr>,
+        ];
+        let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            keys.clone(),
+            df_expr::lit(true),
+        ));
+        let session = VortexSession::default();
+        let input = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let expression = convert_dynamic_filter(
+            Arc::clone(&filter) as Arc<dyn PhysicalExpr>,
+            batch.schema(),
+            Arc::new(DefaultExpressionConverter::new(session.clone())),
+        );
+        let mut ctx = session.create_execution_ctx();
+        assert_arrays_eq!(
+            input.clone().apply(&expression)?,
+            BoolArray::from_iter([Some(true); 6]),
+            &mut ctx
+        );
+
+        for (number, text, expected) in [(1, "one", vec![0, 3, 5]), (3, "three", vec![3, 4, 5])] {
+            let state = SeededRandomState::with_seed(42);
+            let build_keys = vec![
+                Arc::new(Int32Array::from(vec![number])) as ArrayRef,
+                Arc::new(StringViewArray::from(vec![text])) as ArrayRef,
+            ];
+            let mut hashes = vec![0];
+            create_hashes(&build_keys, state.random_state(), &mut hashes)?;
+            let mut map = JoinHashMapU32::with_capacity(1);
+            map.update_from_iter(Box::new(hashes.iter().enumerate()), 0);
+            let membership = Arc::new(HashTableLookupExpr::new(
+                keys.clone(),
+                state,
+                Arc::new(Map::HashMap(Box::new(map))),
+                "hash_lookup".into(),
+            )) as Arc<dyn PhysicalExpr>;
+            let nulls = Arc::new(BinaryExpr::new(
+                Arc::new(IsNullExpr::new(Arc::clone(&keys[0]))),
+                DFOperator::Or,
+                Arc::new(IsNullExpr::new(Arc::clone(&keys[1]))),
+            )) as Arc<dyn PhysicalExpr>;
+            filter.update(Arc::new(BinaryExpr::new(membership, DFOperator::Or, nulls)))?;
+            assert_arrays_eq!(
+                input.clone().apply(&expression)?,
+                BoolArray::from_iter((0..6).map(|id| Some(expected.contains(&id)))),
+                &mut ctx
+            );
+        }
+        Ok(())
     }
 
     #[test]
@@ -242,11 +368,11 @@ mod tests {
         let mut ctx = session.create_execution_ctx();
         for (predicate, expected) in [
             (df_expr::lit(true), [true, true, true]),
-            (conjunction, [false, true, true]),
+            (conjunction, [false, true, false]),
             (disjunction, [true, true, true]),
-            (negation, [true, true, true]),
+            (negation, [true, false, true]),
             (above(original, 25), [false, false, true]),
-            (unsupported, [true, true, true]),
+            (unsupported, [true, true, false]),
         ] {
             filter.update(predicate)?;
             assert_arrays_eq!(
