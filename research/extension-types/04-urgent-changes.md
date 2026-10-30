@@ -9,7 +9,7 @@ These changes fix wrong results and panics. U1 to U8 do not depend on the design
 each one fits in a small PR with a regression test. U9 needs the declaration types of the design, so
 it lands in phase 2 of part 5. Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
 2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
-part are for that commit.
+part are for that commit. On 2026-10-30, U5 merged in #11015.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -81,16 +81,19 @@ another literal path. A test for each engine and each path confirms the other ca
 
 ## U4. Nullability changes cannot fail
 
-- `ExtDType::try_with_vtable` validates the dtype with both nullabilities. After that,
-  `with_nullability` cannot fail and does not validate again.
-- `with_nullability` builds the new dtype directly. Today it calls `try_with_vtable`
-  (`vortex-array/src/dtype/extension/typed.rs:91-99`). With the first change, that call validates
-  both nullabilities on every nullability change.
-- The documentation of `ExtVTable::validate_dtype` states that its result must not depend on
-  nullability.
+- `with_nullability` builds the new dtype directly and does not validate again. Today it calls
+  `try_with_vtable` (`vortex-array/src/dtype/extension/typed.rs:91-99`).
+- The documentation of `ExtVTable::validate_dtype` states that its result must not depend on the
+  top-level nullability of the storage dtype. Nested nullability belongs to the type, so a
+  validator can still check it. No validator in the repository depends on the top-level
+  nullability. Only `Uuid` checks a nested level (`encodings/uuid/src/vtable.rs:67-74`).
 
-A fallible `with_nullability` is the alternative. It moves the error into every caller, so a check
-when the dtype is built is the better place.
+An extension type cannot choose its top-level nullability (X25), so a nullability change gives it
+nothing to check. The first version of
+[#11012](https://github.com/vortex-data/vortex/pull/11012) also validated every dtype for both
+nullabilities when it was built. The maintainer rejected that, and #11012 has the form above since
+2026-10-30. A fallible `with_nullability` is the other alternative. It moves the error into every
+caller. The storage declaration of phase 1 replaces this interim form (X27).
 
 ## U5. Built-in temporal validation
 
@@ -103,6 +106,11 @@ when the dtype is built is the better place.
   panics (EXT-V8).
 - `Time::unpack_native` gets the same change. Its `microseconds` and `nanoseconds` setters panic in
   the same way (`vortex-array/src/extension/datetime/time.rs:131-138`).
+
+[#11015](https://github.com/vortex-data/vortex/pull/11015) made these changes and merged on
+2026-10-30 as `5d8429064a`. It kept the jiff range of `Timestamp`.
+[#10953](https://github.com/vortex-data/vortex/pull/10953) removes that range, so that `Timestamp`
+accepts every `i64` (X31, EXT-V9).
 
 ## U6. Storage checks for arrays and scalars
 
@@ -157,9 +165,28 @@ adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
 
-On 2026-10-30, these PRs for part 4 are open: the path-consistency helper (#11013), U4 and U8
-(#11012), U3, U6 and U7 (#11014), U5 (#11015), and U2 on top of the helper (#11016). U1 and the
-Arrow export that lands before it have no PR yet.
+Later on 2026-10-30, the PRs for part 4 stand as follows:
+
+- The path-consistency helper (#11013) is approved.
+- U4 and U8 (#11012) are a draft in the reworked form of U4, at `f2c669e4ff`.
+- U3, U6 and U7 (#11014) are a draft. #11014 and #10953 make the same fallible wrap in
+  `min_max/extension.rs`. These notes suggest that #10953 drops its copy, so the two PRs do not
+  depend on each other.
+- U5 (#11015) merged.
+- U2 (#11016) is a draft on top of the helper.
+- U1 and the Arrow export that lands before it have no PR yet.
+
+Three more PRs touch this work:
+
+- [#10953](https://github.com/vortex-data/vortex/pull/10953), an outside contribution, makes
+  `Timestamp` accept every `i64` (X31) and fixes the `DateTimeParts` days wrap (EXT-S3). These
+  notes also suggest an `i64` days part in place of its range check.
+- [#11056](https://github.com/vortex-data/vortex/pull/11056) folds `ext_storage` and `get_item`
+  over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
+  types. The maintainer approved it, because it only folds an `ext_storage` that the expression
+  already holds (X33). It is the constant case of X34.
+- A spatial PR makes the validators require non-null nested levels and the Arrow importers fail on
+  nested nulls (EXT-N2, X26, X29). It is not open yet.
 
 Three PRs added or add mechanisms for extension semantics:
 

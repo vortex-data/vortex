@@ -29,6 +29,10 @@ That causes wrong results, panics, and code paths that disagree with each other.
   casts. Engines convert operands of different dtypes before Vortex sees them.
 - A design pass on 2026-10-29 settled this mechanism. Part 3 describes it, and part 5 has the new
   phase plan.
+- A second pass on 2026-10-30 settled nullability. An extension type cannot choose its top-level
+  nullability, which is always the nullability of its storage. It owns its nested nullability.
+  Each type declares its storage dtype from its metadata, and reads check the stored storage
+  against that declaration. `Timestamp` accepts every `i64`.
 - A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
   wrapper. So code finds them without any knowledge of extension types.
 - [`../decisions.md`](../decisions.md) records which of these points are decided and which are
@@ -50,8 +54,9 @@ That causes wrong results, panics, and code paths that disagree with each other.
 
 The findings come from reading `develop` at `5fc5cb8`, and from two throwaway tests in debug
 builds. A second read on 2026-10-29 checked them against `develop` at `1d09649bbd`. Every urgent
-change (U1 to U9) is still needed there, and the catalog lists what changed. Findings marked "lead"
-in the agent catalog are not confirmed. No performance claim is measured.
+change (U1 to U9) was still needed there, and the catalog lists what changed. A third pass on
+2026-10-30 added three findings at `493967ce33`, after U5 merged. Findings marked "lead" in the
+agent catalog are not confirmed. No performance claim is measured.
 
 ## Related
 

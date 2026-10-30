@@ -5,12 +5,13 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 2. Current problems on `develop`
 
-All findings are for `develop` at `5fc5cb8`, except EXT-A3, which is for `develop` at
-`1d09649bbd`. A check on 2026-10-29 found every other finding still on `develop` at `1d09649bbd`.
-Only EXT-A1 changed, as described below. Each ID refers to an entry in
-[`agents/findings.md`](agents/findings.md), which has file and line references, reproductions and
-fix sketches. "Confirmed" means that a throwaway test ([`agents/probe.rs`](agents/probe.rs) or
-[`agents/probe_followup.rs`](agents/probe_followup.rs)) reproduced the behavior.
+All findings are for `develop` at `5fc5cb8`, except EXT-A3, which is for `develop` at `1d09649bbd`,
+and EXT-V9, EXT-N2 and EXT-S3, which are for `develop` at `493967ce33` (2026-10-30). A check on
+2026-10-29 found every other finding still on `develop` at `1d09649bbd`. Only EXT-A1 changed, as
+described below. Each ID refers to an entry in [`agents/findings.md`](agents/findings.md), which has
+file and line references, reproductions and fix sketches. "Confirmed" means that a throwaway test
+([`agents/probe.rs`](agents/probe.rs) or [`agents/probe_followup.rs`](agents/probe_followup.rs))
+reproduced the behavior.
 
 ## Results depend on the encoding and the read path (EXT-P1)
 
@@ -50,6 +51,9 @@ implementation.
   before it checks the type, and it does not compare time units. Confirmed: against an `i64`
   constant, the array path panics. Against a `Timestamp(ns)` constant, a `Timestamp(ms)` column
   gets a wrong result.
+- **`DateTimeParts` days (EXT-S3).** The split converts days to `i32` with a wrapping cast. A
+  column in seconds or milliseconds with values more than `i32::MAX` days from 1970 is stored wrong,
+  with no error. [#10953](https://github.com/vortex-data/vortex/pull/10953) fixes it.
 - **Engine boundaries (EXT-B1 to EXT-B5).** DataFusion converts non-temporal extension scalars to
   storage scalars. Arrow export to a storage-like target type exports storage through the cast
   fallback. Python `as_py()` returns the storage value. DuckDB decides aggregate pushdown from the
@@ -65,12 +69,21 @@ implementation.
   and returns `false` in the other. Confirmed.
 - **Nullability changes can panic (EXT-N1).** `ExtDType::with_nullability` validates the type again
   and panics if validation fails. A type that accepts only non-nullable storage panics in `take`
-  with nullable indices. Confirmed.
+  with nullable indices. Confirmed. [#11012](https://github.com/vortex-data/vortex/pull/11012)
+  stops the second validation.
+- **Timestamps near year 9999 (EXT-V9).** `Timestamp` accepts only the range of jiff, which ends 26
+  hours before the end of year 9999. Writing `9999-12-31` panics while the writer computes min and
+  max statistics (issue [#8860](https://github.com/vortex-data/vortex/issues/8860)). #10953 makes
+  every `i64` legal (X31).
+- **Spatial nested nullability (EXT-N2).** The spatial validators check only the coordinates, so
+  they accept nullable lists and nullable coordinate structs. GeoArrow allows nulls only at the
+  outer level (X26).
 - **Zero values skip validation (EXT-V3).** `Scalar::zero_value` uses the storage zero. For a type
   that rejects zero, debug builds panic and release builds return an invalid scalar. Confirmed.
 - **Built-in temporal types (EXT-V4, EXT-V5).** `Date` and `Time` panic on non-primitive storage, so
   a malformed file panics instead of returning an error. `Timestamp` accepts the `Days` unit and
   unknown time zones, and then rejects every value.
+  [#11015](https://github.com/vortex-data/vortex/pull/11015) fixed both on 2026-10-30.
 - **Arrays skip the storage dtype check (EXT-V2).** `Extension::validate` checks the length, but
   it compares the dtype with itself. It accepts `Utf8` storage under a `Timestamp` dtype.
   Confirmed.
@@ -110,7 +123,9 @@ implementation.
 3. **Two implementations.** Cast and compare each have a scalar and an array implementation with
    different extension rules.
 4. **Trusted arrays.** Values are checked only when a scalar is built, and that check panics.
-5. **Nullability in the storage dtype.** Any nullability change validates the type again.
+5. **Nullability in the storage dtype.** Any nullability change validates the type again, and
+   nothing says that the check must ignore nullability. The type will declare its storage instead
+   (X27).
 6. **Manual authoring.** The core has no typed array view, no explicit wrap expression, and no
    export hooks for DuckDB, DataFusion or Python. Extension crates fill the gaps by hand.
    `vortex-spatial` has seven typed array wrappers, and its Arrow code is 4.7 times the size of its

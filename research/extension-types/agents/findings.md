@@ -14,6 +14,10 @@ later. No commit fixed a finding. EXT-A1 changed, EXT-A3 is new, and the entries
 EXT-V8, EXT-B4 and EXT-R4 gained new facts. `../04-urgent-changes.md` gives the line numbers at
 `1d09649bbd` for the code that U1 to U9 change. Lines in other files can have moved.
 
+A third pass on 2026-10-30 added EXT-V9, EXT-N2 and EXT-S3. Their line numbers are for `develop`
+at `493967ce33`, except where an entry names `d197efd007`. The code that they cite is the same at
+both commits. #11015 fixed EXT-V4, EXT-V5 and EXT-V8 on 2026-10-30.
+
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
 
@@ -66,9 +70,12 @@ Terms:
 | EXT-V6 | Eight extension types never check values | S3 | code |
 | EXT-V7 | Extension scalars skip the storage dtype check | S2 | probe |
 | EXT-V8 | The `Timestamp` value check panics on out-of-range values | S2 | code |
+| EXT-V9 | `Timestamp` rejects valid values outside the range of jiff | S2 | code |
 | EXT-N1 | A nullability change can panic | S2 | probe |
+| EXT-N2 | The spatial validators accept nullable nested levels | S2 | code |
 | EXT-S1 | A constant extension column has two shapes | S3 | code |
 | EXT-S2 | Some encodings carry the extension dtype themselves | S3 | code |
+| EXT-S3 | `DateTimeParts` wraps days past `i32::MAX` | S1 | code |
 | EXT-B1 | DataFusion converts extension values to storage values | S1 | code |
 | EXT-B2 | Arrow export can silently export storage | S1 | code |
 | EXT-B3 | Python returns and builds raw storage values | S1 | code |
@@ -431,7 +438,32 @@ Terms:
   which panic in the same way. The `nanoseconds` setters of `Time` and `Timestamp` panic on
   `i64::MIN`. Nothing ran.
 - **Fix:** Use `Span::try_seconds` and the other `try_` setters, and return their error. U5
-  covers both types.
+  covers both types. #11015 made this change on 2026-10-30.
+
+### EXT-V9: `Timestamp` rejects valid values outside the range of jiff
+
+- **Locations:**
+  - `vortex-array/src/extension/datetime/timestamp.rs:238-271`: `unpack_native` builds a
+    `jiff::Span` with the `try_` setters and then checks `jiff::Timestamp::UNIX_EPOCH.checked_add`.
+    jiff ends at `9999-12-30T22:00:00Z`, 26 hours before the end of year 9999, so that it can show
+    any timestamp in any time zone.
+  - `vortex-array/src/aggregate_fn/fns/min_max/extension.rs:28-29`: `min_max` wraps the storage
+    extremes with `Scalar::extension_ref`, which calls `vortex_expect` on the value check.
+  - `vortex-array/src/extension/datetime/timestamp.rs:131-138`: `Display` uses the panicking `Span`
+    setters and `UNIX_EPOCH + span`. It is safe today only because the value check runs first.
+- **Observed:** Issue [#8860](https://github.com/vortex-data/vortex/issues/8860) reproduces a panic
+  in `VortexWriteOptions::write` for a microsecond value at `9999-12-31T00:00:00Z`, while the writer
+  computes min and max statistics. A comment on the issue reports a second panic for `i64::MIN`
+  nanoseconds. After #11015, the value check returns an error, but the wrap in `min_max` still
+  panics. Nothing ran here.
+- **Expected:** Arrow, Parquet and many SQL engines accept `9999-12-31`. The range of `Timestamp` is
+  every `i64` count of its unit (X31).
+- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) removes the range check, and
+  `Display` prints the raw count for a value that jiff cannot show. #11014 makes the wrap in
+  `min_max` fallible, which covers other types whose values can fail the check. `replace_time_zone`
+  and `TemporalMatcher::to_jiff` already return errors for values outside the range of jiff
+  (`vortex-array/src/scalar_fn/fns/replace_time_zone.rs:285-288`,
+  `vortex-array/src/extension/datetime/matcher.rs:61-76`).
 
 ### EXT-N1: A nullability change can panic
 
@@ -447,8 +479,37 @@ Terms:
   indices [M1].
 - **Cause:** Nullability is part of the storage dtype, and nothing says that `validate_dtype` must
   ignore it.
-- **Fix:** Short term, validate both nullabilities when the dtype is built, so `with_nullability`
-  cannot fail later. Long term, see `design-notes.md` ("Nullability").
+- **Fix:** Short term, `with_nullability` does not validate again, and `validate_dtype` must not
+  depend on the top-level nullability (U4, #11012). Long term, the type declares its storage, and
+  `ExtDType::try_new` applies the nullability (X27, `design-notes.md` section 9). Validating both
+  nullabilities when the dtype is built was the first fix, and the maintainer rejected it.
+
+### EXT-N2: The spatial validators accept nullable nested levels
+
+- **Locations** (at `d197efd007`):
+  - The validators in `vortex-spatial/src/extension/` check only that the leaf coordinates are
+    non-null `F64` values (`coordinate.rs:157-171`, `linestring.rs:108-113`,
+    `polygon.rs:104-111`, `multipolygon.rs:99-109`, `multipoint.rs:98-102`, `rect.rs:142-157`).
+    They never check the lists or the coordinate struct. So `LineString` and `MultiPoint` accept 8
+    storage dtypes, `Polygon` and `MultiLineString` accept 16, and `MultiPolygon` accepts 32.
+  - The storage helpers build every nested level as non-null (`linestring.rs:102-105`,
+    `polygon.rs:97-101`, `multilinestring.rs:94-98`, `multipolygon.rs:91-96`,
+    `coordinate.rs:175-186`, `rect.rs:127-138`).
+  - Arrow import: `from_arrow_field` builds the non-null dtype of the helpers, but the imported
+    array keeps the nullability of the Arrow children. So a producer that marks children nullable
+    probably fails at `ExtensionArray::try_new` (`linestring.rs:388-391`). The name-only path of
+    `from_arrow_field` accepts nullable coordinate fields (`point.rs:251-268`). `from_arrow_array`
+    declines without full metadata (`point.rs:284-289`). geoarrow-rs marks children non-null.
+  - DuckDB imports nested children as nullable (`vortex-duckdb/src/convert/dtype.rs:152-185`), but
+    it builds no nested spatial types.
+- **Expected:** GeoArrow allows nulls only at the outer level, and its inner fields SHOULD be marked
+  non-nullable. Vortex follows it (X26).
+- **Status:** code. The Arrow import failure is inferred and did not run. Whether any version wrote
+  a file with nullable nested spatial storage is not checked.
+- **Fix:** The validators require non-null nested levels. The Arrow importers convert children that
+  are marked nullable but hold no nulls, and fail on nested nulls (X29). The PR first checks old
+  files, because strict reads reject the old form ("Order constraints", item 6, in
+  `../05-implementation.md`).
 
 ### EXT-S1: A constant extension column has two shapes
 
@@ -468,6 +529,29 @@ Terms:
   shared `Extension` encoding, and the kernel checks `is::<Json>()` itself.
 - **Impact:** An array with an extension dtype is not always the wrapper. Extension-specific kernels
   cannot be keyed on the wrapper encoding alone.
+
+### EXT-S3: `DateTimeParts` wraps days past `i32::MAX`
+
+- **Locations:**
+  - `encodings/datetime-parts/src/timestamp.rs:46-56`: `split_with_divisor` converts the days to
+    `i32` with `as_()`, which wraps. `split_temporal` calls it for every row.
+  - `encodings/datetime-parts/src/compute/rules.rs:140-142`: the days pushdown casts a midnight
+    literal to the days type of the array with `?`.
+- **Mechanism:** Arrays are never value-checked (EXT-V1), so a column in seconds or milliseconds
+  with values more than `i32::MAX` days from 1970 reaches the split. Microsecond and nanosecond days
+  always fit, because `i64::MAX` nanoseconds is about 106,751 days. After X31, those values are
+  legal, so the encoding must handle them.
+- **Impact:** The writer stores wrong timestamps without an error. The compressor also narrows the
+  days child, for example to `u16` for dates before 2149. #10953 reports that the days pushdown
+  then fails with "Cannot cast i32 to u16" for a later literal, such as `2200-01-01`. Nothing ran
+  here.
+- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) makes the split fail for such
+  arrays, makes `TemporalScheme` skip them, and makes both pushdowns decline. An `i64` days part
+  for seconds and milliseconds is simpler, because the split then never fails. The decode accepts
+  any integer days type (`encodings/datetime-parts/src/canonical.rs:69`), the metadata stores the
+  days type (`encodings/datetime-parts/src/array.rs:67`), `TemporalScheme` narrows the days child
+  (`vortex-btrblocks/src/schemes/temporal.rs:95`), and `compare_dtp` already handles a narrowing
+  cast that fails (`encodings/datetime-parts/src/compute/compare.rs:242-257`).
 
 ### EXT-B1: DataFusion converts extension values to storage values
 

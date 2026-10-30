@@ -12,7 +12,9 @@ refer to that file. "Open" marks a decision that is not made. Finding IDs (`EXT-
 `findings.md`. Paths and line numbers are for `develop` at `5fc5cb8`, except where a passage names
 another commit. The design pass of 2026-10-29 replaced the `Derives` flags with claims (X13 to X16)
 and settled the function declarations, the result mappings and the rules of a type (X17 to X21).
-Phases refer to the plan of 2026-10-29 in `../05-implementation.md`.
+A second pass on 2026-10-30 settled nullability and the storage declaration (X25 to X30, section
+9), the range of `Timestamp` (X31), and the boundary that rewrites respect (X33, X34, section 6.5).
+Phases refer to the plan in `../05-implementation.md`.
 
 ## 1. Invariants
 
@@ -36,15 +38,21 @@ The design holds these invariants. Every change in the plan must keep them.
   until it moves under the wrapper, which has low priority (EXT-S2).
 - **I5.** The only ways to move between an extension dtype and another dtype are `ext_storage`,
   `ext_storage_deep` and the rules that the extension type owns. A rule that produces extension
-  values builds the extension array itself (section 5). No `ext_wrap` expression exists (X4).
+  values builds the extension array itself (section 5). No `ext_wrap` expression exists (X4). Any
+  function can move through a generic structural encoding, but only these ways and the default
+  storage paths cross the `Extension` wrapper (X33, section 6.5).
 - **I6.** The row path and the array path apply the same rules, so they return the same result
   (EXT-P1). Issue [#10313](https://github.com/vortex-data/vortex/issues/10313) owns the separate
   question of whether a validity query raises errors from values that it skips (X9).
 - **I7.** Reading a value never panics. Building an extension scalar from an array checks the value
   and returns an error for an illegal value (section 8).
-- **I8.** A nullability change of a dtype never fails and never validates the type again.
+- **I8.** A nullability change of a dtype never fails and never validates the type again. The
+  nullability of an extension dtype is the top-level nullability of its storage, and the type
+  cannot choose it (X25).
 - **I9.** An unknown extension type (`ForeignExtDType`) makes no claims and owns no rules, and no
   `Specific` declaration matches it.
+- **I10.** Each extension type declares its storage from its metadata. Vortex builds the storage
+  dtype, and a read checks that the stored storage equals the declaration exactly (X27, X29).
 
 ## 2. Operation classes
 
@@ -60,7 +68,7 @@ Structural operations do not read values. Semantic operations depend on what val
 | `first`, `last` | Structural | Selects an existing value |
 | `uncompressed_size_in_bytes` | Structural | Size of the storage |
 | `pack`, `merge`, `select`, `get_item` on a struct that holds extension fields | Structural | The extension field stays opaque |
-| `cast` to the same dtype with another nullability | Structural | |
+| `cast` to the same dtype with another nullability | Structural | The only generic extension cast (X30) |
 | `scalar_at`, serialization, compression of storage | Structural | Constant detection for compression compares storage |
 | `ext_storage`, `ext_storage_deep` | Structural | Explicit unwrap of the top level, or of every level |
 | `=`, `!=` | Semantic | Needs the `Eq` claim or a rule of the type |
@@ -150,8 +158,9 @@ ways, such as text functions on `Json` (section 4.2).
   gets a claim, so `ts < 5i64` stays rejected. Operations across dtypes are rejected (section 3.5).
 - **CL2.** `Eq` requires canonical storage: each value of the dtype has exactly one storage form.
 - **CL3.** `Ord` requires `Eq`, and storage order must equal value order.
-- **CL4.** The storage dtype holds every claim of the type, and the claims do not depend on
-  nullability. `ExtDType::try_with_vtable` checks both when it builds the dtype (X15).
+- **CL4.** The declared storage dtype holds every claim of the type, and the claims do not depend
+  on the top-level nullability. `ExtDType::try_new` checks this when it builds the dtype (X15,
+  X27).
 - **CL5.** A claim that allows the `Rewrap` mapping guarantees legal results (X19). `Eq` and `Ord`
   do, because their results are input values.
 
@@ -343,8 +352,9 @@ choose the target of `Rewrap`.
 Rules for result mappings:
 
 - **Guard.** When the call is built, typing checks that the storage result dtype equals the storage
-  dtype of the `Rewrap` target, ignoring nullability. `Fields` checks each field in the same way.
-  The result keeps the nullability of the storage result.
+  dtype of the `Rewrap` target, ignoring only the top-level nullability. A nested mismatch fails
+  with an error that names both dtypes, and binding never inserts a cast (X30, C3). `Fields` checks
+  each field in the same way. The result keeps the nullability of the storage result.
 - **Trust.** `Rewrap` trusts the values and wraps them with `ExtensionArray::new_unchecked`. Debug
   builds run the value check of the type, to catch a wrong declaration in tests. CL5 makes this
   sound: a claim that allows `Rewrap` guarantees legal results. A future arithmetic claim can
@@ -445,7 +455,8 @@ has an operand of the type. It replaces the call with operations on storage, or 
 
 - **Cast rules.** A rule converts the type to another dtype, or another dtype into the type. Cast
   rules implement the design of issue [#8570](https://github.com/vortex-data/vortex/issues/8570),
-  with rules in place of closures. A cast exists only if a rule covers it (C1).
+  with rules in place of closures. A cast exists only if a rule covers it (C1). The only generic
+  extension cast changes the top-level nullability, and a type cannot override it (X30).
 - **Call rules.** A rule covers a scalar function or an aggregate with an operand of the type. An
   example is `sum` over a decimal-like type, which needs a wider result dtype.
 
@@ -701,6 +712,58 @@ read. An edition gates writes of the new form. `vortex-btrblocks/src/schemes/tem
 the encoding from the extension metadata, and compresses the storage child. The same applies to
 any future encoding for one extension type.
 
+Until that move, the compare PR of phase 3 adds a rule that sends
+`ext_storage(DateTimeParts) < lit` to the existing compare kernel (X32). `TemporalScheme` is in the default compressor list
+(`vortex-btrblocks/src/session.rs:97`), so without the rule, most timestamp compares would decode
+after the storage rewrite. The days part has a separate bug: the split wraps days past `i32::MAX`
+(EXT-S3), which #10953 fixes.
+
+### 6.5 Rewrites and generic encodings
+
+Settled on 2026-10-30 (X33, X34).
+
+A rewrite respects opaque types when it gives the same result for every extension type, so that it
+needs no fact about the type. Keeping the result dtype is not enough. Rewriting `ts_a < ts_b` to
+`ext_storage(ts_a) < ext_storage(ts_b)` keeps `Bool`, but it is correct only when storage order is
+value order, so it needs the `Ord` claim. Generic structural encodings know nothing about the
+dtype, so any function can move through them. Only the ways of I5 and the default storage paths
+cross the `Extension` wrapper.
+
+[#11056](https://github.com/vortex-data/vortex/pull/11056) passes this test. It adds three
+rewrites over `ReduceNode`: `get_item` over a constant struct, `get_item` through a `select` that
+keeps the field, and `ext_storage` over a constant extension value. Only the last touches an
+extension value, and it fires only on an `ext_storage` that the expression already holds. It
+computes what `ext_storage` means, and `execute` already does the same for a constant input
+(`vortex-array/src/scalar_fn/fns/ext_storage.rs:77-80`). Before the PR, a lazy input such as
+`get_item("video", select(...))` misses that fast path, so `ext_storage` executes it to a canonical
+`ExtensionArray`.
+
+The general form is one shared mechanism, next to #10748:
+
+- **Encodings own the pushdown.** `Dict` (`vortex-array/src/arrays/dict/compute/rules.rs:100`),
+  `Chunked` (`vortex-array/src/arrays/chunked/compute/rules.rs:36`) and `RunEnd`
+  (`vortex-array/src/arrays/runend/rules.rs:39`) already push scalar functions into their values.
+  `Masked` has rules only for `get_item`, `mask`, `filter`, `slice` and `take`
+  (`vortex-array/src/arrays/masked/compute/rules.rs:23-27`). `Sparse` has rules only for `cast`
+  and `not` (`encodings/sparse/src/rules.rs:18-19`). Both get a pushdown rule for functions that
+  are elementwise, infallible and strict. A strict function returns null for a null input, so
+  masked rows stay null. An infallible function cannot fail on a row that the encoding hides, the
+  condition that the dictionary rule already uses for unreferenced values.
+- **Functions own a constant fold.** `ScalarFnVTable` gets a hook, for example `reduce_constant`,
+  that applies a function to constant inputs during optimization. The `Constant` encoding has only
+  per-function adaptors today (`vortex-array/src/arrays/constant/compute/rules.rs:23-30`). It and
+  the fill value of `Sparse` use the hook.
+- **`ext_storage` owns two things:** its constant hook, and the unwrap rule
+  `ext_storage(Extension(s))` to `s` of phase 3.
+
+With #10748, `Extension(Dict(codes, values))` becomes `Dict(codes, Extension(values))`. The
+pushdown then gives `Dict(codes, ext_storage(Extension(values)))`, and the unwrap gives
+`Dict(codes, values)`. Probe R6 shows the gaps today: `ext_storage` passes through `Dict` and
+`Chunked`, decodes `Masked`, and fails on `Sparse` with extension values. Probe R8 shows that a
+constant column with some nulls compresses to `Masked(Constant)`, so the `Masked` case is common.
+This mechanism replaces the "one method for each structural encoding" of section 6.3 for the
+pushdown. The lift rule stays as section 6.3 describes it.
+
 ## 7. Statistics
 
 - **S1.** Zone maps keep logical `Min` and `Max` for extension types that claim `Ord` (X22). The
@@ -739,7 +802,7 @@ any future encoding for one extension type.
 
 | Kind | What it checks | When | Cost |
 | --- | --- | --- | --- |
-| Dtype validation | `validate_dtype`: the metadata and the storage dtype | When a dtype is built or read, for both nullabilities (section 9) | Once for each dtype |
+| Dtype validation | `validate_metadata`, and on read the check that the stored storage equals the declared storage (section 9) | When a dtype is built or read | Once for each dtype |
 | Storage-shape validation | The storage child has the length of the array, which `Extension::validate` checks today, and the storage dtype (U6). A scalar value has the storage dtype (EXT-V7) | When an array or a scalar is built or read | Constant |
 | Value validation | `validate_array`: each non-null value is a legal value of the type | When `ExtensionArray::try_new` builds an array, and at the other places in section 8.3 | One pass over the values |
 
@@ -810,14 +873,15 @@ pub trait ExtVTable {
   (`vortex-array/src/dtype/extension/vtable.rs:53-66`).
 - The default `validate_array` is not a no-op. It applies `validate_scalar_value` to each non-null
   value.
-- A check returns an error for an illegal value and never panics. Today the `Timestamp` check
-  panics on values outside the range of `jiff::Span`, because it calls the panicking setters
-  (`vortex-array/src/extension/datetime/timestamp.rs:214-229`, EXT-V8). U5 fixes it.
+- A check returns an error for an illegal value and never panics. The `Timestamp` check panicked
+  on values outside the range of `jiff::Span`, because it called the panicking setters
+  (`vortex-array/src/extension/datetime/timestamp.rs:214-229`, EXT-V8). U5 fixed it in #11015.
+  After #10953, `Timestamp` has no value check at all, because every `i64` is legal (X31, EXT-V9).
 - A type can override `validate_array` with a faster check. The conformance harness compares the
   override with the default on generated inputs.
-- Examples of overrides: `Timestamp` checks the storage minimum and maximum against its valid
-  range. `Uuid` checks the version nibble of each value against the metadata. A hypothetical
-  `NormalizedVector` type checks the norm of each row within a tolerance.
+- Examples of overrides: `Time` checks the storage minimum and maximum against one day. `Uuid`
+  checks the version nibble of each value against the metadata. A hypothetical `NormalizedVector`
+  type checks the norm of each row within a tolerance.
 
 ### 8.5 File reads and null slots
 
@@ -845,20 +909,137 @@ Both questions are settled (X23).
   0. `get_item` already masks a child with the
   validity of its parent (`vortex-array/src/scalar_fn/fns/get_item.rs:205-209`).
 
-## 9. Nullability
+## 9. Nullability and the storage declaration
 
-- **NU1, short term.** `ExtDType::try_with_vtable` calls `validate_dtype` for both nullabilities of
-  the storage dtype, and fails if either call fails. The documentation states that the result of
-  `validate_dtype` must not depend on nullability. `with_nullability` then builds the new dtype
-  directly and never validates again. Today it calls `try_with_vtable`
-  (`vortex-array/src/dtype/extension/typed.rs:91-98`). A type that breaks the rule fails when its
-  dtype is built, not later in a kernel. Calling `validate_dtype` only with the non-nullable form
-  is the alternative, but it hides such a type.
-- **Claims.** The claims of a type do not depend on nullability either (CL4).
-  `ExtDType::try_with_vtable` checks them for both nullabilities, together with `validate_dtype`.
-- **NU2, long term.** `ExtDType` stores a non-nullable storage dtype and a `Nullability`, like every
-  other `DType` variant. The storage child has the dtype `storage_dtype.with_nullability(n)`. The
-  wire format does not change, because the serialized storage dtype already carries nullability.
+Settled on 2026-10-30 (X25 to X30).
+
+### 9.1 Nullability rules
+
+- **NU1, replaced.** `ExtDType::try_with_vtable` validated the dtype for both nullabilities when it
+  was built. The first version of #11012 did this. The maintainer rejected it: a type cannot choose
+  its top-level nullability, so there is nothing to validate.
+- **NU2, rejected.** `ExtDType` stores a `Nullability` next to a non-nullable storage dtype. The
+  maintainer rejected it as unwieldy, because one fact would live in two places.
+- **NU3.** The nullability of an extension dtype is the top-level nullability of its storage dtype
+  (X25). The type cannot choose it. Every extension type sits on canonical storage, and every
+  canonical array can hold nulls. A nullability change does not change a value, so
+  `with_nullability` has nothing to check and never fails. Storage of `DType::Null` cannot become
+  non-nullable (`vortex-array/src/dtype/dtype_impl.rs:92-93`), and an extension type over it
+  behaves the same way.
+- **NU4.** Value checks never see a top-level null, and rows under a null slot are not checked
+  (section 8.5).
+- **NU5.** Nested nullability belongs to the type, under the total-domain rule (X26). A nested
+  level is nullable exactly when the type accepts nulls at that level. An author who needs another
+  domain defines a new extension type.
+- **NU6.** The only generic extension cast changes the top-level nullability (X30). Nested
+  nullability is part of the type, so a change of it is a rule of the type.
+
+The connectors already exist. `ExtDTypeRef::nullability` and `is_nullable` read the storage
+(`vortex-array/src/dtype/extension/erased.rs:51-56`), and `ExtensionArray` takes its validity from
+the storage child (`ValidityVTableFromChild`, `vortex-array/src/arrays/extension/vtable/mod.rs:89`).
+
+### 9.2 Nested levels of the types
+
+| Type | Nested levels | Rule |
+| --- | --- | --- |
+| `Point`, `LineString`, `Polygon`, `MultiPoint`, `MultiLineString`, `MultiPolygon`, `Rect` | Every list, the coordinate struct and the coordinate fields | Non-null, as in GeoArrow. The validators do not check it today (EXT-N2) |
+| `Vector`, `FixedShapeTensor` | The elements | Non-null. The `Vector` importer declines nullable elements today (`vortex-tensor/src/types/vector/arrow.rs:137`) |
+| `Uuid` | The bytes | Non-null, and checked today (`encodings/uuid/src/vtable.rs:67-74`) |
+| `Interval` (draft PR #10468) | The fields | Non-null |
+| `Timestamp`, `Date`, `Time`, `Duration`, `Json`, WKB | None | |
+| `ForeignExtDType` | As stored | It declares the stored storage |
+
+GeoArrow says: "only the outer level is allowed to have nulls", and inner fields "SHOULD be marked
+explicitly as non-nullable" (<https://geoarrow.org/format.html>).
+
+### 9.3 The declaration
+
+```rust
+pub trait ExtVTable {
+    /// The in-memory metadata. It holds every fact that decides the storage dtype.
+    type Metadata;
+
+    /// The storage dtype of the type. `ExtDType::try_new` applies the top-level nullability.
+    fn storage_dtype(metadata: &Self::Metadata) -> DType;
+
+    /// Checks the metadata. The default accepts every value.
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        Ok(())
+    }
+
+    /// Rebuilds the metadata on read, from the serialized bytes and the stored storage dtype.
+    fn deserialize_metadata(
+        &self,
+        bytes: &[u8],
+        stored_storage: &DType,
+    ) -> VortexResult<Self::Metadata>;
+}
+```
+
+- `ExtDType::try_new(metadata, nullability)` calls `validate_metadata`, builds
+  `storage_dtype(&metadata).with_nullability(nullability)`, and checks the claims (CL4).
+  `with_nullability` builds the declared storage again with the other nullability.
+- The declaration takes no nullability parameter (X27). No nested level depends on the top level,
+  so a parameter could only be ignored by mistake.
+- The in-memory metadata differs from the serialized bytes, as with the array vtables:
+  `VTable::deserialize` also receives the dtype (`vortex-array/src/array/vtable/mod.rs:127`).
+- One hook checks the metadata (X28), because types can share a metadata type and accept different
+  values. `SpatialMetadata` serves the eight spatial types. `TimeUnit` serves `Date`, `Time` and
+  `Duration`, but `Date` accepts only days and milliseconds.
+
+The audit of 2026-10-30 (at `d197efd007`) sorted the types by where their storage facts live:
+
+| Facts | Types |
+| --- | --- |
+| The storage follows from the metadata today | `Uuid`, `Date`, `Time`, `Timestamp`, `Duration`, `Json`, WKB. `Interval` already has `Interval::storage_dtype(n)` |
+| Facts live only in the storage | `Vector` (element type `F16`, `F32` or `F64`, and dimension, with empty serialized metadata), `FixedShapeTensor` (element type), `Point` and `Rect` (dimension) |
+| Any storage | `ForeignExtDType` and the test types |
+
+The facts of the second row move into the in-memory metadata, and `deserialize_metadata` reads them
+from the stored storage, so the file format does not change. `ForeignExtDType` holds the raw bytes
+and the stored storage dtype. These constructors take a storage dtype today and switch to the
+facts:
+
+- `vortex-tensor/src/types/vector/mod.rs:51-53`
+- `vortex-array/src/arrays/extension/array.rs:78-88`
+- `vortex-spatial/src/extension/mod.rs:264-275`, used by `vortex-duckdb/src/convert/expr.rs:185` and
+  `vortex-jni/src/expression.rs:738`
+- `vortex-spatial/src/scalar_fn/make_line.rs:85-89`
+- `vortex-spatial/src/scalar_fn/collect.rs:70-91` and `:191-198`
+- `vortex-bench/src/vector_dataset/convert.rs:216-218`
+
+### 9.4 Reads and imports
+
+- **Strict reads (X29).** On read, Vortex rebuilds the metadata, runs `validate_metadata`, and
+  checks that the declared storage equals the stored storage exactly, including nested
+  nullability. A file in another form is read only through a registered read plugin.
+- **Arrow import.** A known type converts children that are marked nullable but hold no nulls into
+  the declared form. It fails, with an error that names the type and the rule, when the data falls
+  outside the domain. The `Vector` importer fails instead of declining. Downstream code that relied
+  on declining needs updates. An Arrow extension name that Vortex does not know imports as plain
+  storage (`vortex-arrow/src/session.rs:401-417`).
+- **DuckDB** imports nested children as nullable (`vortex-duckdb/src/convert/dtype.rs:152-185`),
+  but it builds no nested extension types today.
+
+Other code that the declaration touches:
+
+- The extension cast compares with a recursive `eq_ignore_nullability`
+  (`vortex-array/src/dtype/dtype_impl.rs:118-141`,
+  `vortex-array/src/arrays/extension/compute/cast.rs:18-41`). Under NU6 it compares the dtypes
+  without the top-level nullability only.
+- `zip` and `case_when` keep the nested form of the left side
+  (`vortex-array/src/scalar_fn/fns/zip/mod.rs:211-216`, `:285`). With one declared form, both sides
+  already agree.
+- `take` and `mask` call `with_nullability` (`vortex-array/src/arrays/extension/compute/take.rs`,
+  `vortex-array/src/arrays/extension/compute/mask.rs`), and `ExtensionArray::new` needs exact
+  equality of the storage dtype (`vortex-array/src/arrays/extension/array.rs:52-57`).
+
+### 9.5 Interim fix
+
+Until phase 1 lands, U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012)) is the
+interim form. `with_nullability` builds the new dtype directly and does not validate again, and the
+documentation of `validate_dtype` states that its result must not depend on the top-level
+nullability. No validator in the repository depends on it.
 
 ## 10. Zero values
 
@@ -993,15 +1174,16 @@ under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` c
 | 0, U6 | `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/scalar/validate.rs`, `vortex-array/src/scalar/scalar_impl.rs` |
 | 0, U7 | `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/scalar_value.rs` |
 | 0, U8 | `vortex-array/src/dtype/extension/erased.rs` |
-| 1 | `vortex-array/src/dtype/` (`Claim` and `DType::holds`), `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs` (`claims` and the check when a dtype is built), the claims of the types in `vortex-array/src/extension/datetime/`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/`, `vortex-json/src/dtype.rs` and `vortex-spatial/src/extension/`, `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`), `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
+| 1 | The declaration: `vortex-array/src/dtype/extension/{vtable,typed,erased,foreign,plugin}.rs`, the metadata of `vortex-tensor/src/types/` and `vortex-spatial/src/extension/`, the constructor sites of section 9.3, `vortex-array/src/dtype/dtype_impl.rs` and `vortex-array/src/arrays/extension/compute/cast.rs` (NU6). The claims: `vortex-array/src/dtype/` (`Claim` and `DType::holds`), `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs` (`claims` and the check when a dtype is built), the claims of the types in `vortex-array/src/extension/datetime/`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/`, `vortex-json/src/dtype.rs` and `vortex-spatial/src/extension/`, `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`), `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
 | 2 | `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/vtable.rs`, a new module for `ExtensionUse` and `ResultMapping` |
 | 2, U9 | `vortex-array/src/aggregate_fn/storage_pushdown.rs`, `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted}/` |
 | 3 | `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/arrays/scalar_fn/vtable/mod.rs`, `vortex-array/src/aggregate_fn/{vtable,erased,accumulator,session,storage_pushdown}.rs`, `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/{binary,between,cast,zip,fill_null,list_contains}/`, `vortex-array/src/scalar_fn/fns/{case_when,dynamic,ext_storage}.rs`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/aggregate_fn/fns/min_max/extension.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-row/src/encoder.rs`, `encodings/uuid/src/lib.rs` |
 | 4 | `vortex-layout/src/layouts/zoned/{schema,writer}.rs`, `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs`, `vortex-expr/src/stats/rewrite/` (moved from `vortex-array` by #10734) |
 | 5 | `vortex-array/src/dtype/extension/vtable.rs` (`rules`), `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/extension/datetime/`, `vortex-duckdb/src/convert/expr.rs`, `vortex-datafusion/src/convert/exprs/mod.rs` |
-| 6 | `vortex-array/src/arrays/extension/array.rs`, `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/`, `vortex-array/src/builders/{extension,fixed_size_list,mod}.rs`, `vortex-array/src/dtype/extension/`, `vortex-array/src/extension/datetime/timestamp.rs`, the Arrow, DuckDB, FFI and Python import paths |
+| 6 | `vortex-array/src/arrays/extension/array.rs`, `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/`, `vortex-array/src/builders/{extension,fixed_size_list,mod}.rs`, `vortex-array/src/dtype/extension/`, `vortex-array/src/extension/datetime/time.rs`, the Arrow, DuckDB, FFI and Python import paths |
 | 7 | `vortex-arrow/src/{session,dtype,scalar}.rs`, `vortex-arrow/src/executor/`, `vortex-duckdb/src/convert/`, `vortex-duckdb/src/exporter/`, `vortex-duckdb/src/{table_function,column_statistics}.rs`, `vortex-datafusion/src/convert/`, `vortex-python/src/scalar/`, `vortex-jni/src/writer.rs`, `docs/developer-guide/extending/extension-dtypes.md` |
 | Low priority, lift rule | `vortex-array/src/arrays/extension/compute/{rules,take}.rs`, `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/arrays/{constant,chunked,dict,masked,interleave}/`, `encodings/sparse/`, `encodings/runend/`, `vortex-edition/`. The shared mechanism of #10748 also touches `vortex-array/src/arrays/widen/` |
+| Low priority, shared pushdown | `vortex-array/src/arrays/{masked,constant}/compute/rules.rs`, `encodings/sparse/src/rules.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/scalar_fn/fns/ext_storage.rs` |
 | Low priority, `DateTimeParts` | `encodings/datetime-parts/`, `vortex-btrblocks/src/schemes/temporal.rs`, `vortex-edition/` |
 
 ## 13. Tests
@@ -1018,11 +1200,11 @@ under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` c
     operation on `DecimalLike` and on the built-in `Decimal`, and compares values or errors.
   - `Refined` over `i64` (for example, positive values only), which claims both and has a
     `validate_array` override.
-- **Conformance harness for `ExtVTable`.** It checks the metadata round trip, that
-  `validate_dtype` and the claims ignore nullability, rules CL1 to CL5, cast round trips, and path
-  consistency. CL2 and CL3 need the optional reference order. In debug builds, every `Rewrap`
-  checks the values that it wraps. The harness also compares a `validate_array`
-  override with the default.
+- **Conformance harness for `ExtVTable`.** It checks the metadata round trip through the bytes and
+  the stored storage, that the claims ignore the top-level nullability, rules CL1 to CL5, cast round
+  trips, and path consistency. CL2 and CL3 need the optional reference order. In debug builds, every
+  `Rewrap` checks the values that it wraps. The harness also compares a `validate_array` override
+  with the default.
 - **Scalar contract.** For generated scalars, `a == b` holds exactly when `partial_cmp(a, b)`
   returns `Some(Equal)`, and equal scalars have equal hashes.
 - **Engines.** DuckDB and DataFusion pushdown tests with extension literals for `Timestamp`, `Date`,
