@@ -343,6 +343,8 @@ pub fn copy_to_initialize_global(
     let handle = SESSION.handle();
 
     let url = parse_uri_or_path(&file_path)?;
+    // Both writers include nested file statistics: DuckLake reads statistics back for every leaf
+    // column, including those nested in structs.
     let write_task = if url.scheme() == "file" {
         handle.spawn(async move {
             let mut writer = OpenOptions::new()
@@ -353,6 +355,7 @@ pub fn copy_to_initialize_global(
                 .await?;
             let summary = SESSION
                 .write_options()
+                .include_nested_statistics()
                 .write(&mut writer, array_stream)
                 .await?;
             writer.shutdown().await?;
@@ -365,6 +368,7 @@ pub fn copy_to_initialize_global(
             let mut writer = ObjectStoreWrite::new(object_store, &path).await?;
             let summary = SESSION
                 .write_options()
+                .include_nested_statistics()
                 .write(&mut writer, array_stream)
                 .await?;
             writer.shutdown().await?;
@@ -455,6 +459,7 @@ mod tests {
             let mut buf = ByteBufferMut::empty();
             let mut writer = SESSION
                 .write_options()
+                .include_nested_statistics()
                 .with_file_statistics(pruning_aggregate_fns())
                 .writer(&mut buf, outer.dtype().clone());
             writer.push(outer).await?;

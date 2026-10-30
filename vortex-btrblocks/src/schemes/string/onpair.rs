@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! OnPair short-string compression (dict-12).
+//! OnPair short-string compression (dict-12 by default).
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -15,7 +15,9 @@ use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
+use vortex_onpair::Config;
 use vortex_onpair::DEFAULT_CONFIG;
+use vortex_onpair::MaxDictBits;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArrayExt;
 use vortex_onpair::OnPairArraySlotsExt;
@@ -27,17 +29,48 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 
-/// OnPair short-string compression (dict-12).
+/// OnPair short-string compression (dict-12 by default).
 ///
 /// A default string-fragmentation scheme (alongside [`super::FSSTScheme`]) —
 /// targets large columns of short-to-medium strings with high lexical
 /// overlap, like URLs or log lines. Uses a learned dictionary of frequent
 /// adjacent substrings (built by the OnPair trainer at compress time) and
-/// 12-bit token codes stored as a u16 child, with offsets /
-/// uncompressed-lengths flowing through the cascading compressor like any
-/// other primitive children.
+/// token codes of up to `max_dict_bits` bits stored as a u16 child, with
+/// offsets / uncompressed-lengths flowing through the cascading compressor
+/// like any other primitive children.
+///
+/// Every dictionary budget shares one [`SchemeId`], so a scheme built with
+/// [`OnPairScheme::new`] replaces the default one rather than competing with it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct OnPairScheme;
+pub struct OnPairScheme {
+    max_dict_bits: MaxDictBits,
+}
+
+impl OnPairScheme {
+    /// Creates an OnPair scheme whose dictionary holds up to `2^max_dict_bits` tokens, keeping
+    /// every other [`DEFAULT_CONFIG`] setting. [`OnPairScheme::default`] uses 12 bits.
+    pub const fn new(max_dict_bits: MaxDictBits) -> Self {
+        Self { max_dict_bits }
+    }
+
+    /// The dictionary budget this scheme trains with.
+    pub const fn max_dict_bits(&self) -> MaxDictBits {
+        self.max_dict_bits
+    }
+
+    fn config(&self) -> Config {
+        Config {
+            max_dict_bits: self.max_dict_bits,
+            ..DEFAULT_CONFIG
+        }
+    }
+}
+
+impl Default for OnPairScheme {
+    fn default() -> Self {
+        Self::new(DEFAULT_CONFIG.max_dict_bits)
+    }
+}
 
 impl Scheme for OnPairScheme {
     fn scheme_name(&self) -> &'static str {
@@ -78,7 +111,7 @@ impl Scheme for OnPairScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_varbinview().into_owned();
-        let encoded = onpair_compress(utf8.as_array(), DEFAULT_CONFIG, exec_ctx)?;
+        let encoded = onpair_compress(utf8.as_array(), self.config(), exec_ctx)?;
         let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
             return Ok(encoded);
         };

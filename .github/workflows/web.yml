@@ -36,6 +36,8 @@ jobs:
             web:
               - "vortex-web/**"
               - ".github/workflows/web.yml"
+              - ".github/workflows/deploy-vercel.yml"
+              - ".github/vercel-cli/**"
 
   check:
     name: Check & Lint
@@ -93,24 +95,21 @@ jobs:
           path: vortex-web/dist/
 
   deploy:
-    name: Deploy to Cloudflare Pages
+    name: Deploy to Vercel
     needs: [build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Fork PRs get no secrets, so only pushes and same-repo PRs deploy.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     permissions:
+      contents: read
       deployments: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.deployment-url }}
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          name: vortex-explorer
-          path: dist
-      - name: Deploy to Cloudflare Pages
-        id: deploy
-        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0  # v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist/ --project-name=vortex-explorer --branch=${{ github.head_ref || github.ref_name }}
+    uses: ./.github/workflows/deploy-vercel.yml
+    # A called workflow only sees the secrets its caller passes, including
+    # the secrets of the environment the called job deploys to.
+    secrets: inherit
+    with:
+      environment: vercel-explorer
+      artifact-name: vortex-explorer
+      config: vortex-web/vercel-output-config.json
+      production: ${{ github.event_name == 'push' }}

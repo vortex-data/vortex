@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
-use super::UncompressedSizeOpts;
 use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
@@ -15,7 +14,6 @@ use crate::arrays::varbinview::BinaryView;
 
 pub(super) fn varbinview_uncompressed_size_in_bytes(
     array: &VarBinViewArray,
-    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let views_size = u64::try_from(array.len())
@@ -31,30 +29,12 @@ pub(super) fn varbinview_uncompressed_size_in_bytes(
         .validity()?
         .execute_mask(array.as_ref().len(), ctx)?;
 
-    let data_size = if opts.is_exact() {
-        referenced_data_size(array.views(), &validity)
-    } else {
-        held_data_size(array)?
-    };
+    let data_size = referenced_data_size(array.views(), &validity);
 
     views_size
         .checked_add(data_size)
         .and_then(|size| size.checked_add(validity_uncompressed_size_in_bytes(validity).ok()?))
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
-}
-
-/// Every byte of every data buffer, referenced or not.
-fn held_data_size(array: &VarBinViewArray) -> VortexResult<u64> {
-    let mut size = 0u64;
-    for buffer in array.data_buffers().iter() {
-        size = size
-            .checked_add(
-                u64::try_from(buffer.len())
-                    .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
-            )
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
-    }
-    Ok(size)
 }
 
 /// The bytes the valid, non-inlined views point at: what the data buffers would hold once the

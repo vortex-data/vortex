@@ -58,13 +58,14 @@ jobs:
           - { shard: 5, name: "Core & encodings", packages: "vortex-buffer vortex-mask vortex-compute vortex-file vortex-alp vortex-datetime-parts" }
           - { shard: 6, name: "Main library & storage", packages: "vortex vortex-compressor vortex-row" }
           - { shard: 7, name: "FastLanes & decimals", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
-          - { shard: 8, name: "Encodings & layout", packages: "vortex-pco vortex-sparse vortex-layout" }
+          - { shard: 8, name: "Encodings & layout", packages: "vortex-elias-fano vortex-pco vortex-sparse vortex-layout" }
           - { shard: 9, name: "Strings, tensor & spatial", packages: "vortex-fsst vortex-tensor vortex-spatial", features: "--features _test-harness" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
+    # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -92,7 +93,7 @@ jobs:
           groups = {
               "dictionary": ("dict_", "chunked_dict_", "patches_"),
               "selection": ("take_", "filter_", "piecewise_sequence_"),
-              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum"),
+              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum", "widen"),
           }
           manifest = tomllib.loads(pathlib.Path("vortex-array/Cargo.toml").read_text())
           benches = []
@@ -150,7 +151,7 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-python', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-python', github.run_id)
           || 'ubuntu-latest' }}
     env:
       # Same settings as the bench profile, which keeps the debug info that CodSpeed uses to
@@ -184,6 +185,9 @@ jobs:
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+          # Drive scans on the calling thread. Background workers wake every 100 ms to check
+          # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
+          VORTEX_MAX_THREADS: "0"
         with:
           run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -203,9 +207,8 @@ jobs:
           # the build flags, not the silicon. c7i.metal-24xl is the smaller of the two c7i
           # metal sizes: Sapphire Rapids, and AVX-512 capable.
           - features: avx2
-            family: c7i.metal-24xl
-            build-family: c7i.4xlarge
-            image: ubuntu24-full-x64-pre-v2
+            runner: amd64-codspeed-walltime
+            build-runner: amd64-codspeed-build
             rustflags: "-C target-feature=+avx2 -C force-frame-pointers=yes"
           # Every AVX-512 extension Sapphire Rapids implements, not just the two the current
           # `cfg(target_feature)` gates test for. Those gates decide which kernel the code
@@ -213,22 +216,20 @@ jobs:
           # auto-vectorizes, the scalar baselines included — sees the whole feature set, and
           # a two-feature build is not what anything ships on.
           - features: avx512
-            family: c7i.metal-24xl
-            build-family: c7i.4xlarge
-            image: ubuntu24-full-x64-pre-v2
+            runner: amd64-codspeed-walltime
+            build-runner: amd64-codspeed-build
             rustflags: >-
               -C target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx512ifma,+avx512vbmi,+avx512vbmi2,+avx512vnni,+avx512bitalg,+avx512vpopcntdq,+avx512bf16,+avx512fp16
               -C force-frame-pointers=yes
           # Graviton3 supports SVE, so this family can also host a future SVE leg.
           - features: neon
-            family: c7g.metal
-            build-family: c7g.4xlarge
-            image: ubuntu24-full-arm64-pre-v2
+            runner: arm64-codspeed-walltime
+            build-runner: arm64-codspeed-build
             rustflags: "-C target-feature=+neon -C force-frame-pointers=yes"
     name: "Build Codspeed CPU benchmarks (${{ matrix.features }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.build-family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-cpu-features-build-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.build-runner }}/tag=bench-codspeed-cpu-features-build-${{ matrix.features }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -297,7 +298,7 @@ jobs:
     name: "Benchmark with Codspeed (${{ matrix.features }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=${{ matrix.family }}/image=${{ matrix.image }}/extras=s3-cache/tag=bench-codspeed-cpu-features-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.runner }}/tag=bench-codspeed-cpu-features-${{ matrix.features }}
     steps:
       # Initialise the RunsOn artifact proxy used by download-artifact.
       - uses: runs-on/action@v2
@@ -350,7 +351,7 @@ jobs:
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-build
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu-codspeed/tag=bench-codspeed-cuda-build
     steps:
       - uses: runs-on/action@v2
         with:
@@ -411,7 +412,7 @@ jobs:
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-${{ matrix.shard }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu-codspeed/tag=bench-codspeed-cuda-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
         with:

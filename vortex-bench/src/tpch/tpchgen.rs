@@ -116,13 +116,6 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     let mut all_futures = Vec::new();
     for generator in TableGenerator::ALL {
         let num_parts = generator.num_parts(scale_factor)?;
-        info!(
-            scale_factor = options.scale_factor,
-            format = %options.format,
-            table = generator.name(),
-            num_parts,
-            "Generating TPC-H table",
-        );
         for part in 1..=num_parts {
             all_futures.push(generate_table_file(
                 generator,

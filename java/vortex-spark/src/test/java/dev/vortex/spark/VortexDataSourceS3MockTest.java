@@ -10,7 +10,6 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -92,7 +91,7 @@ public final class VortexDataSourceS3MockTest {
         Dataset<Row> readDf = spark.read().format("vortex").load(s3Path);
 
         // Verify schema is preserved
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        assertReadBackSchema(originalDf.schema(), readDf.schema());
 
         // Verify row count
         assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
@@ -137,24 +136,10 @@ public final class VortexDataSourceS3MockTest {
                         "array('Alpha', 'Bravo', 'Charlie') AS elements");
     }
 
-    /** Verifies that two schemas are equal. */
-    private void assertSchemaEquals(StructType expected, StructType actual) {
-        assertEquals(expected.fields().length, actual.fields().length, "Schemas should have same number of fields");
-
-        for (int i = 0; i < expected.fields().length; i++) {
-            StructField expectedField = expected.fields()[i];
-            StructField actualField = actual.fields()[i];
-
-            assertEquals(expectedField.name(), actualField.name(), "Field names should match at position " + i);
-            assertEquals(
-                    expectedField.dataType(),
-                    actualField.dataType(),
-                    "Field types should match for field: " + expectedField.name());
-            assertEquals(
-                    expectedField.nullable(),
-                    actualField.nullable(),
-                    "Field nullability should match for field: " + expectedField.name());
-        }
+    /** Verifies that {@code actual} is the {@code written} schema, read back with every field nullable. */
+    private void assertReadBackSchema(StructType written, StructType actual) {
+        assertEquals(written.simpleString(), actual.simpleString());
+        VortexDataSourceInferSchemaTest.assertNoNonNullableFields(actual);
     }
 
     /** Verifies that the data content of two DataFrames is identical. */

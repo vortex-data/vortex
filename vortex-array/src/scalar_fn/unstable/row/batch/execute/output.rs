@@ -15,9 +15,13 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 
-impl RowFnExecutionArgs {
+impl RowFnExecutionArgs<'_> {
     pub(super) fn all_null(&self) -> ArrayRef {
-        ConstantArray::new(Scalar::null(self.result_dtype.clone()), self.row_count).into_array()
+        ConstantArray::new(
+            Scalar::null(self.result_dtype.clone()),
+            self.batch.probe.row_count,
+        )
+        .into_array()
     }
 
     /// Label the finished column, validate it, and apply the row function's logical outer
@@ -32,7 +36,7 @@ impl RowFnExecutionArgs {
         // partially valid batch carries the same metadata as a dense one.
         let values = self.plan.relabel_output(values)?;
 
-        validate_output(self.id, &self.result_dtype, expected_len, &values)?;
+        validate_output(self.batch.id, &self.result_dtype, expected_len, &values)?;
 
         cast_output_nullability(&self.result_dtype, values)
     }
@@ -45,7 +49,7 @@ impl RowFnExecutionArgs {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         finalize_kernel_output(
-            self.id,
+            self.batch.id,
             self.plan.storage_dtype(),
             expected_len,
             values,
@@ -68,7 +72,7 @@ pub(crate) fn finalize_kernel_output(
 ) -> VortexResult<ArrayRef> {
     validate_output(id, result_dtype, expected_len, &values)?;
     vortex_ensure!(
-        values.all_valid(ctx)?,
+        !values.dtype().is_nullable() || values.all_valid(ctx)?,
         "the {id} row kernel must produce only valid rows, got at least one null row",
     );
 

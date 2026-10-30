@@ -7,13 +7,14 @@ import selectors
 import subprocess
 from collections import deque
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import final
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ..config import Benchmark, Engine, Format
+from ..config import BENCHMARK_SCAN_V2, Benchmark, Engine, Format
 
 console = Console()
 
@@ -54,6 +55,7 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
+            cmd.extend(["--scan-v2", str(BENCHMARK_SCAN_V2[benchmark]).lower()])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 
@@ -159,13 +161,20 @@ class BenchmarkExecutor:
         results: list[str] = []
         diagnostic_lines: deque[str] = deque(maxlen=200)
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True,
-        ) as progress:
-            _task = progress.add_task(f"Running {self.backend.value} {benchmark.value}...", total=None)
+        # Outside a terminal (CI logs) the transient spinner only leaves an empty line behind.
+        spinner = (
+            Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                transient=True,
+            )
+            if console.is_terminal
+            else nullcontext()
+        )
+        with spinner as progress:
+            if progress is not None:
+                progress.add_task(f"Running {self.backend.value} {benchmark.value}...", total=None)
 
             # Merge stderr into stdout so verbose benchmark logs cannot fill a separate pipe and
             # block the child process before it emits JSON results.
@@ -199,7 +208,9 @@ class BenchmarkExecutor:
                                 on_result(line)
                         else:
                             diagnostic_lines.append(line)
-                            console.print(line, markup=False)
+                            # soft_wrap keeps long log lines intact instead of folding them at the
+                            # console width.
+                            console.print(line, markup=False, highlight=False, soft_wrap=True)
             finally:
                 selector.close()
 

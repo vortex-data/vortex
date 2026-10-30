@@ -49,7 +49,7 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -59,6 +59,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
       - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -110,7 +112,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/family={1}/image=ubuntu24-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu24-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -144,15 +146,6 @@ jobs:
         shell: bash
         run: chmod +x target/release_debug/*
 
-      - name: Generate data
-        shell: bash
-        env:
-          RUST_BACKTRACE: full
-        run: |
-          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
-            --formats-json '${{ toJSON(matrix.data_formats) }}' \
-            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
-
       - name: Setup AWS CLI
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -161,6 +154,20 @@ jobs:
           aws-region: us-east-1
           # Expand session window, otherwise some large scale runs time out.
           role-duration-seconds: 7200
+
+      # Base data that vx-bench caches (statpopgen, sorted ClickBench) is restored
+      # from, or saved to, an S3 cache. Fork PRs have no AWS credentials and always regenerate.
+      - name: Generate data
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+          RUST_BACKTRACE: full
+          S3_CACHE: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 's3://vortex-ci-benchmark-datasets/data-gen-cache/' || '' }}
+        run: |
+          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.data_formats) }}' \
+            ${S3_CACHE:+--s3-cache "$S3_CACHE"} \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Upload data
         if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
@@ -235,9 +242,19 @@ jobs:
           uv run --no-project scripts/capture-file-sizes.py \
             vortex-bench/data \
             --benchmark ${{ matrix.subcommand }} \
+            --dataset-dir ${{ matrix.dataset_dir }} \
             --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
             -o sizes.json
           cat sizes.json >> results.json
+
+      - name: Fetch baseline from the benchmarks database
+        if: inputs.mode == 'pr'
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
 
       - name: Compare results
         if: inputs.mode == 'pr'
@@ -245,11 +262,8 @@ jobs:
         run: |
           set -Eeu -o pipefail -x
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
-          gzip -d -c data.json.gz > base.json
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
-            > comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+            "${{ matrix.name }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
@@ -272,12 +286,6 @@ jobs:
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
-
-      - name: Upload Benchmark Results
-        if: inputs.mode == 'develop'
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the
@@ -311,6 +319,7 @@ jobs:
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
       - name: Alert incident.io

@@ -135,6 +135,10 @@ pub use variant::Variant;
 pub use variant::VariantArray;
 use vortex_session::VortexSession;
 
+pub mod widen;
+pub use widen::Widen;
+pub use widen::WidenArray;
+
 pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
     chunked::initialize(session);
@@ -154,6 +158,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     varbin::initialize(session);
     varbinview::initialize(session);
     variant::initialize(session);
+    widen::initialize(session);
 }
 
 #[cfg(feature = "arbitrary")]

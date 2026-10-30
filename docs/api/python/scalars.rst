@@ -33,6 +33,9 @@ Scalar Classes
 .. autoclass:: vortex.PrimitiveScalar
     :members:
 
+.. autoclass:: vortex.DecimalScalar
+    :members:
+
 .. autoclass:: vortex.Utf8Scalar
     :members:
 

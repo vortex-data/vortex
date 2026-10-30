@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import io
 import json
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, Literal, cast
 
 import polars as pl
@@ -14,6 +15,7 @@ import pyarrow as pa
 import vortex.expr as ve
 
 from ._lib import dtype as _dtype
+from ._lib.arrays import Array
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
@@ -21,6 +23,95 @@ def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     data = json.loads(expr.meta.serialize(format="json"))
     assert isinstance(data, dict)
     return _polars_to_vortex(data)
+
+
+def decompose_predicate(predicate: pl.Expr, scope: Array | None = None) -> tuple[ve.Expr | None, pl.Expr | None]:
+    """Split a Polars predicate into a pushable Vortex expression and a Polars residual.
+
+    The predicate is decomposed into its top-level AND conjuncts. A conjunct that converts to
+    Vortex is pushed down exactly. A conjunct that does not is kept in the residual Polars
+    expression, which the caller must apply itself, e.g. per batch with ``DataFrame.filter``.
+    Even then, the translatable parts of an unsupported conjunct may still yield a weaker
+    Vortex predicate that every row passing the conjunct satisfies, such as ``a | b`` for
+    ``(a & x) | (b & y)``; that weaker predicate is pushed down as a pre-filter.
+
+    If ``scope`` is given, typically an empty array with the dtype of the data being scanned,
+    every converted expression is also applied to it, and one that Vortex rejects or that is
+    not boolean is treated as unsupported. This catches translations that only fail once the
+    scan binds them to the data, such as a bitwise ``&`` of integers, which Polars serializes
+    like a logical one.
+
+    Returns ``(vortex_expr | None, residual_polars_expr | None)``. Filtering by the Vortex
+    expression and then by the residual is equivalent to filtering by the original
+    predicate, so both parts must be applied when present.
+    """
+    data = json.loads(predicate.meta.serialize(format="json"))
+    assert isinstance(data, dict)
+
+    pushed: ve.Expr | None = None
+    residual: pl.Expr | None = None
+    for conjunct in _conjuncts(data):
+        exact, implied = _implied_predicate(conjunct, scope)
+        if implied is not None:
+            pushed = implied if pushed is None else pushed & implied
+        if not exact:
+            expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
+            residual = expr if residual is None else residual & expr
+    return pushed, residual
+
+
+def _conjuncts(expr: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    """Iterate the top-level AND conjuncts of a serialized Polars expression."""
+    if _bool_op(expr) == "and":
+        yield from _conjuncts(expr["BinaryExpr"]["left"])
+        yield from _conjuncts(expr["BinaryExpr"]["right"])
+    else:
+        yield expr
+
+
+def _implied_predicate(expr: dict[str, Any], scope: Array | None) -> tuple[bool, ve.Expr | None]:
+    """A Vortex predicate that holds for every row where the boolean Polars ``expr`` is true.
+
+    Returns ``(exact, vortex_expr)``: ``exact`` when the result is equivalent to ``expr``, and
+    ``None`` when nothing weaker than "true" can be derived. Filters keep only rows where the
+    predicate is true, so the relaxation is sound under three-valued logic: a true AND has
+    both sides true, and a true OR has at least one side true.
+    """
+    try:
+        converted = _polars_to_vortex(expr)
+        if scope is not None:
+            dtype = scope.apply(converted).dtype
+            if dtype != _dtype.bool_(nullable=dtype.is_nullable()):
+                raise TypeError(f"Polars predicate translates to a non-boolean {dtype}")
+        return True, converted
+    except Exception:
+        # Unsupported expressions fall back to evaluation by Polars rather than failing
+        # the whole scan.
+        pass
+
+    op = _bool_op(expr)
+    if op is None:
+        return False, None
+    _, left = _implied_predicate(expr["BinaryExpr"]["left"], scope)
+    _, right = _implied_predicate(expr["BinaryExpr"]["right"], scope)
+    if op == "and":
+        if left is None or right is None:
+            return False, left if right is None else right
+        return False, left & right
+    if left is None or right is None:
+        return False, None
+    return False, left | right
+
+
+def _bool_op(expr: dict[str, Any]) -> Literal["and", "or"] | None:
+    if "BinaryExpr" not in expr:
+        return None
+    op = expr["BinaryExpr"].get("op")
+    if op in ("And", "LogicalAnd"):
+        return "and"
+    if op in ("Or", "LogicalOr"):
+        return "or"
+    return None
 
 
 _OPS = {

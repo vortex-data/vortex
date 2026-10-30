@@ -103,9 +103,9 @@ struct Args {
     )]
     reuse: bool,
 
-    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H).
-    #[arg(long, action = clap::ArgAction::Set)]
-    scan_v2: Option<bool>,
+    /// Use the planner-driven V2 Vortex scan.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    scan_v2: bool,
 }
 
 #[global_allocator]
@@ -116,11 +116,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
-    let scan_v2 = args.scan_v2.unwrap_or_else(|| {
-        matches!(args.benchmark, BenchmarkArg::TpcH)
-            && !std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "0")
-    });
-    vortex_duckdb::set_scan_v2(scan_v2);
+    vortex_duckdb::set_scan_v2(args.scan_v2);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
@@ -143,7 +139,10 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("provide a format with --formats");
     }
 
-    // Generate Vortex files from Parquet for any Vortex formats requested
+    // Data is prepared up front by data-gen, so the steps below only resolve existing files and
+    // fail instead of generating anything that is missing.
+    vortex_bench::forbid_data_generation();
+
     if benchmark.data_url().scheme() == "file" {
         // This is ugly, but otherwise some complicated async interaction might result in a deadlock
         let runtime = Runtime::new()?;
