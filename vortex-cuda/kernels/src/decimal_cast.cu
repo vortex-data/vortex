@@ -6,17 +6,16 @@
 #include <stdint.h>
 #include <type_traits>
 
-// Arrow decimal schemas fix the physical values buffer width:
-//   - Decimal32: 4 bytes per value.
-//   - Decimal64: 8 bytes per value.
-//   - Decimal128: 16 bytes per value.
-//   - Decimal256: 32 bytes per value.
+// Widen decimal values buffers to a wider physical width. Two callers use these kernels:
+//   - The Arrow export casts to the width that the Arrow schema fixes: 4 bytes for Decimal32,
+//     8 bytes for Decimal64, 16 bytes for Decimal128, and 32 bytes for Decimal256.
+//   - The DecimalByteParts decoder casts a narrow MSP to the canonical width of its decimal
+//     dtype, from 2 to 32 bytes.
 //
-// Vortex storage width can differ, so export casts to the schema-implied width.
-// Rust-side export rejects narrowing casts because detecting overflow on-device
-// would require synchronizing an overflow flag back to the host.
+// The Rust side rejects narrowing casts, because detecting overflow on the device would require
+// synchronizing an overflow flag back to the host.
 
-// Low 64-bit conversion for Decimal32/64 outputs.
+// Low 64-bit conversion for 16-, 32- and 64-bit outputs.
 template <typename Input>
 __device__ __forceinline__ int64_t decimal_to_i64(Input value) {
     if constexpr (std::is_same_v<Input, int128_t>) {
@@ -42,10 +41,12 @@ __device__ __forceinline__ int128_t decimal_to_i128(Input value) {
     }
 }
 
-// Convert one value to the Arrow schema's physical width.
+// Convert one value to the output physical width.
 template <typename Output, typename Input>
 __device__ __forceinline__ Output decimal_cast_value(Input value) {
-    if constexpr (std::is_same_v<Output, int32_t>) {
+    if constexpr (std::is_same_v<Output, int16_t>) {
+        return static_cast<int16_t>(decimal_to_i64(value));
+    } else if constexpr (std::is_same_v<Output, int32_t>) {
         return static_cast<int32_t>(decimal_to_i64(value));
     } else if constexpr (std::is_same_v<Output, int64_t>) {
         return decimal_to_i64(value);
@@ -63,7 +64,7 @@ __device__ __forceinline__ Output decimal_cast_value(Input value) {
     }
 }
 
-// Cast a contiguous values buffer to the Arrow schema's physical width.
+// Cast a contiguous values buffer to the output physical width.
 template <typename Input, typename Output>
 __device__ void
 decimal_cast_device(const Input *__restrict input, Output *__restrict output, uint64_t array_len) {
@@ -76,8 +77,13 @@ decimal_cast_device(const Input *__restrict input, Output *__restrict output, ui
     }
 }
 
-// Generate Decimal32/64/128/256 cast kernels for one input storage type.
+// Generate the i16, i32, i64, i128 and i256 cast kernels for one input storage type.
 #define GENERATE_DECIMAL_CAST_KERNELS(input_suffix, InputType)                                               \
+    extern "C" __global__ void decimal_cast_##input_suffix##_i16(const InputType *__restrict input,          \
+                                                                 int16_t *__restrict output,                 \
+                                                                 uint64_t array_len) {                       \
+        decimal_cast_device(input, output, array_len);                                                       \
+    }                                                                                                        \
     extern "C" __global__ void decimal_cast_##input_suffix##_i32(const InputType *__restrict input,          \
                                                                  int32_t *__restrict output,                 \
                                                                  uint64_t array_len) {                       \

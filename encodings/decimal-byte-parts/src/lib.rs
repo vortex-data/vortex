@@ -1,24 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod decimal_byte_parts;
+//! An encoding that compresses decimals with integer compression schemes.
+//!
+//! A decimal is split into a signed most significant part (MSP) plus up to three `u64` lower
+//! parts, and each part can be compressed independently. A decimal whose values fit an `i64`
+//! needs no lower parts. Only the MSP narrows: it can use the smallest signed integer dtype that
+//! holds its values, while every lower part stays `u64`. Decoding returns the canonical decimal
+//! array, or a decimal [`Widen`] over a narrower child that can reuse a narrow MSP.
+//!
+//! [`Widen`]: vortex_array::arrays::Widen
 
-use decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
-/// This encoding allow compression of decimals using integer compression schemes.
-/// Decimals can be compressed by narrowing the signed decimal value into the smallest signed value,
-/// then integer compression if that is a value `ptype`, otherwise the decimal can be split into
-/// parts.
-/// These parts can be individually compressed.
-/// This encoding will compress large signed decimals by removing the leading zeroes (after the sign)
-/// an i128 decimal could be converted into a [i64, u64] with further narrowing applied to either
-/// value.
-pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
+
+use crate::decimal_byte_parts::compute::is_constant::DecimalBytePartsIsConstantKernel;
+
+mod decimal_byte_parts;
+pub use decimal_byte_parts::*;
 
 /// Initialize decimal-byte-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {

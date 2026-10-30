@@ -43,15 +43,12 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::match_each_decimal_value_type;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
-use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::i256;
 use vortex::encodings::fsst::FSST;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -60,7 +57,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
@@ -89,6 +85,7 @@ use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
 use crate::kernel::decode_onpair_varbin;
+use crate::kernel::widen_decimal_values;
 use crate::stream::zero_padding;
 
 const BITMAP_THREADS_PER_BLOCK: u32 = 256;
@@ -472,73 +469,11 @@ async fn export_decimal_values(
             "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
         );
     }
-    let values = ctx.ensure_on_device(values).await?;
     if values_type == target_type {
-        return Ok(values);
+        return ctx.ensure_on_device(values).await;
     }
 
-    match_each_decimal_value_type!(values_type, |S| {
-        export_decimal_values_from::<S>(values, target_type, len, ctx).await
-    })
-}
-
-/// Dispatch from a concrete storage type `S` to the Arrow-required output width.
-async fn export_decimal_values_from<S>(
-    values: BufferHandle,
-    target_type: DecimalType,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-{
-    match target_type {
-        DecimalType::I32 => decimal_cast::<S, i32>(values, len, ctx).await,
-        DecimalType::I64 => decimal_cast::<S, i64>(values, len, ctx).await,
-        DecimalType::I128 => decimal_cast::<S, i128>(values, len, ctx).await,
-        DecimalType::I256 => decimal_cast::<S, i256>(values, len, ctx).await,
-        target_type => {
-            vortex_bail!("cannot export DecimalArray as Arrow decimal value type {target_type}")
-        }
-    }
-}
-
-/// Launches the CUDA kernel that casts from Vortex storage type `S` to Arrow output type `D`.
-///
-/// The caller must ensure this is not a narrowing cast.
-async fn decimal_cast<S, D>(
-    values: BufferHandle,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-    D: NativeDecimalType + DeviceRepr,
-{
-    if len == 0 {
-        return ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::<D>::empty().into_byte_buffer(),
-            ))
-            .await;
-    }
-
-    let mut output_buffer = ctx.device_alloc::<D>(len)?;
-
-    let values_view = values.cuda_view::<S>()?;
-    let len_u64 = len as u64;
-    let cuda_function = ctx.load_function_with_suffixes(
-        "decimal_cast",
-        &[&S::DECIMAL_TYPE.to_string(), &D::DECIMAL_TYPE.to_string()],
-    )?;
-
-    ctx.launch_kernel(&cuda_function, len, |args| {
-        args.arg(&values_view).arg(&mut output_buffer).arg(&len_u64);
-    })?;
-
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-        output_buffer,
-    ))))
+    widen_decimal_values(values, values_type, target_type, len, ctx).await
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.

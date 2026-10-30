@@ -47,39 +47,28 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
     &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
     &mut SESSION.create_execution_ctx(),
 ))]
-#[case::wider_i128_storage(DecimalByteParts::encode(
-    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
-    &mut SESSION.create_execution_ctx(),
-))]
-#[case::wider_i256_storage(DecimalByteParts::encode(
-    &DecimalArray::new(
-        buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
-        DecimalDType::new(2, 0), Validity::NonNullable,
-    ),
-    &mut SESSION.create_execution_ctx(),
-))]
 #[case::redundant_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![0i64; 3].into_array(),
     vec![buffer![0u64; 3].into_array(), buffer![0u64; 3].into_array(), lower_part()],
-    DecimalDType::new(38, 2),
+    DecimalDType::new(76, 2),
 ))]
-#[case::narrowed_lower_parts(DecimalByteParts::try_new_with_lower_parts(
+#[case::narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![-1i16, 0, 1].into_array(),
     vec![
-        buffer![u8::MAX, 128, 0].into_array(),
-        ConstantArray::new(u16::MAX, 3).into_array(),
-        buffer![0u32, 1 << 31, u32::MAX].into_array(),
+        buffer![u64::from(u8::MAX), 128, 0].into_array(),
+        ConstantArray::new(u64::from(u16::MAX), 3).into_array(),
+        buffer![0u64, 1 << 31, u64::from(u32::MAX)].into_array(),
     ],
     DecimalDType::new(76, 2),
 ))]
-#[case::nullable_mixed_lower_parts(DecimalByteParts::try_new_with_lower_parts(
+#[case::nullable_narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     PrimitiveArray::new(
         buffer![-1i8, 0, 1], Validity::from_iter([true, false, true]),
     ).into_array(),
     vec![
         buffer![u64::MAX, 1 << 63, 0].into_array(),
-        buffer![0u8, 128, u8::MAX].into_array(),
-        buffer![u32::MAX, 1 << 31, 0].into_array(),
+        buffer![0u64, 128, u64::from(u8::MAX)].into_array(),
+        buffer![u64::from(u32::MAX), 1 << 31, 0].into_array(),
     ],
     DecimalDType::new(76, 2),
 ))]
@@ -135,6 +124,25 @@ fn serde_round_trip(#[case] array: VortexResult<DecimalBytePartsArray>) -> Vorte
     Ok(())
 }
 
+/// Storage wider than the canonical width splits into more lower parts than the dtype allows.
+#[rstest]
+#[case::wider_i128_storage(DecimalArray::new(
+    buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
+))]
+#[case::wider_i256_storage(DecimalArray::new(
+    buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+    DecimalDType::new(2, 0), Validity::NonNullable,
+))]
+fn encode_rejects_lower_parts_past_canonical_width(#[case] decimal: DecimalArray) {
+    let result = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx());
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|err| err.to_string().contains("allows at most 0 lower parts")),
+        "expected the lower-part bound to reject the parts, got {result:?}"
+    );
+}
+
 #[test]
 fn v1_metadata_is_unchanged() -> VortexResult<()> {
     let session = session();
@@ -183,7 +191,13 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![PType::I64 as i32]),
     vec![msp(), lower_part()],
-    "unsigned integer dtype"
+    "must have dtype u64, got i64"
+)]
+#[case::v2_narrow_lower_part(
+    decimal_byte_parts_v2_id(),
+    v2_metadata(vec![PType::U32 as i32]),
+    vec![msp(), lower_part()],
+    "must have dtype u64, got u32"
 )]
 #[case::v2_unknown_ptype(
     decimal_byte_parts_v2_id(),

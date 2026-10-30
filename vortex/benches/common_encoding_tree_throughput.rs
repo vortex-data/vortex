@@ -15,7 +15,6 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::aggregate_fn::session::AggregateFnSession;
@@ -24,6 +23,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::Widen;
 use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::memory::MemorySession;
@@ -490,7 +490,11 @@ macro_rules! setup_fn {
     };
 }
 
-/// Benchmark decompression of various encoding trees
+/// Benchmark decompression of various encoding trees.
+///
+/// Decompression stops at a [`Widen`], the form that decoding a narrow DecimalByteParts MSP
+/// produces. The other trees never yield a `Widen`, so they do the same work as a full
+/// canonicalization.
 #[divan::bench(
     args = [
         setup_fn!(setup::for_bp_u64),
@@ -509,5 +513,5 @@ fn decompress(bencher: Bencher, setup_fn: SetupFn) {
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| (**a).clone().execute::<Canonical>(ctx));
+        .bench_refs(|(a, ctx)| (**a).clone().execute_until::<Widen>(ctx));
 }
