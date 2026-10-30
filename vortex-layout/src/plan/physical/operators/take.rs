@@ -6,6 +6,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 
 use super::UNBOUNDED;
@@ -76,7 +77,10 @@ impl Operator for TakeSource {
             Some(values) => values.clone(),
             None => {
                 let values_plan = self.plan.values()?;
-                let values = shared(join_inlet(cx, VALUES, values_plan.dtype())?);
+                // The values are kept for every batch of codes and for later scans of the split,
+                // so optimize them once here rather than in each dictionary built over them.
+                let values = join_inlet(cx, VALUES, values_plan.dtype())?.optimize(cx.session())?;
+                let values = shared(values);
                 let values = match &self.cache {
                     Some(cache) => cache.insert(&values_plan, values),
                     None => values,

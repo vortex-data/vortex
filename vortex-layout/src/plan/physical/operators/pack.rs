@@ -102,10 +102,11 @@ impl Operator for PackSource {
                 .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
             len = len.min(front.len());
         }
+        let session = cx.session().clone();
         let mut arrays = Vec::with_capacity(self.states.len());
         for index in 0..self.states.len() {
             let mut inlet = cx.inlet(index);
-            arrays.push(take_rows(&mut inlet, len)?);
+            arrays.push(take_rows(&mut inlet, len, &session)?);
             self.observe(index, &inlet);
         }
         let validity = if self.nullable {
