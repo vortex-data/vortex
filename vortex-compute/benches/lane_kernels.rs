@@ -9,17 +9,16 @@
 //!   - propagates valid-lane overflow as `Err`, and
 //!   - suppresses null-lane overflow without the closure ever inspecting `valid`.
 //!
-//! Each Vortex kernel bench has a sibling `arrow_*` baseline bench using the
-//! equivalent arrow-rs kernel over the same data shape, so the divan report
-//! lines up side-by-side.
+//! Arrow baselines cover the corresponding cast and checked-add operations over the same
+//! data shape. The unmasked widening cases also compare the two Vortex loop shapes directly.
 //!
 //! `lanezip_checked_add_u32` carries `#[cpu_features]`, so it is measured on every
 //! walltime CPU-feature leg rather than in simulation: it is one lane loop compiled
 //! differently per leg. Its arrow-rs sibling is compiled only outside CodSpeed. The
 //! arrow kernel is not Vortex code, so a change in its walltime is never actionable,
 //! and it flipped by up to 67% between runs of identical code. Run `cargo bench`
-//! locally to compare the pair under the same build flags. The cast benches stay in
-//! simulation.
+//! locally to compare the pair under the same build flags. The paired `map_into` and
+//! `map_into_widening` benches also run on the walltime legs. Other cast benches stay in simulation.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::clone_on_ref_ptr)]
@@ -65,6 +64,9 @@ fn main() {
 
 /// Lanes per cast input; the casts run in simulation.
 const SIZES: &[usize] = &[16_384];
+
+/// Widening inputs cover both sides of the tiled and untiled loop boundaries.
+const WIDEN_SIZES: &[usize] = &[0, 1, 63, 64, 65, 127, 128, 129, 8_192, 16_384, 16_385];
 
 /// Lanes per checked-add input; the checked adds run on the walltime legs.
 ///
@@ -216,6 +218,61 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
         .with_inputs(|| (f.values_u16.clone(), uninit_out::<u32>(n)))
         .bench_values(|(values, mut out)| {
             values.as_slice().map_into(out.as_mut_slice(), |v| v.as_());
+            out
+        });
+}
+
+// Both widening variants use the existing map to establish baseline results for the stacked
+// optimization before it selects a different loop. Keep their benchmark names stable.
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn map_into_i32_i64(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+
+    bencher
+        .with_inputs(|| uninit_out::<i64>(n))
+        .bench_local_values(|mut out| {
+            f.values_i32.as_slice().map_into(&mut out, Into::into);
+            out
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn map_into_widening_i32_i64(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+
+    bencher
+        .with_inputs(|| uninit_out::<i64>(n))
+        .bench_local_values(|mut out| {
+            f.values_i32.as_slice().map_into(&mut out, Into::into);
+            out
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn map_into_u16_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+
+    bencher
+        .with_inputs(|| uninit_out::<u32>(n))
+        .bench_local_values(|mut out| {
+            f.values_u16.as_slice().map_into(&mut out, Into::into);
+            out
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn map_into_widening_u16_u32(bencher: Bencher, n: usize) {
+    let f = cast_fixture(n);
+
+    bencher
+        .with_inputs(|| uninit_out::<u32>(n))
+        .bench_local_values(|mut out| {
+            f.values_u16.as_slice().map_into(&mut out, Into::into);
+            out
         });
 }
 

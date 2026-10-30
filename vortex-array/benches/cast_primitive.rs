@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Primitive casts over dense and nullable inputs.
+//!
+//! Integer widening cases run on the walltime CPU-feature legs to track their generated loops.
+
 #![expect(clippy::unwrap_used)]
 
 use std::sync::LazyLock;
@@ -35,13 +39,16 @@ fn main() {
 // to keep the CodSpeed simulation under 1ms per benchmark.
 const SIZES: &[usize] = &[8_192];
 
+const WIDEN_SIZES: &[usize] = &[65, 128, 129, 8_192, 16_384];
+
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
 });
 
-#[divan::bench(args = SIZES)]
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
 fn cast_u16_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
     let arr = PrimitiveArray::from_option_iter((0..n).map(|i| {
@@ -57,6 +64,54 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn cast_u16_to_u32_dense(bencher: Bencher, n: usize) {
+    let arr = PrimitiveArray::from_iter((0..n).map(|i| u16::try_from(i).unwrap())).into_array();
+
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn cast_i32_to_i64_dense(bencher: Bencher, n: usize) {
+    let arr =
+        PrimitiveArray::from_iter((0..n).map(|i| i32::try_from(i).unwrap() - 8_192)).into_array();
+
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+                .unwrap()
+                .execute::<Canonical>(ctx)
+        });
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = WIDEN_SIZES)]
+fn cast_i32_to_i64_nullable(bencher: Bencher, n: usize) {
+    let mut rng = StdRng::seed_from_u64(42);
+    let arr = PrimitiveArray::from_option_iter((0..n).map(|i| {
+        rng.random_bool(0.5)
+            .then_some(i32::try_from(i).unwrap() - 8_192)
+    }))
+    .into_array();
+
+    bencher
+        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| {
+            a.cast(DType::Primitive(PType::I64, Nullability::Nullable))
                 .unwrap()
                 .execute::<Canonical>(ctx)
         });
