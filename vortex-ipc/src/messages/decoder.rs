@@ -167,14 +167,24 @@ impl MessageDecoder {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
+    use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::Widen;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
 
     use super::*;
@@ -219,5 +229,37 @@ mod test {
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
         write_and_read(&array.into_array());
+    }
+
+    /// IPC writes a `Widen` as its canonical array, so the decoded encoding differs from the
+    /// written one and this test cannot use `write_and_read`.
+    #[test]
+    fn array_ipc_writes_widen() -> VortexResult<()> {
+        let values = PrimitiveArray::new(
+            buffer![-125i16, 50, 900],
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+        let expected = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        let mut ipc_bytes = BytesMut::new();
+        let mut encoder = MessageEncoder::new(SESSION.clone());
+        for buf in encoder.encode(EncoderMessage::Array(&expected))? {
+            ipc_bytes.extend_from_slice(buf.as_ref());
+        }
+
+        let mut buffer = BytesMut::from(ipc_bytes.as_ref());
+        let (array_parts, ctx, row_count) =
+            match MessageDecoder::default().read_next(&mut buffer)? {
+                PollRead::Some(DecoderMessage::Array(array_parts)) => array_parts,
+                otherwise => vortex_panic!("Expected an array, got {:?}", otherwise),
+            };
+        let actual = array_parts.decode(expected.dtype(), row_count, &ctx, &SESSION)?;
+
+        assert!(!ctx.ids().contains(&ArrayVTable::id(&Widen)));
+        assert!(actual.is::<Primitive>(), "{}", actual.encoding_id());
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+
+        Ok(())
     }
 }

@@ -10,6 +10,7 @@ mod aggregates;
 mod compute;
 mod encoding;
 mod numeric;
+mod serde;
 
 use std::sync::LazyLock;
 

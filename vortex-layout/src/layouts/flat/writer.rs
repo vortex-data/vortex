@@ -176,19 +176,25 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::ArrayVTable;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Widen;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
@@ -197,6 +203,7 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
@@ -402,6 +409,50 @@ mod tests {
                 .execute::<PrimitiveArray>(&mut ctx_exec)
                 .unwrap();
             assert_eq!(field_b.as_slice::<u64>(), &[3, 4]);
+        })
+    }
+
+    /// The flat writer serializes its chunk directly, so a `Widen` reaches it, and the layout
+    /// stores the canonical array.
+    #[test]
+    fn flat_writes_widen() -> VortexResult<()> {
+        block_on(|handle| async {
+            let mut ctx_exec = SESSION.create_execution_ctx();
+            let session = new_session().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let values = PrimitiveArray::new(
+                buffer![-125i16, 50, 900],
+                Validity::from_iter([true, false, true]),
+            );
+            let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+            let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx.clone().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.clone().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            let result = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(usize::try_from(layout.row_count())?),
+                )?
+                .await?;
+
+            assert!(!ctx.to_ids().contains(&ArrayVTable::id(&Widen)));
+            assert!(result.is::<Primitive>(), "{}", result.encoding_id());
+            assert_arrays_eq!(result, array, &mut ctx_exec);
+
+            Ok(())
         })
     }
 }
