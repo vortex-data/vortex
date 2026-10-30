@@ -666,8 +666,28 @@ jobs:
         with:
           enable-sccache: "true"
       - name: Run sqllogictest tests
+        shell: bash
+        env:
+          VORTEX_SLT_PROFILE: ci
+          # The parity suites run with the rest of the tests below.
+          VORTEX_SLT_SKIP_PARITY: "1"
         run: |
-          VORTEX_SLT_PROFILE=ci ./vortex-sqllogictest/slt/generate_data.sh
+          slt=./vortex-sqllogictest/slt
+          # Background jobs escape `set -e`, so every one is waited on explicitly.
+          "${slt}/clickbench/generate_data.sh" --download-only &
+          download_pid=$!
+
+          # One cargo invocation for both generators. The test binary is built
+          # separately so its features match the nextest run below.
+          cargo build --profile ci -p vortex-tui --bin vx -p vortex-bench --bin data-gen
+          cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run &
+          build_pid=$!
+
+          wait "${download_pid}" || { echo "ClickBench download failed" >&2; exit 1; }
+          VORTEX_SLT_VX="${PWD}/target/ci/vx" VORTEX_SLT_DATA_GEN="${PWD}/target/ci/data-gen" \
+            "${slt}/generate_data.sh" --parallel
+          wait "${build_pid}" || { echo "Test build failed" >&2; exit 1; }
+
           cargo nextest run --cargo-profile ci -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
