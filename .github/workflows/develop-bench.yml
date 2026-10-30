@@ -14,9 +14,11 @@ permissions:
 jobs:
   build:
     timeout-minutes: 60
+    # GitHub drops runner labels longer than 255 characters, and the job then waits for a runner
+    # forever. With the long `family` list and the longest benchmark id, this label is close.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
