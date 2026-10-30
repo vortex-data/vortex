@@ -310,11 +310,14 @@ jobs:
           - name: "all-features"
             runner: amd64-ci-large
             args: "--all-features --all-targets"
+            lanes: 4
           - name: "default features"
             runner: amd64-ci-large
             args: "--all-targets"
+            lanes: 4
           - name: "with tokio dispatcher"
             runner: amd64-ci-small
+            lanes: 1
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
     steps:
@@ -329,9 +332,31 @@ jobs:
           enable-sccache: "true"
       # Feature-unification errors appear at type check. Codegen and linking add most of the
       # time and sccache cannot cache links; the test jobs link the workspace already.
-      - uses: ./.github/actions/check-rebuild
-        with:
-          command: "cargo hack check --profile ci --locked ${{matrix.config.args}} --ignore-private"
+      # Each lane needs its own target dir, or the lanes queue on Cargo's build directory lock.
+      - parallel:
+          - uses: ./.github/actions/check-rebuild
+            with:
+              command: >-
+                CARGO_TARGET_DIR=target/hack-1 cargo hack check --profile ci --locked ${{matrix.config.args}}
+                --ignore-private --partition 1/${{matrix.config.lanes}}
+          - uses: ./.github/actions/check-rebuild
+            if: matrix.config.lanes >= 2
+            with:
+              command: >-
+                CARGO_TARGET_DIR=target/hack-2 cargo hack check --profile ci --locked ${{matrix.config.args}}
+                --ignore-private --partition 2/${{matrix.config.lanes}}
+          - uses: ./.github/actions/check-rebuild
+            if: matrix.config.lanes >= 3
+            with:
+              command: >-
+                CARGO_TARGET_DIR=target/hack-3 cargo hack check --profile ci --locked ${{matrix.config.args}}
+                --ignore-private --partition 3/${{matrix.config.lanes}}
+          - uses: ./.github/actions/check-rebuild
+            if: matrix.config.lanes >= 4
+            with:
+              command: >-
+                CARGO_TARGET_DIR=target/hack-4 cargo hack check --profile ci --locked ${{matrix.config.args}}
+                --ignore-private --partition 4/${{matrix.config.lanes}}
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
