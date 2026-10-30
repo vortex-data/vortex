@@ -16,9 +16,8 @@ use crate::plan::physical::PlanRef;
 /// Values a plan produces over its whole domain whatever rows it is compiled for, kept for the
 /// later scans that share this cache.
 ///
-/// Readers reuse whole dictionary values across filters, projections, and splits. Sparse reads
-/// never populate the whole-value cache; static predicates have a separate per-entry cache.
-/// The caller controls the lifetime of both caches.
+/// Readers reuse whole dictionary values across filters, projections, and splits. Sparse static
+/// predicates use a separate per-entry cache. The caller controls the lifetime of both caches.
 #[derive(Clone, Default)]
 pub struct ValueCache {
     values: Arc<Mutex<FxHashMap<PlanByPtr, ArrayRef>>>,

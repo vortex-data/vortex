@@ -24,6 +24,11 @@
 //! Dense inputs retain [`AccessMode::Scan`]. [`ScanBuilder::with_access_mode`] overrides the
 //! automatic choice. The access mode does not change the rows selected or their order.
 //!
+//! Engine drivers share these selection and predicate policies: sparse string predicates gather
+//! referenced dictionary entries and cache their results, while dense scans and numeric
+//! dictionary predicates retain bulk evaluation. Drivers supply scheduling and IO, rather than
+//! their own selection heuristics.
+//!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
 //! that file, like a cached layout reader does for V1 scans.
