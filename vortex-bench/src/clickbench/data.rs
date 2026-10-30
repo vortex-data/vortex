@@ -409,7 +409,7 @@ COPY (
     FROM hits_sorted
     WHERE rowid >= {start} AND rowid < {end}
     ORDER BY rowid
-) TO {output_path} (FORMAT parquet, COMPRESSION zstd);
+) TO {output_path} (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3);
 ",
             output_path = sql_string_literal(&output_path.display().to_string()),
         ));
