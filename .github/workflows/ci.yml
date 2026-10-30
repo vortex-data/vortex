@@ -665,25 +665,23 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      - name: Build data-gen
+        shell: bash
+        run: cargo build --profile ci -p vortex-bench --bin data-gen
+      - parallel:
+          - name: Generate sqllogictest data
+            shell: bash
+            env:
+              VORTEX_SLT_DATA_GEN: ${{ github.workspace }}/target/ci/data-gen
+              # The parity suites run with the rest of the tests below.
+              VORTEX_SLT_SKIP_PARITY: "1"
+            run: ./vortex-sqllogictest/slt/generate_data.sh --parallel
+          - name: Build sqllogictest tests
+            shell: bash
+            run: cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run
       - name: Run sqllogictest tests
         shell: bash
-        env:
-          VORTEX_SLT_PROFILE: ci
-          # The parity suites run with the rest of the tests below.
-          VORTEX_SLT_SKIP_PARITY: "1"
-        run: |
-          # The test binary is built in the background, separately from
-          # data-gen, so its features match the nextest run below. Background
-          # jobs escape `set -e`, so it is waited on explicitly.
-          cargo build --profile ci -p vortex-bench --bin data-gen
-          cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run &
-          build_pid=$!
-
-          VORTEX_SLT_DATA_GEN="${PWD}/target/ci/data-gen" \
-            ./vortex-sqllogictest/slt/generate_data.sh --parallel
-          wait "${build_pid}" || { echo "Test build failed" >&2; exit 1; }
-
-          cargo nextest run --cargo-profile ci -p vortex-sqllogictest
+        run: cargo nextest run --cargo-profile ci -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
