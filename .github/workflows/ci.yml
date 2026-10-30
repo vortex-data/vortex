@@ -671,22 +671,23 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # Prevent sudden announcement of a new advisory from failing ci:
-      - name: cargo deny check advisories
-        id: advisories
-        continue-on-error: true
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check advisories
+      - parallel:
+          # Prevent sudden announcement of a new advisory from failing ci:
+          - name: cargo deny check advisories
+            id: advisories
+            continue-on-error: true
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check advisories
+          - name: cargo deny check bans licenses sources
+            uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
+            with:
+              command: check bans licenses sources
       - name: Warn on advisory failures
         if: steps.advisories.outcome == 'failure'
         run: >-
           echo "::warning title=cargo deny advisories::cargo deny check advisories
           failed; see the 'cargo deny check advisories' step log."
-      - name: cargo deny check bans licenses sources
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25  # v2
-        with:
-          command: check bans licenses sources
 
   cmake-integration-test:
     name: "CMake integration (test)"
