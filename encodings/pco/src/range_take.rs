@@ -113,7 +113,7 @@ fn checked_index<I>(value: I) -> VortexResult<usize>
 where
     usize: TryFrom<I>,
 {
-    usize::try_from(value).map_err(|_| vortex_err!("Pco take index is negative or exceeds usize"))
+    usize::try_from(value).map_err(|_| vortex_err!("Pco range descriptor exceeds usize"))
 }
 
 fn primitive_usizes(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
@@ -340,10 +340,7 @@ fn gather_typed<T: Number + NativePType, const NULLABLE: bool>(
     } else {
         Validity::NonNullable
     };
-    values.values.truncate(output_len);
-    values
-        .values
-        .push_n(T::default(), output_len - values.values.len());
+    vortex_ensure_eq!(values.len, output_len, "Pco range output is incomplete");
     Ok(PrimitiveArray::new(values.values.freeze(), validity))
 }
 
@@ -430,6 +427,7 @@ fn stream_range<T: Number + NativePType>(
         }
         row = span.stop;
     }
+    vortex_ensure_eq!(row, stop, "Pco slice output is incomplete");
     let validity = array
         .unsliced_validity()
         .slice(global_start..stop)?
