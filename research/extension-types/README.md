@@ -10,7 +10,7 @@ That causes wrong results, panics, and code paths that disagree with each other.
 | [2. Current problems](02-current-problems.md) | What is wrong on `develop` |
 | [3. Design](03-design.md) | The proposed model, the alternatives, and the open questions |
 | [4. Urgent changes](04-urgent-changes.md) | Fixes to make now, before the larger design |
-| [5. Implementation](05-implementation.md) | Phases, order, tests and compatibility |
+| [5. Implementation](05-implementation.md) | Phases, the dependency graph, order, tests and compatibility |
 
 ## Summary
 
