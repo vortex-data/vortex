@@ -100,7 +100,7 @@ BENCHMARK_SCAN_V2: dict[Benchmark, bool] = {
     Benchmark.TPCDS: True,
     Benchmark.CLICKBENCH: True,
     Benchmark.CLICKBENCH_SORTED: False,
-    Benchmark.FINEWEB: False,
+    Benchmark.FINEWEB: True,
     Benchmark.GHARCHIVE: False,
     Benchmark.JOB: False,
     Benchmark.POLARSIGNALS: False,
