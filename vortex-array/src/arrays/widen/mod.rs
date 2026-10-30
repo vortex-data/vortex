@@ -23,8 +23,10 @@
 //! as the DuckDB exporter and the dict layout writer looks for a `Dict` at the root of an array.
 //!
 //! `Widen` has no wire form yet. The default [`ArraySession`] registers [`WidenPlugin`], which
-//! writes each `Widen` as its canonical integer array. Serialization keeps the `Widen` statistics,
-//! and readers never see `vortex.widen`.
+//! writes an integer `Widen` as its canonical array and a decimal `Widen` as the narrow decimal
+//! node of its child. The decimal node stores its width in metadata and takes its precision from
+//! the containing format. Serialization keeps the `Widen` statistics, and readers never see
+//! `vortex.widen`.
 //!
 //! [`ArraySession`]: crate::session::ArraySession
 //! [`Dict`]: crate::arrays::Dict

@@ -174,12 +174,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::Widen;
     use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
@@ -231,8 +232,6 @@ mod tests {
         write_and_read(&array.into_array());
     }
 
-    /// IPC writes a `Widen` as its canonical array, so the decoded encoding differs from the
-    /// written one and this test cannot use `write_and_read`.
     #[test]
     fn array_ipc_writes_widen() -> VortexResult<()> {
         let values = PrimitiveArray::new(
@@ -242,6 +241,24 @@ mod tests {
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let expected = WidenArray::try_new(values.into_array(), dtype)?.into_array();
 
+        write_and_read_widen(expected)
+    }
+
+    #[test]
+    fn array_ipc_writes_decimal_widen() -> VortexResult<()> {
+        let values = DecimalArray::new(
+            buffer![-125i32, 50, 900],
+            DecimalDType::new(9, 2),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
+        let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        write_and_read_widen(array)
+    }
+
+    /// The wire form can read back as another encoding, so compare values instead of IDs.
+    fn write_and_read_widen(expected: ArrayRef) -> VortexResult<()> {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::new(SESSION.clone());
         for buf in encoder.encode(EncoderMessage::Array(&expected))? {
@@ -257,7 +274,6 @@ mod tests {
         let actual = array_parts.decode(expected.dtype(), row_count, &ctx, &SESSION)?;
 
         assert!(!ctx.ids().contains(&ArrayVTable::id(&Widen)));
-        assert!(actual.is::<Primitive>(), "{}", actual.encoding_id());
         assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())

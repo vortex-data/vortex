@@ -181,7 +181,7 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::Widen;
@@ -191,6 +191,7 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
@@ -412,22 +413,39 @@ mod tests {
         })
     }
 
-    /// The flat writer serializes its chunk directly, so a `Widen` reaches it, and the layout
-    /// stores the canonical array.
     #[test]
     fn flat_writes_widen() -> VortexResult<()> {
+        let values = PrimitiveArray::new(
+            buffer![-125i16, 50, 900],
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+        let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        flat_write_and_read_widen(array)
+    }
+
+    #[test]
+    fn flat_writes_decimal_widen() -> VortexResult<()> {
+        let values = DecimalArray::new(
+            buffer![-125i32, 50, 900],
+            DecimalDType::new(9, 2),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::Nullable);
+        let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+
+        flat_write_and_read_widen(array)
+    }
+
+    /// The flat writer stores the chunk directly, so this exercises the plugin without a compressor.
+    fn flat_write_and_read_widen(array: ArrayRef) -> VortexResult<()> {
         block_on(|handle| async {
             let mut ctx_exec = SESSION.create_execution_ctx();
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let values = PrimitiveArray::new(
-                buffer![-125i16, 50, 900],
-                Validity::from_iter([true, false, true]),
-            );
-            let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
-            let array = WidenArray::try_new(values.into_array(), dtype)?.into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone().into(),
@@ -449,7 +467,6 @@ mod tests {
                 .await?;
 
             assert!(!ctx.to_ids().contains(&ArrayVTable::id(&Widen)));
-            assert!(result.is::<Primitive>(), "{}", result.encoding_id());
             assert_arrays_eq!(result, array, &mut ctx_exec);
 
             Ok(())
