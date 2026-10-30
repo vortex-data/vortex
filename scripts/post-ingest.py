@@ -30,10 +30,15 @@ import math
 import os
 import subprocess
 import sys
+import time
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
+from typing import TypeVar
+
+T = TypeVar("T")
 
 # MUST equal `bench/web/lib/schema-version.ts::SCHEMA_VERSION` in vortex-data/vortex.dev.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
@@ -73,6 +78,11 @@ def parse_args() -> argparse.Namespace:
         "--commit-sha",
         required=True,
         help="40-hex commit SHA. Usually ${{ github.sha }} in CI.",
+    )
+    parser.add_argument(
+        "--branch",
+        required=True,
+        help="Branch the results were measured on, stored as commits.branch. Usually ${{ github.ref_name }} in CI.",
     )
     parser.add_argument(
         "--repo-url",
@@ -125,10 +135,12 @@ def git_show_field(sha: str, fmt: str, cwd: Path | None) -> str:
     return result.stdout.strip()
 
 
-def build_commit(sha: str, repo_url: str, git_dir: Path | None) -> dict:
+def build_commit(sha: str, branch: str, repo_url: str, git_dir: Path | None) -> dict:
     sha = sha.strip().lower()
     if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
         raise SystemExit(f"commit SHA must be 40-hex lowercase, got: {sha!r}")
+    if not branch:
+        raise SystemExit("--branch must not be empty")
 
     timestamp = git_show_field(sha, "%cI", git_dir)
     message = git_show_field(sha, "%s", git_dir)
@@ -140,6 +152,7 @@ def build_commit(sha: str, repo_url: str, git_dir: Path | None) -> dict:
 
     return {
         "sha": sha,
+        "branch": branch,
         "timestamp": timestamp,
         "message": message,
         "author_name": author_name,
@@ -739,10 +752,11 @@ def _upsert_commit(conn, commit: dict) -> None:
     conn.execute(
         """
         INSERT INTO commits (
-            commit_sha, timestamp, message, author_name, author_email,
+            commit_sha, branch, timestamp, message, author_name, author_email,
             committer_name, committer_email, tree_sha, url
-        ) VALUES (%s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (commit_sha) DO UPDATE SET
+            branch          = excluded.branch,
             timestamp       = excluded.timestamp,
             message         = excluded.message,
             author_name     = excluded.author_name,
@@ -754,6 +768,7 @@ def _upsert_commit(conn, commit: dict) -> None:
         """,
         (
             commit["sha"],
+            commit["branch"],
             commit["timestamp"],
             commit["message"],
             commit["author_name"],
@@ -977,16 +992,57 @@ def refresh_site_cache(base_url: str, token: str, timeout: float) -> None:
     _warm_default_windows(base, timeout)
 
 
+# A restart of the RDS instance refuses connections for 30 seconds to a few minutes: on 2026-10-28
+# an engine upgrade took 33 seconds and an OS update about 3 minutes, and four ingest jobs failed.
+# These waits, about 4 minutes in all, span that window.
+_RETRY_DELAYS_S = (5, 10, 20, 40, 60, 60, 60)
+
+
+def _with_retries(
+    attempt: Callable[[], T],
+    *,
+    should_retry: Callable[[Exception], bool],
+    delays: tuple[float, ...] = _RETRY_DELAYS_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> T:
+    """Run `attempt`, and run it again after each delay while it raises an error that
+    `should_retry` accepts. The last error is raised once the delays run out."""
+    for delay in delays:
+        try:
+            return attempt()
+        except Exception as exc:
+            if not should_retry(exc):
+                raise
+            print(f"warning: database unavailable ({exc}); retrying in {delay:g}s", file=sys.stderr)
+            sleep(delay)
+    return attempt()
+
+
+def _is_transient_db_error(exc: Exception) -> bool:
+    """True for a lost or refused connection. A statement timeout is not retried: it is a slow
+    query, not an outage."""
+    import psycopg
+
+    return isinstance(exc, psycopg.OperationalError) and not isinstance(exc, psycopg.errors.QueryCanceled)
+
+
 def _main_postgres(args: argparse.Namespace) -> int:
     records = read_records(args.jsonl_path)
     # `build_commit` runs `git show <commit_sha>`, so the SHA must be in the runner's local git
     # history. A shallow checkout missing the SHA fails before opening a database connection.
-    commit = build_commit(args.commit_sha, args.repo_url, args.git_dir)
-    conn = connect_postgres(args.postgres, args.region)
-    try:
-        inserted, updated = ingest_postgres(conn, commit, records)
-    finally:
-        conn.close()
+    commit = build_commit(args.commit_sha, args.branch, args.repo_url, args.git_dir)
+
+    # Each attempt connects again, with a fresh IAM token, and writes the whole file. Retrying the
+    # write is safe: the commit row is an idempotent upsert, and the fact rows land in one
+    # transaction, so a connection lost mid-write leaves nothing half-written.
+    def write() -> tuple[int, int]:
+        conn = connect_postgres(args.postgres, args.region)
+        try:
+            return ingest_postgres(conn, commit, records)
+        finally:
+            conn.close()
+
+    inserted, updated = _with_retries(write, should_retry=_is_transient_db_error)
     print(
         json.dumps(
             {"records": len(records), "inserted": inserted, "updated": updated},

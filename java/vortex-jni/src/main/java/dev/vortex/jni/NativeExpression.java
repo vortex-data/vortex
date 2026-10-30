@@ -37,6 +37,8 @@ public final class NativeExpression {
 
     public static native long isNotNull(long childPointer);
 
+    public static native long mask(long childPointer, long maskPointer);
+
     public static native long like(long childPointer, long patternPointer, boolean negated, boolean caseInsensitive);
 
     public static native long between(

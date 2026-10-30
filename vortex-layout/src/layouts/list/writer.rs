@@ -3,6 +3,9 @@
 
 use std::sync::Arc;
 
+use async_channel::Receiver;
+use async_channel::Sender;
+use async_channel::bounded;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::future::join;
@@ -26,7 +29,6 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -156,10 +158,10 @@ impl LayoutStrategy for ListLayoutStrategy {
         let offsets_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
 
         // One bounded sub-stream per child: elements, offsets, and (when nullable) validity.
-        let (elements_tx, elements_rx) = kanal::bounded_async::<ChildChunk>(1);
-        let (offsets_tx, offsets_rx) = kanal::bounded_async::<ChildChunk>(1);
+        let (elements_tx, elements_rx) = bounded::<ChildChunk>(1);
+        let (offsets_tx, offsets_rx) = bounded::<ChildChunk>(1);
         let (validity_tx, validity_rx) = if is_nullable {
-            let (tx, rx) = kanal::bounded_async::<ChildChunk>(1);
+            let (tx, rx) = bounded::<ChildChunk>(1);
             (Some(tx), Some(rx))
         } else {
             (None, None)
@@ -179,11 +181,7 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // Spawn a writer per child sub-stream, concurrently.
         let handle = session.handle();
-        let mut child_specs: Vec<(
-            DType,
-            Arc<dyn LayoutStrategy>,
-            kanal::AsyncReceiver<ChildChunk>,
-        )> = vec![
+        let mut child_specs: Vec<(DType, Arc<dyn LayoutStrategy>, Receiver<ChildChunk>)> = vec![
             (element_dtype, Arc::clone(&self.elements), elements_rx),
             (offsets_dtype, Arc::clone(&self.offsets), offsets_rx),
         ];
@@ -198,8 +196,7 @@ impl LayoutStrategy for ListLayoutStrategy {
         let layout_futures: Vec<_> = child_specs
             .into_iter()
             .map(|(child_dtype, strategy, rx)| {
-                let child_stream =
-                    SequentialStreamAdapter::new(child_dtype, rx.into_stream().boxed()).sendable();
+                let child_stream = SequentialStreamAdapter::new(child_dtype, rx.boxed()).sendable();
                 let child_eof = eof.split_off();
                 let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
@@ -238,9 +235,9 @@ async fn transpose_list_column(
     first_chunk: (SequenceId, ArrayRef),
     stream: SendableSequentialStream,
     session: VortexSession,
-    elements_tx: kanal::AsyncSender<ChildChunk>,
-    offsets_tx: kanal::AsyncSender<ChildChunk>,
-    validity_tx: Option<kanal::AsyncSender<ChildChunk>>,
+    elements_tx: Sender<ChildChunk>,
+    offsets_tx: Sender<ChildChunk>,
+    validity_tx: Option<Sender<ChildChunk>>,
 ) -> VortexResult<()> {
     let mut exec_ctx = session.create_execution_ctx();
     let mut element_base: u64 = 0;

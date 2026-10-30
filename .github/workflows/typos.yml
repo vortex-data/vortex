@@ -7,7 +7,9 @@ concurrency:
 permissions:
   contents: read
 
-on: [pull_request]
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
 
 env:
   CLICOLOR: 1
@@ -15,6 +17,7 @@ env:
 jobs:
   spelling:
     name: Spell Check with Typos
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

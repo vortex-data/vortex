@@ -146,6 +146,14 @@ public final class Expression {
     }
 
     /**
+     * Null out {@code child} wherever {@code mask} is false, keeping its value where {@code mask} is true. The mask
+     * must be a non-nullable boolean.
+     */
+    public static Expression mask(Expression child, Expression mask) {
+        return new Expression(NativeExpression.mask(child.nativePointer(), mask.nativePointer()));
+    }
+
+    /**
      * SQL {@code LIKE} pattern match.
      *
      * @param negated whether to invert the result (i.e. {@code NOT LIKE})

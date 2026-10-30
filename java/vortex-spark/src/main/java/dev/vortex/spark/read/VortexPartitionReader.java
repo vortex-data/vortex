@@ -16,12 +16,12 @@ import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
 import dev.vortex.spark.VortexFilePartition;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
@@ -50,7 +50,8 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
 
     VortexPartitionReader(
             VortexFilePartition spark,
-            List<String> dataColumnNames,
+            StructType dataReadSchema,
+            StructType tableSchema,
             Map<String, String> formatOptions,
             Predicate[] pushedPredicates) {
         this.spark = spark;
@@ -60,9 +61,8 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
         dataSource = DataSource.open(session, spark.paths(), formatOptions);
 
         var options = ScanOptions.builder();
-        if (!dataColumnNames.isEmpty()) {
-            Expression projection = Expression.select(dataColumnNames.toArray(new String[0]), Expression.root());
-            options.projection(projection);
+        if (dataReadSchema.fields().length > 0) {
+            options.projection(NestedSchemaPruning.projection(dataReadSchema, tableSchema));
         }
         if (pushedPredicates != null && pushedPredicates.length > 0) {
             buildFilterExpression(pushedPredicates).ifPresent(options::filter);

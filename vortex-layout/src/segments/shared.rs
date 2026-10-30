@@ -74,42 +74,23 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
     use vortex_buffer::ByteBuffer;
 
     use super::*;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSink;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
 
-    // Custom source that tracks how many times a segment is requested
-    #[derive(Default, Clone)]
-    struct CountingSegmentSource {
-        segments: TestSegments,
-        request_count: Arc<AtomicUsize>,
-    }
-
-    impl SegmentSource for CountingSegmentSource {
-        fn request(&self, id: SegmentId) -> SegmentFuture {
-            self.request_count.fetch_add(1, Ordering::SeqCst);
-            self.segments.request(id)
-        }
-    }
-
     #[tokio::test]
     async fn test_shared_source_deduplicates_concurrent_requests() {
-        let source = CountingSegmentSource::default();
+        let segments = Arc::new(TestSegments::default());
+        let source = CountingSegmentSource::new(Arc::clone(&segments) as _);
 
         // Add a segment to the test source
         let data = ByteBuffer::from(vec![1, 2, 3, 4]);
         let seq_id = SequenceId::root().downgrade();
-        source
-            .segments
-            .write(seq_id, vec![data.clone()])
-            .await
-            .unwrap();
+        segments.write(seq_id, vec![data.clone()]).await.unwrap();
 
         let shared_source = SharedSegmentSource::new(source.clone());
 
@@ -124,21 +105,18 @@ mod tests {
         assert_eq!(result2.unwrap().unwrap_host(), data);
 
         // The inner source should have been called only once
-        assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
+        assert_eq!(source.requests(), 1);
     }
 
     #[tokio::test]
     async fn test_shared_source_handles_dropped_futures() {
-        let source = CountingSegmentSource::default();
+        let segments = Arc::new(TestSegments::default());
+        let source = CountingSegmentSource::new(Arc::clone(&segments) as _);
 
         // Add a segment
         let data = ByteBuffer::from(vec![5, 6, 7, 8]);
         let seq_id = SequenceId::root().downgrade();
-        source
-            .segments
-            .write(seq_id, vec![data.clone()])
-            .await
-            .unwrap();
+        segments.write(seq_id, vec![data.clone()]).await.unwrap();
 
         let shared_source = SharedSegmentSource::new(source.clone());
         let id = SegmentId::from(0);
@@ -154,6 +132,6 @@ mod tests {
         assert_eq!(result.unwrap().unwrap_host(), data);
 
         // Should have made 2 requests since the first was dropped before completion
-        assert_eq!(source.request_count.load(Ordering::Relaxed), 2);
+        assert_eq!(source.requests(), 2);
     }
 }

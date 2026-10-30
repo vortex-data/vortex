@@ -296,3 +296,21 @@ def test_timestamp_scalar_keeps_pandas_nanoseconds() -> None:
 def test_decimal_scalar_rejects_unrepresentable_scale() -> None:
     with pytest.raises(ValueError, match="cannot be represented as a Vortex decimal"):
         _ = vx.scalar(decimal.Decimal("1E-100"))
+
+
+def test_datetime_scalar_rejects_unknown_timezone():
+    class InvalidTimezone(datetime.tzinfo):
+        key = "Not/A/Timezone"
+
+        def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+            return datetime.timedelta(0)
+
+        def dst(self, dt: datetime.datetime | None) -> datetime.timedelta:
+            return datetime.timedelta(0)
+
+        def tzname(self, dt: datetime.datetime | None) -> str:
+            return self.key
+
+    value = datetime.datetime(1970, 1, 1, tzinfo=InvalidTimezone())
+    with pytest.raises(RuntimeError, match="Not/A/Timezone"):
+        vx.scalar(value)

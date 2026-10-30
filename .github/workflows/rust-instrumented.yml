@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -143,6 +144,7 @@ jobs:
           use_oidc: true
 
   rust-test-sanitizer:
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -211,6 +213,7 @@ jobs:
             -p vortex-ffi --tests -- --no-capture
 
   rust-ffi-test-sanitizer:
+    if: github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -281,6 +284,7 @@ jobs:
 
   miri:
     name: "Rust tests (miri)"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-miri', github.run_id)

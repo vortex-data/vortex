@@ -1,0 +1,30 @@
+name: "Assert CPU"
+description: "Fail unless the runner has the expected CPU, so `-C target-cpu=native` builds match the benchmark machine"
+
+inputs:
+  implementer:
+    description: "Expected `CPU implementer` from /proc/cpuinfo"
+    required: false
+    default: "0x41"  # Arm
+  part:
+    description: "Expected `CPU part` from /proc/cpuinfo"
+    required: false
+    default: "0xd4f"  # Neoverse V2 (Graviton4)
+
+runs:
+  using: "composite"
+  steps:
+    - name: Assert CPU
+      shell: bash
+      env:
+        EXPECTED_IMPLEMENTER: ${{ inputs.implementer }}
+        EXPECTED_PART: ${{ inputs.part }}
+      run: |
+        implementer=$(awk -F': *' '/^CPU implementer/ {print $2; exit}' /proc/cpuinfo)
+        part=$(awk -F': *' '/^CPU part/ {print $2; exit}' /proc/cpuinfo)
+        echo "CPU implementer=${implementer:-unknown} part=${part:-unknown}"
+        lscpu | grep -E "^(Model name|Vendor ID)" || true
+        if [[ "$implementer" != "$EXPECTED_IMPLEMENTER" || "$part" != "$EXPECTED_PART" ]]; then
+          echo "::error::Expected CPU implementer=$EXPECTED_IMPLEMENTER part=$EXPECTED_PART, got implementer=${implementer:-unknown} part=${part:-unknown}"
+          exit 1
+        fi

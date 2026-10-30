@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Shared assertions and fixtures for array tests.
+//!
+//! These helpers are available to this crate's tests and to crates that enable `_test-harness`.
+
 use std::io::Write;
 
 use goldenfile::Mint;
@@ -11,6 +15,10 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
+
+mod execution_paths;
+pub use execution_paths::ExpectedOutcome;
+pub use execution_paths::assert_execution_paths;
 
 #[cfg(not(codspeed))]
 pub mod trace;

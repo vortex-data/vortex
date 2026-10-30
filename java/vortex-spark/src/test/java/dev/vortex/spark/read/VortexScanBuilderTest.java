@@ -15,7 +15,9 @@ import org.apache.spark.sql.connector.expressions.LiteralValue;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
+import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.DisplayName;
@@ -163,27 +165,61 @@ final class VortexScanBuilderTest {
 
     // --- pruneColumns ---
 
+    private static final StructType ABC = new StructType()
+            .add("a", DataTypes.LongType)
+            .add("b", DataTypes.LongType)
+            .add("c", DataTypes.LongType);
+
     @Test
-    @DisplayName("Required columns keep their full table type, so readSchema matches what the reader returns")
-    void pruneColumnsKeepsTableTypes() {
-        StructType abc = new StructType()
-                .add("a", DataTypes.LongType)
-                .add("b", DataTypes.LongType)
-                .add("c", DataTypes.LongType);
+    @DisplayName("Struct columns are pruned to the required fields, with columns and fields in table order")
+    void pruneColumnsPrunesStructFields() {
         VortexScanBuilder builder = builderWithColumns(
                 new Transform[0],
                 Column.create("id", DataTypes.IntegerType),
-                Column.create("s", abc),
+                Column.create("s", ABC),
                 Column.create("name", DataTypes.StringType));
 
-        // With nested schema pruning, Spark asks for s with only the field the query uses.
         builder.pruneColumns(new StructType()
-                .add("s", new StructType().add("c", DataTypes.LongType))
+                .add("s", new StructType().add("c", DataTypes.LongType).add("a", DataTypes.LongType))
                 .add("id", DataTypes.IntegerType));
 
         assertEquals(
-                new StructType().add("id", DataTypes.IntegerType).add("s", abc),
+                new StructType()
+                        .add("id", DataTypes.IntegerType)
+                        .add("s", new StructType().add("a", DataTypes.LongType).add("c", DataTypes.LongType)),
                 builder.build().readSchema());
+    }
+
+    @Test
+    @DisplayName("Structs inside structs are pruned at every level")
+    void pruneColumnsPrunesNestedStructs() {
+        StructType outer = new StructType().add("p", DataTypes.StringType).add("inner", ABC);
+        VortexScanBuilder builder = builderWithColumns(new Transform[0], Column.create("outer", outer));
+
+        builder.pruneColumns(new StructType()
+                .add("outer", new StructType().add("inner", new StructType().add("b", DataTypes.LongType))));
+
+        assertEquals(
+                new StructType()
+                        .add("outer", new StructType().add("inner", new StructType().add("b", DataTypes.LongType))),
+                builder.build().readSchema());
+    }
+
+    @Test
+    @DisplayName("Arrays and maps of structs keep their full table type")
+    void pruneColumnsKeepsArrayAndMapTypes() {
+        ArrayType arr = DataTypes.createArrayType(ABC);
+        MapType map = DataTypes.createMapType(DataTypes.StringType, ABC);
+        VortexScanBuilder builder =
+                builderWithColumns(new Transform[0], Column.create("arr", arr), Column.create("m", map));
+
+        StructType c = new StructType().add("c", DataTypes.LongType);
+        builder.pruneColumns(new StructType()
+                .add("arr", DataTypes.createArrayType(c))
+                .add("m", DataTypes.createMapType(DataTypes.StringType, c)));
+
+        assertEquals(
+                new StructType().add("arr", arr).add("m", map), builder.build().readSchema());
     }
 
     // --- build ---

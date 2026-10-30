@@ -117,7 +117,7 @@ public final class VortexScan implements Scan, SupportsReportStatistics {
      */
     @Override
     public Batch toBatch() {
-        return new VortexBatchExec(paths, readColumns, formatOptions, pushedPredicates);
+        return new VortexBatchExec(paths, readColumns, tableColumns, formatOptions, pushedPredicates);
     }
 
     /**

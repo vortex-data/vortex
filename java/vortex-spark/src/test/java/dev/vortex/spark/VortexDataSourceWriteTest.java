@@ -26,7 +26,6 @@ import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.MapType;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -123,7 +122,7 @@ public final class VortexDataSourceWriteTest {
                 .load();
 
         // Then: Verify schema is preserved
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        assertReadBackSchema(originalDf.schema(), readDf.schema());
 
         // Verify row count
         assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
@@ -153,7 +152,7 @@ public final class VortexDataSourceWriteTest {
         Dataset<Row> readDf =
                 spark.read().format("vortex").option("path", barePath).load();
 
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        assertReadBackSchema(originalDf.schema(), readDf.schema());
         assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
         verifyDataContent(originalDf, readDf);
 
@@ -196,7 +195,7 @@ public final class VortexDataSourceWriteTest {
                 .load();
 
         assertEquals(0, readDf.count(), "Empty DataFrame should remain empty after write/read");
-        assertSchemaEquals(emptyDf.schema(), readDf.schema());
+        assertReadBackSchema(emptyDf.schema(), readDf.schema());
     }
 
     @Test
@@ -443,7 +442,7 @@ public final class VortexDataSourceWriteTest {
 
         assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
         Dataset<Row> actual = spark.read().format("vortex").load(outputPath.toString());
-        assertSchemaEquals(timestampNtzDf.schema(), actual.schema());
+        assertReadBackSchema(timestampNtzDf.schema(), actual.schema());
         verifyDataContent(timestampNtzDf, actual);
     }
 
@@ -567,24 +566,10 @@ public final class VortexDataSourceWriteTest {
         }
     }
 
-    /** Verifies that two schemas are equal. */
-    private void assertSchemaEquals(StructType expected, StructType actual) {
-        assertEquals(expected.fields().length, actual.fields().length, "Schemas should have same number of fields");
-
-        for (int i = 0; i < expected.fields().length; i++) {
-            StructField expectedField = expected.fields()[i];
-            StructField actualField = actual.fields()[i];
-
-            assertEquals(expectedField.name(), actualField.name(), "Field names should match at position " + i);
-            assertEquals(
-                    expectedField.dataType(),
-                    actualField.dataType(),
-                    "Field types should match for field: " + expectedField.name());
-            assertEquals(
-                    expectedField.nullable(),
-                    actualField.nullable(),
-                    "Field nullability should match for field: " + expectedField.name());
-        }
+    /** Verifies that {@code actual} is the {@code written} schema, read back with every field nullable. */
+    private void assertReadBackSchema(StructType written, StructType actual) {
+        assertEquals(written.simpleString(), actual.simpleString());
+        VortexDataSourceInferSchemaTest.assertNoNonNullableFields(actual);
     }
 
     /** Verifies that the data content of two DataFrames is identical. */

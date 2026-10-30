@@ -10,7 +10,8 @@ import argparse
 import glob
 import json
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -37,9 +38,33 @@ def drop_os_caches() -> None:
         pass
 
 
+@contextmanager
+def log_group(title: str) -> Iterator[None]:
+    """Fold the output printed inside into a collapsible GitHub Actions log group."""
+    print(f"::group::{title}", flush=True)
+    try:
+        yield
+    finally:
+        print("::endgroup::", flush=True)
+
+
+def benchmark_formats(remote_data_dir: str | None) -> list[str]:
+    return [f for f in FORMATS if not (remote_data_dir and f in LOCAL_ONLY_FORMATS)]
+
+
+def prepare_data(remote_data_dir: str | None) -> None:
+    formats = ",".join(benchmark_formats(remote_data_dir))
+    for dataset in DATASETS:
+        args = [BINARY, "--prepare-data", "--datasets", dataset, "--formats", formats]
+        with log_group(f"Generate {dataset} ({formats})"):
+            print("+", " ".join(args), flush=True)
+            subprocess.run(args, check=True)
+
+
 def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
-    formats = [f for f in FORMATS if not (remote_data_dir and f in LOCAL_ONLY_FORMATS)]
+    formats = benchmark_formats(remote_data_dir)
+    total = len(DATASETS) * len(formats) * len(PATTERNS) * len(OPEN_MODES)
     i = 0
     for dataset in DATASETS:
         for fmt in formats:
@@ -68,8 +93,9 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         args += ["--remote-data-dir", remote_data_dir]
                     if emit_ingest_records:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
-                    print("+", " ".join(args), flush=True)
-                    subprocess.run(args, check=True)
+                    with log_group(f"Benchmark [{i + 1}/{total}] {dataset} / {fmt} / {pattern} / {open_mode}"):
+                        print("+", " ".join(args), flush=True)
+                        subprocess.run(args, check=True)
                     i += 1
 
 
@@ -118,7 +144,16 @@ def main() -> None:
         "--remote-data-dir",
         help="read the benchmark data from this remote directory (e.g. s3://bucket/prefix/)",
     )
+    parser.add_argument(
+        "--prepare-data",
+        action="store_true",
+        help="only generate the benchmark data files, without running the benchmark",
+    )
     args = parser.parse_args()
+
+    if args.prepare_data:
+        prepare_data(args.remote_data_dir)
+        return
 
     run_combinations(args.emit_ingest_records, args.remote_data_dir)
     merge(f"{PARTS_DIR}/*.gh.json", lambda record: record["name"], "results.json")

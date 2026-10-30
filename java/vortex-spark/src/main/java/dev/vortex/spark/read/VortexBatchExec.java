@@ -21,12 +21,14 @@ import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.Batch;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 /** Execution source for batch scans of Vortex file tables. */
 public final class VortexBatchExec implements Batch {
     private final List<String> paths;
     private final StructType readSchema;
+    private final StructType tableSchema;
     private final Map<String, String> formatOptions;
     private final Predicate[] pushedPredicates;
     private List<String> resolvedPaths;
@@ -36,13 +38,19 @@ public final class VortexBatchExec implements Batch {
      *
      * @param paths the list of file paths to scan
      * @param columns the list of columns to read from the files
+     * @param tableColumns the full table columns, which {@code columns} may prune nested fields from
      * @param pushedPredicates predicates pushed down by Spark; converted to a single Vortex filter expression at read
      *     time
      */
     public VortexBatchExec(
-            List<String> paths, List<Column> columns, Map<String, String> formatOptions, Predicate[] pushedPredicates) {
+            List<String> paths,
+            List<Column> columns,
+            List<Column> tableColumns,
+            Map<String, String> formatOptions,
+            Predicate[] pushedPredicates) {
         this.paths = List.copyOf(paths);
         this.readSchema = CatalogV2Util.v2ColumnsToStructType(columns.toArray(new Column[0]));
+        this.tableSchema = CatalogV2Util.v2ColumnsToStructType(tableColumns.toArray(new Column[0]));
         this.formatOptions = Map.copyOf(formatOptions);
         this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
     }
@@ -70,10 +78,14 @@ public final class VortexBatchExec implements Batch {
     public PartitionReaderFactory createReaderFactory() {
         List<String> files = resolvedPaths != null ? resolvedPaths : resolvePaths();
         Set<String> partitionColumns = collectPartitionColumnNames(files);
-        List<String> dataColumnNames = Arrays.stream(readSchema.fieldNames())
-                .filter(name -> !partitionColumns.contains(name))
-                .collect(Collectors.toList());
-        return new VortexPartitionReaderFactory(dataColumnNames, formatOptions, pushedPredicates);
+        StructType dataReadSchema = new StructType(Arrays.stream(readSchema.fields())
+                .filter(field -> !partitionColumns.contains(field.name()))
+                .toArray(StructField[]::new));
+        // Only the read columns' table types are needed to build the projection.
+        StructType dataTableSchema = new StructType(Arrays.stream(dataReadSchema.fieldNames())
+                .map(tableSchema::apply)
+                .toArray(StructField[]::new));
+        return new VortexPartitionReaderFactory(dataReadSchema, dataTableSchema, formatOptions, pushedPredicates);
     }
 
     private List<String> resolvePaths() {

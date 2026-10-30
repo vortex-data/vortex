@@ -164,7 +164,7 @@ public final class ExpressionTagParityTest {
         RuntimeException exception =
                 assertThrows(RuntimeException.class, () -> Expression.literalTimestamp(0L, TimeUnit.DAYS, "UTC"));
         assertTrue(
-                exception.getMessage().contains("Timestamp does not support Days time unit"),
+                exception.getMessage().contains("Timestamp time unit must be finer than days, got Days"),
                 () -> "unexpected message: " + exception.getMessage());
     }
 

@@ -220,20 +220,25 @@ impl Flavor {
         match self {
             Flavor::Single => {
                 let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
-                info!("Downloading single clickbench file");
+                if !output_path.exists() {
+                    info!("Downloading single clickbench file");
+                }
                 let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
                 download_data(output_path, url).await?;
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                info!("Downloading {files} ClickBench parquet shards");
                 let parquet_dir = basepath.join(Format::Parquet.name());
-                let downloads = (0..files).map(|idx| {
+                let downloads: Vec<_> = (0..files).map(|idx| {
                     let output_path = parquet_dir.join(format!("hits_{idx}.parquet"));
                     let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
                     (output_path, url)
-                });
+                }).collect();
+                let missing = downloads.iter().filter(|(path, _)| !path.exists()).count();
+                if missing > 0 {
+                    info!("Downloading {missing} of {files} ClickBench parquet shards");
+                }
                 download_many(downloads).await?;
             }
         }
@@ -248,14 +253,9 @@ impl Flavor {
 /// pushdown has a visible job to do.
 pub async fn generate_sorted_clickbench(basepath: impl AsRef<Path>) -> anyhow::Result<()> {
     let basepath = basepath.as_ref();
-    let source_base = CLICKBENCH_PARTITIONED_NAME.to_data_path();
-    Flavor::Partitioned
-        .download(&source_base, CLICKBENCH_FILES)
-        .await?;
-
-    let source_parquet_dir = source_base.join(Format::Parquet.name());
     let output_parquet_dir = basepath.join(Format::Parquet.name());
 
+    // Check before fetching the source so a restored CI cache skips the partitioned download.
     if output_parquet_dir.exists() {
         info!(
             "Sorted ClickBench parquet already exists at {}",
@@ -263,6 +263,12 @@ pub async fn generate_sorted_clickbench(basepath: impl AsRef<Path>) -> anyhow::R
         );
         return Ok(());
     }
+
+    let source_base = CLICKBENCH_PARTITIONED_NAME.to_data_path();
+    Flavor::Partitioned
+        .download(&source_base, CLICKBENCH_FILES)
+        .await?;
+    let source_parquet_dir = source_base.join(Format::Parquet.name());
 
     let temp_root = temp_download_filepath();
     let result =
@@ -404,7 +410,7 @@ COPY (
     FROM hits_sorted
     WHERE rowid >= {start} AND rowid < {end}
     ORDER BY rowid
-) TO {output_path} (FORMAT parquet, COMPRESSION zstd);
+) TO {output_path} (FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3);
 ",
             output_path = sql_string_literal(&output_path.display().to_string()),
         ));

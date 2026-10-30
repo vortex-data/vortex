@@ -130,20 +130,31 @@ public final class VortexScanBuilder
     /**
      * Prunes the columns to only include those specified in the required schema.
      *
-     * <p>Required columns keep their table type because the native scan returns whole top-level columns, even when
-     * Spark prunes nested fields.
+     * <p>Columns stay in table order. Struct columns are pruned to the nested fields Spark requires, and the reader
+     * projects only those fields. See {@link NestedSchemaPruning} for which nested types are pruned.
      *
      * @param requiredSchema the schema specifying which columns are required
      */
     @Override
     public void pruneColumns(StructType requiredSchema) {
-        Set<String> required = Set.copyOf(Arrays.asList(requiredSchema.fieldNames()));
         readColumns.clear();
         for (Column column : tableColumns) {
-            if (required.contains(column.name())) {
-                readColumns.add(column);
+            if (requiredSchema.getFieldIndex(column.name()).isDefined()) {
+                DataType prunedType = NestedSchemaPruning.prune(
+                        column.dataType(), requiredSchema.apply(column.name()).dataType());
+                readColumns.add(prunedType.equals(column.dataType()) ? column : withDataType(column, prunedType));
             }
         }
+    }
+
+    private static Column withDataType(Column column, DataType dataType) {
+        return Column.create(
+                column.name(),
+                dataType,
+                column.nullable(),
+                column.comment(),
+                column.defaultValue(),
+                column.metadataInJSON());
     }
 
     /**

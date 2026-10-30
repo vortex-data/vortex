@@ -4,7 +4,7 @@
 //! TPCH benchmark implementation
 
 use glob::Pattern;
-use tracing::info;
+use tracing::debug;
 use tracing::warn;
 use url::Url;
 
@@ -60,7 +60,7 @@ impl TpcHBenchmark {
                         "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
                     );
                 }
-                info!(
+                debug!(
                     concat!(
                         "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                         "If it does not, you should kill this command, locally generate the files (by running without\n",

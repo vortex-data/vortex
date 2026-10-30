@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -24,6 +25,7 @@ env:
 jobs:
   python-wheel-build:
     name: "Python (wheel build)"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-wheel-build', github.run_id)
@@ -73,6 +75,7 @@ jobs:
         working-directory: vortex-python/
 
   check-java-publish-build:
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -109,12 +112,14 @@ jobs:
 
   compat-check:
     name: "Compat check"
+    if: github.event.pull_request.draft != true
     uses: ./.github/workflows/compat-validation.yml
     with:
       mode: last
 
   rust-publish-dry-run:
     name: "Rust publish dry-run"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'

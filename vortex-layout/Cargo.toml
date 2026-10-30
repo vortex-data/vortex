@@ -20,6 +20,7 @@ all-features = true
 arcref = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+async-channel = { workspace = true }
 async-lock = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -27,7 +28,6 @@ bit-vec = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
-kanal = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }

@@ -13,7 +13,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -27,6 +28,7 @@ env:
 jobs:
   changes:
     name: "Detect CUDA changes"
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -46,6 +48,7 @@ jobs:
               - ".github/workflows/codspeed.yml"
 
   bench-codspeed:
+    if: github.event.pull_request.draft != true
     strategy:
       matrix:
         include:
@@ -148,6 +151,7 @@ jobs:
 
   bench-codspeed-python:
     name: "Benchmark with Codspeed (Python)"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -185,6 +189,9 @@ jobs:
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+          # Drive scans on the calling thread. Background workers wake every 100 ms to check
+          # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
+          VORTEX_MAX_THREADS: "0"
         with:
           run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -195,7 +202,7 @@ jobs:
   # Compile on smaller VMs from the same CPU family as the measurement hosts. Globally
   # enabled features also affect build scripts, so the build host must support them.
   bench-codspeed-cpu-features-build:
-    if: github.repository == 'vortex-data/vortex'
+    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
     strategy:
       fail-fast: false
       matrix: &cpu-feature-matrix
