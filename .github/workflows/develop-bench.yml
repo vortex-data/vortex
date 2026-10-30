@@ -187,7 +187,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/compress-split.py --formats arrow-ipc,parquet,lance,vortex --emit-ingest-records
+          python3 scripts/compress-split.py --formats arrow-ipc,parquet,lance,vortex,vortex-compact --emit-ingest-records
 
       - name: Run ${{ matrix.benchmark.name }} benchmark (per-column-encoder)
         if: matrix.benchmark.id == 'string-bench'
