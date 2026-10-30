@@ -261,6 +261,7 @@ jobs:
             scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
       - name: Alert incident.io

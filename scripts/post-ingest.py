@@ -75,6 +75,11 @@ def parse_args() -> argparse.Namespace:
         help="40-hex commit SHA. Usually ${{ github.sha }} in CI.",
     )
     parser.add_argument(
+        "--branch",
+        required=True,
+        help="Branch the results were measured on, stored as commits.branch. Usually ${{ github.ref_name }} in CI.",
+    )
+    parser.add_argument(
         "--repo-url",
         default="https://github.com/vortex-data/vortex",
         help="Base repo URL used to build the commits.url field.",
@@ -125,10 +130,12 @@ def git_show_field(sha: str, fmt: str, cwd: Path | None) -> str:
     return result.stdout.strip()
 
 
-def build_commit(sha: str, repo_url: str, git_dir: Path | None) -> dict:
+def build_commit(sha: str, branch: str, repo_url: str, git_dir: Path | None) -> dict:
     sha = sha.strip().lower()
     if len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
         raise SystemExit(f"commit SHA must be 40-hex lowercase, got: {sha!r}")
+    if not branch:
+        raise SystemExit("--branch must not be empty")
 
     timestamp = git_show_field(sha, "%cI", git_dir)
     message = git_show_field(sha, "%s", git_dir)
@@ -140,6 +147,7 @@ def build_commit(sha: str, repo_url: str, git_dir: Path | None) -> dict:
 
     return {
         "sha": sha,
+        "branch": branch,
         "timestamp": timestamp,
         "message": message,
         "author_name": author_name,
@@ -739,10 +747,11 @@ def _upsert_commit(conn, commit: dict) -> None:
     conn.execute(
         """
         INSERT INTO commits (
-            commit_sha, timestamp, message, author_name, author_email,
+            commit_sha, branch, timestamp, message, author_name, author_email,
             committer_name, committer_email, tree_sha, url
-        ) VALUES (%s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (commit_sha) DO UPDATE SET
+            branch          = excluded.branch,
             timestamp       = excluded.timestamp,
             message         = excluded.message,
             author_name     = excluded.author_name,
@@ -754,6 +763,7 @@ def _upsert_commit(conn, commit: dict) -> None:
         """,
         (
             commit["sha"],
+            commit["branch"],
             commit["timestamp"],
             commit["message"],
             commit["author_name"],
@@ -981,7 +991,7 @@ def _main_postgres(args: argparse.Namespace) -> int:
     records = read_records(args.jsonl_path)
     # `build_commit` runs `git show <commit_sha>`, so the SHA must be in the runner's local git
     # history. A shallow checkout missing the SHA fails before opening a database connection.
-    commit = build_commit(args.commit_sha, args.repo_url, args.git_dir)
+    commit = build_commit(args.commit_sha, args.branch, args.repo_url, args.git_dir)
     conn = connect_postgres(args.postgres, args.region)
     try:
         inserted, updated = ingest_postgres(conn, commit, records)
