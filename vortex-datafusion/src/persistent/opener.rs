@@ -50,6 +50,7 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
@@ -84,6 +85,7 @@ use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
+use crate::v2::convert_dynamic_filter;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -100,6 +102,11 @@ pub(crate) struct VortexOpener {
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
     pub file_pruning_predicate: Option<PhysicalExprRef>,
+    /// Dynamic filters of operators above the scan, such as a TopK threshold. Those operators
+    /// enforce them, so the scan applies them only to skip zones and rows it need not decode.
+    pub dynamic_filter: Option<PhysicalExprRef>,
+    /// Each file's converted dynamic filter, shared by the partitions that scan it.
+    pub dynamic_filters: Arc<DashMap<Path, SharedDynamicFilter>>,
     pub expr_adapter_factory: Arc<dyn PhysicalExprAdapterFactory>,
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
@@ -166,6 +173,9 @@ impl FileOpener for VortexOpener {
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
         let mut file_pruning_predicate = self.file_pruning_predicate.clone();
+        let shared_dynamic_filter = self.dynamic_filter.clone();
+        let mut dynamic_filter = self.dynamic_filter.clone();
+        let dynamic_filters = Arc::clone(&self.dynamic_filters);
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
 
@@ -207,6 +217,9 @@ impl FileOpener for VortexOpener {
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
             file_pruning_predicate = file_pruning_predicate
+                .map(|p| replace_columns_with_literals(p, &literal_value_cols))
+                .transpose()?;
+            dynamic_filter = dynamic_filter
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
         }
@@ -312,6 +325,12 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Failed to adapt filter in {}: {e}", file.path())
                 })?;
+            let dynamic_filter = dynamic_filter
+                .map(|filter| simplifier.simplify(expr_adapter.rewrite(filter)?))
+                .transpose()
+                .map_err(|e| {
+                    exec_datafusion_err!("Failed to adapt dynamic filter in {}: {e}", file.path())
+                })?;
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
@@ -343,6 +362,29 @@ impl FileOpener for VortexOpener {
                         None => residual_filters.push(Arc::clone(expr)),
                     }
                 }
+            }
+            // A dynamic filter converts to a conservative Vortex expression that re-reads the
+            // producer's current bound, so rows it rejects skip projection.
+            if let (Some(source), Some(dynamic_filter)) = (&shared_dynamic_filter, &dynamic_filter)
+            {
+                let convert = || {
+                    split_conjunction(dynamic_filter)
+                        .into_iter()
+                        .map(|expr| {
+                            convert_dynamic_filter(
+                                Arc::clone(expr),
+                                Arc::clone(&this_file_schema),
+                                Arc::clone(&expr_converter),
+                            )
+                        })
+                        .collect()
+                };
+                native_filters.extend(shared_dynamic_filter_exprs(
+                    &dynamic_filters,
+                    &file.object_meta.location,
+                    source,
+                    convert,
+                ));
             }
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
@@ -691,6 +733,35 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
         }
     }
     Ok(false)
+}
+
+/// A file's dynamic filter converted to Vortex expressions, and the planned filter it came from.
+#[derive(Clone)]
+pub(crate) struct SharedDynamicFilter {
+    source: PhysicalExprRef,
+    converted: Vec<Expression>,
+}
+
+/// Returns the Vortex conjuncts of `source` that other partitions of `path` converted, or
+/// converts them. Dynamic expressions compare by identity, so partitions of a file must share
+/// them to share the file's filter plans and the zones those plans pruned.
+fn shared_dynamic_filter_exprs(
+    dynamic_filters: &DashMap<Path, SharedDynamicFilter>,
+    path: &Path,
+    source: &PhysicalExprRef,
+    convert: impl FnOnce() -> Vec<Expression>,
+) -> Vec<Expression> {
+    let mut entry = dynamic_filters.entry(path.clone()).or_insert_with(|| SharedDynamicFilter {
+        source: Arc::clone(source),
+        converted: Vec::new(),
+    });
+    if !Arc::ptr_eq(&entry.source, source) || entry.converted.is_empty() {
+        *entry = SharedDynamicFilter {
+            source: Arc::clone(source),
+            converted: convert(),
+        };
+    }
+    entry.converted.clone()
 }
 
 /// Returns the scan cache other partitions of `path` are planning with, or registers a new one.
@@ -1139,6 +1210,8 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,
@@ -1549,6 +1622,8 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1641,6 +1716,8 @@ mod tests {
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(Arc::clone(&table_schema)),
             limit: None,
@@ -1824,6 +1901,8 @@ mod tests {
             ),
             filter: None,
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
             limit: None,
@@ -1889,6 +1968,8 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(schema),
             limit: None,
@@ -2105,6 +2186,8 @@ mod tests {
             projection,
             filter: None,
             file_pruning_predicate: None,
+            dynamic_filter: None,
+            dynamic_filters: Default::default(),
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
             limit: None,

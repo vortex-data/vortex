@@ -31,7 +31,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
 
-pub(super) fn convert_dynamic_filter(
+pub(crate) fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,

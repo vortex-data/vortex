@@ -40,5 +40,6 @@ mod table;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use dynamic_filters::convert_dynamic_filter;
 pub use source::VortexDataSource;
 pub use table::VortexTable;
