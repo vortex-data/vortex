@@ -294,8 +294,8 @@ fn row_idx_dtype() -> DType {
     DType::Primitive(PType::U64, NonNullable)
 }
 
-// Returns a SequenceArray representing the row indices for the given row range,
-fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
+/// A [`SequenceArray`] of the row indices of `row_range`, offset by `row_offset`.
+pub(crate) fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
     Sequence::try_new(
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
