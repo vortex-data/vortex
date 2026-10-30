@@ -111,7 +111,7 @@ impl FileScan {
             chunks
         } else {
             let parts = parts(scan.rows().clone(), parts_per_file);
-            match scan.string_dictionary_chunks()? {
+            match scan.string_dictionary_chunks() {
                 Some(chunks) => {
                     let aligned = dictionary_parts(chunks);
                     tracing::debug!(

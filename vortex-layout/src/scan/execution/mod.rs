@@ -24,7 +24,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Alignment;
-use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
@@ -145,8 +144,9 @@ impl PreparedScan {
 
     /// Consecutive dictionary regions when the projection contains exactly one string or binary
     /// column backed entirely by dictionary plans. Only that column's row-domain plans are
-    /// visited; dictionary values and unrelated fields are not inspected.
-    pub fn string_dictionary_chunks(&self) -> VortexResult<Option<Vec<Range<u64>>>> {
+    /// visited; dictionary values and unrelated fields are not inspected. Unavailable metadata
+    /// leaves partitioning to the driver, so chunks skipped by execution need not be supported.
+    pub fn string_dictionary_chunks(&self) -> Option<Vec<Range<u64>>> {
         dictionary::string_dictionary_chunks(&self.projection, &self.rows)
     }
 

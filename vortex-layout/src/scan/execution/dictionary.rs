@@ -20,6 +20,17 @@ use crate::plan::physical::Zoned;
 pub(super) fn string_dictionary_chunks(
     projection: &PlanRef,
     rows: &Range<u64>,
+) -> Option<Vec<Range<u64>>> {
+    // Execution may skip an unsupported chunk after pruning or applying a row selection.
+    // Optional partition hints must not make that chunk's metadata error fatal.
+    try_string_dictionary_chunks(projection, rows)
+        .ok()
+        .flatten()
+}
+
+fn try_string_dictionary_chunks(
+    projection: &PlanRef,
+    rows: &Range<u64>,
 ) -> VortexResult<Option<Vec<Range<u64>>>> {
     let strings = match projection.dtype() {
         DType::Struct(fields, _) => fields
@@ -137,7 +148,7 @@ mod tests {
         let plan = ConcatPlan::try_new(dtype, vec![dictionary(10), inner.into_plan()])?;
         let plan = FilterPlan::new(plan.into_plan()).into_plan();
         assert_eq!(
-            string_dictionary_chunks(&plan, &(7..47))?,
+            string_dictionary_chunks(&plan, &(7..47)),
             Some(vec![7..10, 10..30, 30..47])
         );
         Ok(())
@@ -159,10 +170,7 @@ mod tests {
             None,
         )?
         .into_plan();
-        assert_eq!(
-            string_dictionary_chunks(&plan, &(0..50))?,
-            Some(vec![0..50])
-        );
+        assert_eq!(string_dictionary_chunks(&plan, &(0..50)), Some(vec![0..50]));
         Ok(())
     }
 
@@ -181,7 +189,7 @@ mod tests {
             None,
         )?
         .into_plan();
-        assert!(string_dictionary_chunks(&plan, &(0..50))?.is_none());
+        assert!(string_dictionary_chunks(&plan, &(0..50)).is_none());
         Ok(())
     }
 
@@ -190,11 +198,8 @@ mod tests {
         let dtype = DType::Utf8(Nullability::Nullable);
         let plan = ConcatPlan::try_new(dtype.clone(), vec![dictionary(10), segment(dtype, 20)])?
             .into_plan();
-        assert!(string_dictionary_chunks(&plan, &(0..30))?.is_none());
-        assert_eq!(
-            string_dictionary_chunks(&plan, &(0..10))?,
-            Some(vec![0..10])
-        );
+        assert!(string_dictionary_chunks(&plan, &(0..30)).is_none());
+        assert_eq!(string_dictionary_chunks(&plan, &(0..10)), Some(vec![0..10]));
         Ok(())
     }
 
@@ -224,7 +229,7 @@ mod tests {
         )
         .into_layout();
         assert_eq!(
-            string_dictionary_chunks(&lower(&layout)?, &(0..50))?,
+            string_dictionary_chunks(&lower(&layout)?, &(0..50)),
             Some(vec![0..50])
         );
         Ok(())
@@ -247,7 +252,30 @@ mod tests {
             )]),
         )
         .into_layout();
-        assert!(string_dictionary_chunks(&lower(&layout)?, &(0..50))?.is_none());
+        assert!(string_dictionary_chunks(&lower(&layout)?, &(0..50)).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn unavailable_chunk_metadata_leaves_partitioning_to_the_driver() -> VortexResult<()> {
+        static ID: CachedId = CachedId::new("vortex.test.unsupported");
+        let dtype = DType::Utf8(Nullability::Nullable);
+        let layout = ChunkedLayout::new(
+            50,
+            dtype.clone(),
+            OwnedLayoutChildren::layout_children(vec![new_foreign_layout(
+                *ID,
+                dtype,
+                50,
+                vec![],
+                vec![],
+                vec![],
+            )]),
+        )
+        .into_layout();
+        let plan = lower(&layout)?;
+        assert!(super::try_string_dictionary_chunks(&plan, &(0..50)).is_err());
+        assert!(string_dictionary_chunks(&plan, &(0..50)).is_none());
         Ok(())
     }
 }
