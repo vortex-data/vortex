@@ -112,7 +112,7 @@ pub struct ScanBuilder {
 /// `VORTEX_SCAN_CHUNK_ROWS=<rows>` cuts every scan into chunks of `rows`, rounded up to the
 /// 8,192-row block. `VORTEX_SCAN_CHUNK_BYTES=<bytes>` sizes the chunks of a scan given its
 /// fields' uncompressed sizes so the fields the filter and projection reference decode to about
-/// `bytes` per chunk. Fixed rows win over bytes.
+/// `bytes` per chunk, 8 MiB by default, and `0` turns it off. Fixed rows win over bytes.
 struct ChunkSizing {
     rows: Option<usize>,
     uncompressed_bytes: Option<u64>,
@@ -126,7 +126,8 @@ static CHUNK_SIZING: LazyLock<ChunkSizing> = LazyLock::new(|| {
                 .vortex_expect("chunk rows fit usize")
                 * ROW_BLOCK_SIZE
         }),
-        uncompressed_bytes: var("VORTEX_SCAN_CHUNK_BYTES").filter(|&bytes| bytes > 0),
+        uncompressed_bytes: Some(var("VORTEX_SCAN_CHUNK_BYTES").unwrap_or(8 * 1024 * 1024))
+            .filter(|&bytes| bytes > 0),
     }
 });
 
@@ -258,6 +259,13 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
+        tracing::debug!(
+            row_count,
+            chunk_rows,
+            ?uncompressed_chunk_rows,
+            ?filtered_chunk_rows,
+            "sized V2 scan chunks"
+        );
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),

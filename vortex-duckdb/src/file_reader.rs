@@ -196,7 +196,7 @@ fn uncompressed_field_sizes(footer: &Footer) -> HashMap<FieldPath, u64> {
         .enumerate()
         .filter_map(|(idx, path)| {
             let bytes = stats.get(idx).0.get(&size).as_exact()?;
-            Some((path.clone(), bytes.as_primitive().as_u64()?))
+            Some((path.clone(), bytes.as_primitive().as_::<u64>()?))
         })
         .collect()
 }

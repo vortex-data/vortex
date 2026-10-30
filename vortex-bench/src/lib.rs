@@ -79,6 +79,7 @@ use vortex::editions::EditionFamily;
 use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::PREVIEW_2026_08_0;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -124,6 +125,10 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    // The preview edition records each column's uncompressed size, which scans size chunks by.
+    session
+        .enable_edition(PREVIEW_2026_08_0)
+        .vortex_expect("preview edition is registered");
     session
 });
 
