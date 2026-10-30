@@ -64,7 +64,11 @@ impl ArrayPlugin for BitPackedPlugin {
         ArrayVTable::id(&BitPacked)
     }
 
-    fn serialized_ids(&self) -> Vec<ArrayId> {
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![bitpacked_v1_id(), bitpacked_v2_id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
         vec![bitpacked_v1_id(), bitpacked_v2_id()]
     }
 
@@ -114,8 +118,12 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         ArrayVTable::id(&BitPacked)
     }
 
-    fn serialized_ids(&self) -> Vec<ArrayId> {
-        BitPackedPlugin.serialized_ids()
+    fn read_ids(&self) -> Vec<ArrayId> {
+        BitPackedPlugin.read_ids()
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
+        BitPackedPlugin.write_ids()
     }
 
     fn serialize(
@@ -133,7 +141,7 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
-            self.serialized_ids().contains(&parts.serialized_id),
+            self.read_ids().contains(&parts.serialized_id),
             "BitPacked plugin does not recognize serialized ID {}",
             parts.serialized_id,
         );
