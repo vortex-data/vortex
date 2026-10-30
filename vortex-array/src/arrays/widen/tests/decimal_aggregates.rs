@@ -109,11 +109,11 @@ fn encode_batch(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResult<Arr
 #[rstest]
 #[case::extrema(
     vec![
-        vec![Some(-99), None, Some(99)],                                             //
-        vec![Some(-9999), Some(9999)],                                               //
-        vec![Some(-999_999_999), Some(999_999_999)],                                 //
-        vec![Some(-999_999_999_999_999_999), Some(999_999_999_999_999_999)],         //
-        vec![Some(-(10i128.pow(38) - 1)), Some(10i128.pow(38) - 1)],                 //
+        vec![Some(-99), None, Some(99)], // i8 values with a null.
+        vec![Some(-9999), Some(9999)], // i16 extrema.
+        vec![Some(-999_999_999), Some(999_999_999)], // i32 extrema.
+        vec![Some(-999_999_999_999_999_999), Some(999_999_999_999_999_999)], // i64 extrema.
+        vec![Some(-(10i128.pow(38) - 1)), Some(10i128.pow(38) - 1)], // i128 extrema.
     ],
     Nullable,
 )]

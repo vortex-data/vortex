@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Aggregate partials computed from narrow `Widen` values.
+//!
+//! A child partial is reusable only when it equals the partial of the logical canonical batch.
+//! Ordered aggregates preserve that result through widening; sum also depends on the accumulator
+//! dtype and whether the aggregate combines batch totals.
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
