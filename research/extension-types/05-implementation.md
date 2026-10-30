@@ -14,8 +14,8 @@ plan replaces the phases of the earlier version. The pass of 2026-10-30 put the 
 
 | Phase | Content | Depends on |
 | --- | --- | --- |
-| 0 | Urgent fixes U1 to U8, and the path-consistency test helper | Nothing |
-| 1 | The storage declaration first: `storage_dtype`, `validate_metadata`, strict reads and the move of storage facts into the metadata. Then claims: the `Claim` enum, `ExtVTable::claims`, `DType::holds`, the check when a dtype is built, the claims of the repository types, conformance checks, and `ExtensionArray::new_unchecked` | Nothing |
+| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and three fixes outside part 4: the `Timestamp` range (#10953), the spatial nested nullability (EXT-N2), and imports that fail on nested nulls (X29) | Nothing |
+| 1 | The storage declaration first: `storage_dtype`, `validate_metadata`, strict reads and the move of storage facts into the metadata. Then claims: the `Claim` enum, `ExtVTable::claims`, `DType::holds`, the check when a dtype is built, the claims of the repository types, conformance checks, and `ExtensionArray::new_unchecked` | U4 (#11012) and U5 (merged). The strict reads also need the spatial fix |
 | 2 | Declarations: `ExtensionUse`, `ResultMapping` and `extension_use` on both vtables, with the default `None` and no change of behavior. Then U9 | 1 |
 | 3 | Typing and the default storage paths, split into PRs by family | 0 (U1, U2), 2 |
 | 4 | Statistics: readers ignore min and max without `Ord`, writers drop the storage fallback, and pruning goes through the claims | 1 for the readers, 3 for the rest |
@@ -23,24 +23,54 @@ plan replaces the phases of the earlier version. The pass of 2026-10-30 put the 
 | 6 | Value checks: the value check of `try_new` and the strict read mode | 0, 1 |
 | 7 | Boundaries: the Arrow default export and import of Vortex IDs, converters for DataFusion, DuckDB, Python and JNI, and engine pushdown through the claims | Nothing for the Arrow export, 1 for engine pushdown |
 
+The graph shows each PR of phase 0 and each later phase. A solid arrow is a hard dependency, and
+a dashed arrow is an order constraint or a coordination point. Green nodes merged, yellow nodes
+have an open PR, and white nodes have no PR yet. The state is from 2026-10-30.
+
 ```mermaid
 flowchart LR
-    P0["0. Urgent fixes U1 to U8"] --> P3["3. Typing and default paths"]
-    P1["1. Storage declaration, then claims"] --> P2["2. Declarations and U9"]
-    P2 --> P3
+    subgraph Z["Phase 0"]
+        H["Helper #11013"]:::merged
+        U5["U5 #11015"]:::merged
+        U4["U4, U8 #11012"]:::open
+        U3["U3, U6, U7 #11014"]:::open
+        U2["U2 #11016, with #11067"]:::open
+        AX["Arrow export with metadata (X24)"]
+        U1["U1"]
+        TS["Timestamp range and days #10953"]:::open
+        SP["Spatial nested nullability (EXT-N2)"]
+        IM["Imports fail on nested nulls (X29)"]
+    end
+    H --> U2
+    H --> U1
+    AX -.-> U1
+    SP --> IM
+    U4 --> P1["1. Storage declaration, then claims"]
+    U5 --> P1
+    SP -.-> P1
+    P1 --> P2["2. Declarations"]
+    P2 --> U9["U9"]
+    U9 --> P3["3. Typing and default paths"]
+    U1 --> P3
+    U2 --> P3
+    TS -.-> P3
     P1 --> P4r["4. Readers ignore min and max without Ord"]
     P3 --> P4w["4. Writers and pruning"]
     P3 --> P5["5. Type rules and casts"]
-    P0 --> P6["6. Value checks"]
+    U3 --> P6["6. Value checks"]
     P1 --> P6
-    P7a["7. Arrow export with metadata"]
-    P1 --> P7b["7. Engine pushdown and converters"]
-    L1["Low priority: lift rule and shared pushdown, #10748"]
-    L2["Low priority: DateTimeParts under the wrapper"]
+    P1 --> P7["7. Converters and engine pushdown"]
+    AG["#10769 vortex-aggregates"]:::open -.-> U9
+    C1["#11056 constant fold"]:::open --> L1["Shared pushdown and lift rule (#10748, X34)"]
+    P3 --> L1
+    L2["DateTimeParts under the wrapper"]
+    classDef merged fill:#cfc,stroke:#393
+    classDef open fill:#ffd,stroke:#cc3
 ```
 
-Phases 0 and 1 can run in parallel, except that phase 1 builds on U4 (see "Order constraints"). U5
-merged on 2026-10-30. The Arrow part of phase 7 can start at any time. Phase 2 adds types and
+Phases 0 and 1 can run in parallel, except that phase 1 builds on U4, and its strict reads wait for
+the spatial fix (see "Order constraints", items 3 and 6). U5 merged on 2026-10-30. The Arrow
+export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds types and
 methods that nothing reads yet, so it is small. U9 ends phase 2, because it needs the result
 mappings. It changes only the results of the composite aggregates, which only tests use. Phase 3 is
 the critical step: it turns on typing and removes the hand-written extension paths. Phases 4 and 5
@@ -90,8 +120,19 @@ implementations that they change into `vortex-aggregates`.
 
 ## Phase 0: urgent fixes
 
-- Write the path-consistency helper first, because U1 and U2 use it.
+- Write the path-consistency helper first, because U1 and U2 use it. It merged as #11013.
 - Land U1 to U8 as separate PRs. U9 needs the declaration types, so it lands in phase 2.
+- Finish [#10953](https://github.com/vortex-data/vortex/pull/10953) with maintainer commits
+  instead of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
+  `DateTimeParts` days wrap (EXT-S3). The maintainer commits merge `develop`, update the tests of
+  #11015 that expect the old range, drop the `min_max/extension.rs` change that #11014 owns, and
+  replace the days range check with an `i64` days part if the `split_temporal` benchmark shows no
+  slowdown.
+- Land the spatial fix (EXT-N2) in two PRs. The first makes the spatial validators require non-null
+  nested levels and the spatial Arrow importers convert or fail. The second makes the other Arrow
+  importers fail on data outside the domain instead of declining, for example the `Vector` importer
+  on null elements (X29). The first PR checks whether a file with nullable nested spatial levels
+  can exist, for example through a GeoArrow import.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
   the documentation of `validate_dtype` states that its result must not depend on the top-level
   nullability. #11012 has this form since 2026-10-30. An earlier version validated every dtype for
@@ -187,7 +228,8 @@ Then the claims:
 - Add the generic storage rewrite over `ReduceNode`, in the static optimizer and before kernel
   dispatch. It rewrites operands to `ext_storage`, or to the new `ext_storage_deep` for nested
   values, and applies the result mapping. Add the rule `ext_storage(Extension(s))` to `s`, so the
-  row path of `ext_storage` reads storage without a value check.
+  row path of `ext_storage` reads storage without a value check. #11056 adds the matching rule for
+  a constant, which folds the literal side of the rewrite, for example `lit(5i64)`.
 - Move the body of `ExtensionStoragePushdown` into aggregate binding (X21). Remove the composite IDs
   and `register_storage_ordered`.
 - Declare the built-in functions, and remove the hand-written extension paths: the extension compare
@@ -246,8 +288,9 @@ Then the claims:
   has no value check (X31).
 - Building a scalar from an array keeps the check of U3, because file data can hold illegal values.
 - The value check reads only non-null slots. The storage encoding decides what a null slot holds.
-- Imports of a known type fail on data outside the domain of the type, and they convert children
-  that are marked nullable but hold no nulls (X29).
+- Imports of a known type fail on values outside the domain of the type, for example a `Time` of
+  more than one day. The structural part of X29 lands earlier, with the spatial fix of phase 0:
+  imports convert children that are marked nullable but hold no nulls, and fail on nested nulls.
 
 ## Phase 7: boundaries
 

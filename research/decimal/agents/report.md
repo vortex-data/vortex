@@ -1383,7 +1383,7 @@ needs an **optional** node.
 | N3 | Claims for one dtype | impl | X2 and X13: `Eq` and `Ord` are claims of one dtype and never apply across dtypes. Each function declares the claims it needs (X17), and typing checks them. Operations across dtypes need a rule of the type (N2) or a cast by the engine (X3) |
 | N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types own cast rules (X4), in place of the `cast_to` and `cast_from` closures of #8570. C2 makes every extension cast exact. CQ1 stays open for decimals and primitive casts |
 | N5 | Value checks in `try_new` | impl | X7: a checked `try_new` and a `new_unchecked` for kernels. `ExtensionArray::try_new` checks every non-null value. Checks: UTF-8 and FixedSizeBinary length. The decimal precision check moves into N11 (D14) |
-| N6 | Nullability restructure | research, optional | Remove nullability duplication between wrapper and storage dtypes |
+| N6 | Storage declaration | impl | Each extension type declares its storage from its metadata (X27), and only the storage holds the top-level nullability (X25). This settles the earlier research question about nullability in both the wrapper and the storage |
 | N7 | Fixed-width structural layer | impl | Extend `FixedWidthArray` (PR #8864) to run-end, sparse, dict, constant, and builders, keyed by record width |
 | N8 | Scaled-integer kernels | impl | `rescale`, `check_range`, fused scaled arithmetic and compare |
 | N9 | Wide-integer tier (I128, I256, U128, U256) | impl | Section 5 and D5. Recommendation (DQ5): user-visible behind an edition, with a small kernel set first |
@@ -1428,7 +1428,7 @@ flowchart TD
     N3["N3 Claims for one dtype"]:::impl
     N4["N4 Cast rules #8570"]:::impl
     N5["N5 Value checks in try_new"]:::impl
-    N6["N6 Nullability restructure"]:::research
+    N6["N6 Storage declaration"]:::impl
     N7["N7 Fixed-width structural layer"]:::impl
     N8["N8 Scaled-integer kernels"]:::critical
     N9["N9 Wide integers I128 I256 U128 U256"]:::critical
@@ -1449,6 +1449,8 @@ flowchart TD
     N26["N26 Scalar value model"]:::research
     N27["N27 DuckDB HUGEINT and UHUGEINT"]:::impl
 
+    N1 --> N6
+    N6 --> N3
     N1 --> N15
     N1 --> N21
     N1 -.-> N18
@@ -1569,11 +1571,15 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
     scalar-compatible.
 34. N24 to N18 and N24 to N19 (soft): a refinement framework can express these types, but
     neither one depends on it.
-35. N6 to N15 (soft): a wrapper repeats its nullability in the storage dtype, so every
-    nullability change rebuilds the extension dtype
-    (`vortex-array/src/dtype/extension/typed.rs:91-99`).
+35. N6 to N15 (soft): with the storage declaration, a decimal extension type derives its
+    storage from the precision and scale in its metadata, and a nullability change cannot fail
+    (X25, X27).
 36. N2 to N4: cast rules are rules that the type owns (X4, C1), so they need the rule mechanism.
     Phase 5 of the extension notes holds both, after typing in phase 3.
+37. N1 to N6: phase 1 of the extension notes builds on U4 (#11012), the interim form of the
+    declaration, and on U5 (#11015, merged).
+38. N6 to N3: the claims check in `ExtDType::try_new` runs on the declared storage, so the
+    declaration lands first, at the start of phase 1.
 
 ### 7.4 Critical path and parallel work
 
@@ -1588,31 +1594,31 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
   any point.
 - **The optional move (N15):** after N13, with N1, N3 then N2 and N4, and N16 joining at N15.
 - **Parallel tracks:**
-  - Extension correctness: N1, N2, N3, N4, N5.
+  - Extension correctness: N1, N6, N3, N2, N4, N5.
   - Decimal: N28, N11, N12, N7, N8, N9, N13, N14.
   - Bytes: N17, N18.
   - Temporal: N21, after N1 and N4.
   - Wire and engines: N10, N16, N23, N27.
-- **Research-only nodes:** N6, N22, N24. **Research before implementation:** N2, N16, N26, N19,
+- **Research-only nodes:** N22, N24. **Research before implementation:** N2, N16, N26, N19,
   N20.
 
 ### 7.5 Mapping to the extension-type research
 
 The extension-type notes in `../../extension-types/` use their own ids for urgent changes (U1 to
 U9) and phases (0 to 7, from the plan of 2026-10-29, plus two low-priority items). The decisions
-file adds ids X1 to X24 and XQ1 to XQ8. This table maps them onto the graph.
+file adds ids X1 to X34 and XQ1 to XQ8. This table maps them onto the graph.
 
 | Extension research item | Node here |
 | --- | --- |
 | U1 to U9, the urgent changes | N1, item P3 in section 8.3. U5 and U6 are dtype and storage checks, not the value validation of N5. U9 lands in phase 2 |
-| U4 infallible nullability changes | Part of N1. It also removes the panic in the rebuild that edge 35 describes |
+| U4 infallible nullability changes | Part of N1, and the interim form of N6 |
 | Phase 0, urgent fixes U1 to U8 | N1 |
-| Phase 1, claims and the conformance harness (X13 to X16) | N3. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
+| Phase 1, the storage declaration (X25 to X30), then claims and the conformance harness (X13 to X16) | N6, then N3. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
 | Phase 2, declarations and U9 (X17, X19) | N3 |
 | Phase 3, typing and the default storage paths (X18, X21) | N3, with X6 from N2. Part 5 of the extension notes lands it after phases 0 and 2, which the graph does not show |
 | Phase 4, statistics (X22) | Not a separate node. It keeps the format for types with `Ord` |
 | Phase 5, rules that the type owns and exact casts (X20, C1, C2) | N2 and N4 |
-| Phase 6, value checks in `ExtensionArray::try_new`, and nullability (X7, X23) | N5 and N6 |
+| Phase 6, value checks in `ExtensionArray::try_new` (X7, X23) | N5 |
 | Phase 7, boundaries (X24) | N23 |
 | Low priority, the lift rule for structural arrays (X5, XQ1, #10748) | The placement rule of section 3.3, shared with `Widen` (D25) |
 | Low priority, `DateTimeParts` under the wrapper | DateTimeParts below the structural encodings is the temporal twin of DBP |

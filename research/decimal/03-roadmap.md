@@ -9,7 +9,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 Many planned type changes depend on each other. The IDs below match the full graph in section 7
 of [`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25.
-The decision IDs (D1 to D42, X1 to X24, C1 and C2) and the open questions (DQ5 to DQ7, XQ1, XQ8,
+The decision IDs (D1 to D42, X1 to X34, C1 to C3) and the open questions (DQ5 to DQ7, XQ1, XQ8,
 CQ1 and CQ2) come from [`decisions.md`](../decisions.md).
 
 | ID | Work | Kind |
@@ -19,7 +19,7 @@ CQ1 and CQ2) come from [`decisions.md`](../decisions.md).
 | N3 | Claims for one dtype (X2, X13) | Implementation |
 | N4 | Cast rules for pairs of dtypes (C1), with cast hooks for extension types ([#8570](https://github.com/vortex-data/vortex/issues/8570)) | Implementation |
 | N5 | Value checks in `try_new`, with `new_unchecked` for kernels (X7) | Implementation |
-| N6 | Nullability on the extension dtype | Research, optional |
+| N6 | Storage declaration of extension types: `storage_dtype`, `validate_metadata` and strict reads (X25 to X30) | Implementation |
 | N7 | Shared fixed-width structural kernels | Implementation |
 | N8 | Scaled-integer kernels: `rescale` and `check_range` | Implementation |
 | N9 | Wide integers: `I128`, `I256`, `U128` and `U256` (D5) | Implementation |
@@ -58,6 +58,7 @@ flowchart TD
         N2["N2 Rules owned by the type"]
         N3["N3 Claims for one dtype"]
         N4["N4 Cast rules"]
+        N6["N6 Storage declaration"]
     end
     subgraph DEC["Decimal"]
         N28["N28 One Widen encoding"]
@@ -86,6 +87,8 @@ flowchart TD
     end
     N21["N21 Duration and Interval"]
 
+    N1 --> N6
+    N6 --> N3
     N3 --> N2
     N2 --> N4
     N1 --> N21
@@ -114,7 +117,7 @@ flowchart TD
     N8 -.-> N4
 ```
 
-The nodes N5, N6, N23, N24 and N26 have only soft edges, so the graph leaves them out.
+The nodes N5, N23, N24 and N26 have only soft edges, so the graph leaves them out.
 
 Two edges need a note. N9 to N12 applies only to precision 19 to 76. The view for precision 1 to
 18 uses existing types, so it can land at any point. N11 does not depend on N9, because the leaf
@@ -123,8 +126,8 @@ uses `DecimalType`, which already has 128-bit and 256-bit widths.
 ## Independent changes
 
 These changes are small and independent, and they can land in any order. On 2026-10-30, strict
-enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`. N1 is not, and its
-first PRs are open (#11012 to #11016).
+enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`. N1 is in progress:
+#11013 and #11015 merged, and #11012, #11014, #11016 and #11067 are open.
 [Part 4](04-implementation.md) splits these changes and the canonical form into PRs, with one
 brief for each PR.
 

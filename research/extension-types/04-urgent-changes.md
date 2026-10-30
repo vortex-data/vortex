@@ -167,20 +167,25 @@ adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 Later on 2026-10-30, the PRs for part 4 stand as follows:
 
-- The path-consistency helper (#11013) is approved.
+- The path-consistency helper (#11013) merged.
 - U4 and U8 (#11012) are a draft in the reworked form of U4, at `f2c669e4ff`.
 - U3, U6 and U7 (#11014) are a draft. #11014 and #10953 make the same fallible wrap in
   `min_max/extension.rs`. These notes suggest that #10953 drops its copy, so the two PRs do not
   depend on each other.
 - U5 (#11015) merged.
-- U2 (#11016) is a draft on top of the helper.
+- U2 (#11016) is a draft. [#11067](https://github.com/vortex-data/vortex/pull/11067), a draft
+  stacked on it, rebuilds DataFusion comparison and `IN`-list literals as extension scalars from
+  the metadata of the other operand, so `Uuid` and `Json` filters still push down. The two land
+  together ("Order constraints", item 1, in part 5).
 - U1 and the Arrow export that lands before it have no PR yet.
 
 Three more PRs touch this work:
 
 - [#10953](https://github.com/vortex-data/vortex/pull/10953), an outside contribution, makes
-  `Timestamp` accept every `i64` (X31) and fixes the `DateTimeParts` days wrap (EXT-S3). These
-  notes also suggest an `i64` days part in place of its range check.
+  `Timestamp` accept every `i64` (X31) and fixes the `DateTimeParts` days wrap (EXT-S3). It
+  conflicts with #11015. The maintainer finishes it with added commits instead of waiting on the
+  author (part 5, phase 0), including an `i64` days part in place of its range check if the
+  benchmark allows it.
 - [#11056](https://github.com/vortex-data/vortex/pull/11056) folds `ext_storage` and `get_item`
   over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
   types. The maintainer approved it, because it only folds an `ext_storage` that the expression
