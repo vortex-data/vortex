@@ -157,6 +157,10 @@ adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
 
+On 2026-10-30, these PRs for part 4 are open: the path-consistency helper (#11013), U4 and U8
+(#11012), U3, U6 and U7 (#11014), U5 (#11015), and U2 on top of the helper (#11016). U1 and the
+Arrow export that lands before it have no PR yet.
+
 Three PRs added or add mechanisms for extension semantics:
 
 - [#10246](https://github.com/vortex-data/vortex/pull/10246) proposed a per-type aggregate kernel

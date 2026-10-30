@@ -246,7 +246,7 @@ PRs, and each one has its own issue. Two are closed.
 | #10750 | Closed as not planned. The push-down cast rules return no wrong result, and #10798 documents them as a valid form |
 | #10751 | Closed by #10757. The FoR scheme now declares and refines its bit-packing child |
 | #10754 | The compat harness: no CI job runs `--mode all`, one failing fixture stops the whole check, and the README describes `--git-ref` wrongly |
-| #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read |
+| #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read. #10760 fixes ALP-RD and merged on 2026-10-29. #10852 fixes RLE and RunEnd and is open |
 | #10908 | `ZipExecuteAdaptor` dispatches only on the `if_true` branch, so a `Widen` in the `if_false` branch of `zip` does not run on the child. Found in the review of WD4 |
 
 The stale versioning docs needed no issue, because #10747 fixes them.

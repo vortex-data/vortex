@@ -122,8 +122,9 @@ uses `DecimalType`, which already has 128-bit and 256-bit widths.
 
 ## Independent changes
 
-These changes are small and independent, and they can land in any order. On 2026-10-29, strict
-enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`, and N1 is not.
+These changes are small and independent, and they can land in any order. On 2026-10-30, strict
+enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`. N1 is not, and its
+first PRs are open (#11012 to #11016).
 [Part 4](04-implementation.md) splits these changes and the canonical form into PRs, with one
 brief for each PR.
 

@@ -173,14 +173,21 @@ fixed when the work meets them.
 ## The `Widen` pull requests
 
 This review read the draft stack on 2026-10-19 and again on 2026-10-22. The state below is from
-2026-10-29. The PR lists in [#10701](https://github.com/vortex-data/vortex/issues/10701) and
+2026-10-30. The PR lists in [#10701](https://github.com/vortex-data/vortex/issues/10701) and
 [#10733](https://github.com/vortex-data/vortex/issues/10733) track the state of each new PR.
 
-- On 2026-10-29, these PRs of the plan have merged: FX1 (#10755), FX3 (#10745) and its follow-up
+- On 2026-10-30, these PRs of the plan have merged: FX1 (#10755), FX3 (#10745) and its follow-up
   #10806, CD1 (#10752), CD2 (#10753), CD3 (#10897) with #10903, CD3b (#10939), the decimal
-  `Interleave` kernel (#10940), and WD1 to WD4 (#10864, #10888, #10890, #10891). CD4 (#10946), CD5
-  (#10905) and WD6 (#10943) are open drafts. WD5 has no PR yet. The 0.91.0 release, which
-  publishes the CD2 fixtures, is still a draft, so CD5 and CD6 wait for it.
+  `Interleave` kernel (#10940), the benchmark of CD3c (#10990), and WD1 to WD4 (#10864, #10888,
+  #10890, #10891). WD5 has no PR yet. The 0.91.0 release, which publishes the CD2 fixtures, is
+  still a draft, so CD5 and CD6 wait for it.
+- CD4 now lands as a stack of six PRs. #11002 writes a `Widen` as its canonical array (the
+  lowering of D26) and is off `develop`. On top of it, #10946 adds decimal values to `Widen`,
+  #11003 runs compare, `between` and fills on the child, #11004 runs the aggregates on the child,
+  #11005 adds `WidenArray::from_stored_decimal` (D40), and #11006 keeps same-scale widening casts
+  lazy. CD4b (#10994) is stacked on #10946. CD5 (#10905) and CD6 (#10995) are stacked on #11005,
+  and CD7 (#10992) is stacked on CD5. CD3c (#10989) is open off `develop`, and WD6 (#10943) is an
+  open draft.
 
 - The draft PRs [#10223](https://github.com/vortex-data/vortex/pull/10223),
   [#10332](https://github.com/vortex-data/vortex/pull/10332) and
