@@ -11827,6 +11827,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
+ "vortex-json",
  "vortex-utils",
 ]
 
