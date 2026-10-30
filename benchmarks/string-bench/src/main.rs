@@ -128,6 +128,10 @@ struct Args {
     /// Write output to this file instead of stdout.
     #[arg(short, long)]
     output_path: Option<PathBuf>,
+    /// Also write the Vortex file suite results as JSONL ingest records for the
+    /// benchmarks database to this path.
+    #[arg(long)]
+    ingest_jsonl: Option<PathBuf>,
     /// Enable verbose (debug-level) logging.
     #[arg(short, long)]
     verbose: bool,
@@ -229,6 +233,14 @@ async fn run(args: Args) -> Result<()> {
         }
     }
     progress.finish();
+
+    if let Some(path) = &args.ingest_jsonl {
+        let records: Vec<_> = serialized_results
+            .iter()
+            .flat_map(SerializedResult::v3_records)
+            .collect();
+        vortex_bench::v3::write_jsonl_to_path(path, &records)?;
+    }
 
     let mut writer = create_output_writer(&args.display_format, args.output_path, BENCHMARK_ID)?;
     match args.display_format {
