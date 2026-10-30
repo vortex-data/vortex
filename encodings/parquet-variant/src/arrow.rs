@@ -528,33 +528,22 @@ mod tests {
     }
 
     #[rstest]
-    fn test_export_constant_null_variant(session: VortexSession) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let dtype = DType::Variant(Nullability::Nullable);
-        let array = ConstantArray::new(Scalar::null(dtype), 1).into_array();
-        let field = session.arrow().to_arrow_field("variant", array.dtype())?;
-
-        let result = session
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut ctx)?;
-
-        assert_eq!(result.len(), 1);
-        assert!(result.is_null(0));
-        Ok(())
-    }
-
-    #[rstest]
     #[case::outer_null(Scalar::null(DType::Variant(Nullability::Nullable)), true)]
     #[case::variant_null(Scalar::variant(Scalar::null(DType::Null)), false)]
     #[case::nullable_variant_null(Scalar::variant(Scalar::null(DType::Null)).into_nullable(), false)]
-    fn test_export_canonical_constant_null_variant(
+    fn test_export_constant_null_variant(
         session: VortexSession,
         #[case] scalar: Scalar,
         #[case] is_null: bool,
         #[values(0, 3)] len: usize,
+        #[values(false, true)] wrap_canonical: bool,
     ) -> VortexResult<()> {
-        let core = ConstantArray::new(scalar, len).into_array();
-        let array = VariantArray::try_new(core, None)?.into_array();
+        let array = ConstantArray::new(scalar, len).into_array();
+        let array = if wrap_canonical {
+            VariantArray::try_new(array, None)?.into_array()
+        } else {
+            array
+        };
 
         let result = export_variant(&session, array)?;
 
@@ -568,71 +557,71 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum MaskAt {
+        Nothing,
+        Core,
+        Variant,
+    }
+
     #[rstest]
-    fn test_export_constant_variant_with_shredded_values(
+    fn test_export_shredded_values_over_null_core(
         session: VortexSession,
-        #[values(false, true)] mask_core: bool,
+        #[values(MaskAt::Nothing, MaskAt::Core, MaskAt::Variant)] mask_at: MaskAt,
     ) -> VortexResult<()> {
         let mut ctx = session.create_execution_ctx();
-        let core = if mask_core {
-            let validity = Validity::from(BitBuffer::from_iter([true, true, false]));
-            MaskedArray::try_new(variant_null_core(3), validity, &mut ctx)?.into_array()
+        let validity = Validity::from(BitBuffer::from_iter([true, true, false]));
+
+        let core = if mask_at == MaskAt::Core {
+            MaskedArray::try_new(variant_null_core(3), validity.clone(), &mut ctx)?.into_array()
         } else {
             variant_null_core(3)
         };
         let shredded = PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array();
         let array = VariantArray::try_new(core, Some(shredded))?.into_array();
+        let array = if mask_at == MaskAt::Variant {
+            MaskedArray::try_new(array, validity, &mut ctx)?.into_array()
+        } else {
+            array
+        };
 
         let result = export_variant(&session, array)?;
 
+        let masked = mask_at != MaskAt::Nothing;
         assert_eq!(result.value(0), PqVariant::Int32(10));
         assert_eq!(result.value(1), PqVariant::Null);
-        assert_eq!(result.is_null(2), mask_core);
-        if !mask_core {
+        assert_eq!(result.is_null(2), masked);
+        if !masked {
             assert_eq!(result.value(2), PqVariant::Int32(30));
         }
-        assert_eq!(result.inner().null_count(), usize::from(mask_core));
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::masked_core(false)]
-    #[case::masked_canonical(true)]
-    fn test_export_masked_constant_variant(
-        session: VortexSession,
-        #[case] wrap_canonical: bool,
-    ) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let child = if wrap_canonical {
-            VariantArray::try_new(variant_null_core(3), None)?.into_array()
-        } else {
-            variant_null_core(3)
-        };
-        let validity = Validity::from(BitBuffer::from_iter([true, false, true]));
-        let masked = MaskedArray::try_new(child, validity, &mut ctx)?.into_array();
-        let array = if wrap_canonical {
-            masked
-        } else {
-            VariantArray::try_new(masked, None)?.into_array()
-        };
-
-        let result = export_variant(&session, array)?;
-
-        assert_eq!(result.len(), 3);
-        assert!(!result.is_null(0));
-        assert!(result.is_null(1));
-        assert!(!result.is_null(2));
-        assert_eq!(result.value(0), PqVariant::Null);
-        assert_eq!(result.value(2), PqVariant::Null);
+        assert_eq!(result.inner().null_count(), usize::from(masked));
         Ok(())
     }
 
     #[rstest]
     fn test_export_object_shredding_over_null_core(session: VortexSession) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
         let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
+
+        // Object names that match Parquet wrapper names must still go into the metadata.
+        let elements = VortexStructArray::try_new(
+            FieldNames::from_iter(["typed_value"]),
+            vec![PrimitiveArray::from_iter([42i32, 7]).into_array()],
+            2,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let list = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0u32, 1, 1, 2]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+
         let shredded = VortexStructArray::try_new(
-            FieldNames::from_iter(["a"]),
-            vec![a],
+            FieldNames::from_iter(["a", "value"]),
+            vec![a, list],
             3,
             Validity::from(BitBuffer::from_iter([true, true, false])),
         )?
@@ -642,10 +631,14 @@ mod tests {
         let result = export_variant(&session, array)?;
 
         assert_eq!(result.len(), 3);
-        assert_eq!(
-            result.try_value(0)?.get_object_field("a"),
-            Some(PqVariant::Int32(1))
-        );
+
+        let first = result.try_value(0)?;
+        assert_eq!(first.get_object_field("a"), Some(PqVariant::Int32(1)));
+        let item = first
+            .get_object_field("value")
+            .and_then(|list| list.get_list_element(0))
+            .and_then(|item| item.get_object_field("typed_value"));
+        assert_eq!(item, Some(PqVariant::Int32(42)));
 
         let missing_field = result.try_value(1)?;
         assert!(matches!(missing_field, PqVariant::Object(_)));
@@ -729,43 +722,6 @@ mod tests {
                 .contains("multiple levels of Variant shredding are unsupported"),
             "{error}"
         );
-        Ok(())
-    }
-
-    #[rstest]
-    fn test_export_list_object_names_in_metadata(session: VortexSession) -> VortexResult<()> {
-        let mut ctx = session.create_execution_ctx();
-        let elements = VortexStructArray::try_new(
-            FieldNames::from_iter(["typed_value"]),
-            vec![PrimitiveArray::from_iter([42i32]).into_array()],
-            1,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let list = ListArray::try_new(
-            elements,
-            PrimitiveArray::from_iter([0u32, 1]).into_array(),
-            Validity::NonNullable,
-            &mut ctx,
-        )?
-        .into_array();
-        let shredded = VortexStructArray::try_new(
-            FieldNames::from_iter(["value"]),
-            vec![list],
-            1,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let array = VariantArray::try_new(variant_null_core(1), Some(shredded))?.into_array();
-
-        let result = export_variant(&session, array)?;
-
-        let item = result
-            .try_value(0)?
-            .get_object_field("value")
-            .and_then(|list| list.get_list_element(0))
-            .and_then(|item| item.get_object_field("typed_value"));
-        assert_eq!(item, Some(PqVariant::Int32(42)));
         Ok(())
     }
 
