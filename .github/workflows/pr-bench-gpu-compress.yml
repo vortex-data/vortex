@@ -64,6 +64,14 @@ jobs:
         shell: bash
         run: |
           cargo build --locked --package compress-bench --profile release_debug --features cuda
+      # Download and convert the benchmark data up front, so the benchmark step below only
+      # contains timed runs.
+      - name: Generate GPU compression data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          python3 scripts/compress-split.py --gpu-decompress --prepare-data
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Run GPU compression benchmark

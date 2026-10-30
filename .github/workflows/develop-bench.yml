@@ -151,19 +151,6 @@ jobs:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
-      - name: Upload benchmark data to S3
-        if: matrix.benchmark.remote_data_dir != null
-        shell: bash
-        env:
-          AWS_REGION: "us-east-1"
-        run: |
-          set -Eeu -o pipefail -x
-
-          target/release_debug/${{ matrix.benchmark.id }} --prepare-data \
-            --formats parquet,vortex,lance
-          aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
-          aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
-
       - name: Install uv for LitData
         if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -184,6 +171,29 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             litdata==0.2.76 torch pyarrow numpy
           echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
+
+      # Download and convert all benchmark data up front, so the benchmark step below only
+      # contains timed runs. The data is written with the same settings the benchmark uses.
+      - name: Generate ${{ matrix.benchmark.name }} data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+        run: |
+          bench="${{ matrix.benchmark.id }}"
+          python3 "scripts/${bench%-bench}-split.py" --prepare-data \
+            ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+
+      - name: Upload benchmark data to S3
+        if: matrix.benchmark.remote_data_dir != null
+        shell: bash
+        env:
+          AWS_REGION: "us-east-1"
+        run: |
+          set -Eeu -o pipefail -x
+
+          aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
+          aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
 
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh

@@ -137,6 +137,12 @@ struct Args {
     /// Format for the primary stderr log sink.
     #[arg(long, value_enum, default_value_t = LogFormat::Text)]
     log_format: LogFormat,
+    /// Download or generate the selected input columns and exit without benchmarking.
+    ///
+    /// CI runs this as its own step so that preparing data is not interleaved with the timed
+    /// runs in the logs.
+    #[arg(long)]
+    prepare_data: bool,
 }
 
 fn contains_duplicates<T: PartialEq>(values: &[T]) -> bool {
@@ -195,6 +201,12 @@ async fn run(args: Args) -> Result<()> {
     }
     if columns.is_empty() {
         bail!("no input columns matched the --columns filter");
+    }
+    if args.prepare_data {
+        for column in &columns {
+            println!("{}", column.name);
+        }
+        return Ok(());
     }
 
     let verify = !args.no_verify;
