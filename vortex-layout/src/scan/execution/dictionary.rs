@@ -3,6 +3,7 @@
 
 use std::ops::Range;
 
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::plan::physical::Concat;
@@ -20,6 +21,17 @@ pub(super) fn string_dictionary_chunks(
     projection: &PlanRef,
     rows: &Range<u64>,
 ) -> VortexResult<Option<Vec<Range<u64>>>> {
+    let strings = match projection.dtype() {
+        DType::Struct(fields, _) => fields
+            .fields()
+            .filter(|dtype| dtype.is_utf8() || dtype.is_binary())
+            .take(2)
+            .count(),
+        dtype => usize::from(dtype.is_utf8() || dtype.is_binary()),
+    };
+    if strings != 1 {
+        return Ok(None);
+    }
     let mut pending = vec![(projection.clone(), 0)];
     let mut chunks = Vec::new();
     while let Some((plan, offset)) = pending.pop() {
@@ -86,6 +98,8 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use super::string_dictionary_chunks;
+    use crate::OwnedLayoutChildren;
+    use crate::layouts::chunked::ChunkedLayout;
     use crate::layouts::dict::DictLayout;
     use crate::layouts::flat::FlatLayout;
     use crate::layouts::foreign::new_foreign_layout;
@@ -209,6 +223,27 @@ mod tests {
             string_dictionary_chunks(&lower(&layout)?, &(0..50))?,
             Some(vec![0..50])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn numeric_projection_does_not_initialize_chunk_plans() -> VortexResult<()> {
+        static ID: CachedId = CachedId::new("vortex.test.unsupported");
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        let layout = ChunkedLayout::new(
+            50,
+            dtype.clone(),
+            OwnedLayoutChildren::layout_children(vec![new_foreign_layout(
+                *ID,
+                dtype,
+                50,
+                vec![],
+                vec![],
+                vec![],
+            )]),
+        )
+        .into_layout();
+        assert!(string_dictionary_chunks(&lower(&layout)?, &(0..50))?.is_none());
         Ok(())
     }
 }
