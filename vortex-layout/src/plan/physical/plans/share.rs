@@ -24,8 +24,10 @@ use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::UNBOUNDED;
 use crate::plan::physical::operators::WholeSource;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::pipeline::sparse_selection;
 
 /// Produces its child's whole value once per split, as a
 /// [`SharedArray`](crate::arrays::shared::SharedArray) that the split's later scans reuse.
@@ -120,6 +122,11 @@ impl PlanVTable for Share {
         }
         let child = plan.child_plan()?;
         let len = usize::try_from(plan.row_count())?;
+        if compiler.access_mode() == AccessMode::RandomAccess
+            && sparse_selection(mask.true_count(), len)
+        {
+            return compiler.compile(&child, rows, mask);
+        }
         let Some(chain) = compiler.compile(&child, 0..plan.row_count(), &Mask::new_true(len))?
         else {
             return Ok(None);

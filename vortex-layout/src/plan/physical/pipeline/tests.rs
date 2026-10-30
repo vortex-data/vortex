@@ -15,6 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBin;
@@ -25,8 +26,10 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
@@ -50,13 +53,16 @@ use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::physical::ConcatPlan;
+use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Filter;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
+use crate::plan::physical::SharePlan;
 use crate::plan::physical::Take;
+use crate::plan::physical::TakePlan;
 use crate::plan::physical::lower;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::InletSet;
@@ -999,5 +1005,361 @@ fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
         PrimitiveArray::from_iter([118, 101]).into_array(),
         &mut SESSION.create_execution_ctx()
     );
+    Ok(())
+}
+
+#[rstest]
+fn sparse_dictionary_predicate_evaluates_after_gather(
+    #[values(AccessMode::Scan, AccessMode::RandomAccess)] mode: AccessMode,
+    #[values(false, true)] nullable_codes: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinArray::from_iter(
+        (0..1536).map(|row| (row != 1).then(|| format!("value {row}"))),
+        DType::Utf8(true.into()),
+    )
+    .into_array();
+    let codes = if nullable_codes {
+        PrimitiveArray::from_option_iter([Some(1535u32), Some(1), None, Some(0), Some(1535)])
+            .into_array()
+    } else {
+        Buffer::from(vec![1535u32, 1, 0, 0, 1535]).into_array()
+    };
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let source = lower(&layout)?;
+    let expression = like(root(), lit("%1535%")).bind(source.dtype())?;
+    let plan = optimize(EvalPlan::try_new(expression, source)?.into_plan(), &SESSION)?;
+    let take = plan.as_::<Take>();
+    let predicate = take.values()?;
+    assert!(predicate.is::<Eval>());
+    let cache = ValueCache::default();
+    for _ in 0..2 {
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
+            .with_value_cache(cache.clone())
+            .with_access_mode(mode);
+        let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+        assert_arrays_eq!(
+            join(plan.dtype(), result.arrays)?,
+            BoolArray::from_iter([
+                Some(true),
+                None,
+                if nullable_codes { None } else { Some(false) },
+                Some(false),
+                Some(true)
+            ]),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert!(
+            cache.get(&predicate).is_none(),
+            "sparse evaluation must not compute the whole predicate"
+        );
+        assert_eq!(
+            cache
+                .predicate(&predicate)
+                .ok_or_else(|| vortex_err!("missing predicate cache"))?
+                .evaluated_rows(),
+            3
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn sparse_dictionary_predicate_reuses_a_dense_result() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinArray::from_iter(
+        (0..128).map(|row| Some(format!("value {row}"))),
+        DType::Utf8(false.into()),
+    )
+    .into_array();
+    let codes = Buffer::from_iter((0..256u32).map(|row| row % 128)).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let source = lower(&layout)?;
+    let expression = like(root(), lit("%12%")).bind(source.dtype())?;
+    let plan = optimize(EvalPlan::try_new(expression, source)?.into_plan(), &SESSION)?;
+    let predicate = plan.as_::<Take>().values()?;
+    let expected =
+        BoolArray::from_iter((0..256u32).map(|row| (row % 128).to_string().contains("12")))
+            .into_array();
+    let cache = ValueCache::default();
+    for mask in [Mask::new_true(256), Mask::from_indices(256, [12, 255])] {
+        let scan = Scan::try_new(
+            SESSION.clone(),
+            plan.clone(),
+            vec![Split {
+                rows: 0..256,
+                mask: mask.clone(),
+            }],
+        )?
+        .with_value_cache(cache.clone());
+        let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+        assert_view(&expected, &(0..256), &mask, result.arrays)?;
+        assert!(
+            cache.get(&predicate).is_some(),
+            "whole predicate results remain reusable"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn dictionary_predicate_cache_fills_new_entries_and_switches_to_dense() -> VortexResult<()> {
+    let values = VarBinArray::from_iter(
+        (0..1024).map(|row| (row != 1).then(|| format!("value {row}"))),
+        DType::Utf8(true.into()),
+    )
+    .into_array();
+    let expression = like(root(), lit("%12%")).bind(values.dtype())?;
+    let cache = PredicateCache::new(1024);
+    let mut ctx = SESSION.create_execution_ctx();
+    for (codes, expected, evaluated) in [
+        (
+            vec![Some(12u64), Some(12), Some(1), None],
+            vec![Some(true), Some(true), None, None],
+            2,
+        ),
+        (
+            vec![Some(12), Some(100), Some(1)],
+            vec![Some(true), Some(false), None],
+            3,
+        ),
+    ] {
+        let result = cache.evaluate(
+            values.clone(),
+            PrimitiveArray::from_option_iter(codes).into_array(),
+            &expression,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
+        assert_eq!(cache.evaluated_rows(), evaluated);
+    }
+    let dense = cache.evaluate(
+        values.clone(),
+        Buffer::from_iter(0..1024u64).into_array(),
+        &expression,
+        &mut ctx,
+    )?;
+    assert_arrays_eq!(dense, values.clone().apply_bound(&expression)?, &mut ctx);
+    assert_eq!(cache.evaluated_rows(), 1027);
+    let result = cache.evaluate(
+        values,
+        PrimitiveArray::from_option_iter([Some(12u64), Some(100), Some(1), None]).into_array(),
+        &expression,
+        &mut ctx,
+    )?;
+    assert!(result.is::<Dict>(), "bulk results retain dictionary reuse");
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter([Some(true), Some(false), None, None]),
+        &mut ctx
+    );
+    assert_eq!(cache.evaluated_rows(), 1027);
+    Ok(())
+}
+
+#[test]
+fn dictionary_predicate_cache_is_shared_across_workers() -> VortexResult<()> {
+    let values = VarBinArray::from_iter(
+        (0..1024).map(|row| Some(format!("value {row}"))),
+        DType::Utf8(false.into()),
+    )
+    .into_array();
+    let expression = like(root(), lit("%12%")).bind(values.dtype())?;
+    let cache = std::sync::Arc::new(PredicateCache::new(1024));
+    std::thread::scope(|scope| -> VortexResult<()> {
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let values = values.clone();
+            let expression = expression.clone();
+            let cache = std::sync::Arc::clone(&cache);
+            workers.push(scope.spawn(move || -> VortexResult<()> {
+                let mut ctx = SESSION.create_execution_ctx();
+                let actual = cache.evaluate(
+                    values,
+                    Buffer::from(vec![12u64, 12, 0, 1023]).into_array(),
+                    &expression,
+                    &mut ctx,
+                )?;
+                assert_arrays_eq!(
+                    actual,
+                    BoolArray::from_iter([true, true, false, false]),
+                    &mut ctx
+                );
+                Ok(())
+            }));
+        }
+        for worker in workers {
+            worker
+                .join()
+                .map_err(|_| vortex_err!("predicate worker panicked"))??;
+        }
+        Ok(())
+    })
+}
+
+#[rstest]
+fn sparse_dictionary_reads_only_referenced_value_chunks(
+    #[values(AccessMode::Scan, AccessMode::RandomAccess)] mode: AccessMode,
+    #[values(false, true)] shared_values: bool,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        PrimitiveArray::from_option_iter((0..2048i32).map(|row| (row != 1023).then_some(row)))
+            .into_array();
+    let codes =
+        PrimitiveArray::from_option_iter([Some(0u32), Some(1023), Some(2047), Some(0), None])
+            .into_array();
+    let values_plan = lower(&store.chunked(&values, &[256; 8])?)?;
+    let values_plan = if shared_values {
+        SharePlan::new(values_plan).into_plan()
+    } else {
+        values_plan
+    };
+    let codes_plan = lower(&store.flat(&codes)?)?;
+    let plan = TakePlan::new(codes_plan, values_plan).into_plan();
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
+        .with_access_mode(mode);
+    let result = drive(&store, scan, delivery(order))?;
+    assert_eq!(
+        reads(&result.events),
+        if mode == AccessMode::RandomAccess {
+            4
+        } else {
+            9
+        }
+    );
+    assert_arrays_eq!(
+        join(plan.dtype(), result.arrays)?,
+        DictArray::try_new(codes, values)?,
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn sparse_dictionary_null_codes_do_not_read_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..2048i32).into_array();
+    let codes = PrimitiveArray::from_option_iter([None::<u32>, None, None]).into_array();
+    let plan = TakePlan::new(
+        lower(&store.flat(&codes)?)?,
+        lower(&store.chunked(&values, &[256; 8])?)?,
+    )
+    .into_plan();
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..3)])?
+        .with_access_mode(AccessMode::RandomAccess);
+    let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+    assert_eq!(reads(&result.events), 1);
+    assert_arrays_eq!(
+        join(plan.dtype(), result.arrays)?,
+        PrimitiveArray::from_option_iter([None::<i32>, None, None]),
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn sparse_dictionary_multiple_code_batches_preserve_order_and_whole_cache() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..131072i32).into_array();
+    let codes =
+        PrimitiveArray::from_option_iter([Some(0u32), Some(131071), None, Some(0), Some(65536)])
+            .into_array();
+    let values_plan = lower(&store.chunked(&values, &[32768; 4])?)?;
+    let plan = TakePlan::new(
+        lower(&store.chunked(&codes, &[2, 3])?)?,
+        values_plan.clone(),
+    )
+    .into_plan();
+    let cache = ValueCache::default();
+    for mode in [AccessMode::RandomAccess, AccessMode::Scan] {
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
+            .with_access_mode(mode)
+            .with_value_cache(cache.clone());
+        let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+        assert_arrays_eq!(
+            join(plan.dtype(), result.arrays)?,
+            DictArray::try_new(codes.clone(), values.clone())?,
+            &mut SESSION.create_execution_ctx()
+        );
+        assert_eq!(cache.get(&values_plan).is_some(), mode == AccessMode::Scan);
+    }
+    Ok(())
+}
+
+#[test]
+fn sparse_dictionary_values_can_themselves_be_dictionaries() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..4096i32).into_array();
+    let inner_codes = Buffer::from_iter((2048..4096u32).rev()).into_array();
+    let inner = TakePlan::new(
+        lower(&store.chunked(&inner_codes, &[512; 4])?)?,
+        lower(&store.chunked(&values, &[512; 8])?)?,
+    )
+    .into_plan();
+    let codes =
+        PrimitiveArray::from_option_iter([Some(0u32), Some(1023), Some(2047), Some(0), None])
+            .into_array();
+    let plan = TakePlan::new(lower(&store.flat(&codes)?)?, inner).into_plan();
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
+        .with_access_mode(AccessMode::RandomAccess);
+    let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+    assert_arrays_eq!(
+        join(plan.dtype(), result.arrays)?,
+        PrimitiveArray::from_option_iter([Some(4095i32), Some(3072), Some(2048), Some(4095), None]),
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[rstest]
+fn sparse_dictionary_flat_values_read_beside_codes(
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..2048i32).into_array();
+    let codes = Buffer::from(vec![2047u32, 0, 2047]).into_array();
+    let plan =
+        TakePlan::new(lower(&store.flat(&codes)?)?, lower(&store.flat(&values)?)?).into_plan();
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..3)])?
+        .with_access_mode(AccessMode::RandomAccess);
+    let result = drive(&store, scan, delivery(order))?;
+    assert!(
+        matches!(result.events.first(), Some(Event::Io(batch)) if batch.len() == 2),
+        "flat values cannot skip stored chunks, so both reads should start together"
+    );
+    assert_arrays_eq!(
+        join(plan.dtype(), result.arrays)?,
+        DictArray::try_new(codes, values)?,
+        &mut SESSION.create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[rstest]
+fn sparse_numeric_predicate_keeps_vectorized_dictionary_evaluation(
+    #[values(AccessMode::Scan, AccessMode::RandomAccess)] mode: AccessMode,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(0..2048i32).into_array();
+    let codes = Buffer::from(vec![2047u32, 0, 2047]).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let source = lower(&layout)?;
+    let expression = eq(root(), lit(2047i32)).bind(source.dtype())?;
+    let plan = optimize(EvalPlan::try_new(expression, source)?.into_plan(), &SESSION)?;
+    let predicate = plan.as_::<Take>().values()?;
+    let cache = ValueCache::default();
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..3)])?
+        .with_value_cache(cache.clone())
+        .with_access_mode(mode);
+    let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+    assert_arrays_eq!(
+        join(plan.dtype(), result.arrays)?,
+        BoolArray::from_iter([true, false, true]),
+        &mut SESSION.create_execution_ctx()
+    );
+    assert!(cache.predicate(&predicate).is_none());
+    assert!(cache.get(&predicate).is_some());
     Ok(())
 }
