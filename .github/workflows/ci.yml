@@ -23,6 +23,10 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  # Resolves each selected package's features on its own, as if it were built alone, so a crate
+  # cannot compile only because a sibling enables a feature it forgot. Unlike `cargo hack`, every
+  # package is checked in one parallel Cargo invocation. Requires the nightly toolchain.
+  PER_PACKAGE_FEATURES: "-Zfeature-unification --config resolver.feature-unification=\"package\""
 
 jobs:
   duckdb-mirror:
@@ -316,7 +320,8 @@ jobs:
           - name: "with tokio dispatcher"
             runner: amd64-ci-small
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
-            args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
+            args: "--no-default-features --features tokio --all-targets"
+            packages: "-p vortex -p vortex-io -p vortex-file -p vortex-layout"
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -327,11 +332,14 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
       # Feature-unification errors appear at type check. Codegen and linking add most of the
       # time and sccache cannot cache links; the test jobs link the workspace already.
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo hack check --profile ci --locked ${{matrix.config.args}} --ignore-private"
+          command: >-
+            cargo +$NIGHTLY_TOOLCHAIN check $PER_PACKAGE_FEATURES --profile ci --locked
+            ${{ matrix.config.args }} ${{ matrix.config.packages || '$(scripts/publishable-packages.sh)' }}
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
@@ -378,6 +386,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+      # Stays on cargo hack: per-package feature resolution is unstable, so the MSRV toolchain lacks it.
       - name: Check publishable crates against the MSRV
         run: cargo hack --rust-version --no-dev-deps --ignore-private check --profile ci --all-features
 
@@ -468,10 +477,13 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+      # Lints only library targets, so dev-dependency features cannot unify in.
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
-          cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
+          cargo +$NIGHTLY_TOOLCHAIN clippy $PER_PACKAGE_FEATURES --profile ci --locked --no-default-features \
+            $(scripts/publishable-packages.sh) -- -D warnings
 
   rust-test-windows:
     name: "Rust tests (windows-x64)"
@@ -873,17 +885,18 @@ jobs:
           ! cargo tree --target wasm32-unknown-unknown -e normal --prefix none \
             | grep -E '^(wasm-bindgen|js-sys) '
 
-      # Checks each publishable crate on its own, to catch features that only unify in wasm-test.
+      - name: Install nightly for per-package feature checks
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --profile minimal --target wasm32-unknown-unknown
+      # Checks each publishable crate's own features, to catch features that only unify in wasm-test.
       - name: "Check publishable crates for wasm32-unknown-unknown"
         uses: ./.github/actions/check-rebuild
         with:
           command: >-
             RUSTFLAGS='-A warnings --cfg getrandom_backend="unsupported"'
-            cargo hack check --profile ci --locked --ignore-private --target wasm32-unknown-unknown
-            --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp
-            --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd
-            --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest
-            --exclude vortex-parquet-variant
+            cargo +$NIGHTLY_TOOLCHAIN check $PER_PACKAGE_FEATURES --profile ci --locked --target wasm32-unknown-unknown
+            $(scripts/publishable-packages.sh vortex vortex-cuda vortex-cub vortex-nvcomp
+            vortex-datafusion vortex-duckdb vortex-tui vortex-zstd
+            vortex-test-e2e-cuda vortex-python-cuda vortex-sqllogictest vortex-parquet-variant)
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
