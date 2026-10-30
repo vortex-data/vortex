@@ -33,6 +33,7 @@ use vortex_array::expr::gt;
 use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
+use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::validity::Validity;
@@ -374,6 +375,13 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
     gt(get_item("ints", root()), lit(995i32)),
     lt(get_item("ints", root()), lit(2050i32))
 ))]
+#[case::cross_column_or(and(
+    gt(get_item("ints", root()), lit(995i32)),
+    or(
+        lt(get_item("ints", root()), lit(1010i32)),
+        eq(get_item("strings", root()), lit("row 2001"))
+    )
+))]
 #[case::nullable(eq(get_item("strings", root()), lit("row 1001")))]
 #[case::nulls(is_null(get_item("strings", root())))]
 #[case::no_matches(gt(get_item("ints", root()), lit(10_000i32)))]
@@ -382,7 +390,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
 async fn filter_matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
     #[case] filter: Expression,
-    #[values(false, true)] sparse: bool,
+    #[values(1, 2, 7)] selection_step: usize,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
@@ -395,9 +403,9 @@ async fn filter_matches_v1(
             .with_some_filter(Some(filter.bind(layout.dtype())?))
             .with_row_range(900..3100)
             .with_row_offset(100);
-        if sparse {
+        if selection_step > 1 {
             scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
-                (0..4000u64).step_by(7),
+                (0..4000u64).step_by(selection_step),
             ))?);
         }
         Ok(scan)
@@ -964,5 +972,38 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn dictionary_cache_lives_with_its_prepared_file_scans() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let values = chunked_ints(&session, &segments).await?;
+    let codes = chunked_ints(&session, &segments).await?;
+    let layout = DictLayout::new(values, codes).into_layout();
+    let segments = segments as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    let cache = ScanCache::with_retained_bytes(0);
+    let weak = cache.downgrade();
+    file.cache = Some(cache);
+    let first = Arc::new(ScanBuilder::new(session.clone(), file.clone()).prepare()?);
+    let second = ScanBuilder::new(session.clone(), file).prepare()?;
+
+    let mut other_file = scan_file(&segments, &layout)?;
+    let other_cache = ScanCache::with_retained_bytes(0);
+    let other_weak = other_cache.downgrade();
+    other_file.cache = Some(other_cache);
+    let other = ScanBuilder::new(session, other_file).prepare()?;
+
+    // Populate dictionary values before releasing the plans owned by this file's drivers.
+    assert!(!run_rows(&first, first.rows().clone()).await?.is_empty());
+    drop(first);
+    assert!(weak.upgrade().is_some());
+    drop(second);
+    assert!(weak.upgrade().is_none());
+    assert!(other_weak.upgrade().is_some());
+    drop(other);
+    assert!(other_weak.upgrade().is_none());
     Ok(())
 }

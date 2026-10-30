@@ -111,6 +111,7 @@ impl Planner for PrunePlanner {
             // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
+                &self.scan.values,
                 self.pruning.as_slice().iter(),
                 self.rows.clone(),
                 &self.mask,

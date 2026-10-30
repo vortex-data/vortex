@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
 use std::io;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::SinkExt;
@@ -35,6 +38,12 @@ use crate::std_file::read_exact_at;
 /// Default number of concurrent requests to allow.
 pub const DEFAULT_CONCURRENCY: usize = 192;
 
+struct LocalFile {
+    #[cfg(not(target_arch = "wasm32"))]
+    file: File,
+    size: u64,
+}
+
 /// An object store backed I/O source.
 pub struct ObjectStoreReadAt {
     store: Arc<dyn ObjectStore>,
@@ -43,6 +52,7 @@ pub struct ObjectStoreReadAt {
     handle: Handle,
     allocator: BufferAllocatorRef,
     concurrency: usize,
+    file_cache: Option<Arc<OnceLock<Arc<LocalFile>>>>,
     coalesce_config: Option<CoalesceConfig>,
 }
 
@@ -72,8 +82,18 @@ impl ObjectStoreReadAt {
             handle,
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
+            file_cache: None,
             coalesce_config: Some(CoalesceConfig::object_storage()),
         }
+    }
+
+    /// Retain the first local file handle for this reader and its in-flight reads.
+    ///
+    /// Use only for immutable files: replacing the path does not change the opened file.
+    /// Stream-backed object stores continue to issue a GET for each range.
+    pub fn with_cached_file_handle(mut self) -> Self {
+        self.file_cache = Some(Arc::new(OnceLock::new()));
+        self
     }
 
     /// Set the concurrency for this source.
@@ -94,6 +114,7 @@ async fn read_object_store_range(
     path: ObjectPath,
     io_handle: Handle,
     allocator: BufferAllocatorRef,
+    file_cache: Option<Arc<OnceLock<Arc<LocalFile>>>>,
     request: ReadAtRequest,
 ) -> VortexResult<BufferHandle> {
     let ReadAtRequest {
@@ -105,6 +126,20 @@ async fn read_object_store_range(
     let mut buffer = allocator.with_capacity_aligned::<u8>(length, alignment);
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(file) = file_cache.as_ref().and_then(|cache| cache.get()).cloned() {
+        let buffer = io_handle
+            .spawn_blocking(move || {
+                read_exact_at(&file.file, buffer.as_mut_slice(), offset)?;
+                Ok::<_, io::Error>(buffer)
+            })
+            .await
+            .map_err(io::Error::other)?;
+        return Ok(BufferHandle::new_host(buffer.freeze()));
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = file_cache;
 
     let response = store
         .get_opts(
@@ -118,13 +153,23 @@ async fn read_object_store_range(
 
     let buffer = match response.payload {
         #[cfg(not(target_arch = "wasm32"))]
-        GetResultPayload::File(file, _) => io_handle
-            .spawn_blocking(move || {
-                read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
-                Ok::<_, io::Error>(buffer)
-            })
-            .await
-            .map_err(io::Error::other)?,
+        GetResultPayload::File(file, _) => {
+            let opened = LocalFile {
+                file,
+                size: response.meta.size,
+            };
+            let file = match file_cache {
+                Some(cache) => Arc::clone(cache.get_or_init(|| Arc::new(opened))),
+                None => Arc::new(opened),
+            };
+            io_handle
+                .spawn_blocking(move || {
+                    read_exact_at(&file.file, buffer.as_mut_slice(), range.start)?;
+                    Ok::<_, io::Error>(buffer)
+                })
+                .await
+                .map_err(io::Error::other)?
+        }
         #[cfg(target_arch = "wasm32")]
         GetResultPayload::File(..) => {
             unreachable!("File payload not supported on wasm32")
@@ -173,6 +218,9 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        if let Some(file) = self.file_cache.as_ref().and_then(|cache| cache.get()) {
+            return futures::future::ready(Ok(file.size)).boxed();
+        }
         let store = Arc::clone(&self.store);
         let path = self.path.clone();
         async move {
@@ -202,6 +250,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                 path,
                 io_handle,
                 allocator,
+                self.file_cache.clone(),
                 ReadAtRequest::new(offset, length, alignment),
             ))
             .boxed()
@@ -217,6 +266,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let handle = self.handle.clone();
         let allocator = self.allocator.clone();
         let concurrency = self.concurrency.max(1);
+        let file_cache = self.file_cache.clone();
         let (mut send, recv) = mpsc::channel(concurrency);
         let io_handle = handle.clone();
 
@@ -229,9 +279,12 @@ impl VortexReadAt for ObjectStoreReadAt {
                 let path = path.clone();
                 let io_handle = io_handle.clone();
                 let allocator = allocator.clone();
+                let file_cache = file_cache.clone();
                 async move {
-                    let result =
-                        read_object_store_range(store, path, io_handle, allocator, request).await;
+                    let result = read_object_store_range(
+                        store, path, io_handle, allocator, file_cache, request,
+                    )
+                    .await;
                     (request, result)
                 }
             });
@@ -262,6 +315,8 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use object_store::PutPayload;
+    #[cfg(unix)]
+    use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
 
     use super::*;
@@ -328,6 +383,62 @@ mod tests {
         assert_eq!(executor.spawn_io_count.load(Ordering::SeqCst), 1);
         assert_eq!(executor.spawn_count.load(Ordering::SeqCst), 0);
 
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cached_file_handle_survives_path_replacement() -> VortexResult<()> {
+        let runtime = Arc::new(CountingExecutor::default()) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&runtime));
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("test.bin");
+        std::fs::write(&path, TEST_DATA)?;
+        let store =
+            Arc::new(LocalFileSystem::new_with_prefix(directory.path())?) as Arc<dyn ObjectStore>;
+        let reader = ObjectStoreReadAt::new(
+            Arc::clone(&store),
+            ObjectPath::from("test.bin"),
+            handle.clone(),
+        )
+        .with_cached_file_handle();
+        let first = reader.read_at(7, 5, Alignment::new(1)).await?;
+        assert_eq!(first.to_host().await.as_slice(), b"store");
+
+        let replacement = directory.path().join("replacement.bin");
+        std::fs::write(&replacement, b"replacement")?;
+        std::fs::rename(replacement, path)?;
+        assert_eq!(reader.size().await?, TEST_DATA.len() as u64);
+        let requests = Arc::from([
+            ReadAtRequest::new(0, 6, Alignment::new(1)),
+            ReadAtRequest::new(7, 5, Alignment::new(1)),
+        ]);
+        let results = reader.read_ranges(requests).collect::<Vec<_>>().await;
+        assert_eq!(results.len(), 2);
+        for (request, result) in results {
+            let buffer = result?;
+            let start = usize::try_from(request.offset)?;
+            assert_eq!(
+                buffer.to_host().await.as_slice(),
+                &TEST_DATA[start..start + request.length]
+            );
+        }
+        let cache = reader.file_cache.as_ref().map(Arc::downgrade);
+        let pending = reader.read_at(7, 5, Alignment::new(1));
+        drop(reader);
+        assert_eq!(pending.await?.to_host().await.as_slice(), b"store");
+        assert!(cache.is_some_and(|cache| cache.upgrade().is_none()));
+
+        let fresh = ObjectStoreReadAt::new(store, ObjectPath::from("test.bin"), handle);
+        assert_eq!(
+            fresh
+                .read_at(0, 11, Alignment::new(1))
+                .await?
+                .to_host()
+                .await
+                .as_slice(),
+            b"replacement"
+        );
         Ok(())
     }
 
