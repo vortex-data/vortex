@@ -39,6 +39,9 @@ pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
 #[cfg(test)]
 pub(crate) use self::chunk::scan_chunks;
+#[cfg(test)]
+pub(crate) use self::chunk::scan_chunks_at;
+pub(crate) use self::chunk::view_chunk_boundaries;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
@@ -102,6 +105,9 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// The sorted root rows where stored chunks of the projection's view-typed columns end; a
+    /// chunk planner cuts its chunks there too.
+    pub(super) chunk_boundaries: Arc<[u64]>,
 }
 
 impl PreparedScan {

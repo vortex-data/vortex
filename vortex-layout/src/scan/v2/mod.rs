@@ -14,9 +14,11 @@
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
 //! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
-//! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! one primitive or boolean field use 1,048,576 rows to amortize setup. Full-file projections use
+//! smaller 8,192-row multiples when serialized bytes per row are high. Chunks are also cut where a
+//! stored chunk of a projected string or binary column ends, unless that leaves a piece under
+//! 8,192 rows: a chunk spanning several stored string chunks would reach Arrow as a view array
+//! over several data buffers, which every downstream kernel then carries.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
@@ -56,6 +58,7 @@ pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::execution::view_chunk_boundaries;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
@@ -210,6 +213,7 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
+        let chunk_boundaries = view_chunk_boundaries(&projection)?.into();
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),
@@ -228,6 +232,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            chunk_boundaries,
         })
     }
 }

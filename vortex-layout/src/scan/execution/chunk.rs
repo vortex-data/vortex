@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
@@ -22,8 +23,10 @@ use vortex_scan::selection::Selection;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::plan::physical::Concat;
+use crate::plan::physical::PlanRef;
 
-/// The row grid every chunk boundary lies on.
+/// The row grid chunk boundaries lie on, except where a stored chunk of a string column ends.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
 /// The rows of a projection chunk.
 pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
@@ -77,6 +80,70 @@ pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<
     chunks
 }
 
+/// The chunks a scan of `rows` plans when `boundaries`, sorted root rows, are where stored chunks
+/// of its view-typed columns end: [`scan_chunks`] between consecutive kept boundaries. A work
+/// chunk that crosses a stored chunk of a string column returns it as several data buffers, which
+/// every Arrow kernel downstream then carries, so a boundary is kept whenever both pieces it
+/// leaves have at least [`ROW_BLOCK_SIZE`] rows. Shorter stored chunks share a work chunk.
+pub(crate) fn scan_chunks_at(
+    rows: Range<u64>,
+    rows_per_chunk: usize,
+    boundaries: &[u64],
+) -> Vec<Range<u64>> {
+    let min = ROW_BLOCK_SIZE as u64;
+    let first = boundaries.partition_point(|&boundary| boundary <= rows.start);
+    let mut chunks = Vec::new();
+    let mut start = rows.start;
+    for &boundary in &boundaries[first..] {
+        if boundary.saturating_add(min) > rows.end {
+            break;
+        }
+        if boundary - start >= min {
+            chunks.extend(scan_chunks(start..boundary, rows_per_chunk));
+            start = boundary;
+        }
+    }
+    chunks.extend(scan_chunks(start..rows.end, rows_per_chunk));
+    chunks
+}
+
+/// The sorted root rows where a stored chunk of a view-typed column of `plan` ends, found through
+/// every child that keeps its parent's row domain.
+pub(crate) fn view_chunk_boundaries(plan: &PlanRef) -> VortexResult<Vec<u64>> {
+    fn visit(plan: &PlanRef, boundaries: &mut Vec<u64>) -> VortexResult<()> {
+        if let Some(concat) = plan.as_opt::<Concat>() {
+            if has_views(concat.dtype()) {
+                boundaries.extend(concat.row_offsets().iter().skip(1));
+            }
+            // Visiting a chunk would lower it, for boundaries this scan rarely needs.
+            return Ok(());
+        }
+        for child in plan.children().iter_refs() {
+            let child = child?;
+            if child.row_count() == plan.row_count() {
+                visit(child, boundaries)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut boundaries = Vec::new();
+    visit(plan, &mut boundaries)?;
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    Ok(boundaries)
+}
+
+/// Whether an Arrow array of `dtype` holds string or binary views.
+fn has_views(dtype: &DType) -> bool {
+    match dtype {
+        DType::Utf8(_) | DType::Binary(_) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| has_views(&field)),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => has_views(element),
+        _ => false,
+    }
+}
+
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
 /// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
@@ -98,7 +165,8 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks =
+            scan_chunks_at(rows.clone(), scan.chunk_rows, &scan.chunk_boundaries).into_iter();
         Self {
             scan,
             rows,

@@ -77,6 +77,7 @@ use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
 use crate::scan::execution::scan_chunks;
+use crate::scan::execution::scan_chunks_at;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::CountingSegmentSource;
 use crate::segments::SegmentSource;
@@ -528,6 +529,85 @@ fn scans_join_short_edge_chunks(
     assert_eq!(scan_chunks(rows, rows_per_chunk), expected);
 }
 
+/// A scan cuts its chunks where a stored chunk of a string column ends, unless a piece it leaves
+/// is under a row block.
+#[rstest]
+#[case::cut(0..150_000, vec![42_000, 84_000], vec![0..42_000, 42_000..84_000, 84_000..150_000])]
+#[case::long_piece_on_grid(0..150_000, vec![140_000], vec![0..65_536, 65_536..140_000, 140_000..150_000])]
+#[case::short_piece_joined(0..150_000, vec![1000, 2000, 70_000], vec![0..70_000, 70_000..150_000])]
+#[case::short_tail_joined(0..100_000, vec![95_000], vec![0..65_536, 65_536..100_000])]
+#[case::outside_rows(50_000..100_000, vec![10_000, 50_000, 100_000, 120_000], vec![50_000..100_000])]
+#[case::none(0..150_000, vec![], vec![0..65_536, 65_536..150_000])]
+#[case::empty(5..5, vec![10], vec![])]
+fn scans_cut_at_view_chunk_boundaries(
+    #[case] rows: Range<u64>,
+    #[case] boundaries: Vec<u64>,
+    #[case] expected: Vec<Range<u64>>,
+) {
+    assert_eq!(scan_chunks_at(rows, 65_536, &boundaries), expected);
+}
+
+/// Writes `chunks` arrays of `chunk_rows` rows, each from `chunk`, as a chunked column.
+async fn chunked_column(
+    session: &VortexSession,
+    chunks: usize,
+    chunk_rows: usize,
+    chunk: impl Fn(Range<usize>) -> ArrayRef,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let arrays: Vec<_> = (0..chunks)
+        .map(|index| chunk(index * chunk_rows..(index + 1) * chunk_rows))
+        .collect();
+    let dtype = arrays[0].dtype().clone();
+    let arrays = arrays
+        .into_iter()
+        .map(|array| Ok((sequence.advance(), array)))
+        .collect::<Vec<_>>();
+    let layout = chunked_flat()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter(arrays)).sendable(),
+            eof,
+            session,
+        )
+        .await?;
+    Ok((segments, layout))
+}
+
+/// A work chunk spanning stored chunks of a string column would reach Arrow as views over one
+/// data buffer per stored chunk, so string columns are cut at their stored boundaries while
+/// integers keep the fixed grid.
+#[rstest]
+#[case::strings(true, vec![0..20_000, 20_000..40_000, 40_000..60_000])]
+#[case::integers(false, vec![0..60_000])]
+#[tokio::test]
+async fn work_chunks_follow_stored_string_chunks(
+    #[case] strings: bool,
+    #[case] expected: Vec<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = chunked_column(&session, 3, 20_000, |rows| {
+        if strings {
+            VarBinArray::from_iter(
+                rows.map(|row| Some(format!("row {row}"))),
+                DType::Utf8(false.into()),
+            )
+            .into_array()
+        } else {
+            PrimitiveArray::from_iter(rows.map(|row| i32::try_from(row).unwrap_or(i32::MAX)))
+                .into_array()
+        }
+    })
+    .await?;
+    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let batches = run_batches(&scan, scan.rows().clone()).await?;
+    let scopes: Vec<_> = batches.iter().map(|batch| batch.scope.rows.clone()).collect();
+    assert_eq!(scopes, expected);
+    Ok(())
+}
+
 #[rstest]
 #[case::empty(0, 0, 65_536)]
 #[case::single_chunk(1000, 100_000_000, 65_536)]
@@ -708,7 +788,7 @@ async fn primitive_column() -> VortexResult<()> {
     Ok(())
 }
 
-/// Stored chunk boundaries do not subdivide a fixed work chunk.
+/// Stored chunks under a row block do not subdivide a fixed work chunk.
 #[rstest]
 #[tokio::test]
 async fn work_chunks_ignore_layout_boundaries(
