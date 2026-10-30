@@ -402,24 +402,31 @@ jobs:
           enable-sccache: "true"
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-      # Run one Cargo command at a time so it can use the whole runner and reuse
-      # artifacts from the shared target directory in subsequent checks.
-      - name: Rust Lint - Format
-        id: fmt
+      # Cargo locks each profile's target directory, so the release check runs
+      # alongside clippy while the two ci-profile clippy runs take turns.
+      - parallel:
+          - name: Rust Lint - Format
+            id: fmt
+            continue-on-error: true
+            run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
+          - name: Rustc check (release)
+            id: check-release
+            continue-on-error: true
+            run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
+          - name: Rust Lint - Clippy All Features
+            id: clippy-all
+            continue-on-error: true
+            run: cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
+          - name: Rust Lint - Clippy Default Features
+            id: clippy-default
+            continue-on-error: true
+            run: cargo clippy --profile ci --locked --all-targets -- -D warnings
+      # `cargo hack --no-dev-deps` rewrites every Cargo.toml while it runs, so it runs after the
+      # concurrent group.
+      - name: Rust Lint - Clippy No Default Features
+        id: clippy-no-default
         continue-on-error: true
-        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
-      - name: Rustc check (release)
-        id: check-release
-        continue-on-error: true
-        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
-      - name: Rust Lint - Clippy All Features
-        id: clippy-all
-        continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
-      - name: Rust Lint - Clippy Default Features
-        id: clippy-default
-        continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-targets -- -D warnings
+        run: cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
       - name: Check lint results
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -430,6 +437,7 @@ jobs:
               'check-release': '${{ steps.check-release.outcome }}',
               'clippy-all': '${{ steps.clippy-all.outcome }}',
               'clippy-default': '${{ steps.clippy-default.outcome }}',
+              'clippy-no-default': '${{ steps.clippy-no-default.outcome }}',
             }).filter(([, o]) => o === 'failure').map(([n]) => n);
             if (!failed.length) return;
 
@@ -449,28 +457,6 @@ jobs:
       - name: sccache stats
         if: always() && github.repository == 'vortex-data/vortex'
         run: sccache --show-stats
-
-  rust-lint-no-default:
-    name: "Rust (lint, no default)"
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - parallel:
-          - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - name: Rust Lint - Clippy No Default Features
-        shell: bash
-        run: |
-          cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
 
   rust-test-windows:
     name: "Rust tests (windows-x64)"
