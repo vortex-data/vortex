@@ -17,6 +17,7 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -84,6 +85,13 @@ impl ScalarFnVTable for ExtStorage {
         Ok(input.storage_array().clone())
     }
 
+    fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
+        Ok(node
+            .child(0)
+            .as_constant()
+            .map(|scalar| node.new_constant(scalar.as_extension().to_storage_scalar())))
+    }
+
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
@@ -97,22 +105,29 @@ impl ScalarFnVTable for ExtStorage {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDTypeRef;
+    use crate::dtype::extension::ForeignExtDType;
     use crate::expr::ext_storage;
+    use crate::expr::get_item;
     use crate::expr::root;
+    use crate::expr::select;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
@@ -173,6 +188,53 @@ mod tests {
             ConstantArray::new(storage_scalar, 3),
             &mut SESSION.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[rstest]
+    fn constant_storage_reduces(
+        #[values(false, true)] null: bool,
+        #[values(0, 3)] len: usize,
+    ) -> VortexResult<()> {
+        let storage = if null {
+            Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable))
+        } else {
+            Scalar::primitive(4i64, Nullability::Nullable)
+        };
+        let scalar = Scalar::extension_ref(ext_dtype(Nullability::Nullable), storage.clone());
+        let result = ConstantArray::new(scalar, len)
+            .into_array()
+            .apply(&ext_storage(root()))?;
+
+        assert_eq!(result.as_::<Constant>().scalar(), &storage);
+        assert_eq!(result.len(), len);
+        Ok(())
+    }
+
+    #[test]
+    fn nested_constant_field_reduces_through_select_and_storage() -> VortexResult<()> {
+        static EXT_ID: CachedId = CachedId::new("test.struct_storage");
+        let storage_array = StructArray::from_fields(&[(
+            "frame",
+            ConstantArray::new(42i32, 1).into_array(),
+        )])?;
+        let storage = Scalar::struct_(storage_array.dtype().clone(), [Scalar::from(42i32)]);
+        let dtype = ForeignExtDType::from_parts(*EXT_ID, vec![], storage.dtype().clone())?;
+        let video = Scalar::extension_ref(dtype, storage);
+        let array = StructArray::from_fields(&[
+            ("video", ConstantArray::new(video, 3).into_array()),
+            ("other", buffer![1i32, 2, 3].into_array()),
+        ])?
+        .into_array();
+        let expr = get_item(
+            "frame",
+            ext_storage(get_item("video", select(["video"], root()))),
+        );
+
+        let result = array.apply(&expr)?;
+
+        assert_eq!(result.as_::<Constant>().scalar(), &Scalar::from(42i32));
+        assert_eq!(result.len(), 3);
         Ok(())
     }
 
