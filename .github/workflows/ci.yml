@@ -407,35 +407,45 @@ jobs:
           enable-sccache: "true"
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-      # Run one Cargo command at a time so it can use the whole runner and reuse
-      # artifacts from the shared target directory in subsequent checks.
-      - name: Rust Lint - Format
-        id: fmt
-        continue-on-error: true
-        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
-      - name: Rustc check (release)
-        id: check-release
-        continue-on-error: true
-        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
-      - name: Rust Lint - Clippy All Features
-        id: clippy-all
-        continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
-      - name: Rust Lint - Clippy Default Features
-        id: clippy-default
-        continue-on-error: true
-        run: cargo clippy --profile ci --locked --all-targets -- -D warnings
+      # Run the release check (target/release) alongside the ci-profile clippy
+      # runs (target/ci); Cargo locks each profile directory separately. The two
+      # clippy runs stay sequential so they share target/ci.
+      - name: Rust Lint
+        id: lint
+        shell: bash
+        run: |
+          logs="$RUNNER_TEMP/lint"
+          mkdir -p "$logs"
+          lint() {
+            local name=$1 start=$SECONDS outcome=success
+            shift
+            "$@" > "$logs/$name.log" 2>&1 || outcome=failure
+            echo "$outcome in $((SECONDS - start))s" > "$logs/$name.status"
+            echo "$name=$outcome" >> "$GITHUB_OUTPUT"
+          }
+          lint fmt cargo +$NIGHTLY_TOOLCHAIN fmt --all --check &
+          RUSTFLAGS="-D warnings" lint check-release cargo check --locked --all-features --all-targets --release &
+          {
+            lint clippy-all cargo clippy --profile ci --locked --all-features --all-targets -- -D warnings
+            lint clippy-default cargo clippy --profile ci --locked --all-targets -- -D warnings
+          } &
+          wait
+          for name in fmt check-release clippy-all clippy-default; do
+            echo "::group::$name ($(cat "$logs/$name.status"))"
+            cat "$logs/$name.log"
+            echo "::endgroup::"
+          done
       - name: Check lint results
-        if: always()
+        if: always() && steps.lint.conclusion != 'skipped'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
             const failed = Object.entries({
-              fmt: '${{ steps.fmt.outcome }}',
-              'check-release': '${{ steps.check-release.outcome }}',
-              'clippy-all': '${{ steps.clippy-all.outcome }}',
-              'clippy-default': '${{ steps.clippy-default.outcome }}',
-            }).filter(([, o]) => o === 'failure').map(([n]) => n);
+              fmt: '${{ steps.lint.outputs.fmt }}',
+              'check-release': '${{ steps.lint.outputs.check-release }}',
+              'clippy-all': '${{ steps.lint.outputs.clippy-all }}',
+              'clippy-default': '${{ steps.lint.outputs.clippy-default }}',
+            }).filter(([, o]) => o !== 'success').map(([n]) => n);
             if (!failed.length) return;
 
             const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
