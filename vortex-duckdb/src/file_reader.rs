@@ -264,6 +264,7 @@ pub fn reader_initialize(
         let scan = FileScan::try_new(
             v2_builder(state, global, selection),
             &global.initial_chunks,
+            global.parallel_files,
             global.scan_diagnostics.clone(),
             &state.path,
         )?;

@@ -187,6 +187,8 @@ pub struct GlobalState {
     pub(crate) row_id_field: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    /// File parallelism already supplies one scan per worker, allowing larger in-file chunks.
+    pub(crate) parallel_files: bool,
     pub(crate) initial_chunks: AtomicUsize,
     pub(crate) scan_diagnostics: Option<Arc<crate::scan_v2::Diagnostics>>,
 
@@ -374,6 +376,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         file_row_number_column_pos,
         row_id_field,
         scan_v2: crate::scan_v2(),
+        parallel_files: init_input.input.file_count >= init_input.input.max_threads.max(1),
     })
 }
 

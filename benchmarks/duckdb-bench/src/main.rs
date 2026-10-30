@@ -103,7 +103,7 @@ struct Args {
     )]
     reuse: bool,
 
-    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H, TPC-DS and ClickBench).
+    /// Override the Vortex scan executor (V2 by default; false selects V1).
     #[arg(long, action = clap::ArgAction::Set)]
     scan_v2: Option<bool>,
 
@@ -120,13 +120,9 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
-    let scan_v2 = args.scan_v2.unwrap_or_else(|| {
-        matches!(
-            args.benchmark,
-            BenchmarkArg::TpcH | BenchmarkArg::TpcDS | BenchmarkArg::ClickBench
-        ) && !std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "0")
-    });
-    vortex_duckdb::set_scan_v2(scan_v2);
+    if let Some(scan_v2) = args.scan_v2 {
+        vortex_duckdb::set_scan_v2(scan_v2);
+    }
     vortex_duckdb::set_dynamic_filter_initial_chunks(args.dynamic_filter_initial_chunks);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;

@@ -67,9 +67,9 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Whether scans run on the planner-driven V2 executor. Set `VORTEX_SCAN_V2=1` to enable it.
+/// Whether scans run on the planner-driven V2 executor. Set `VORTEX_SCAN_V2=0` to use V1.
 static SCAN_V2: LazyLock<AtomicBool> =
-    LazyLock::new(|| AtomicBool::new(std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "1")));
+    LazyLock::new(|| AtomicBool::new(!std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "0")));
 
 /// Selects the planner-driven V2 scan executor for scans initialized from now on.
 pub fn set_scan_v2(enabled: bool) {

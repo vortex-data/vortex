@@ -1426,11 +1426,12 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     ));
     let path = file.path().to_string_lossy();
 
+    let previous = crate::scan_v2();
     crate::set_scan_v2(false);
     let v1 = query_i64_column(&path, query)?;
     crate::set_scan_v2(true);
     let v2 = query_i64_column(&path, query);
-    crate::set_scan_v2(false);
+    crate::set_scan_v2(previous);
 
     assert_eq!(v2?, v1);
     Ok(())
@@ -1512,11 +1513,12 @@ fn test_vortex_scan_v2_multifile_row_ids(
         }
         Ok(values)
     };
+    let previous = crate::scan_v2();
     crate::set_scan_v2(false);
     let v1 = read(false)?;
     crate::set_scan_v2(true);
     let v2 = read(true);
-    crate::set_scan_v2(false);
+    crate::set_scan_v2(previous);
     assert_eq!(v2?, v1);
     if let Some(expected) = expected {
         assert_eq!(v1, expected);
