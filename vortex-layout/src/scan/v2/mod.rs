@@ -218,7 +218,11 @@ impl ScanBuilder {
             )
         })?;
         let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
+            if identity {
+                rows.min(rows_per_chunk(row_count, &file.locations))
+            } else {
+                rows
+            }
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
