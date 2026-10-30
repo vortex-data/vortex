@@ -569,8 +569,19 @@ where
             }
             None => {
                 let mut buffer = BufferMut::<T>::with_capacity(len);
-                values.map_into(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
-                // SAFETY: map_into initializes every lane.
+                let out = &mut buffer.spare_capacity_mut()[..len];
+                if const {
+                    cfg!(target_arch = "aarch64")
+                        && matches!(
+                            (F::PTYPE, T::PTYPE),
+                            (PType::I32, PType::I64) | (PType::U16, PType::U32)
+                        )
+                } {
+                    values.map_into_widening(out, |v| v.as_());
+                } else {
+                    values.map_into(out, |v| v.as_());
+                }
+                // SAFETY: both map methods initialize every lane.
                 unsafe { buffer.set_len(len) };
                 Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
             }
@@ -693,6 +704,7 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -1293,6 +1305,39 @@ mod test {
             PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    #[rstest]
+    fn widening_cast_preserves_values_and_validity(
+        #[values(false, true)] unsigned: bool,
+        #[values(0, 1, 63, 64, 65, 127, 128, 129, 8192, 16384, 16385)] len: usize,
+        #[values(0, 1, 2)] validity_kind: u8,
+    ) -> VortexResult<()> {
+        let validity = match validity_kind {
+            0 => Validity::NonNullable,
+            1 => Validity::AllInvalid,
+            _ => Validity::from_iter((0..len).map(|index| index % 3 != 0)),
+        };
+        let (source, expected) = if unsigned {
+            let values = [0_u16, 1, u16::MAX].into_iter().cycle().take(len);
+            (
+                PrimitiveArray::new(values.clone().collect::<Buffer<_>>(), validity.clone())
+                    .into_array(),
+                PrimitiveArray::new(values.map(u32::from).collect::<Buffer<_>>(), validity)
+                    .into_array(),
+            )
+        } else {
+            let values = [i32::MIN, -1, 0, 1, i32::MAX].into_iter().cycle().take(len);
+            (
+                PrimitiveArray::new(values.clone().collect::<Buffer<_>>(), validity.clone())
+                    .into_array(),
+                PrimitiveArray::new(values.map(i64::from).collect::<Buffer<_>>(), validity)
+                    .into_array(),
+            )
+        };
+        let actual = source.cast(expected.dtype().clone())?;
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 

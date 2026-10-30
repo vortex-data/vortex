@@ -222,8 +222,6 @@ fn map_with_mask_widen_u16_u32(bencher: Bencher, n: usize) {
         });
 }
 
-// Both widening variants use the existing map to establish baseline results for the stacked
-// optimization before it selects a different loop. Keep their benchmark names stable.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = WIDEN_SIZES)]
 fn map_into_i32_i64(bencher: Bencher, n: usize) {
@@ -245,7 +243,9 @@ fn map_into_widening_i32_i64(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| uninit_out::<i64>(n))
         .bench_local_values(|mut out| {
-            f.values_i32.as_slice().map_into(&mut out, Into::into);
+            f.values_i32
+                .as_slice()
+                .map_into_widening(&mut out, Into::into);
             out
         });
 }
@@ -271,7 +271,9 @@ fn map_into_widening_u16_u32(bencher: Bencher, n: usize) {
     bencher
         .with_inputs(|| uninit_out::<u32>(n))
         .bench_local_values(|mut out| {
-            f.values_u16.as_slice().map_into(&mut out, Into::into);
+            f.values_u16
+                .as_slice()
+                .map_into_widening(&mut out, Into::into);
             out
         });
 }

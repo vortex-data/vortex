@@ -211,34 +211,25 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
     where
         F: Fn(Self::Item) -> R,
     {
-        #[allow(clippy::inline_always)]
-        #[inline(always)]
-        fn chunk<S, R, F>(values: &S, out: &mut [MaybeUninit<R>], f: &F, base: usize, count: usize)
-        where
-            S: IndexedSource,
-            F: Fn(S::Item) -> R,
-        {
-            for bit_idx in 0..count {
-                let idx = base + bit_idx;
-                // SAFETY: caller guarantees base + count <= len.
-                let val = unsafe { values.get_unchecked(idx) };
-                unsafe { out.get_unchecked_mut(idx).write(f(val)) };
-            }
-        }
+        map_into_impl::<false, _, _, _>(self, out, f);
+    }
 
-        let values = self;
-        let len = values.len();
-        assert_eq!(out.len(), len, "out must have the same length as values");
-
-        let chunks_count = len / CHUNK_LEN;
-        let remainder = len % CHUNK_LEN;
-
-        for chunk_idx in 0..chunks_count {
-            chunk(&values, out, &f, chunk_idx * CHUNK_LEN, CHUNK_LEN);
-        }
-        if remainder != 0 {
-            chunk(&values, out, &f, chunks_count * CHUNK_LEN, remainder);
-        }
+    /// Map with a loop tuned for numeric widening from contiguous slices.
+    ///
+    /// Like [`Self::map_into`], this maps every stored value without consulting validity,
+    /// initializes every output lane, and performs no allocation. Empty inputs write nothing.
+    /// Select it only after benchmarking the caller: other source shapes can be slower, even
+    /// when the output type is wider.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `out.len() != self.len()`.
+    #[inline]
+    fn map_into_widening<R, F>(self, out: &mut [MaybeUninit<R>], f: F)
+    where
+        F: Fn(Self::Item) -> R,
+    {
+        map_into_impl::<true, _, _, _>(self, out, f);
     }
 
     /// Apply the predicate `f(value)` lane-by-lane and bit-pack the results into
@@ -476,6 +467,56 @@ where
     cold_scan(values, base, chunk_len, |_bit_idx, val| f(val).is_none())
 }
 
+// Keep loop selection at monomorphization time so existing callers retain their loop.
+#[inline]
+fn map_into_impl<const WIDENING: bool, S, R, F>(source: S, out: &mut [MaybeUninit<R>], f: F)
+where
+    S: IndexedSource,
+    F: Fn(S::Item) -> R,
+{
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn chunk<S, R, F>(values: &S, out: &mut [MaybeUninit<R>], f: &F, base: usize, count: usize)
+    where
+        S: IndexedSource,
+        F: Fn(S::Item) -> R,
+    {
+        for bit_idx in 0..count {
+            let idx = base + bit_idx;
+            // SAFETY: caller guarantees base + count <= len.
+            let val = unsafe { values.get_unchecked(idx) };
+            // SAFETY: the checked output length equals the source length, and the caller
+            // guarantees that base + count does not exceed it.
+            unsafe { out.get_unchecked_mut(idx).write(f(val)) };
+        }
+    }
+
+    let values = source;
+    let len = values.len();
+    assert_eq!(out.len(), len, "out must have the same length as values");
+
+    // NB: On rustc 1.99.1 / LLVM 23.1.1, with 16 CGUs and no LTO, repeated 64-value
+    // tiles fully unroll i32 widening on M4 (default) and Graviton3 (+neon). A fixed
+    // prefix also loses the i128-to-i256 gain with CI's AVX-512 features. Keep one
+    // runtime-bound loop for large maps and retain tiling for the short maps that
+    // regressed when untiled. Recheck lane_kernels and copy_to_canonical_width, and
+    // their final IR and assembly, on NEON and AVX-512 before changing this split.
+    if WIDENING && len > 2 * CHUNK_LEN {
+        chunk(&values, out, &f, 0, len);
+        return;
+    }
+
+    let chunks_count = len / CHUNK_LEN;
+    let remainder = len % CHUNK_LEN;
+
+    for chunk_idx in 0..chunks_count {
+        chunk(&values, out, &f, chunk_idx * CHUNK_LEN, CHUNK_LEN);
+    }
+    if remainder != 0 {
+        chunk(&values, out, &f, chunks_count * CHUNK_LEN, remainder);
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
@@ -487,6 +528,66 @@ mod tests {
     fn write_t<T: Copy>(out: Vec<MaybeUninit<T>>) -> Vec<T> {
         // SAFETY: tests always fully initialize the buffer.
         unsafe { std::mem::transmute(out) }
+    }
+
+    #[test]
+    fn map_into_widening_initializes_every_lane() {
+        for len in [0, 1, 63, 64, 65, 127, 128, 129, 8192, 16384, 16385] {
+            let signed = [i32::MIN, -1, 0, 1, i32::MAX]
+                .into_iter()
+                .cycle()
+                .take(len)
+                .collect::<Vec<_>>();
+            let mut out = vec![MaybeUninit::<i64>::uninit(); len];
+            signed.as_slice().map_into_widening(&mut out, i64::from);
+            assert_eq!(
+                write_t(out),
+                signed.into_iter().map(i64::from).collect::<Vec<_>>()
+            );
+
+            let unsigned = [0_u16, 1, u16::MAX]
+                .into_iter()
+                .cycle()
+                .take(len)
+                .collect::<Vec<_>>();
+            let mut out = vec![MaybeUninit::<u32>::uninit(); len];
+            unsigned.as_slice().map_into_widening(&mut out, u32::from);
+            assert_eq!(
+                write_t(out),
+                unsigned.into_iter().map(u32::from).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn map_into_widening_supports_owned_results() {
+        let values = [0_u8; 129];
+        let mut out = std::iter::repeat_with(MaybeUninit::<String>::uninit)
+            .take(values.len())
+            .collect::<Vec<_>>();
+        values
+            .as_slice()
+            .map_into_widening(&mut out, |value| value.to_string());
+        for value in out {
+            // SAFETY: the map initializes every lane, including the untiled remainder.
+            assert_eq!(unsafe { value.assume_init() }, "0");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "out must have the same length as values")]
+    fn map_into_widening_rejects_short_output() {
+        [1_i32, 2]
+            .as_slice()
+            .map_into_widening(&mut [MaybeUninit::<i64>::uninit()], i64::from);
+    }
+
+    #[test]
+    #[should_panic(expected = "out must have the same length as values")]
+    fn map_into_widening_rejects_long_output() {
+        [1_i32]
+            .as_slice()
+            .map_into_widening(&mut [MaybeUninit::<i64>::uninit(); 2], i64::from);
     }
 
     #[test]
