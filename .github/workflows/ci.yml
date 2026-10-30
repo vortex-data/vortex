@@ -10,7 +10,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -27,12 +28,13 @@ env:
 jobs:
   duckdb-mirror:
     name: "Mirror DuckDB to R2"
-    if: github.event_name == 'pull_request'
+    if: github.event.pull_request.draft != true && github.event_name == 'pull_request'
     uses: ./.github/workflows/duckdb-r2.yml
     secrets: inherit
 
   lightweight-checks:
     name: "Formatting, Python lint and script tests"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
@@ -106,6 +108,7 @@ jobs:
 
   python-test:
     name: "Python (test)"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
@@ -154,6 +157,7 @@ jobs:
 
   python-windows:
     name: "Python (windows-x64)"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -219,7 +223,7 @@ jobs:
 
   python-cuda-test:
     name: "Python CUDA (test)"
-    if: github.repository == 'vortex-data/vortex'
+    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
@@ -256,7 +260,7 @@ jobs:
     name: "Rust (docs)"
     needs: duckdb-mirror
     # The PR-only mirror is a skipped ancestor on develop; override implicit success().
-    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -285,6 +289,7 @@ jobs:
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -329,6 +334,7 @@ jobs:
 
   check-min-deps:
     name: "Check build with minimal dependencies"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -348,6 +354,7 @@ jobs:
 
   rust-msrv:
     name: "Rust (MSRV)"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -371,7 +378,7 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     needs: duckdb-mirror
-    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -440,6 +447,7 @@ jobs:
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -469,7 +477,7 @@ jobs:
       # link.exe spends ~1.5 min on the test binaries after compilation finishes.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     needs: duckdb-mirror
-    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -517,7 +525,7 @@ jobs:
     name: "Rust tests (linux-arm64)"
     needs: duckdb-mirror
     if: >-
-      !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
+      github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
@@ -555,7 +563,7 @@ jobs:
   # AVX-512 on the avx2 entry) is detected.
   rust-test-cpu-features:
     name: "Rust tests (cpu-features, ${{ matrix.config.name }})"
-    if: github.repository == 'vortex-data/vortex'
+    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -601,6 +609,7 @@ jobs:
 
   build-java:
     name: "Java"
+    if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
@@ -625,6 +634,7 @@ jobs:
   license-check-and-audit-check:
     # The name is a required status check on develop; keep it unchanged.
     name: License Check and Audit Check (bans licenses sources)
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -649,7 +659,7 @@ jobs:
   sqllogic-test:
     name: "SQL logic tests"
     needs: duckdb-mirror
-    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
+    if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
@@ -676,6 +686,7 @@ jobs:
 
   c-cxx-generated:
     name: "Generated sources, C/C++ API and CMake integration"
+    if: github.event.pull_request.draft != true
     # Leave room for cold, per-build-tree Cargo artifacts, including sanitized std.
     timeout-minutes: 30
     runs-on: >-
@@ -819,7 +830,7 @@ jobs:
   integration-smoke:
     name: "Integration smoke tests (btrblocks golden, WASM, DuckDB S3)"
     needs: duckdb-mirror
-    if: ${{ !cancelled() }}
+    if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
