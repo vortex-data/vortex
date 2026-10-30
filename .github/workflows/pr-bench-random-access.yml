@@ -1,10 +1,33 @@
-# Runs the random-access benchmark for a pull request.
+# Runs the random-access benchmark for a pull request, reading the data from local disk,
+# from S3, or both. Both variants share a single build of the benchmark binary.
 
 name: PR Random Access Benchmark
 
 on:
-  workflow_call: { }
-  workflow_dispatch: { }
+  workflow_call:
+    inputs:
+      local:
+        description: Run the benchmark against data on local disk.
+        required: false
+        type: boolean
+        default: true
+      s3:
+        description: Run the benchmark against data read from S3.
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      local:
+        description: Run the benchmark against data on local disk.
+        required: false
+        type: boolean
+        default: true
+      s3:
+        description: Run the benchmark against data read from S3.
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -19,3 +42,8 @@ jobs:
       benchmark_id: random-access-bench
       benchmark_name: Random Access
       with_lance: true
+      run_local: ${{ inputs.local }}
+      remote_data_dir: >-
+        ${{ inputs.s3
+            && format('s3://vortex-ci-benchmark-datasets/{0}/{1}/random-access/', github.ref_name, github.run_id)
+            || '' }}

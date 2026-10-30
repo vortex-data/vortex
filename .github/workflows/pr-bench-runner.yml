@@ -2,12 +2,6 @@
 
 name: PR Benchmark Runner
 
-concurrency:
-  # The group causes runs to queue instead of running in parallel.
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
-  # Don't cancel benchmarks that are already running, instead just queue them up.
-  cancel-in-progress: false
-
 on:
   workflow_call:
     inputs:
@@ -21,17 +15,18 @@ on:
         required: false
         type: boolean
         default: false
-      variant_id:
+      run_local:
         description: >-
-          Suffix distinguishing runs of the same benchmark, e.g. "-s3". Keeps the PR comment
-          tag and the concurrency group of a variant separate from the default run.
+          Run the benchmark against data on local disk. Ignored when remote_data_dir is empty,
+          as the local run is then the only one.
         required: false
-        type: string
-        default: ""
+        type: boolean
+        default: true
       remote_data_dir:
         description: >-
-          When set, the benchmark data is uploaded to this S3 prefix and read back from there
-          instead of local disk. Only supported by random-access-bench.
+          When set, also run an S3 variant of the benchmark: the data is uploaded to this S3
+          prefix and read back from there instead of local disk. Both variants share one build.
+          Only supported by random-access-bench.
         required: false
         type: string
         default: ""
@@ -89,9 +84,26 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: >-
+          ${{ fromJSON(inputs.remote_data_dir == '' && '["local"]'
+              || inputs.run_local && '["local","s3"]'
+              || '["s3"]') }}
+    concurrency:
+      # The group causes runs to queue instead of running in parallel.
+      group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ inputs.benchmark_id }}-${{ matrix.variant }}
+      # Don't cancel benchmarks that are already running, instead just queue them up.
+      cancel-in-progress: false
+    env:
+      # Suffix keeping the PR comment tag of the S3 variant separate from the local run.
+      VARIANT_ID: ${{ matrix.variant == 's3' && '-s3' || '' }}
+      BENCHMARK_NAME: ${{ inputs.benchmark_name }}${{ matrix.variant == 's3' && ' (S3)' || '' }}
+      REMOTE_DATA_DIR: ${{ matrix.variant == 's3' && inputs.remote_data_dir || '' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag={1}-{2}{3}', github.run_id, inputs.benchmark_id, matrix.variant, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
@@ -146,7 +158,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Upload benchmark data to S3
-        if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+        if: env.REMOTE_DATA_DIR != '' && github.event.pull_request.head.repo.fork == false
         shell: bash
         env:
           AWS_REGION: "us-east-1"
@@ -155,8 +167,8 @@ jobs:
 
           target/release_debug/${{ inputs.benchmark_id }} --prepare-data \
             --formats ${{ inputs.with_lance && 'parquet,vortex,lance' || 'parquet,vortex' }}
-          aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
-          aws s3 cp --recursive vortex-bench/data "${{ inputs.remote_data_dir }}"
+          aws s3 rm --recursive "$REMOTE_DATA_DIR"
+          aws s3 cp --recursive vortex-bench/data "$REMOTE_DATA_DIR"
 
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -166,7 +178,7 @@ jobs:
       - name: Install LitData
         # LitData is Python-only, so random-access-bench times it through
         # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
-        if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+        if: inputs.benchmark_id == 'random-access-bench' && env.REMOTE_DATA_DIR == ''
         shell: bash
         run: |
           set -Eeu -o pipefail -x
@@ -181,7 +193,7 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 
-      - name: Run ${{ inputs.benchmark_name }} benchmark (per-combination)
+      - name: Run ${{ env.BENCHMARK_NAME }} benchmark (per-combination)
         if: inputs.benchmark_id == 'random-access-bench'
         shell: bash
         env:
@@ -190,9 +202,9 @@ jobs:
           AWS_REGION: "us-east-1"
         run: |
           python3 scripts/random-access-split.py --emit-ingest-records \
-            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+            ${{ env.REMOTE_DATA_DIR != '' && format('--remote-data-dir {0}', env.REMOTE_DATA_DIR) || '' }}
 
-      - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
+      - name: Run ${{ env.BENCHMARK_NAME }} benchmark (per-dataset)
         if: inputs.benchmark_id == 'compress-bench'
         shell: bash
         env:
@@ -201,7 +213,7 @@ jobs:
         run: |
           python3 scripts/compress-split.py --emit-ingest-records
 
-      - name: Run ${{ inputs.benchmark_name }} benchmark (per-column-encoder)
+      - name: Run ${{ env.BENCHMARK_NAME }} benchmark (per-column-encoder)
         if: inputs.benchmark_id == 'string-bench'
         shell: bash
         env:
@@ -224,7 +236,7 @@ jobs:
           set -Eeu -o pipefail -x
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
-            "${{ inputs.benchmark_name }}" --pr-records results.ingest.jsonl > comment.md
+            "${{ env.BENCHMARK_NAME }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
@@ -232,7 +244,7 @@ jobs:
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
-          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
+          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ env.VARIANT_ID }}
 
       - name: Comment PR on failure
         if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
@@ -241,12 +253,12 @@ jobs:
           message: |
             # BENCHMARK FAILED
 
-            Benchmark `${{ inputs.benchmark_name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ inputs.variant_id }}
+            Benchmark `${{ env.BENCHMARK_NAME }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-comment-${{ inputs.benchmark_id }}${{ env.VARIANT_ID }}
 
       - name: Delete benchmark data from S3
-        if: always() && inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false
+        if: always() && env.REMOTE_DATA_DIR != '' && github.event.pull_request.head.repo.fork == false
         shell: bash
         env:
           AWS_REGION: "us-east-1"
-        run: aws s3 rm --recursive "${{ inputs.remote_data_dir }}"
+        run: aws s3 rm --recursive "$REMOTE_DATA_DIR"

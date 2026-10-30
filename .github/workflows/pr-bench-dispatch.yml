@@ -30,14 +30,10 @@ jobs:
           labels: action/bench-all
           fail_on_error: true
 
+  # Runs the local and S3 variants from a single build.
   all-random-access-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-random-access.yml
-    secrets: inherit
-
-  all-random-access-s3-bench:
-    needs: remove-all-label
-    uses: ./.github/workflows/pr-bench-random-access-s3.yml
     secrets: inherit
 
   all-compression-bench:
@@ -72,6 +68,8 @@ jobs:
     needs: remove-random-access-label
     uses: ./.github/workflows/pr-bench-random-access.yml
     secrets: inherit
+    with:
+      s3: false
 
   remove-random-access-s3-label:
     runs-on: ubuntu-latest
@@ -86,8 +84,10 @@ jobs:
 
   random-access-s3-bench:
     needs: remove-random-access-s3-label
-    uses: ./.github/workflows/pr-bench-random-access-s3.yml
+    uses: ./.github/workflows/pr-bench-random-access.yml
     secrets: inherit
+    with:
+      local: false
 
   remove-compress-label:
     runs-on: ubuntu-latest
