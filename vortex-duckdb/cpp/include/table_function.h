@@ -25,7 +25,6 @@ void duckdb_vx_string_map_insert(duckdb_vx_string_map map, const char *key, cons
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
     const void *bind_data;
-    size_t file_count;
     size_t max_threads;
 
     /**

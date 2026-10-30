@@ -12,6 +12,8 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
@@ -40,6 +42,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
+use vortex::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex::scan::selection::Selection;
 use vortex::session::SessionExt as _;
 
@@ -268,10 +271,28 @@ pub fn reader_initialize(
     // global lock.
     if global.scan_v2 {
         let state = file.scan_state();
+        let builder = v2_builder(state, global, selection)?;
+        let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
+            .with_projection(file_expression(&global.projection, state.reader.dtype())?)
+            .with_some_filter(
+                global
+                    .filter
+                    .filter
+                    .as_ref()
+                    .map(|filter| file_expression(filter, state.reader.dtype()))
+                    .transpose()?,
+            )
+            .full_file_splits()?;
+        let dynamic = global
+            .filter
+            .filter
+            .as_ref()
+            .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
         let scan = FileScan::try_new(
-            v2_builder(state, global, selection)?,
+            builder,
+            &splits,
+            dynamic,
             &global.initial_chunks,
-            global.parallel_files,
             global.scan_diagnostics.clone(),
             &state.path,
         )?;
@@ -378,8 +399,25 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 .v2
                 .get()
                 .vortex_expect("V2 split of a file without a V2 scan");
-            let Some(array) = scan.next_array(&mut local.run, &mut local.initial_roots)? else {
-                return Ok(SplitItem::Done);
+            let array = match local.pending.pop() {
+                Some(array) => array,
+                None => {
+                    let Some(array) = scan.next_array(
+                        &mut local.run,
+                        &mut local.initial_roots,
+                        local.v2_work.take(),
+                    )?
+                    else {
+                        return Ok(SplitItem::Done);
+                    };
+                    match array.as_opt::<Chunked>() {
+                        Some(chunked) => {
+                            local.pending.extend(chunked.chunks().into_iter().rev());
+                            local.pending.pop().unwrap_or(array)
+                        }
+                        None => array,
+                    }
+                }
             };
             local.split = Some(Split::V2);
             Ok(if array.is_empty() {
@@ -400,13 +438,15 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A V2 scan's threads take chunks from the file's scan until it has spawned
-    // them all, so the file has work for another thread until then.
+    // Reserve a real part before releasing the global lock so idle workers move to other files.
     let v2 = file
         .scan_state
         .as_ref()
         .and_then(|state| state.v2.get())
-        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+        .map(|scan| {
+            local.v2_work = scan.take_work(true);
+            local.v2_work.as_ref().map(|_| Split::V2)
+        });
     let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.

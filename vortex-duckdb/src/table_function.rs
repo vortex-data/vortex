@@ -187,8 +187,6 @@ pub struct GlobalState {
     pub(crate) row_id_field: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
-    /// File parallelism already supplies one scan per worker, allowing larger in-file chunks.
-    pub(crate) parallel_files: bool,
     pub(crate) initial_chunks: AtomicUsize,
     pub(crate) scan_diagnostics: Option<Arc<crate::scan_v2::Diagnostics>>,
 
@@ -230,6 +228,9 @@ pub struct LocalState {
     /// The planning run on which this thread runs the chunks of V2 scans.
     pub(crate) run: Run,
     pub(crate) initial_roots: Vec<RootId>,
+    pub(crate) v2_work: Option<crate::scan_v2::Work>,
+    /// Root chunks awaiting conversion, preserving their dictionary encodings.
+    pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -361,7 +362,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         crate::scan_v2(),
         filter.filter.as_ref(),
         crate::DYNAMIC_FILTER_INITIAL_CHUNKS.load(Ordering::Relaxed),
-        vortex_utils::parallelism::get_available_parallelism().unwrap_or(1),
+        init_input.input.max_threads.max(1),
     )?;
     Ok(GlobalState {
         initial_chunks: AtomicUsize::new(initial_chunks),
@@ -376,7 +377,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         file_row_number_column_pos,
         row_id_field,
         scan_v2: crate::scan_v2(),
-        parallel_files: init_input.input.file_count >= init_input.input.max_threads.max(1),
     })
 }
 
@@ -447,6 +447,8 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         retired_files: Vec::new(),
         run: Run::new(),
         initial_roots: Vec::new(),
+        v2_work: None,
+        pending: Vec::new(),
         finished: false,
     }
 }
