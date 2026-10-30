@@ -62,10 +62,12 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other
-                // string fragmentation and dictionary schemes still require unsupported decode
-                // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
-                // decode is benchmarked against the schemes it would displace.
+                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export, and
+                // string dictionaries, which the CUDA dictionary gather decodes into views over
+                // the decoded values. Other string fragmentation schemes and binary dictionaries
+                // still require unsupported decode paths. Delta has a CUDA decode kernel, but
+                // stays excluded until GPU delta decode is benchmarked against the schemes it
+                // would displace.
                 excluded.extend([
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
@@ -74,7 +76,6 @@ impl CompressionMode {
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
                     string::NullDominatedSparseScheme.id(),
-                    string::StringDictScheme.id(),
                     binary::BinaryDictScheme.id(),
                 ]);
                 // Both binary Zstd schemes are kept. Buffer-level compression preserves binary
@@ -318,5 +319,15 @@ mod tests {
         assert!(has_delta(builder.clone()));
         assert!(has_delta(builder.clone().with_compact()));
         assert!(!has_delta(builder.only_cuda_compatible()));
+    }
+
+    #[test]
+    fn cuda_keeps_string_dictionaries_but_not_binary_ones() {
+        let cuda = BtrBlocksCompressorBuilder::from_session(&SESSION)
+            .unrestricted()
+            .only_cuda_compatible();
+        let has = |id: SchemeId| cuda.allowed_schemes().iter().any(|s| s.id() == id);
+        assert!(has(string::StringDictScheme.id()));
+        assert!(!has(binary::BinaryDictScheme.id()));
     }
 }

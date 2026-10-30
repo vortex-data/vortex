@@ -634,9 +634,11 @@ mod standalone {
             {
                 let mut launch = cuda_ctx.stream().launch_builder(&self.dict_fn);
                 let codes_len = self.codes_len as u64;
+                let values_len = self.values_len as u64;
                 launch.arg(&self.codes_buf);
                 launch.arg(&codes_len);
                 launch.arg(&self.values_alp_buf);
+                launch.arg(&values_len);
                 launch.arg(&mut self.output_buf);
                 unsafe {
                     launch
