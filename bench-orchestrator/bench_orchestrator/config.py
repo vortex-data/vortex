@@ -95,19 +95,19 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 # Whether each benchmark runs its Vortex scans on the planner-driven V2 scan (`True`) or on V1.
 # Every benchmark is listed so its scan version is explicit.
 BENCHMARK_SCAN_V2: dict[Benchmark, bool] = {
-    Benchmark.APPIAN: False,
+    Benchmark.APPIAN: True,
     Benchmark.TPCH: True,
     Benchmark.TPCDS: True,
     Benchmark.CLICKBENCH: True,
-    Benchmark.CLICKBENCH_SORTED: False,
+    Benchmark.CLICKBENCH_SORTED: True,
     Benchmark.FINEWEB: True,
-    Benchmark.GHARCHIVE: False,
-    Benchmark.JOB: False,
+    Benchmark.GHARCHIVE: True,
+    Benchmark.JOB: True,
     Benchmark.POLARSIGNALS: False,
-    Benchmark.PUBLIC_BI: False,
+    Benchmark.PUBLIC_BI: True,
     Benchmark.STATPOPGEN: False,
-    Benchmark.SPATIALBENCH: False,
-    Benchmark.VORTEX_QUERIES: False,
+    Benchmark.SPATIALBENCH: True,
+    Benchmark.VORTEX_QUERIES: True,
 }
 
 
