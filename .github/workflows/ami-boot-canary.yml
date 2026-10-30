@@ -1,0 +1,52 @@
+# Isolated AMI comparison. This workflow only runs on the canary branch.
+name: AMI Boot Canary
+run-name: ARM64 AMI boot comparison
+
+on:
+  push:
+    branches: ["ji/fast-ami-canary"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: "${{ matrix.image.name }}"
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: baseline
+            ami: ami-098c62767651982c5
+          - name: candidate
+            ami: ami-0f952218b8fa14efb
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=bench-dedicated/family=m8gd.8xlarge/ami=${{ matrix.image.ami }}/volume=100gb:gp3/extras=s3-cache/tag=ami-canary-${{ matrix.image.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - name: Capture boot and filesystem details
+        run: |
+          cat /etc/os-release
+          systemd-analyze time
+          systemd-analyze critical-chain rolaunch.service cloud-config.service
+          findmnt -n -o SOURCE,FSTYPE,SIZE /
+          df -h /
+          rustup toolchain list
+          clang --version
+          cmake --version
+          protoc --version
+          sccache --version
+      - name: Verify preinstalled candidate tools
+        if: matrix.image.name == 'candidate'
+        run: |
+          test "$(rustc --version | cut -d ' ' -f 2)" = "1.99.1"
+          python3.11 -c 'import ssl, sqlite3; print("Python SSL and SQLite OK")'
+          ninja --version
+          mold --version
+          pkg-config --modversion openssl
+      - name: Run Vortex buffer tests
+        if: matrix.image.name == 'candidate'
+        env:
+          RUSTC_WRAPPER: sccache
+        run: cargo test --locked -p vortex-buffer --lib
