@@ -66,6 +66,24 @@ pub(crate) fn new_exporter_with_flatten(
         }
     }
 
+    // Sparse string projections can gather compressed values before decoding. Exporting the
+    // whole dictionary here would undo that saving, especially after a selective filter.
+    if (values.dtype().is_utf8() || values.dtype().is_binary())
+        && values.len() >= 1024
+        && codes_len.saturating_mul(16) < values.len()
+        && !cache.dict_cache.contains_key(&values.addr())
+    {
+        return new_array_exporter(
+            array
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array(),
+            cache,
+            ctx,
+        );
+    }
+
     let values_key = values.addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -137,6 +155,7 @@ mod tests {
     use std::sync::Barrier;
     use std::thread;
 
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -145,6 +164,8 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::buffer::Buffer;
+    use vortex::encodings::fsst::fsst_compress;
+    use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -165,6 +186,53 @@ mod tests {
         cache: &ConversionCache,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
         new_exporter_with_flatten(array, cache, &mut SESSION.create_execution_ctx(), false)
+    }
+
+    #[rstest]
+    fn sparse_string_dictionary(
+        #[values(false, true)] compressed: bool,
+        #[values(false, true)] nullable_codes: bool,
+    ) -> VortexResult<()> {
+        let mut strings = vec![Some("unused dictionary value"); 1024];
+        strings[0] = Some("first value");
+        strings[2] = None;
+        strings[1023] = Some("last value");
+        let mut values = VarBinViewArray::from_iter_nullable_str(strings).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        if compressed {
+            let compressor = fsst_train_compressor(&values, &mut ctx)?;
+            values = fsst_compress(&values, &compressor, &mut ctx)?.into_array();
+        }
+        let array = DictArray::new(
+            PrimitiveArray::from_option_iter([
+                Some(0u32),
+                Some(2),
+                (!nullable_codes).then_some(3),
+                Some(1023),
+            ])
+            .into_array(),
+            values,
+        );
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        new_exporter_with_flatten(&array, &ConversionCache::default(), &mut ctx, false)?.export(
+            0,
+            4,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(4);
+        let middle = if nullable_codes {
+            "NULL"
+        } else {
+            "unused dictionary value"
+        };
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            format!(
+                "Chunk - [1 Columns]\n- FLAT VARCHAR: 4 = [ first value, NULL, {middle}, last value]\n"
+            )
+        );
+        Ok(())
     }
 
     #[test]
