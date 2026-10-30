@@ -320,6 +320,17 @@ fn expand_struct_root(
                 .first()
                 .is_some_and(BoundExpression::is_root)
             {
+                // Masking `$.x` inside `$.x.q` would hide the path from the partitioner, which
+                // would then read all of `x`. Mask the whole path instead.
+                if validity.is_some()
+                    && let Some(path) = field_path(&node, packed, fields)?
+                {
+                    return Ok(Transformed {
+                        value: with_validity(path),
+                        changed: true,
+                        order: TraversalOrder::Skip,
+                    });
+                }
                 return Ok(Transformed::no(node));
             }
 
@@ -378,6 +389,35 @@ fn expand_struct_root(
             Ok(Transformed::no(node))
         })?
         .into_inner())
+}
+
+/// Rebuilds a chain of `get_item` and `select` that starts at `$.field` on the field's expression
+/// in `packed`, or returns `None` if `node` is not such a chain.
+fn field_path(
+    node: &BoundExpression,
+    packed: &BoundExpression,
+    fields: &StructFields,
+) -> VortexResult<Option<BoundExpression>> {
+    let Some(scalar_fn) = node.as_scalar() else {
+        return Ok(None);
+    };
+    if !scalar_fn.is::<GetItem>() && !scalar_fn.is::<Select>() {
+        return Ok(None);
+    }
+    let child = node.child(0);
+    if child.is_root() {
+        let Some(field_name) = scalar_fn.as_opt::<GetItem>() else {
+            return Ok(None);
+        };
+        let idx = fields.find(field_name).ok_or_else(|| {
+            vortex_err!("Field {field_name} not found while expanding struct root")
+        })?;
+        return Ok(Some(packed.children()[idx].clone()));
+    }
+    let Some(inner) = field_path(child, packed, fields)? else {
+        return Ok(None);
+    };
+    node.clone().with_children([inner]).map(Some)
 }
 
 // Same as make_bound_free_field_annotator, but handles is_not_null($) as the
@@ -648,6 +688,8 @@ mod tests {
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1800,5 +1842,99 @@ mod tests {
             assert_eq!(result, &mask & &expected);
             Ok(())
         })
+    }
+
+    /// Records the segments a reader requests.
+    struct RecordingSegments {
+        inner: Arc<dyn SegmentSource>,
+        requested: parking_lot::Mutex<Vec<SegmentId>>,
+    }
+
+    impl SegmentSource for RecordingSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requested.lock().push(id);
+            self.inner.request(id)
+        }
+    }
+
+    /// Segments of every layout below a child named `name`.
+    fn segments_under(layout: &LayoutRef, name: &str) -> VortexResult<Vec<SegmentId>> {
+        let mut segments = Vec::new();
+        for (child_name, child) in layout.child_names().zip(layout.children()?) {
+            if child_name.as_ref() == name {
+                for layout in child.depth_first_traversal() {
+                    segments.extend(layout?.segment_ids());
+                }
+            } else {
+                segments.extend(segments_under(&child, name)?);
+            }
+        }
+        Ok(segments)
+    }
+
+    /// A field below a field of a nullable struct is read without the other fields of the
+    /// struct in between, and keeps the nulls of both structs.
+    #[rstest]
+    #[case::leaf(get_item("q", get_item("x", get_item("t", root()))))]
+    #[case::select(select(["q"], get_item("x", get_item("t", root()))))]
+    #[case::is_not_null_leaf(is_not_null(get_item("q", get_item("x", get_item("t", root())))))]
+    #[case::predicate(gt(get_item("q", get_item("x", get_item("t", root()))), lit(5)))]
+    fn test_path_below_nullable_struct_field(#[case] expr: Expression) -> VortexResult<()> {
+        // t is null in row 1 and t.x is null in row 2.
+        let x = StructArray::try_from_iter_with_validity(
+            [
+                ("p", buffer![1, 2, 3, 4].into_array()),
+                ("q", buffer![5, 6, 7, 8].into_array()),
+            ],
+            Validity::from_iter([true, true, false, true]),
+        )?;
+        let t = StructArray::try_from_iter_with_validity(
+            [
+                ("x", x.into_array()),
+                ("r", buffer![9, 10, 11, 12].into_array()),
+            ],
+            Validity::from_iter([true, false, true, true]),
+        )?;
+        let array = StructArray::from_fields(&[("t", t.into_array())])?.into_array();
+
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+        let sink = Arc::<TestSegments>::clone(&segments);
+        let stream = array.to_array_stream().sequenced(ptr);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(ArrayContext::empty().into(), sink, stream, eof, &session)
+                .await
+        })?;
+
+        let recording = Arc::new(RecordingSegments {
+            inner: segments,
+            requested: parking_lot::Mutex::new(Vec::new()),
+        });
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::<RecordingSegments>::clone(&recording),
+            &SESSION,
+            &Default::default(),
+        )?;
+        let bound = expr.bind(reader.dtype())?;
+        let future = reader.projection_evaluation(&(0..4), &bound, MaskFuture::new_true(4))?;
+        let result = block_on(|_| future)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(result, array.apply(&expr)?, &mut ctx);
+        let unrelated = [segments_under(&layout, "p")?, segments_under(&layout, "r")?].concat();
+        assert!(!unrelated.is_empty());
+        let requested = recording.requested.lock();
+        assert!(
+            unrelated.iter().all(|id| !requested.contains(id)),
+            "read {requested:?}, which includes fields of t that {expr} does not use: {unrelated:?}"
+        );
+        Ok(())
     }
 }
