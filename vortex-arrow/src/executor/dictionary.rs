@@ -14,11 +14,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Chunked;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
@@ -64,7 +64,10 @@ pub(super) fn to_arrow_dictionary(
             .iter_chunks()
             .map(|chunk| to_arrow_dictionary(chunk.clone(), codes_type, values_type, exporter, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
-        let chunks = chunks.iter().map(|chunk| chunk.as_ref()).collect::<Vec<_>>();
+        let chunks = chunks
+            .iter()
+            .map(|chunk| chunk.as_ref())
+            .collect::<Vec<_>>();
         // Concatenating dictionaries merges their values without re-encoding every row. It fails
         // only when the merged values overflow the codes type, which the row-wise path handles.
         if let Ok(array) = arrow_select::concat::concat(&chunks) {
