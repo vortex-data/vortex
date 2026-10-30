@@ -1426,12 +1426,104 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     ));
     let path = file.path().to_string_lossy();
 
+    let previous = crate::scan_v2();
     crate::set_scan_v2(false);
     let v1 = query_i64_column(&path, query)?;
     crate::set_scan_v2(true);
     let v2 = query_i64_column(&path, query);
-    crate::set_scan_v2(false);
+    crate::set_scan_v2(previous);
 
     assert_eq!(v2?, v1);
+    Ok(())
+}
+
+#[rstest]
+#[case::topk("SELECT id FROM ? ORDER BY score DESC, id LIMIT 10", None)]
+#[case::both_row_columns(
+    "SELECT id + file_row_number FROM ? ORDER BY score DESC, id LIMIT 10",
+    None
+)]
+#[case::paired_selection(
+    "SELECT id FROM ? WHERE __vortex_row_id IN (7, 18446744073709551627, 36893488147419103249, 7, NULL) ORDER BY id",
+    Some(vec![7, 100011, 200017])
+)]
+#[case::empty_selection(
+    "SELECT id FROM ? WHERE __vortex_row_id = 55340232221128654848",
+    Some(vec![])
+)]
+#[case::row_id_range(
+    "SELECT id FROM ? WHERE __vortex_row_id BETWEEN 18446744073709551627 AND 18446744073709551629 ORDER BY id",
+    Some(vec![100011, 100012, 100013])
+)]
+#[case::row_id_or(
+    "SELECT id FROM ? WHERE __vortex_row_id = 7 OR __vortex_row_id = 36893488147419103249 ORDER BY id",
+    Some(vec![7, 200017])
+)]
+fn test_vortex_scan_v2_multifile_row_ids(
+    #[case] query: &str,
+    #[case] expected: Option<Vec<i64>>,
+) -> Result<()> {
+    let files = (0..3i64)
+        .map(|file| {
+            let rows = 4096 + file * 2048;
+            RUNTIME.block_on(write_vortex_file(
+                [
+                    (
+                        "id",
+                        (0..rows)
+                            .map(|row| file * 100000 + row)
+                            .collect::<PrimitiveArray>()
+                            .into_array(),
+                    ),
+                    (
+                        "score",
+                        (0..rows)
+                            .map(|row| (row * 37 + file * 11) % 10000)
+                            .collect::<PrimitiveArray>()
+                            .into_array(),
+                    ),
+                ]
+                .into_iter(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let source = format!(
+        "read_vortex([{}])",
+        files
+            .iter()
+            .map(|file| format!("'{}'", file.path().display()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let query = query.replace('?', &source);
+    let read = |late_materialization: bool| -> Result<Vec<i64>> {
+        let conn = database_connection();
+        conn.query(if late_materialization {
+            "SET late_materialization_max_rows = 100000"
+        } else {
+            "SET late_materialization_max_rows = 0"
+        })?;
+        let mut values = Vec::new();
+        for chunk in conn.query(&query)? {
+            values.extend_from_slice(
+                chunk
+                    .get_vector(0)
+                    .as_slice_with_len::<i64>(chunk.len().as_()),
+            );
+        }
+        Ok(values)
+    };
+    let previous = crate::scan_v2();
+    crate::set_scan_v2(false);
+    let v1 = read(false)?;
+    crate::set_scan_v2(true);
+    let v2 = read(true);
+    crate::set_scan_v2(previous);
+    assert_eq!(v2?, v1);
+    if let Some(expected) = expected {
+        assert_eq!(v1, expected);
+    } else {
+        assert_eq!(v1.len(), 10);
+    }
     Ok(())
 }

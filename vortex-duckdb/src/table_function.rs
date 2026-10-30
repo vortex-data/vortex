@@ -7,6 +7,7 @@ use std::fmt::{self};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 #[cfg(unix)]
@@ -41,6 +42,7 @@ use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
+use vortex::scan::planning::driver::RootId;
 use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -182,8 +184,11 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    pub(crate) row_id_field: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    pub(crate) initial_chunks: AtomicUsize,
+    pub(crate) scan_diagnostics: Option<Arc<crate::scan_v2::Diagnostics>>,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -222,7 +227,9 @@ pub struct LocalState {
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     /// The planning run on which this thread runs the chunks of V2 scans.
     pub(crate) run: Run,
-    /// Chunks of a V2 batch that this thread has yet to export, in reverse order.
+    pub(crate) initial_roots: Vec<RootId>,
+    pub(crate) v2_work: Option<crate::scan_v2::Work>,
+    /// Root chunks awaiting conversion, preserving their dictionary encodings.
     pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
@@ -315,6 +322,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let Projection {
         projection,
         file_row_number_column_pos,
+        row_id_field,
     } = if bind_data.aggregates.is_empty() {
         let input = ProjectionInput {
             column_ids,
@@ -350,7 +358,16 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     );
 
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
+    let initial_chunks = crate::scan_v2::initial_budget(
+        crate::scan_v2(),
+        filter.filter.as_ref(),
+        crate::DYNAMIC_FILTER_INITIAL_CHUNKS.load(Ordering::Relaxed),
+        init_input.input.max_threads.max(1),
+    )?;
     Ok(GlobalState {
+        initial_chunks: AtomicUsize::new(initial_chunks),
+        scan_diagnostics: (crate::scan_v2() && tracing::enabled!(tracing::Level::DEBUG))
+            .then(|| Arc::new(crate::scan_v2::Diagnostics::new())),
         projection,
         filter,
         aggregates: bind_data.aggregates.clone(),
@@ -358,6 +375,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        row_id_field,
         scan_v2: crate::scan_v2(),
     })
 }
@@ -428,6 +446,8 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         run: Run::new(),
+        initial_roots: Vec::new(),
+        v2_work: None,
         pending: Vec::new(),
         finished: false,
     }

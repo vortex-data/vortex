@@ -69,6 +69,26 @@ pub(crate) fn new_exporter_with_flatten(
     let values_key = values.addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
+    // A dictionary vector needs every value converted, even when only a handful of codes
+    // are selected. Let encoded take kernels gather these rows before canonicalization.
+    if cache.sparse_dictionaries
+        && codes_len > 0
+        && values.len() >= 1024
+        && codes_len.saturating_mul(16) < values.len()
+        && !cache.dict_cache.contains_key(&values_key)
+        && !cache.canonical_cache.contains_key(&values_key)
+    {
+        let selected = DictArray::new(codes.into_array(), values.clone())
+            .into_array()
+            .execute::<Canonical>(ctx)?;
+        tracing::debug!(
+            dictionary_values = values.len(),
+            selected_rows = codes_len,
+            "v2 sparse dictionary export"
+        );
+        return new_array_exporter(selected.into_array(), cache, ctx);
+    }
+
     if flatten {
         let canonical = cache
             .canonical_cache
@@ -131,141 +151,4 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 }
 
 #[cfg(test)]
-mod tests {
-    use vortex::VortexSessionDefault;
-    use vortex::array::IntoArray;
-    use vortex::array::VortexSessionExecute;
-    use vortex::array::arrays::ConstantArray;
-    use vortex::array::arrays::DictArray;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::buffer::Buffer;
-    use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
-
-    use crate::SESSION;
-    use crate::cpp;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
-    use crate::exporter::ColumnExporter;
-    use crate::exporter::ConversionCache;
-    use crate::exporter::dict::new_exporter_with_flatten;
-    use crate::exporter::new_array_exporter;
-
-    pub(crate) fn new_exporter(
-        array: &DictArray,
-        cache: &ConversionCache,
-    ) -> VortexResult<Box<dyn ColumnExporter>> {
-        new_exporter_with_flatten(array, cache, &mut SESSION.create_execution_ctx(), false)
-    }
-
-    #[test]
-    fn test_constant_dict() -> VortexResult<()> {
-        let arr = DictArray::new(
-            PrimitiveArray::from_option_iter([None, Some(0u32)]).into_array(),
-            ConstantArray::new(10, 1).into_array(),
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            2,
-            chunk.get_vector_mut(0),
-            &mut SESSION.create_execution_ctx(),
-        )?;
-        chunk.set_len(2);
-
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT INTEGER: 2 = [ NULL, 10]
-"#
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_constant_dict_null() -> VortexResult<()> {
-        let arr = DictArray::new(
-            PrimitiveArray::from_option_iter([None::<u32>, None]).into_array(),
-            ConstantArray::new(10, 1).into_array(),
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-
-        let mut ctx = VortexSession::default().create_execution_ctx();
-        new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)?.export(
-            0,
-            2,
-            chunk.get_vector_mut(0),
-            &mut ctx,
-        )?;
-        chunk.set_len(2);
-
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- CONSTANT INTEGER: 2 = [ NULL]
-"#
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_nullable_dict() -> VortexResult<()> {
-        let arr = DictArray::new(
-            PrimitiveArray::from_option_iter([None, Some(0u32), Some(1)]).into_array(),
-            PrimitiveArray::from_option_iter([Some(10), None]).into_array(),
-        );
-
-        let mut flat_chunk =
-            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        new_array_exporter(arr.into_array(), &ConversionCache::default(), &mut ctx)?.export(
-            0,
-            3,
-            flat_chunk.get_vector_mut(0),
-            &mut ctx,
-        )?;
-        flat_chunk.set_len(3);
-
-        assert_eq!(
-            String::try_from(&*flat_chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT INTEGER: 3 = [ NULL, 10, NULL]
-"#
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_export_empty_dict() -> VortexResult<()> {
-        let arr = DictArray::new(
-            Buffer::<u32>::empty().into_array(),
-            Buffer::<u32>::empty().into_array(),
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            0,
-            chunk.get_vector_mut(0),
-            &mut SESSION.create_execution_ctx(),
-        )?;
-        chunk.set_len(0);
-
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- DICTIONARY INTEGER: 0 = [ ]
-"#
-        );
-
-        Ok(())
-    }
-}
+mod tests;

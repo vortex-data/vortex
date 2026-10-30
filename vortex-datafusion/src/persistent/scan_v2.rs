@@ -12,7 +12,10 @@
 //! itself.
 
 use std::future;
+use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
@@ -27,15 +30,68 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoSource;
 use vortex::io::runtime::Handle;
+use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
+use vortex::layout::scan::v2::PrunePlanner;
+use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
 
+#[cfg(test)]
+mod tests;
+
 /// Maps a scan's batches to Arrow on the task that produced them.
 type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>;
+
+const INITIAL_CHUNK_ROWS: u64 = 8192;
+
+/// Claims a partition's startup budget across its files, without duplicating their rows.
+pub(crate) fn initial_ranges(rows: Range<u64>, remaining: &AtomicUsize) -> Vec<Range<u64>> {
+    let needed =
+        usize::try_from((rows.end - rows.start).div_ceil(INITIAL_CHUNK_ROWS)).unwrap_or(usize::MAX);
+    let mut previous = remaining.load(Ordering::Relaxed);
+    let claimed = loop {
+        let claimed = previous.min(needed);
+        if claimed == 0 {
+            break 0;
+        }
+        match remaining.compare_exchange_weak(
+            previous,
+            previous - claimed,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break claimed,
+            Err(current) => previous = current,
+        }
+    };
+    (0..claimed)
+        .map(|index| {
+            let start = rows.start + index as u64 * INITIAL_CHUNK_ROWS;
+            start..start.saturating_add(INITIAL_CHUNK_ROWS).min(rows.end)
+        })
+        .collect()
+}
+
+/// Composes pruning, filtering and projection for an independent file-local range.
+pub(crate) fn scan_planner(scan: Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
+    let chunks = {
+        let scan = Arc::clone(&scan);
+        let rows = rows.clone();
+        move |kept: Option<Mask>| -> Box<dyn Planner> {
+            let selection = scan.selection().clone();
+            Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+        }
+    };
+    if scan.filter().is_some() {
+        Box::new(PrunePlanner::new(scan, rows, Box::new(chunks)))
+    } else {
+        chunks(None)
+    }
+}
 
 /// Runs one partition's V2 scan on DataFusion's runtime.
 pub(crate) struct ScanDriver {
@@ -61,6 +117,7 @@ impl ScanDriver {
         self,
         scan: Arc<PreparedScan>,
         root: Box<dyn Planner>,
+        initial: Vec<Range<u64>>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
@@ -71,6 +128,28 @@ impl ScanDriver {
             rows: scan.rows().clone(),
         };
         let io = scan.io();
+        let initial_count = initial.len().max(1);
+        let (initial_handle, initial_io, initial_map, initial_scan) = (
+            self.handle.clone(),
+            Arc::clone(&io),
+            Arc::clone(&map),
+            Arc::clone(&scan),
+        );
+        let initial = stream::iter(initial)
+            .map(move |rows| {
+                let scope = WorkScope {
+                    file_ordinal: 0,
+                    rows: rows.clone(),
+                };
+                chunk_stream(
+                    &initial_handle,
+                    scan_planner(Arc::clone(&initial_scan), rows),
+                    scope,
+                    initial_io.session(),
+                    Arc::clone(&initial_map),
+                )
+            })
+            .flatten_unordered(initial_count);
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
         let batches = run_stream(self.handle, root, scope, io.session(), map, inline)
@@ -87,6 +166,8 @@ impl ScanDriver {
                 ),
             })
             .try_flatten_unordered(in_flight);
+        // Drain startup batches before admitting bulk work, so TopK can tighten its bound.
+        let batches = initial.chain(batches);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
         let batches = batches.chain(stream::poll_fn(move |_| {

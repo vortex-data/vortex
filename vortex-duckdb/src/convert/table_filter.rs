@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::time::Instant;
 
 use itertools::Itertools;
 use tracing::debug;
@@ -35,6 +36,7 @@ use crate::duckdb::ExtractedValue;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterRef;
 use crate::duckdb::ValueRef;
+use crate::scan_v2::FilterObserver;
 
 pub fn try_from_table_filter(
     value: &TableFilterRef,
@@ -127,14 +129,22 @@ pub(super) fn dynamic_filter_expr(
         }
     };
     let data = dynamic.data;
+    let observer = (crate::scan_v2() && tracing::enabled!(tracing::Level::DEBUG))
+        .then(|| FilterObserver::new(child.to_string()));
 
     Ok(vortex::expr::dynamic(
         op,
         move || {
-            let value = data.latest()?;
-            let scalar = Scalar::try_from(&*value)
-                .vortex_expect("failed to convert dynamic filter value to scalar");
-            scalar.into_value()
+            let started = observer.as_ref().map(|_| Instant::now());
+            let value = data.latest().and_then(|value| {
+                Scalar::try_from(&*value)
+                    .vortex_expect("failed to convert dynamic filter value to scalar")
+                    .into_value()
+            });
+            if let (Some(started), Some(observer)) = (started, &observer) {
+                observer.observe(value.as_ref(), started.elapsed().as_nanos());
+            }
+            value
         },
         dtype,
         true, // If there is no value, we say that all rows pass the dynamic filter.

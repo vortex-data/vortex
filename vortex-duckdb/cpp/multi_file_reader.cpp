@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "multi_file_reader.hpp"
+#include "table_function.hpp"
 #include "error.hpp"
 #include "table_function.h"
 #include "vortex_duckdb.h"
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "duckdb/parallel/task_scheduler.hpp"
 
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
@@ -89,7 +91,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     duckdb_vx_error error = nullptr;
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_file = reader.ffi_file->DataPtr();
-    const bool skip = duckdb_reader_initialize(ffi_global, ffi_file, &error);
+    const bool skip = duckdb_reader_initialize(ffi_global, ffi_file, reader.file_list_idx.GetIndex(), &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
@@ -172,8 +174,10 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     }
 
     void *const ffi_bind = bind.ffi_bind_data->DataPtr();
+    const auto threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
     duckdb_vx_tfunc_init_input ffi_input = {
         .bind_data = ffi_bind,
+        .max_threads = threads,
         .column_ids = column_ids.data(),
         .column_ids_count = column_ids.size(),
         .projection_ids = projection_ids,
@@ -286,6 +290,7 @@ void VortexReaderInterface::GetVirtualColumns(ClientContext &,
     // "filename", "file_index" and "empty" come from MultiFileReader
     result.insert(
         {MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, {"file_row_number", LogicalType::UBIGINT}});
+    result.insert({VORTEX_ROW_ID_COLUMN, {"__vortex_row_id", LogicalType::HUGEINT}});
 }
 
 bool VortexReaderInterface::FinalizeScan(ClientContext &,

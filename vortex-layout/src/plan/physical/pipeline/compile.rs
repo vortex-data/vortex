@@ -130,6 +130,10 @@ impl Compiler<'_> {
         &self.core.values
     }
 
+    pub(crate) fn access_mode(&self) -> super::AccessMode {
+        self.core.access_mode
+    }
+
     /// The rows `rows` of `scan`'s segment, filtered by `filter`, read by the split compiling.
     /// A segment several readers read is decoded once and shared.
     pub(crate) fn scan(
@@ -153,6 +157,7 @@ impl Compiler<'_> {
             scan.clone(),
             slice,
             filter,
+            self.access_mode(),
         ))))
     }
 }

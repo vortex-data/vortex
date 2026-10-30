@@ -17,7 +17,6 @@ mod filter;
 mod projection;
 mod prune;
 mod selection;
-
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -44,7 +43,9 @@ pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
+pub(crate) use self::selection::access_mode;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
 use crate::scan::v2::io::SegmentRanges;
@@ -102,6 +103,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Streaming or sparse row lookup, chosen from the scan's input selection.
+    pub(super) access_mode: AccessMode,
 }
 
 impl PreparedScan {
@@ -113,6 +116,17 @@ impl PreparedScan {
     /// The rows of [`rows`](Self::rows) the scan selects.
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The access mode chosen from the input selection, or explicitly set on the builder.
+    pub fn access_mode(&self) -> AccessMode {
+        self.access_mode
+    }
+
+    /// Preferred rows per compute chunk. Drivers should retain this granularity when dividing
+    /// a file into work, so small scheduling partitions do not repeat chunk setup and decoding.
+    pub fn chunk_rows(&self) -> usize {
+        self.chunk_rows
     }
 
     /// The filter's plans, when the scan has a filter.
@@ -131,9 +145,17 @@ impl PreparedScan {
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
     /// its projection.
-    pub(super) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
+    pub(super) fn split_planner(
+        self: &Arc<Self>,
+        selected: SelectedRows,
+        already_pruned: bool,
+    ) -> Box<dyn Planner> {
         if self.filter.is_some() {
-            Box::new(FilterPlanner::new(Arc::clone(self), selected))
+            Box::new(FilterPlanner::new(
+                Arc::clone(self),
+                selected,
+                already_pruned,
+            ))
         } else {
             Box::new(ProjectionPlanner::new(Arc::clone(self), selected))
         }

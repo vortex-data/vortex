@@ -269,6 +269,7 @@ pub(crate) struct Core {
     pub(crate) exec: ExecutionCtx,
     /// The global row index of plan row zero.
     pub(crate) row_offset: u64,
+    pub(crate) access_mode: super::AccessMode,
     pub(crate) arena: Arena,
     pipelines: Slab<Option<Pipeline>>,
     free_pipelines: Vec<PipelineId>,
@@ -296,6 +297,7 @@ impl Core {
             exec: session.create_execution_ctx(),
             session,
             row_offset,
+            access_mode: super::AccessMode::Scan,
             arena: Arena::default(),
             pipelines: Slab::default(),
             free_pipelines: Vec::new(),
@@ -682,6 +684,12 @@ impl Scan {
     /// Shares whole values, such as dictionary values, with the other scans given `values`.
     pub fn with_value_cache(mut self, values: ValueCache) -> Self {
         self.core.values = values;
+        self
+    }
+
+    /// Chooses streaming filters or sparse encoded gathers within selected segments.
+    pub fn with_access_mode(mut self, access_mode: super::AccessMode) -> Self {
+        self.core.access_mode = access_mode;
         self
     }
 
