@@ -54,6 +54,8 @@ use crate::RUNTIME;
 const PARTS_PER_THREAD: usize = 4;
 /// Avoid tiny worker assignments while allowing filtered chunks to use multiple workers.
 const MIN_ROWS_PER_PART: u64 = 65_536;
+/// Coalesce tiny dictionaries while leaving short assignments for dictionary expressions.
+const MIN_ROWS_PER_DICTIONARY_PART: u64 = 8_192;
 /// Bound assignments even when the input already has enough files to fill the worker pool.
 const MAX_ROWS_PER_PART: usize = 1_048_576;
 
@@ -350,7 +352,7 @@ fn dictionary_parts(chunks: Vec<Range<u64>>) -> Vec<Range<u64>> {
     for chunk in chunks {
         for chunk in parts(chunk, 1) {
             if let Some(last) = result.last_mut()
-                && last.end - last.start < MIN_ROWS_PER_PART
+                && last.end - last.start < MIN_ROWS_PER_DICTIONARY_PART
                 && chunk.end - last.start <= MAX_ROWS_PER_PART as u64
             {
                 last.end = chunk.end;
@@ -377,7 +379,11 @@ mod tests {
     fn dictionary_assignments_preserve_regions_and_bound_large_dictionaries() {
         assert_eq!(
             dictionary_parts(vec![0..30_000, 30_000..70_000, 70_000..100_000]),
-            vec![0..70_000, 70_000..100_000]
+            vec![0..30_000, 30_000..70_000, 70_000..100_000]
+        );
+        assert_eq!(
+            dictionary_parts(vec![0..3_000, 3_000..7_000, 7_000..10_000, 10_000..12_000]),
+            vec![0..10_000, 10_000..12_000]
         );
         assert_eq!(
             dictionary_parts(vec![0..2_000_000]),
