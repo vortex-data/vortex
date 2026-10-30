@@ -71,6 +71,22 @@ def calibrate(args: argparse.Namespace):
     root = args.output
     root.mkdir(parents=True, exist_ok=False)
     run_id = os.environ["GITHUB_RUN_ID"]
+    probe_args = [
+        "--sizes",
+        "4096,65536,262144,1048576,8388608",
+        "--concurrency",
+        "1,4,16,64",
+        "--requests",
+        "64",
+        "--rounds",
+        "3",
+        "--seed",
+        "20261028",
+        "--warmup-seconds",
+        "20",
+        "--timeout-seconds",
+        "60",
+    ]
     for window in (1, 2):
         execute(
             [
@@ -81,6 +97,7 @@ def calibrate(args: argparse.Namespace):
                 str(root / f"training-{window}.jsonl"),
                 "--measurement-id",
                 f"{run_id}-calibration-{window}",
+                *probe_args,
             ],
             root / f"training-{window}.log",
         )
@@ -99,6 +116,7 @@ def calibrate(args: argparse.Namespace):
             str(root / "heldout-real.jsonl"),
             "--measurement-id",
             f"{run_id}-heldout-real",
+            *probe_args,
         ],
         root / "heldout-real.log",
     )
@@ -122,6 +140,7 @@ def calibrate(args: argparse.Namespace):
                 str(root / f"probe-{label}.jsonl"),
                 "--measurement-id",
                 f"{run_id}-{label}",
+                *probe_args,
             ],
             root / f"probe-{label}.log",
         )

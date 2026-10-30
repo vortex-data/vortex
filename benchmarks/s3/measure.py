@@ -256,7 +256,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", type=Path, default=Path("s3-measurements"))
-    parser.add_argument("--binary", type=Path, default=Path("target/release_debug/s3-measure"))
+    parser.add_argument("--binary", type=Path, default=Path("target/release/s3-measure"))
     parser.add_argument("--count", type=int, choices=range(1, 5), default=4)
     parser.add_argument("--interval-seconds", type=float, default=10800)
     parser.add_argument("--window-timeout-seconds", type=float, default=1800)
