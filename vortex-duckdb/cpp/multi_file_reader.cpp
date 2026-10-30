@@ -9,6 +9,7 @@
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "duckdb/parallel/task_scheduler.hpp"
 
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
@@ -173,8 +174,11 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     }
 
     void *const ffi_bind = bind.ffi_bind_data->DataPtr();
+    const auto threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
     duckdb_vx_tfunc_init_input ffi_input = {
         .bind_data = ffi_bind,
+        .file_count = bind_data.file_list->GetFileCount(threads).count,
+        .max_threads = threads,
         .column_ids = column_ids.data(),
         .column_ids_count = column_ids.size(),
         .projection_ids = projection_ids,

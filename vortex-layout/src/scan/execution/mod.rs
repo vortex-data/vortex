@@ -123,6 +123,12 @@ impl PreparedScan {
         self.access_mode
     }
 
+    /// Preferred rows per compute chunk. Drivers should retain this granularity when dividing
+    /// a file into work, so small scheduling partitions do not repeat chunk setup and decoding.
+    pub fn chunk_rows(&self) -> usize {
+        self.chunk_rows
+    }
+
     /// The filter's plans, when the scan has a filter.
     pub fn filter(&self) -> Option<&FilterPlans> {
         self.filter.as_deref()
