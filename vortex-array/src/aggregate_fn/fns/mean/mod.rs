@@ -165,7 +165,9 @@ impl BinaryCombined for Mean {
     ) -> VortexResult<CombinedOptions<Self>> {
         match metadata {
             &[sum @ 0..=1, count @ 0..=1] => Ok(PairOptions(
-                NumericalAggregateOpts { skip_nans: sum != 0 },
+                NumericalAggregateOpts {
+                    skip_nans: sum != 0,
+                },
                 NumericalAggregateOpts {
                     skip_nans: count != 0,
                 },
