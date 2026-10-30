@@ -23,6 +23,7 @@ use itertools::Itertools;
 use mimalloc::MiMalloc;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_bench::CompactionStrategy;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::LogFormat;
@@ -53,6 +54,7 @@ use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
+use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
 #[derive(Parser, Debug)]
@@ -62,7 +64,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::ArrowIpc, Format::Parquet, Format::OnDiskVortex]
+        default_values_t = vec![Format::ArrowIpc, Format::Parquet, Format::OnDiskVortex, Format::VortexCompact]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
@@ -216,7 +218,8 @@ fn get_compressor(format: Format, mode: BenchMode) -> anyhow::Result<Box<dyn Com
 
     Ok(match format {
         Format::ArrowIpc => Box::new(ArrowIpcCompressor),
-        Format::OnDiskVortex => Box::new(VortexCompressor),
+        Format::OnDiskVortex => Box::new(VortexCompressor(CompactionStrategy::Default)),
+        Format::VortexCompact => Box::new(VortexCompressor(CompactionStrategy::Compact)),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
         Format::Lance => Box::new(LanceCompressor),
@@ -291,7 +294,10 @@ async fn run_compress(
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .collect();
 
+    // Keep the full cohort and nested genotype fields, sampling only the variant rows.
+    let statpopgen = StatPopGenBenchmark::new(10)?;
     let all_datasets: Vec<&dyn Dataset> = [
+        &statpopgen as &dyn Dataset,
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),

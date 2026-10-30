@@ -32,6 +32,7 @@ use parquet::file::properties::DEFAULT_MAX_ROW_GROUP_ROW_COUNT;
 use parquet::file::properties::WriterProperties;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use vortex::error::VortexExpect;
 use vortex_bench::Format;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
@@ -47,7 +48,11 @@ pub struct ParquetCompressor {
 impl ParquetCompressor {
     pub fn new() -> Self {
         Self {
-            compression: Compression::ZSTD(ZstdLevel::default()),
+            compression: Compression::ZSTD(
+                ZstdLevel::try_new(3)
+                    .ok()
+                    .vortex_expect("3 is a valid Zstd compression level"),
+            ),
         }
     }
 

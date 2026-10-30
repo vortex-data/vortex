@@ -12,6 +12,9 @@ use noodles_bgzf::r#async::io::Reader as BgzfAsyncReader;
 use noodles_vcf::Record;
 use noodles_vcf::r#async::io::Reader as VcfAsyncReader;
 use parquet::arrow::AsyncArrowWriter;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
+use parquet::file::properties::WriterProperties;
 use reqwest::Client;
 use tokio::fs::File;
 use tokio::io::BufReader;
@@ -80,7 +83,10 @@ impl StatPopGenBenchmark {
                 let schema = schema_from_vcf_header(&header);
                 let mut builder = GnomADBuilder::new(&header, Arc::clone(&schema));
                 let file = File::create(parquet_output_path).await?;
-                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), None)
+                let properties = WriterProperties::builder()
+                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+                    .build();
+                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), Some(properties))
                     .context("Failed to create parquet writer")?;
                 for i in progress.wrap_iter(0..self.n_rows) {
                     if i % ROW_GROUP_SIZE_IN_VARIANTS == 0 {
