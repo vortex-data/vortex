@@ -292,9 +292,31 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
-          # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda \
+            > "$RUNNER_TEMP/doc.log" 2>&1 &
+          doc_pid=$!
+          # nextest doesn't support doc tests, so we run it here, concurrently with cargo doc.
+          # A separate target dir avoids waiting on cargo doc's build lock.
+          CARGO_TARGET_DIR="$RUNNER_TEMP/doctest-target" \
+            cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast \
+            > "$RUNNER_TEMP/doctest.log" 2>&1 &
+          doctest_pid=$!
+
+          failed=()
+          wait "$doc_pid" || failed+=("cargo doc")
+          wait "$doctest_pid" || failed+=("doctests")
+
+          echo "::group::cargo doc"
+          cat "$RUNNER_TEMP/doc.log"
+          echo "::endgroup::"
+          echo "::group::doctests"
+          cat "$RUNNER_TEMP/doctest.log"
+          echo "::endgroup::"
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error::Failed: ${failed[*]}"
+            exit 1
+          fi
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
