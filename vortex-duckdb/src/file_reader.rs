@@ -11,6 +11,8 @@ use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
@@ -221,7 +223,11 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // global lock.
     if global.scan_v2 {
         let state = file.scan_state();
-        let scan = FileScan::try_new(v2_builder(state, global))?;
+        let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
+            .with_projection(global.projection.clone())
+            .with_some_filter(global.filter.filter.clone())
+            .full_file_splits()?;
+        let scan = FileScan::try_new(v2_builder(state, global), &splits)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -284,8 +290,23 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 .v2
                 .get()
                 .vortex_expect("V2 split of a file without a V2 scan");
-            let Some(array) = scan.next_array(&mut local.run)? else {
-                return Ok(SplitItem::Done);
+            let array = match local.pending.pop() {
+                Some(array) => array,
+                None => {
+                    let Some(array) = scan.next_array(&mut local.run)? else {
+                        return Ok(SplitItem::Done);
+                    };
+                    // A V2 batch can join chunks of several layout chunks. Canonicalizing it
+                    // would decode their dictionaries, so export each chunk on its own, as a V1
+                    // scan yields them.
+                    match array.as_opt::<Chunked>() {
+                        Some(chunked) => {
+                            local.pending.extend(chunked.chunks().into_iter().rev());
+                            local.pending.pop().unwrap_or(array)
+                        }
+                        None => array,
+                    }
+                }
             };
             local.split = Some(Split::V2);
             Ok(if array.is_empty() {

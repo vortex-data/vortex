@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -27,6 +28,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::dynamic;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -35,6 +37,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
@@ -924,6 +927,89 @@ async fn pruned_rows_get_no_chunk(
             .collect::<Vec<_>>(),
         expected.into_iter().collect::<Vec<_>>()
     );
+    Ok(())
+}
+
+/// Runs only the pruning plans of `scan` over `rows`, returning the rows they kept.
+async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Option<Mask>> {
+    let io = scan.io();
+    let kept = Arc::new(parking_lot::Mutex::new(None));
+    let next = {
+        let scan = Arc::clone(scan);
+        let kept = Arc::clone(&kept);
+        move |rows_kept: Option<Mask>| -> Box<dyn Planner> {
+            *kept.lock() = rows_kept;
+            let selection = scan.selection().clone();
+            Box::new(ChunkPlanner::new(scan, 0..0, selection, None))
+        }
+    };
+    let mut run = Run::new();
+    run.admit(
+        Box::new(PrunePlanner::new(
+            Arc::clone(scan),
+            rows.clone(),
+            Box::new(next),
+        )),
+        WorkScope {
+            file_ordinal: 0,
+            rows,
+        },
+        io.session(),
+    );
+    loop {
+        match run.advance()? {
+            Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
+            Progress::Spawn(scope, planner) => {
+                run.admit(planner, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => return Ok(kept.lock().take()),
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+}
+
+/// Pruning some of a scan's rows again, as an engine does once a dynamic filter has tightened,
+/// prunes with the tightened value from the zone maps the first pruning read: it reads no segment,
+/// even when nothing is retained.
+#[tokio::test]
+async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
+    let counted = Arc::new(CountingSegments {
+        inner: segments,
+        reads: AtomicUsize::new(0),
+    });
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache = Some(ScanCache::with_retained_bytes(0));
+    let bound = Arc::new(AtomicI32::new(-1));
+    let ints = get_item("ints", root());
+    let filter = {
+        let bound = Arc::clone(&bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || Some(bound.load(Ordering::Relaxed).into()),
+            ints.return_dtype(layout.dtype())?,
+            true,
+            ints,
+        )
+    };
+    let scan = Arc::new(
+        ScanBuilder::new(session.clone(), file)
+            .with_some_filter(Some(filter.bind(layout.dtype())?))
+            .prepare()?,
+    );
+
+    let all = prune(&scan, scan.rows().clone()).await?;
+    let reads = counted.reads.load(Ordering::Relaxed);
+    assert!(reads > 0, "the first pruning reads the zone maps");
+    assert_eq!(all.map(|kept| kept.true_count()), Some(4_000));
+
+    bound.store(2_999, Ordering::Relaxed);
+    let part = prune(&scan, 1_000..4_000).await?;
+    assert_eq!(part.map(|kept| kept.true_count()), Some(1_000));
+    assert_eq!(counted.reads.load(Ordering::Relaxed), reads);
     Ok(())
 }
 
