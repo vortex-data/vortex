@@ -40,7 +40,7 @@ pub(super) struct ProjectionPlanner {
 
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
-    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
+    pub(super) fn new(scan: Arc<PreparedScan>, mut selected: SelectedRows) -> Self {
         let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
             vec![selected]
         } else {
@@ -48,6 +48,9 @@ impl ProjectionPlanner {
                 .step_by(MAX_OUTPUT_ROWS)
                 .filter_map(|start| {
                     let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
+                    let claim = selected
+                        .claim
+                        .split_to(selected.scope.rows.start + end as u64);
                     let mask = selected.mask.slice(start..end);
                     if mask.all_false() {
                         return None;
@@ -59,6 +62,7 @@ impl ProjectionPlanner {
                                 ..selected.scope.rows.start + end as u64,
                         },
                         mask,
+                        claim,
                     })
                 })
                 .collect()

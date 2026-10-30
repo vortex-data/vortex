@@ -13,6 +13,7 @@ use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
@@ -77,35 +78,47 @@ pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<
     chunks
 }
 
-/// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
-/// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
-/// never planned.
+/// Emits one child planner per chunk of a scan's rows, in row order. A chunk none of whose
+/// rows is selected and kept is never planned.
 pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
+    /// The suffix not yet handed to child planners, including unselected rows.
+    claim: RowClaim,
     chunks: IntoIter<Range<u64>>,
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    independent: bool,
 }
 
 impl ChunkPlanner {
-    /// The planner of the chunks of `rows`, planning only what `selection` and `kept`, the rows
-    /// zone pruning left over `rows`, leave something of.
+    /// Plans chunks of the claimed rows, skipping rows excluded by `selection` or `kept`.
+    /// The pruning mask `kept`, when present, covers the entire claim.
     pub fn new(
         scan: Arc<PreparedScan>,
-        rows: Range<u64>,
+        claim: RowClaim,
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let rows = claim.rows().clone();
+        let chunks = scan_chunks(rows.clone(), scan.chunk_rows);
         Self {
             scan,
             rows,
-            chunks,
+            claim,
+            chunks: chunks.into_iter(),
             selection,
             kept,
+            independent: false,
         }
+    }
+
+    /// Emits independent chunks so the driver can schedule their compute and reads concurrently.
+    /// Drivers that already assign work to their own workers keep the default child planners.
+    pub fn with_independent_chunks(mut self) -> Self {
+        self.independent = true;
+        self
     }
 }
 
@@ -125,13 +138,19 @@ impl Planner for ChunkPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
+            let claim = self.claim.split_to(chunk.end);
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
+            if let Some((scope, planner)) =
+                plan_selection(&self.scan, scope, claim, &self.selection, kept)
             {
-                return Ok(PlannerOutput::Spawn(scope, planner));
+                return Ok(if self.independent {
+                    PlannerOutput::Spawn(scope, planner)
+                } else {
+                    PlannerOutput::Planner(scope, planner)
+                });
             }
         }
         Ok(PlannerOutput::Done)

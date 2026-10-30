@@ -16,6 +16,7 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
@@ -31,18 +32,20 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 
-/// The planner a prune planner continues into, given the rows pruning kept, or `None` when
-/// no pruning plan ran.
-pub type PruneNext = Box<dyn FnOnce(Option<Mask>) -> Box<dyn Planner> + Send>;
+/// Called with the rows pruning kept and their claim, or a `None` mask when no pruning plan ran.
+/// Move the claim into the next planner or split it among queued work. Returning `None` finishes
+/// pruning without a child planner. The callback is not called if every row is pruned.
+pub type PruneNext = Box<dyn FnOnce(Option<Mask>, RowClaim) -> Option<Box<dyn Planner>> + Send>;
 
-/// Evaluates the filter's pruning plans over the scan's rows and emits the planner it was
-/// built to continue into, with the rows no plan pruned. The zone maps are the only reads,
+/// Evaluates the filter's pruning plans over the scan's rows and passes the rows no plan pruned
+/// to its completion callback, which may return a child planner. The zone maps are the only reads,
 /// started together. Rows every plan prunes end the scan here: nothing is emitted. A filter
-/// without pruning plans emits the next planner at once.
+/// without pruning plans calls its completion callback at once.
 pub struct PrunePlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
-    /// What to emit once every pruning plan has run, taken when it is.
+    claim: Option<RowClaim>,
+    /// Called once every pruning plan has run, unless every row was pruned.
     next: Option<PruneNext>,
     /// Whether any pruning plan ran, so the kept rows mean something.
     pruned: bool,
@@ -58,8 +61,9 @@ pub struct PrunePlanner {
 }
 
 impl PrunePlanner {
-    /// The planner of `scan`'s filter's pruning plans over `rows`, continuing into `next`.
-    pub fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
+    /// Prunes the claimed rows, transferring their claim to `next` on completion.
+    pub fn new(scan: Arc<PreparedScan>, claim: RowClaim, next: PruneNext) -> Self {
+        let rows = claim.rows().clone();
         let pruning: Vec<_> = scan
             .filter
             .iter()
@@ -69,6 +73,7 @@ impl PrunePlanner {
         Self {
             scan,
             rows,
+            claim: Some(claim),
             next: Some(next),
             pruned: false,
             mask: Mask::new_true(len),
@@ -157,6 +162,7 @@ impl Planner for PrunePlanner {
         }
         if self.mask.all_false() {
             self.done = true;
+            self.claim = None;
             return Ok(PlannerOutput::Done);
         }
         if let Some(plan) = self.pruning.next() {
@@ -173,7 +179,7 @@ impl Planner for PrunePlanner {
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
-        // Every pruning plan has run: the planner this one continues into gets the kept rows.
+        // Every pruning plan has run: hand the kept rows to the completion callback.
         self.done = true;
         tracing::debug!(
             row_start = self.rows.start,
@@ -184,16 +190,23 @@ impl Planner for PrunePlanner {
         let next = self
             .next
             .take()
-            .ok_or_else(|| vortex_err!("the prune planner has nothing to continue into"))?;
+            .ok_or_else(|| vortex_err!("the prune planner has no completion callback"))?;
         let kept = self
             .pruned
             .then(|| std::mem::replace(&mut self.mask, Mask::new_true(0)));
-        Ok(PlannerOutput::Planner(
-            WorkScope {
-                file_ordinal: 0,
-                rows: self.rows.clone(),
-            },
-            next(kept),
-        ))
+        let claim = self
+            .claim
+            .take()
+            .ok_or_else(|| vortex_err!("the prune planner has no row claim"))?;
+        Ok(match next(kept, claim) {
+            Some(planner) => PlannerOutput::Planner(
+                WorkScope {
+                    file_ordinal: 0,
+                    rows: self.rows.clone(),
+                },
+                planner,
+            ),
+            None => PlannerOutput::Done,
+        })
     }
 }

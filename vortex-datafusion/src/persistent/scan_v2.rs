@@ -4,12 +4,12 @@
 //! Drives a V2 scan for DataFusion.
 //!
 //! A planner says what it needs: compute, or reads. This driver decides where each runs. The
-//! opener composes the planners over a [`PreparedScan`] and hands the driver the first; the
-//! driver runs it and everything it emits on planning runs it owns: the root run stepped on
-//! `spawn_cpu` tasks as the stream is polled, each spawned chunk on a task of its own, or on the
-//! root run when the engine's partitions already fill the cores. Every read is a `spawn_io` task
-//! of the file's segment source. The DataFusion thread polling the stream does no scan work
-//! itself.
+//! opener composes the planners over a [`PreparedScan`]; the driver gives its root factory the
+//! initial row claim and runs the resulting planner and everything it emits on planning runs
+//! it owns: the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned
+//! chunk on a task of its own, or on the root run when the engine's partitions already fill the
+//! cores. Every read is a `spawn_io` task of the file's segment source. The DataFusion thread
+//! polling the stream does no scan work itself.
 
 use std::future;
 use std::sync::Arc;
@@ -25,10 +25,13 @@ use futures::stream::BoxStream;
 use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::io::request::IoService;
 use vortex::io::request::IoSource;
 use vortex::io::runtime::Handle;
 use vortex::layout::scan::v2::PreparedScan;
+use vortex::scan::planning::driver::FileReads;
 use vortex::scan::planning::driver::Progress;
+use vortex::scan::planning::driver::RowClaim;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
@@ -55,12 +58,12 @@ impl ScanDriver {
         }
     }
 
-    /// Runs `root`, the first planner composed over `scan`, and everything it emits, and
+    /// Gives the initial claim to `make_root`, runs its planner and everything it emits, and
     /// streams their batches mapped by `map`.
     pub(crate) fn run(
         self,
         scan: Arc<PreparedScan>,
-        root: Box<dyn Planner>,
+        make_root: impl FnOnce(RowClaim) -> Box<dyn Planner>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
@@ -70,7 +73,8 @@ impl ScanDriver {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
-        let io = scan.io();
+        let io = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
+        let root = make_root(io.claim(scope.rows.clone()));
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
         let batches = run_stream(self.handle, root, scope, io.session(), map, inline)

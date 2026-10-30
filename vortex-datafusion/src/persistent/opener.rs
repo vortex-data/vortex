@@ -66,6 +66,7 @@ use vortex::layout::segments::SegmentSource;
 use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::planning::driver::RowClaim;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -481,17 +482,25 @@ impl FileOpener for VortexOpener {
                 // projection.
                 let chunks = {
                     let scan = Arc::clone(&scan);
-                    move |kept: Option<Mask>| -> Box<dyn Planner> {
-                        let rows = scan.rows().clone();
+                    move |kept: Option<Mask>, claim: RowClaim| -> Box<dyn Planner> {
                         let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+                        Box::new(
+                            ChunkPlanner::new(scan, claim, selection, kept)
+                                .with_independent_chunks(),
+                        )
                     }
                 };
-                let root: Box<dyn Planner> = if scan.filter().is_some() {
-                    let rows = scan.rows().clone();
-                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
-                } else {
-                    chunks(None)
+                let root_scan = Arc::clone(&scan);
+                let root = move |claim: RowClaim| -> Box<dyn Planner> {
+                    if root_scan.filter().is_some() {
+                        Box::new(PrunePlanner::new(
+                            root_scan,
+                            claim,
+                            Box::new(move |kept, claim| Some(chunks(kept, claim))),
+                        ))
+                    } else {
+                        chunks(None, claim)
+                    }
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);

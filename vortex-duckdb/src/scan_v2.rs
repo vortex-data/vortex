@@ -34,7 +34,9 @@ use vortex::layout::scan::v2::PreparedScan;
 use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::mask::Mask;
+use vortex::scan::planning::driver::FileReads;
 use vortex::scan::planning::driver::Progress;
+use vortex::scan::planning::driver::RowClaim;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
@@ -85,11 +87,13 @@ impl FileScan {
         dynamic: bool,
     ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
-        let io = scan.io();
+        let reads = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
         let rows = scan.rows().clone();
+        let claim = reads.claim(rows.clone());
+        let io: Arc<dyn IoService> = reads;
         let mut root = Run::new();
         root.admit(
-            compose(&scan, splits, dynamic),
+            compose(&scan, claim, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
@@ -175,22 +179,32 @@ impl FileScan {
     }
 }
 
-/// The planners of a scan, composed: with a dynamic filter, its pruning plans first over the scan's
-/// rows, continuing into the parts of the rows they keep; otherwise, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
+/// The planners of a scan, composed over `claim`, the scan's rows: with a dynamic filter, its
+/// pruning plans first over the scan's rows, continuing into the parts of the rows they keep;
+/// otherwise, the parts directly.
+fn compose(
+    scan: &Arc<PreparedScan>,
+    claim: RowClaim,
+    splits: &[u64],
+    dynamic: bool,
+) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
         let parts = part_ranges(rows.clone(), splits);
         let first_row = rows.start;
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            Box::new(PartPlanner::new(scan, parts, first_row, kept))
+        move |kept: Option<Mask>, claim: RowClaim| -> Box<dyn Planner> {
+            Box::new(PartPlanner::new(scan, claim, parts, first_row, kept))
         }
     };
     if dynamic && scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
+        Box::new(PrunePlanner::new(
+            Arc::clone(scan),
+            claim,
+            Box::new(move |kept, claim| Some(parts(kept, claim))),
+        ))
     } else {
-        parts(None)
+        parts(None, claim)
     }
 }
 
@@ -204,8 +218,13 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
 /// any part is taken, so a file whose zones it rules out takes no thread. It has tightened by the
 /// time a later part is taken, so pruning that part again skips more, from the zone maps the
 /// scan-wide pruning read.
+///
+/// Each part takes its rows of the planner's claim, so the file's shared reads stay available
+/// while a queued or running part may still need them.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
+    /// The rows not yet handed to a part.
+    claim: RowClaim,
     selection: Selection,
     parts: std::vec::IntoIter<Range<u64>>,
     /// The first row of `kept`.
@@ -217,6 +236,7 @@ struct PartPlanner {
 impl PartPlanner {
     fn new(
         scan: Arc<PreparedScan>,
+        claim: RowClaim,
         parts: Vec<Range<u64>>,
         first_row: u64,
         kept: Option<Mask>,
@@ -224,6 +244,7 @@ impl PartPlanner {
         Self {
             selection: scan.selection().clone(),
             scan,
+            claim,
             parts: parts.into_iter(),
             first_row,
             kept,
@@ -254,6 +275,9 @@ impl Planner for PartPlanner {
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         while let Some(part) = self.parts.next() {
+            // A pruned part's claim drops here, releasing reads only its rows needed.
+            let mut claim = self.claim.split_to(part.end);
+            claim.restrict_to(part.clone());
             let kept = self.kept_in(&part);
             if kept.as_ref().is_some_and(Mask::all_false) {
                 continue;
@@ -261,23 +285,22 @@ impl Planner for PartPlanner {
             let chunks = {
                 let scan = Arc::clone(&self.scan);
                 let selection = self.selection.clone();
-                let part = part.clone();
-                move |again: Option<Mask>| -> Box<dyn Planner> {
+                move |again: Option<Mask>, claim: RowClaim| -> Box<dyn Planner> {
                     let kept = match (kept, again) {
                         (Some(kept), Some(again)) => Some(kept & &again),
                         (kept, again) => kept.or(again),
                     };
-                    Box::new(ChunkPlanner::new(scan, part, selection, kept))
+                    Box::new(ChunkPlanner::new(scan, claim, selection, kept))
                 }
             };
             let planner: Box<dyn Planner> = if self.scan.filter().is_some() {
                 Box::new(PrunePlanner::new(
                     Arc::clone(&self.scan),
-                    part.clone(),
-                    Box::new(chunks),
+                    claim,
+                    Box::new(move |kept, claim| Some(chunks(kept, claim))),
                 ))
             } else {
-                chunks(None)
+                chunks(None, claim)
             };
             let scope = WorkScope {
                 file_ordinal: 0,

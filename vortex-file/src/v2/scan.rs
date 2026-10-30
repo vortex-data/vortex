@@ -30,6 +30,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
 use vortex_layout::scan::v2::ChunkPlanner;
@@ -37,7 +38,9 @@ use vortex_layout::scan::v2::PreparedScan;
 use vortex_layout::scan::v2::PrunePlanner;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::FileReads;
 use vortex_scan::planning::driver::Progress;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
@@ -131,8 +134,8 @@ impl ScanDriver {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
-        let io = scan.io();
-        let root = compose(&scan);
+        let io = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
+        let root = compose(&scan, io.claim(scope.rows.clone()));
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
         let batches = run_stream(self.handle, root, scope, io.session(), map_fn, inline)
@@ -171,20 +174,22 @@ impl ScanDriver {
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
-    let rows = scan.rows().clone();
+fn compose(scan: &Arc<PreparedScan>, claim: RowClaim) -> Box<dyn Planner> {
     let chunks = {
         let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
+        move |kept: Option<Mask>, claim: RowClaim| -> Box<dyn Planner> {
             let selection = scan.selection().clone();
-            Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+            Box::new(ChunkPlanner::new(scan, claim, selection, kept).with_independent_chunks())
         }
     };
     if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
+        Box::new(PrunePlanner::new(
+            Arc::clone(scan),
+            claim,
+            Box::new(move |kept, claim| Some(chunks(kept, claim))),
+        ))
     } else {
-        chunks(None)
+        chunks(None, claim)
     }
 }
 
