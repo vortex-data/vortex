@@ -184,6 +184,11 @@ impl Compiler<'_> {
         };
         self.core.segments.push(scan.segment_id());
         let cached = self.core.segment_cache.as_ref().and_then(|cache| {
+            // Without a filter, a whole segment cannot cross a chunk or projection-morsel
+            // boundary. Partial reads still share segments across those boundaries.
+            if slice.is_none() && !cache.reuse_whole() {
+                return None;
+            }
             let start = self.segment_origin?;
             let end = start.checked_add(scan.row_count())?;
             Some(cache.reader(scan.clone().into_plan(), start..end))

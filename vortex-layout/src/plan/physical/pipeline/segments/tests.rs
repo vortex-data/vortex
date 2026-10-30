@@ -30,7 +30,7 @@ fn plan() -> PlanRef {
 
 #[test]
 fn a_finished_later_segment_does_not_wait_for_an_earlier_chunk() -> VortexResult<()> {
-    let cache = SegmentCache::new(0..30);
+    let cache = SegmentCache::new(0..30, true);
     let first = cache.lease(0..10);
     let second = cache.lease(10..20);
     let second_projection = Arc::clone(&second);
@@ -40,14 +40,17 @@ fn a_finished_later_segment_does_not_wait_for_an_earlier_chunk() -> VortexResult
     assert!(reader.get().is_some());
     drop(second_projection);
     assert!(reader.get().is_none());
-    assert_eq!(cache.0.lock().pending, BTreeMap::from([(0, 10), (20, 30)]));
+    assert_eq!(
+        cache.shared.state.lock().pending,
+        BTreeMap::from([(0, 10), (20, 30)])
+    );
     drop(first);
     Ok(())
 }
 
 #[test]
 fn an_entry_survives_until_all_overlapping_consumers_retire() -> VortexResult<()> {
-    let cache = SegmentCache::new(2..38);
+    let cache = SegmentCache::new(2..38, true);
     let reader = cache.reader(plan(), 10..20);
     let array = PrimitiveArray::from_iter(10i32..20).into_array();
     let retained = reader.get_or_try_init(|| Ok(array.clone()))?;
@@ -58,7 +61,7 @@ fn an_entry_survives_until_all_overlapping_consumers_retire() -> VortexResult<()
     assert!(reader.get().is_some());
     cache.complete(10..12);
     assert!(reader.get().is_none());
-    assert!(cache.0.lock().pending.is_empty());
+    assert!(cache.shared.state.lock().pending.is_empty());
     reader.get_or_try_init(|| Ok(array))?;
     assert!(
         reader.get().is_none(),
@@ -69,18 +72,21 @@ fn an_entry_survives_until_all_overlapping_consumers_retire() -> VortexResult<()
 
 #[test]
 fn cancellation_can_retire_a_range_containing_completed_holes() {
-    let cache = SegmentCache::new(0..100);
+    let cache = SegmentCache::new(0..100, true);
     cache.complete(10..20);
     cache.complete(40..60);
     cache.complete(5..90);
-    assert_eq!(cache.0.lock().pending, BTreeMap::from([(0, 5), (90, 100)]));
+    assert_eq!(
+        cache.shared.state.lock().pending,
+        BTreeMap::from([(0, 5), (90, 100)])
+    );
     cache.complete(0..100);
-    assert!(cache.0.lock().pending.is_empty());
+    assert!(cache.shared.state.lock().pending.is_empty());
 }
 
 #[test]
 fn plan_identity_and_row_domain_isolate_entries() -> VortexResult<()> {
-    let cache = SegmentCache::new(0..20);
+    let cache = SegmentCache::new(0..20, true);
     let plan = plan();
     let reader = cache.reader(plan.clone(), 0..10);
     let first = reader.get_or_try_init(|| Ok(PrimitiveArray::from_iter(0i32..10).into_array()))?;
@@ -93,7 +99,7 @@ fn plan_identity_and_row_domain_isolate_entries() -> VortexResult<()> {
 
 #[test]
 fn concurrent_readers_initialize_a_segment_once() -> VortexResult<()> {
-    let cache = SegmentCache::new(0..10);
+    let cache = SegmentCache::new(0..10, true);
     let plan = plan();
     let array = PrimitiveArray::from_iter(0i32..10).into_array();
     let starts = Barrier::new(4);
@@ -128,7 +134,7 @@ fn concurrent_readers_initialize_a_segment_once() -> VortexResult<()> {
 
 #[test]
 fn a_failed_initialization_can_be_retried() -> VortexResult<()> {
-    let cache = SegmentCache::new(0..10);
+    let cache = SegmentCache::new(0..10, true);
     let reader = cache.reader(plan(), 0..10);
     assert!(
         reader
@@ -145,7 +151,7 @@ fn a_failed_initialization_can_be_retried() -> VortexResult<()> {
 
 #[test]
 fn retirement_during_initialization_does_not_repopulate_the_cache() -> VortexResult<()> {
-    let cache = SegmentCache::new(0..10);
+    let cache = SegmentCache::new(0..10, true);
     let reader = cache.reader(plan(), 0..10);
     let array = PrimitiveArray::from_iter(0i32..10).into_array();
     let result = reader.get_or_try_init(|| {
@@ -155,6 +161,6 @@ fn retirement_during_initialization_does_not_repopulate_the_cache() -> VortexRes
     })?;
     assert!(ArrayRef::ptr_eq(&result, &array));
     assert!(reader.get().is_none());
-    assert!(cache.0.lock().arrays.is_empty());
+    assert!(cache.shared.state.lock().arrays.is_empty());
     Ok(())
 }
