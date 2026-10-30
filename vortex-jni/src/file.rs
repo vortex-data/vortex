@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Small utility JNI entry points for listing, deleting, and reading the user-defined
-//! metadata of Vortex files.
+//! metadata and column statistics of Vortex files.
 
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ use jni::sys::jobject;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::VortexFile;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexReadAt;
@@ -32,6 +33,9 @@ use crate::errors::try_or_throw;
 use crate::io::java_readable;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
+use crate::statistics::ColumnStatistics;
+use crate::statistics::column_statistics_to_java;
+use crate::statistics::source_column_statistics;
 
 /// Extract a Java `Map<String, String>` into a Rust [`HashMap`].
 pub(crate) fn extract_properties(
@@ -117,27 +121,92 @@ fn metadata_to_java(
     Ok(raw)
 }
 
-/// Open a Vortex file with metadata resolution enabled and collect its metadata segments.
+/// Open a Vortex file through the session footer cache.
 ///
-/// `cache_key` identifies the file in the session footer cache. Both entry points name the file
+/// `cache_key` identifies the file in the session footer cache. All entry points name the file
 /// the same way the scan path does — the object-store path, or the `NativeReadable`'s name — so a
-/// metadata read and a later scan of the same file share one footer read.
-fn read_metadata_segments(
+/// metadata or statistics read and a later scan of the same file share one footer read.
+fn open_file(
     session: &VortexSession,
     source: Arc<dyn VortexReadAt>,
     cache_key: &str,
     file_size: Option<u64>,
-) -> VortexResult<Vec<(String, ByteBuffer)>> {
-    RUNTIME.block_on(async move {
-        let file = open_cached(session, Some(cache_key), source, file_size, &|options| {
-            options.include_metadata()
-        })
-        .await?;
-        Ok(file
-            .metadata_segments()
-            .map(|(key, value)| (key.to_string(), value.clone()))
-            .collect())
-    })
+    include_metadata: bool,
+) -> VortexResult<VortexFile> {
+    RUNTIME.block_on(open_cached(
+        session,
+        Some(cache_key),
+        source,
+        file_size,
+        &|options| options.with_include_metadata(include_metadata),
+    ))
+}
+
+/// Collect the user-defined metadata segments of an opened Vortex file.
+fn metadata_segments(file: &VortexFile) -> Vec<(String, ByteBuffer)> {
+    file.metadata_segments()
+        .map(|(key, value)| (key.to_string(), value.clone()))
+        .collect()
+}
+
+/// Open the Vortex file at `uri` through a native storage client.
+///
+/// The cache key is the object-store path, as on the scan path.
+fn open_uri_file(
+    env: &mut jni::Env,
+    session: &VortexSession,
+    uri: &JString,
+    options: &JObject,
+    include_metadata: bool,
+) -> Result<VortexFile, crate::errors::JNIError> {
+    let uri: String = uri.try_to_string(env)?;
+    let url = parse_uri_or_path(&uri)?;
+    let properties = extract_properties(env, options)?;
+
+    let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
+    let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
+
+    Ok(open_file(session, source, &path, None, include_metadata)?)
+}
+
+/// Open a Vortex file through a caller-provided `dev.vortex.io.NativeReadable`, so no native
+/// storage client is created.
+///
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
+/// keys the file in the session footer cache, as it does for the scan path.
+fn open_readable_file(
+    env: &mut jni::Env,
+    session: &VortexSession,
+    readable: &JObject,
+    name: &JString,
+    length: jlong,
+    include_metadata: bool,
+) -> Result<VortexFile, crate::errors::JNIError> {
+    if readable.is_null() {
+        throw_runtime!("null readable");
+    }
+    let name: String = name.try_to_string(env)?;
+    if name.is_empty() {
+        throw_runtime!("readable name must not be empty");
+    }
+    let length =
+        u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+
+    let vm = env.get_java_vm()?;
+    let readable = Arc::new(env.new_global_ref(readable)?);
+    let source = java_readable(vm, readable, length, session.handle());
+
+    // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
+    // that same normalized form, so normalize here too — otherwise a read through this function
+    // and a scan of the same readable would land on two different cache entries.
+    let cache_key = name.trim_start_matches('/');
+    Ok(open_file(
+        session,
+        source,
+        cache_key,
+        Some(length),
+        include_metadata,
+    )?)
 }
 
 /// Read the user-defined metadata segments of the Vortex file at `uri`.
@@ -154,15 +223,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
 ) -> jobject {
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
-        let uri: String = uri.try_to_string(env)?;
-        let url = parse_uri_or_path(&uri)?;
-        let properties = extract_properties(env, &options)?;
-
-        let (fs, path) = object_store_fs(&url, &properties, session.handle())?;
-        let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
-
-        let segments = read_metadata_segments(session, source, &path, None)?;
-        metadata_to_java(env, segments)
+        let file = open_uri_file(env, session, &uri, &options, true)?;
+        metadata_to_java(env, metadata_segments(&file))
     })
 }
 
@@ -182,26 +244,56 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
 ) -> jobject {
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
-        if readable.is_null() {
-            throw_runtime!("null readable");
-        }
-        let name: String = name.try_to_string(env)?;
-        if name.is_empty() {
-            throw_runtime!("readable name must not be empty");
-        }
-        let length =
-            u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+        let file = open_readable_file(env, session, &readable, &name, length, true)?;
+        metadata_to_java(env, metadata_segments(&file))
+    })
+}
 
-        let vm = env.get_java_vm()?;
-        let readable = Arc::new(env.new_global_ref(&readable)?);
-        let source = java_readable(vm, readable, length, session.handle());
+/// Read the statistics of each top-level column of an opened Vortex file through its data
+/// source, so stored aggregate partials come before the legacy statistics.
+fn read_column_statistics(file: &VortexFile) -> VortexResult<Vec<ColumnStatistics>> {
+    let source = file.data_source()?;
+    RUNTIME.block_on(source_column_statistics(source.as_ref(), file.footer()))
+}
 
-        // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
-        // that same normalized form, so normalize here too — otherwise a metadata read and a
-        // scan of the same readable would land on two different cache entries.
-        let cache_key = name.trim_start_matches('/');
-        let segments = read_metadata_segments(session, source, cache_key, Some(length))?;
-        metadata_to_java(env, segments)
+/// Read the per-column statistics of the Vortex file at `uri`.
+///
+/// Returns a `dev.vortex.api.VortexColumnStatistics[]` in schema order. The statistics come
+/// from the file footer, so no column data is read.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatistics(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    uri: JString,
+    options: JObject,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_uri_file(env, session, &uri, &options, false)?;
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
+    })
+}
+
+/// Read the per-column statistics of a Vortex file through a caller-provided
+/// `dev.vortex.io.NativeReadable`, so no native storage client is created.
+///
+/// See [`Java_dev_vortex_jni_NativeFiles_readStatistics`] for the return value.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatisticsFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let file = open_readable_file(env, session, &readable, &name, length, false)?;
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
     })
 }
 

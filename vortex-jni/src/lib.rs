@@ -29,6 +29,7 @@ mod object_store;
 mod runtime;
 mod scan;
 mod session;
+mod statistics;
 mod writer;
 
 /// Shared current-thread runtime backing every JNI call. Using a current-thread
