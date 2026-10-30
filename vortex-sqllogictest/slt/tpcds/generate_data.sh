@@ -7,7 +7,8 @@
 # one Parquet file per table, converts every table to Vortex,
 # and checks that the Parquet and Vortex tables hold identical data before the
 # Vortex files are used by the SLT suite. Set VORTEX_SLT_PROFILE to reuse an
-# existing cargo profile for conversion and the parity test (CI uses `ci`).
+# existing cargo profile for conversion and the parity test (CI uses `ci`). See
+# slt/generate_data.sh for the other VORTEX_SLT_* variables.
 
 set -e -o pipefail
 
@@ -30,12 +31,31 @@ uvx tpcgen-cli@4.0.0 tpcds parquet -s "${SCALE_FACTOR}" --compression='ZSTD(3)' 
 # The generator metadata table is not part of the TPC-DS schema that the tests use.
 rm -f "${DATA_DIR}"/dbgen_version.parquet
 
+VX="${VORTEX_SLT_VX:-}"
+if [ -z "${VX}" ]; then
+  # Build `vx` once and run the binary directly, so the conversions below can
+  # run in parallel without contending for cargo's build lock.
+  VX="$(
+    cd "${CRATE_DIR}" &&
+      cargo build --profile "${VORTEX_SLT_PROFILE:-release}" --package vortex-tui --bin vx \
+        --message-format=json-render-diagnostics |
+      sed -n 's/.*"executable":"\([^"]*\)".*/\1/p'
+  )"
+  if [ -z "${VX}" ]; then
+    echo "Error: could not find the vx binary built by cargo" >&2
+    exit 1
+  fi
+fi
+
 # The Parquet files are kept so the `parquet.slt` suites and the parity test
-# can read them.
-for f in "${DATA_DIR}"/*.parquet; do
-  echo "Converting $(basename "$f") to Vortex..."
-  (cd "${CRATE_DIR}" && cargo run --profile "${VORTEX_SLT_PROFILE:-release}" --package vortex-tui --bin vx -- convert "$f")
-done
+# can read them. xargs exits non-zero if any conversion fails.
+echo "Converting the TPC-DS tables to Vortex..."
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+printf '%s\0' "${DATA_DIR}"/*.parquet | xargs -0 -n 1 -P "${JOBS}" "${VX}" convert
+
+if [ "${VORTEX_SLT_SKIP_PARITY:-}" = 1 ]; then
+  exit 0
+fi
 
 # The parity test reads every table in both formats through DuckDB and fails if
 # any row differs, so a bad conversion is caught before the query result files

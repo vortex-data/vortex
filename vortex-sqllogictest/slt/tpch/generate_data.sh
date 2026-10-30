@@ -6,7 +6,8 @@
 # Generates TPC-H data at scale factor 0.1 with the benchmarks' `data-gen`
 # binary (vortex-bench), so the SLT fixtures and the benchmarks share one
 # TPC-H generator, and copies the Parquet and Vortex tables into slt/tpch/data/.
-# Set VORTEX_SLT_PROFILE to reuse an existing cargo profile (CI uses `ci`).
+# Set VORTEX_SLT_PROFILE to reuse an existing cargo profile (CI uses `ci`), or
+# VORTEX_SLT_DATA_GEN to use a prebuilt `data-gen` binary.
 
 set -e -o pipefail
 
@@ -21,8 +22,12 @@ BENCH_DATA_DIR="${WORKSPACE_DIR}/vortex-bench/data/tpch/${SCALE_FACTOR}"
 echo "Generating TPC-H data (SF=${SCALE_FACTOR})..."
 (
   cd "${WORKSPACE_DIR}"
-  cargo run --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-bench --bin data-gen -- \
-    tpch --opt "scale-factor=${SCALE_FACTOR}" --formats parquet,vortex
+  if [ -n "${VORTEX_SLT_DATA_GEN:-}" ]; then
+    "${VORTEX_SLT_DATA_GEN}" tpch --opt "scale-factor=${SCALE_FACTOR}" --formats parquet,vortex
+  else
+    cargo run --profile "${VORTEX_SLT_PROFILE:-release}" -p vortex-bench --bin data-gen -- \
+      tpch --opt "scale-factor=${SCALE_FACTOR}" --formats parquet,vortex
+  fi
 )
 
 rm -rf "${DATA_DIR}"
