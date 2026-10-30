@@ -67,6 +67,7 @@ use wkb::writer::write_geometry;
 
 use crate::CompactionStrategy;
 use crate::Format;
+use crate::LIST_LAYOUT_SESSION;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 
@@ -275,12 +276,17 @@ pub async fn convert_parquet_file_to_vortex(
         .open(output_path)
         .await?;
 
-    write_options_for(compaction, &dtype, is_spatialbench(parquet_path))
-        .write(
-            &mut output_file,
-            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
-        )
-        .await?;
+    write_options_for(
+        compaction,
+        &dtype,
+        is_spatialbench(parquet_path),
+        write_session(parquet_path),
+    )
+    .write(
+        &mut output_file,
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
+    )
+    .await?;
 
     Ok(())
 }
@@ -291,6 +297,17 @@ fn is_spatialbench(path: &Path) -> bool {
         .any(|component| component.as_os_str() == "spatialbench")
 }
 
+/// The session to write `path` with: the list-heavy suites write lists with the list layout.
+fn write_session(path: &Path) -> &'static VortexSession {
+    if path.components().any(|component| {
+        component.as_os_str() == "statpopgen" || component.as_os_str() == "polarsignals"
+    }) {
+        &LIST_LAYOUT_SESSION
+    } else {
+        &SESSION
+    }
+}
+
 /// Vortex write options for converting `dtype`-shaped data.
 ///
 /// For SpatialBench (`skip_binary_dict`), the geometry blobs are large and
@@ -299,6 +316,7 @@ fn write_options_for(
     compaction: CompactionStrategy,
     dtype: &DType,
     skip_binary_dict: bool,
+    session: &VortexSession,
 ) -> VortexWriteOptions {
     let binary_fields: Vec<_> = match dtype {
         DType::Struct(fields, _) if skip_binary_dict => fields
@@ -310,20 +328,22 @@ fn write_options_for(
             .collect(),
         _ => Vec::new(),
     };
-    if binary_fields.is_empty() {
-        return compaction.apply_options(SESSION.write_options());
+    // `CompactionStrategy::apply_options` builds from `SESSION`, so the compact strategy is built
+    // here from `session`.
+    if binary_fields.is_empty() && matches!(compaction, CompactionStrategy::Default) {
+        return session.write_options();
     }
 
-    let mut builder = WriteStrategyBuilder::from_session(&SESSION);
+    let mut builder = WriteStrategyBuilder::from_session(session);
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(
-            BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
+            BtrBlocksCompressorBuilder::from_session(session).with_compact(),
         );
     }
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    SESSION.write_options().with_strategy(builder.build())
+    session.write_options().with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.

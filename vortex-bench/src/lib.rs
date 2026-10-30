@@ -114,9 +114,14 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default().with_tokio();
-    vortex_spatial::initialize(&session);
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
+
+/// [`SESSION`] with the bench edition enabled, so files written with it use the list layout.
+///
+/// Only the list-heavy SQL suites write with it. compress-bench and random-access-bench read
+/// through the V2 scan, which cannot read the list layout yet.
+pub(crate) static LIST_LAYOUT_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = new_session();
     session
         .editions()
         .declare_family(&BENCH_EDITION_FAMILY)
@@ -129,6 +134,12 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .vortex_expect("bench edition is registered");
     session
 });
+
+fn new_session() -> VortexSession {
+    let session = VortexSession::default().with_tokio();
+    vortex_spatial::initialize(&session);
+    session
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
