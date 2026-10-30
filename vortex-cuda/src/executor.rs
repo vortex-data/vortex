@@ -23,6 +23,7 @@ use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -435,14 +436,18 @@ pub trait CudaArrayExt {
 impl CudaArrayExt for ArrayRef {
     #[expect(clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == Struct.id() {
-            let len = self.len();
+        // Constructors are lazy. Optimize first so that the kernels see the encodings they match.
+        // This is free for an array that is already optimized.
+        let array = self.optimize(&ctx.ctx)?;
+
+        if array.encoding_id() == Struct.id() {
+            let len = array.len();
             let StructDataParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
+            } = array.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {
@@ -461,7 +466,7 @@ impl CudaArrayExt for ArrayRef {
         // is encoded, so the canonical early-return below would skip them with
         // the storage still compressed. Recurse into the storage so compressed
         // storage decodes on the GPU.
-        if let Some(ext) = self.as_opt::<Extension>() {
+        if let Some(ext) = array.as_opt::<Extension>() {
             let storage = ext.storage_array().clone().execute_cuda(ctx).await?;
             return Ok(Canonical::Extension(ExtensionArray::new(
                 ext.ext_dtype().clone(),
@@ -469,20 +474,20 @@ impl CudaArrayExt for ArrayRef {
             )));
         }
 
-        if self.is_canonical() || self.is_empty() {
-            trace!(encoding = ?self.encoding_id(), "skipping canonical");
-            return self.execute(&mut ctx.ctx);
+        if array.is_canonical() || array.is_empty() {
+            trace!(encoding = ?array.encoding_id(), "skipping canonical");
+            return array.execute(&mut ctx.ctx);
         }
 
         // Try all GPU execution strategies: fused dynamic dispatch, partial
         // fusion with subtree fallbacks, and single-kernel fallback.
         // If none succeed, fall back to CPU execution only when all buffers
         // remain host-resident.
-        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&array, ctx).await {
             Ok(canonical) => return Ok(canonical),
             Err(e) => {
                 debug!(
-                    encoding = %self.encoding_id(),
+                    encoding = %array.encoding_id(),
                     error = %e,
                     "No GPU execution path available, falling back to CPU"
                 );
@@ -490,13 +495,13 @@ impl CudaArrayExt for ArrayRef {
             }
         };
 
-        if !self.is_host() {
+        if !array.is_host() {
             vortex_bail!(
                 "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
-                self.encoding_id()
+                array.encoding_id()
             );
         }
 
-        self.execute(&mut ctx.ctx)
+        array.execute(&mut ctx.ctx)
     }
 }

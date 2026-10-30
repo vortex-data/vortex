@@ -245,6 +245,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::dtype::NativePType;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
@@ -720,7 +721,9 @@ mod tests {
         // Second slice (relative to first): drop patch at original index 100.
         // The second slice's range is kept wide enough that num_blocks still
         // covers every chunk in the packed buffer.
-        let second_slice = first_slice.slice(50..2900)?;
+        let second_slice = first_slice
+            .slice(50..2900)?
+            .optimize(cuda_ctx.execution_ctx())?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
