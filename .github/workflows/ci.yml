@@ -255,7 +255,7 @@ jobs:
   rust-docs:
     name: "Rust (docs)"
     needs: duckdb-mirror
-    # The mirror only runs on PRs; elsewhere it is skipped, so override the implicit success().
+    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
     if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     timeout-minutes: 30
     runs-on: >-
@@ -666,10 +666,6 @@ jobs:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
           message-format-flag: "--cargo-message-format"
 
-  # Consolidates the former `generated-files`, `cxx-api` and `cmake-integration-test` jobs, which
-  # each spent most of their time on runner boot and setup. The generated-file checks run first so
-  # that the C++ and CMake build outputs cannot dirty the tree before the porcelain check. Later
-  # groups run under `!cancelled()` so a failure in one check does not hide the others.
   c-cxx-generated:
     name: "Generated sources, C/C++ API and CMake integration"
     # Leave room for cold, per-build-tree Cargo artifacts, including sanitized std.
@@ -695,7 +691,6 @@ jobs:
           # The only job that needs flatc: builds use the checked-in bindings.
           - uses: ./.github/actions/setup-flatc
           - name: Install nightly for cbindgen macro expansion
-            # The C++ API asan build also needs rust-src to build the sanitized std.
             run: |
               rustup toolchain install $NIGHTLY_TOOLCHAIN \
                 --component rust-src,rustfmt,clippy,llvm-tools-preview
@@ -704,7 +699,6 @@ jobs:
               sudo apt-get update
               sudo apt-get install -y ninja-build
 
-      # Generated source files and C API
       - parallel:
           - name: "regenerate the FlatBuffers and Protocol Buffers bindings"
             # Fails on a flatc version mismatch, and the porcelain check below fails on stale bindings.
@@ -765,7 +759,6 @@ jobs:
           find fbs.develop/ -type f -name "*.fbs" | sed 's|^fbs.develop/||' \
             | xargs -I{} -n1 flatc -I fbs.head --conform-includes fbs.develop --conform fbs.develop/{} fbs.head/{}
 
-      # C++ API and CMake integration
       - parallel:
           - name: Build C++ tests and examples (asan)
             if: "!cancelled()"
@@ -789,8 +782,7 @@ jobs:
           - name: Test CMake integration
             if: "!cancelled()"
             run: |
-              # These tests assert on the compiler and Cargo wrappers they observe, so run them
-              # without the sccache wrappers that setup-prebuild exports for the other builds.
+              # These tests assert on the compiler wrappers they observe.
               unset RUSTC_WRAPPER CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
               python3 -m unittest discover -s vortex-ffi/cmake/tests -v
       - name: Show C++ API compiler cache statistics
@@ -816,10 +808,6 @@ jobs:
 
           ./reader
 
-  # Consolidates the former `btrblocks-golden`, `wasm-integration` and `duckdb-s3-test` jobs,
-  # which each spent most of their time on runner boot and setup. The job waits for the DuckDB
-  # mirror like the old DuckDB S3 job did, but only the DuckDB steps depend on its result. Later
-  # steps run under `!cancelled()` so a failure in one check does not hide the others.
   integration-smoke:
     name: "Integration smoke tests (btrblocks golden, WASM, DuckDB S3)"
     needs: duckdb-mirror
@@ -847,8 +835,6 @@ jobs:
               version: "v7.4.0"
       - name: Verify Wasmer installation
         run: wasmer --version
-      # The wasm builds use their own workspace and target directory under ./wasm-test, so they
-      # do not contend with the workspace builds for Cargo's build lock.
       - parallel:
           - name: Build DuckDB tests
             if: (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
