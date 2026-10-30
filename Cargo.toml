@@ -202,7 +202,7 @@ num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
 object_store_opendal = "0.58.0"
 once_cell = "1.21.4"
-onpair = { git = "https://github.com/spiraldb/onpair", rev = "3ba0f3af53763f5f7d9d419217a0dada322c900a" }
+onpair = { git = "https://github.com/spiraldb/onpair", rev = "def9ebe4ee8e531c62ae5618b6b8e7286207edf1" }
 opendal = { version = "0.58.1", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
