@@ -53,12 +53,12 @@ impl ViewedDType {
     }
 
     /// The viewed [`fbd::DType`] instance.
-    fn flatbuffer(&self) -> fbd::DType<'_> {
+    pub(crate) fn flatbuffer(&self) -> fbd::DType<'_> {
         unsafe { fbd::DType::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
     /// Returns the underlying shared buffer
-    fn buffer(&self) -> &FlatBuffer {
+    pub(crate) fn buffer(&self) -> &FlatBuffer {
         &self.flatbuffer
     }
 }

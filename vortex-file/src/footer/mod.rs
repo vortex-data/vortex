@@ -12,6 +12,7 @@ mod field_sizes;
 mod file_layout;
 mod file_statistics;
 mod postscript;
+mod resident;
 mod segment;
 
 use std::sync::Arc;
@@ -101,19 +102,17 @@ impl Footer {
     }
 
     /// Read the [`Footer`] from a flatbuffer.
+    ///
+    /// `dtype_bytes` estimates the memory `dtype` holds.
     pub(crate) fn from_flatbuffer(
         footer_bytes: &[u8],
         layout_bytes: FlatBuffer,
         dtype: DType,
+        dtype_bytes: usize,
         statistics: Option<FileStatistics>,
         metadata: Arc<[(String, SegmentSpec)]>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let metadata_bytes: usize = metadata
-            .iter()
-            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
-            .sum();
-        let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
         let fb_footer = root::<fb::Footer>(footer_bytes)?;
 
         // Create a LayoutContext from the registry.
@@ -137,7 +136,7 @@ impl Footer {
         let array_read_ctx = ReadContext::new(array_ids);
 
         let root_layout = layout_from_flatbuffer_with_options(
-            layout_bytes,
+            layout_bytes.clone(),
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
@@ -158,6 +157,19 @@ impl Footer {
         }
 
         let segments_with_metadata = segments_with_metadata(&segments, &metadata);
+
+        let metadata_bytes: usize = metadata
+            .iter()
+            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
+            .sum();
+        let segment_copies = if metadata.is_empty() { 1 } else { 2 };
+        let approx_byte_size = resident::footer_resident_bytes(
+            dtype_bytes,
+            layout_bytes.as_ref(),
+            segment_copies * segments.len(),
+            statistics.as_ref(),
+            metadata_bytes,
+        );
 
         Ok(Self {
             root_layout,
@@ -226,6 +238,9 @@ impl Footer {
     }
 
     /// Returns the approximate size of the footer in bytes, used for caching and memory management.
+    ///
+    /// For a footer read from a file, this estimates the memory the footer holds once its dtype and
+    /// layout trees are fully materialized, not the size of its serialized form.
     pub fn approx_byte_size(&self) -> Option<usize> {
         self.approx_byte_size
     }

@@ -337,6 +337,11 @@ impl UnionVariants {
             .map(|dt| dt.value().vortex_expect("variant DType must be valid"))
     }
 
+    /// Returns the variant dtypes as stored, without parsing lazy views.
+    pub(crate) fn raw_variants(&self) -> &[FieldDType] {
+        &self.0.dtypes
+    }
+
     /// Convert a data-level type tag to a child offset. Returns `None` if the tag is not in
     /// `type_ids`.
     ///
