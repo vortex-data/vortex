@@ -20,7 +20,6 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::plan::physical::Concat;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
@@ -32,14 +31,11 @@ use crate::plan::physical::PlanVTable;
 use crate::plan::physical::Share;
 use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
-use crate::plan::physical::operators::SparseTakeSource;
 use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
-use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 use crate::plan::physical::pipeline::PredicateCache;
-use crate::plan::physical::pipeline::sparse_selection;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -144,8 +140,7 @@ impl PlanVTable for Take {
         }
     }
 
-    /// Reuses whole-value results or chooses sparse predicate evaluation and value reads from
-    /// the selected code density.
+    /// Reuses whole-value results or evaluates a static string predicate over selected values.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
@@ -178,7 +173,7 @@ impl PlanVTable for Take {
     }
 }
 
-/// Chooses cached, predicate-aware, or staged dictionary retrieval for the selected codes.
+/// Reads codes and reusable dictionary values together, applying sparse predicates after gather.
 fn compile_take(
     plan: &TakePlan,
     rows: Range<u64>,
@@ -192,15 +187,6 @@ fn compile_take(
     let cache = compiler.values().clone();
     let values_plan = plan.values()?;
     let cached = cache.get(&values_plan);
-    if predicate.is_none()
-        && cached.is_none()
-        && compiler.access_mode() == AccessMode::RandomAccess
-        && sparse_selection(mask.true_count(), usize::try_from(values_plan.row_count())?)
-        && has_value_chunks(&values_plan)?
-    {
-        let source = SparseTakeSource::new(plan.clone(), cache, compiler.row_offset());
-        return Ok(Some(compiler.join(vec![codes], source)));
-    }
     let mut source = TakeSource::new(
         plan.clone(),
         cached.clone(),
@@ -226,21 +212,6 @@ fn compile_take(
         TakeSource::capacity,
         source,
     )))
-}
-
-/// A second read stage only pays when demand can eliminate stored value chunks. A flat value
-/// segment still has to be fetched whole, and is cheaper to read beside the codes in one batch.
-fn has_value_chunks(plan: &PlanRef) -> VortexResult<bool> {
-    if plan.is::<Concat>() && plan.children().len() > 1 {
-        return Ok(true);
-    }
-    if plan.children().len() == 1
-        && let Some(child) = plan.child(0)?
-        && child.row_count() == plan.row_count()
-    {
-        return has_value_chunks(&child);
-    }
-    Ok(false)
 }
 
 fn expression_is_strict_and_infallible(expression: &BoundExpression) -> bool {

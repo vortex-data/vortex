@@ -1142,10 +1142,14 @@ mod tests {
         Ok(summary.size())
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn startup_and_bulk_keep_filtered_selected_rows_once() -> anyhow::Result<()> {
+    async fn startup_and_bulk_keep_filtered_selected_rows_once(
+        #[values(0, 2)] initial_chunks: usize,
+        #[values(false, true)] roaring: bool,
+    ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let batch = record_batch!(("a", Int32, (0..30_000).collect::<Vec<_>>()))?;
+        let batch = record_batch!(("a", Int32, (0..150_000).collect::<Vec<_>>()))?;
         let schema = batch.schema();
         let size =
             write_arrow_to_vortex(Arc::clone(&object_store), "startup.vortex", batch).await?;
@@ -1153,19 +1157,25 @@ mod tests {
         let filter = logical2physical(&col("a").gt(lit(10)), table_schema.table_schema());
         let mut opener = make_opener(object_store, table_schema, Some(filter));
         opener.scan_v2 = true;
-        opener.initial_chunks = Arc::new(AtomicUsize::new(2));
-        let indices = StrictSortedBuffer::try_new(Buffer::from(vec![
-            3, 17, 8188, 8192, 16_390, 20_000, 29_999,
-        ]))?;
-        let file = PartitionedFile::new("startup.vortex".to_string(), size).with_extension(
-            VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(indices)),
-        );
+        opener.initial_chunks = Arc::new(AtomicUsize::new(initial_chunks));
+        let indices = vec![3, 17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999];
+        let selection = if roaring {
+            Selection::IncludeRoaring(indices.into_iter().collect())
+        } else {
+            Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from(indices))?)
+        };
+        let file = PartitionedFile::new("startup.vortex".to_string(), size)
+            .with_extension(VortexAccessPlan::default().with_selection(selection));
         let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
         assert_eq!(opener.initial_chunks.load(Ordering::Relaxed), 0);
         let actual = concat_batches(&schema, &batches)?;
         let actual =
             RecordBatch::try_new(Arc::clone(&schema), vec![sort(actual.column(0), None)?])?;
-        let expected = record_batch!(("a", Int32, [17, 8188, 8192, 16_390, 20_000, 29_999]))?;
+        let expected = record_batch!((
+            "a",
+            Int32,
+            [17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999]
+        ))?;
         assert_arrays_eq!(
             SESSION.arrow().from_arrow_record_batch(actual, &schema)?,
             SESSION.arrow().from_arrow_record_batch(expected, &schema)?,

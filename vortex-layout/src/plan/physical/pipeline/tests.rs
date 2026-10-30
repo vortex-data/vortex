@@ -1198,7 +1198,7 @@ fn dictionary_predicate_cache_is_shared_across_workers() -> VortexResult<()> {
 }
 
 #[rstest]
-fn sparse_dictionary_reads_only_referenced_value_chunks(
+fn sparse_dictionary_reuses_bulk_values(
     #[values(AccessMode::Scan, AccessMode::RandomAccess)] mode: AccessMode,
     #[values(false, true)] shared_values: bool,
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
@@ -1221,14 +1221,7 @@ fn sparse_dictionary_reads_only_referenced_value_chunks(
     let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
         .with_access_mode(mode);
     let result = drive(&store, scan, delivery(order))?;
-    assert_eq!(
-        reads(&result.events),
-        if mode == AccessMode::RandomAccess {
-            4
-        } else {
-            9
-        }
-    );
+    assert_eq!(reads(&result.events), 9);
     assert_arrays_eq!(
         join(plan.dtype(), result.arrays)?,
         DictArray::try_new(codes, values)?,
@@ -1238,29 +1231,7 @@ fn sparse_dictionary_reads_only_referenced_value_chunks(
 }
 
 #[test]
-fn sparse_dictionary_null_codes_do_not_read_values() -> VortexResult<()> {
-    let mut store = Store::default();
-    let values = PrimitiveArray::from_iter(0..2048i32).into_array();
-    let codes = PrimitiveArray::from_option_iter([None::<u32>, None, None]).into_array();
-    let plan = TakePlan::new(
-        lower(&store.flat(&codes)?)?,
-        lower(&store.chunked(&values, &[256; 8])?)?,
-    )
-    .into_plan();
-    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..3)])?
-        .with_access_mode(AccessMode::RandomAccess);
-    let result = drive(&store, scan, delivery(Delivery::Lifo))?;
-    assert_eq!(reads(&result.events), 1);
-    assert_arrays_eq!(
-        join(plan.dtype(), result.arrays)?,
-        PrimitiveArray::from_option_iter([None::<i32>, None, None]),
-        &mut SESSION.create_execution_ctx()
-    );
-    Ok(())
-}
-
-#[test]
-fn sparse_dictionary_multiple_code_batches_preserve_order_and_whole_cache() -> VortexResult<()> {
+fn dictionary_code_batches_preserve_order_and_share_whole_values() -> VortexResult<()> {
     let mut store = Store::default();
     let values = PrimitiveArray::from_iter(0..131072i32).into_array();
     let codes =
@@ -1283,7 +1254,7 @@ fn sparse_dictionary_multiple_code_batches_preserve_order_and_whole_cache() -> V
             DictArray::try_new(codes.clone(), values.clone())?,
             &mut SESSION.create_execution_ctx()
         );
-        assert_eq!(cache.get(&values_plan).is_some(), mode == AccessMode::Scan);
+        assert!(cache.get(&values_plan).is_some());
     }
     Ok(())
 }
