@@ -114,14 +114,9 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
-pub static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
-
-/// [`SESSION`] with the bench edition enabled, so files written with it use the list layout.
-///
-/// Only the list-heavy SQL suites write with it. compress-bench and random-access-bench read
-/// through the V2 scan, which cannot read the list layout yet.
-pub(crate) static LIST_LAYOUT_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = new_session();
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    vortex_spatial::initialize(&session);
     session
         .editions()
         .declare_family(&BENCH_EDITION_FAMILY)
@@ -130,15 +125,15 @@ pub(crate) static LIST_LAYOUT_SESSION: LazyLock<VortexSession> = LazyLock::new(|
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     session
-        .enable_edition(UNSTABLE_BENCH)
-        .vortex_expect("bench edition is registered");
-    session
 });
 
-fn new_session() -> VortexSession {
-    let session = VortexSession::default().with_tokio();
-    vortex_spatial::initialize(&session);
-    session
+/// Makes [`SESSION`] write lists with the list layout.
+///
+/// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
+fn enable_list_layout() {
+    SESSION
+        .enable_edition(UNSTABLE_BENCH)
+        .vortex_expect("bench edition is registered");
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,6 +451,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {
+            enable_list_layout();
             let scale_factor = opts.get_as::<u64>(SCALE_FACTOR_KEY).unwrap_or(1);
             let benchmark = StatPopGenBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
@@ -476,6 +472,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {
+            enable_list_layout();
             let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
             let benchmark = PolarSignalsBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
