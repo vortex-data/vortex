@@ -122,7 +122,7 @@ h3 { font-size: 1.15rem; }
   flex: 1;
   min-width: 0;
   max-width: 48rem;
-  padding: 1rem 0 3rem;
+  padding: 1rem 0;
 }
 .pagetoc {
   flex: 0 0 13rem;
