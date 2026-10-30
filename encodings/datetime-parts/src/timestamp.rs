@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Splits and combines individual timestamp counts.
+//!
+//! Days use `i64` so every timestamp can be represented. Seconds and subseconds fit `i32`. The
+//! array splitter can narrow the days component when the values fit.
+
 use num_traits::AsPrimitive;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
@@ -9,15 +14,13 @@ use vortex_error::vortex_panic;
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 
-/// Parts of a Unix timestamp (time since 1970-01-01 00:00:00 UTC).
-///
-/// Broken down into:
-///  * Days since epoch (max range is "jiff"'s range)
-///  * Seconds within day (0-86399)
-///  * Subseconds (range depends on `TimeUnit`)
+/// Components of a Unix timestamp relative to 1970-01-01 00:00:00 UTC.
 pub struct TimestampParts {
-    pub days: i32,
+    /// Days since the Unix epoch.
+    pub days: i64,
+    /// Seconds within the day, with magnitude less than [`SECONDS_PER_DAY`].
     pub seconds: i32,
+    /// Subseconds within the second, in the units of the original timestamp.
     pub subseconds: i32,
 }
 
@@ -25,12 +28,12 @@ pub struct TimestampParts {
 ///
 /// # Arguments
 ///
-/// * `timestamp` - Number of time units since the Unix epoch
-/// * `time_unit` - Precision of the timestamp (ns, μs, ms, or s)
+/// * `timestamp` - Number of time units since the Unix epoch.
+/// * `time_unit` - Precision of the timestamp (ns, μs, ms, or s).
 ///
 /// # Errors
 ///
-/// Returns an error if `time_unit` is days, which cannot be split.
+/// Returns an error if `time_unit` is days.
 pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts> {
     Ok(match time_unit {
         TimeUnit::Nanoseconds => split_with_divisor::<1_000_000_000>(timestamp),
@@ -41,7 +44,20 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
     })
 }
 
-/// Split a Unix timestamp into parts using a constant DIVISOR.
+/// Returns whether the timestamp's days can use the array splitter's `i32` buffer.
+pub(crate) fn days_fit_i32(timestamp: i64, time_unit: TimeUnit) -> bool {
+    let ticks_per_second = match time_unit {
+        TimeUnit::Nanoseconds => 1_000_000_000,
+        TimeUnit::Microseconds => 1_000_000,
+        TimeUnit::Milliseconds => 1_000,
+        TimeUnit::Seconds => 1,
+        TimeUnit::Days => return false,
+    };
+
+    i32::try_from(timestamp / (SECONDS_PER_DAY * ticks_per_second)).is_ok()
+}
+
+/// Splits a Unix timestamp into parts using a constant divisor.
 #[inline]
 pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> TimestampParts {
     let days = timestamp / (SECONDS_PER_DAY * DIVISOR);
@@ -49,7 +65,7 @@ pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> Timestam
     let seconds = total_seconds - days * SECONDS_PER_DAY;
     let subseconds = timestamp - total_seconds * DIVISOR;
     TimestampParts {
-        days: days.as_(),
+        days,
         seconds: seconds.as_(),
         subseconds: subseconds.as_(),
     }
@@ -74,7 +90,7 @@ pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
         TimeUnit::Days => vortex_panic!("Cannot handle day-level data"),
     };
 
-    ts_parts.days as i64 * SECONDS_PER_DAY * divisor
+    ts_parts.days * SECONDS_PER_DAY * divisor
         + ts_parts.seconds as i64 * divisor
         + ts_parts.subseconds as i64
 }
@@ -105,7 +121,7 @@ mod tests {
         ] {
             let parts = split(ts, unit)?;
 
-            let days: i32 = (ts / ticks_per_day).as_();
+            let days = ts / ticks_per_day;
             let seconds: i32 = ((ts % ticks_per_day) / divisor).as_();
             let subseconds: i32 = ((ts % ticks_per_day) % divisor).as_();
             assert_eq!(parts.days, days);
@@ -159,6 +175,19 @@ mod tests {
     #[test]
     fn test_split_days_error() {
         assert!(split(1, TimeUnit::Days).is_err());
+    }
+
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds)]
+    #[case::milliseconds(TimeUnit::Milliseconds)]
+    #[case::microseconds(TimeUnit::Microseconds)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds)]
+    fn test_split_storage_extremes(#[case] unit: TimeUnit) -> VortexResult<()> {
+        for ts in [i64::MAX, i64::MIN] {
+            assert_eq!(combine(split(ts, unit)?, unit), ts);
+        }
+
+        Ok(())
     }
 
     #[test]

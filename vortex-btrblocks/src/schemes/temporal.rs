@@ -70,7 +70,6 @@ impl Scheme for TemporalScheme {
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
-        // Temporal compression (splitting into parts) is almost always beneficial.
         CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
     }
 

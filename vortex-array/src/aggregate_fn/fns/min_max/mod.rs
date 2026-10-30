@@ -567,6 +567,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::TemporalArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::BigCast;
     use crate::dtype::DType;
@@ -580,6 +581,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::extension::datetime::TimeUnit;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -599,6 +601,30 @@ mod tests {
                 max: 3.into()
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_min_max_beyond_jiff_range() -> VortexResult<()> {
+        // Midnight on 9999-12-31 UTC.
+        const END_OF_9999_US: i64 = 253_402_214_400_000_000;
+        let timestamps = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([0i64, END_OF_9999_US]).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let MinMaxResult { min, max } =
+            min_max(&timestamps, &mut ctx, NumericalAggregateOpts::default())?
+                .vortex_expect("two non-null timestamps have min and max");
+
+        assert_eq!(min.as_extension().to_storage_scalar(), 0i64.into());
+        assert_eq!(
+            max.as_extension().to_storage_scalar(),
+            END_OF_9999_US.into()
+        );
+
         Ok(())
     }
 

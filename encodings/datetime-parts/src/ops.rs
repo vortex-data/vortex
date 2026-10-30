@@ -5,6 +5,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
@@ -78,18 +79,18 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
 
 /// Reads one timestamp part out of `slot`, through the probe so a repeated read keeps the
 /// child's preparation.
-fn part_at(
+fn part_at<T: NativePType>(
     state: &mut ProbeState<'_, DateTimeParts>,
     slot: usize,
     name: &'static str,
     index: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<i32> {
+) -> VortexResult<T> {
     Ok(state
         .slot(slot)?
         .ok_or_else(|| vortex_err!("DateTimeParts {name} slot is missing"))?
         .execute_scalar(index, ctx)?
         .as_primitive()
-        .as_::<i32>()
-        .vortex_expect("timestamp part fits in i32"))
+        .as_::<T>()
+        .vortex_expect("timestamp part fits its native type"))
 }
