@@ -185,6 +185,9 @@ jobs:
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+          # Drive scans on the calling thread. Background workers wake every 100 ms to check
+          # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
+          VORTEX_MAX_THREADS: "0"
         with:
           run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}

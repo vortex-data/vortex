@@ -18,4 +18,5 @@ def vxf(
     directory = os.environ.get("VORTEX_BENCH_DATA_DIR")
     path = data.write(Path(directory) if directory else tmp_path_factory.getbasetemp() / "data", request.param)
 
-    return vx.open(str(path))
+    # Measure scan and decode CPU work without dispatching file reads to IO threads.
+    return vx.open(str(path), memory_map=True)
