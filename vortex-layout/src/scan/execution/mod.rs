@@ -13,6 +13,7 @@
 
 mod adaptor;
 mod chunk;
+mod dictionary;
 mod filter;
 mod projection;
 mod prune;
@@ -23,6 +24,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Alignment;
+use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
@@ -139,6 +141,13 @@ impl PreparedScan {
     /// the scan's rows and independent of stored layout boundaries.
     pub fn row_chunks(&self) -> Vec<Range<u64>> {
         row_chunks(self.rows.clone(), self.chunk_rows)
+    }
+
+    /// Consecutive dictionary regions when the projection contains exactly one string or binary
+    /// column backed entirely by dictionary plans. Only that column's row-domain plans are
+    /// visited; dictionary values and unrelated fields are not inspected.
+    pub fn string_dictionary_chunks(&self) -> VortexResult<Option<Vec<Range<u64>>>> {
+        dictionary::string_dictionary_chunks(&self.projection, &self.rows)
     }
 
     /// Whether the scan selects at most one row in 1024 of its rows, as an

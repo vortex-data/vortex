@@ -16,9 +16,9 @@
 //! Queued and running parts share the file execution's read coordinator. Each queued planner
 //! owns its row claim so reads remain available until all possible consumers have finished.
 //!
-//! Parts use a static row grid independent of stored layout boundaries. As with DataFusion's
-//! file partitions, the shared chunk planner clips its chunks to each part. A large filtered
-//! chunk must not limit the number of workers that can scan a file.
+//! Parts use a static row grid, except a single projected string column can preserve whole
+//! dictionary regions. This lets workers evaluate dictionary expressions without duplicating
+//! them across assignment boundaries. Large regions still split to keep enough workers busy.
 
 use std::collections::VecDeque;
 use std::future;
@@ -51,8 +51,7 @@ use vortex::scan::planning::planner::WorkScope;
 use crate::RUNTIME;
 
 /// The parts of a file's rows per thread, so threads that finish early find more work.
-// Keep enough assignments to absorb skew in per-row work, such as string expressions.
-const PARTS_PER_THREAD: usize = 16;
+const PARTS_PER_THREAD: usize = 4;
 /// Avoid tiny worker assignments while allowing filtered chunks to use multiple workers.
 const MIN_ROWS_PER_PART: u64 = 65_536;
 /// Bound assignments even when the input already has enough files to fill the worker pool.
@@ -111,7 +110,23 @@ impl FileScan {
             chunks.retain(|chunk| selection.row_count_in_range(chunk) > 0);
             chunks
         } else {
-            parts(scan.rows().clone(), parts_per_file)
+            let parts = parts(scan.rows().clone(), parts_per_file);
+            match scan.string_dictionary_chunks()? {
+                Some(chunks) => {
+                    let aligned = dictionary_parts(chunks);
+                    tracing::debug!(
+                        parts = parts.len(),
+                        dictionary_parts = aligned.len(),
+                        "DuckDB V2 dictionary assignments"
+                    );
+                    if aligned.len() >= parts.len() {
+                        aligned
+                    } else {
+                        parts
+                    }
+                }
+                None => parts,
+            }
         };
         let work = plan_parts(
             &scan,
@@ -328,25 +343,56 @@ fn parts(rows: Range<u64>, count: usize) -> Vec<Range<u64>> {
     parts
 }
 
+/// Coalesces small dictionaries without cutting them. Oversized dictionaries retain the
+/// driver's maximum assignment size, and the caller retains the required parallelism.
+fn dictionary_parts(chunks: Vec<Range<u64>>) -> Vec<Range<u64>> {
+    let mut result: Vec<Range<u64>> = Vec::new();
+    for chunk in chunks {
+        for chunk in parts(chunk, 1) {
+            if let Some(last) = result.last_mut()
+                && last.end - last.start < MIN_ROWS_PER_PART
+                && chunk.end - last.start <= MAX_ROWS_PER_PART as u64
+            {
+                last.end = chunk.end;
+            } else {
+                result.push(chunk);
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
 
     use rstest::rstest;
 
+    use super::dictionary_parts;
     use super::parts;
     use super::parts_per_file;
 
+    #[test]
+    fn dictionary_assignments_preserve_regions_and_bound_large_dictionaries() {
+        assert_eq!(
+            dictionary_parts(vec![0..30_000, 30_000..70_000, 70_000..100_000]),
+            vec![0..70_000, 70_000..100_000]
+        );
+        assert_eq!(
+            dictionary_parts(vec![0..2_000_000]),
+            vec![0..1_048_576, 1_048_576..2_000_000]
+        );
+    }
+
     #[rstest]
-    #[case(8, 1, 128)]
-    #[case(8, 4, 32)]
-    #[case(8, 8, 16)]
-    #[case(8, 32, 4)]
-    #[case(8, 100, 2)]
-    #[case(32, 100, 6)]
-    #[case(96, 100, 16)]
+    #[case(8, 1, 32)]
+    #[case(8, 4, 8)]
+    #[case(8, 8, 4)]
+    #[case(8, 32, 1)]
+    #[case(8, 100, 1)]
+    #[case(96, 100, 4)]
     #[case(1, 100, 1)]
-    #[case(0, 0, 16)]
+    #[case(0, 0, 4)]
     fn work_accounts_for_threads_and_files(
         #[case] threads: usize,
         #[case] files: usize,
