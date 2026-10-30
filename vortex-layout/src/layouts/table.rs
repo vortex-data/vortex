@@ -212,13 +212,14 @@ impl TableStrategy {
 
     /// Build the [`ListLayoutStrategy`] used to write a list field stream at this level.
     ///
-    /// The `elements` sub-column is routed back through a clean descended dispatcher so nested
-    /// structs/lists recurse; `offsets` go straight to the leaf (they are always a primitive
-    /// column); and `validity` uses the shared validity strategy.
+    /// The `elements` sub-column is routed back through a dispatcher descended into
+    /// [`Field::ElementType`], so nested structs/lists recurse and overrides below the list still
+    /// apply; `offsets` go straight to the leaf (they are always a primitive column); and
+    /// `validity` uses the shared validity strategy.
     fn list_strategy(&self) -> Option<Arc<dyn LayoutStrategy>> {
         let factory = self.list_layout_factory.as_ref()?;
         let list_layout = ListLayoutStrategy::default()
-            .with_elements(Arc::new(self.descend_clean()))
+            .with_elements(Arc::new(self.descend(&Field::ElementType)))
             .with_offsets(Arc::clone(&self.leaf))
             .with_validity(Arc::clone(&self.validity))
             .with_fallback(Arc::clone(&self.leaf));
