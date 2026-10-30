@@ -14,7 +14,7 @@ Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
 matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
 compares the two record files.
 
-It connects as the read-only `bench_pr_read` Postgres user, with an RDS IAM token minted
+It connects as the read-only `bench_ci_read` Postgres user, with an RDS IAM token minted
 (by `post-ingest.py`'s token helper) from the AWS credentials of the assumed
 `GH_BENCH_READ_ROLE_ARN` role, over verify-full TLS. The session is read-only.
 """

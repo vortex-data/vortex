@@ -4,7 +4,7 @@
 name: "Fetch benchmark baseline"
 description: >-
   Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres: assume the
-  read-only benchmarks role over OIDC and sign in as bench_pr_read with an RDS IAM token. If the
+  read-only benchmarks role over OIDC and sign in as bench_ci_read with an RDS IAM token. If the
   role cannot be assumed, it writes no baseline and the report says the baseline could not be read.
 
 inputs:
@@ -64,7 +64,7 @@ runs:
         fi
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
-        DSN="postgresql://bench_pr_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
+        DSN="postgresql://bench_ci_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
         if ! uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
             --postgres "$DSN" --region "$AWS_REGION"; then
           echo "::warning::Could not read the baseline from the benchmarks database; reporting without a baseline."
