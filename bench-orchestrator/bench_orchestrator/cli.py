@@ -3,6 +3,7 @@
 
 """CLI for benchmark orchestration."""
 
+import functools
 import json
 import os
 import subprocess
@@ -34,7 +35,9 @@ from .config import (
     resolve_axis_targets,
 )
 from .runner.builder import BenchmarkBuilder
+from .runner.datagen import DataGenJob, data_gen_command, run_data_gen_jobs
 from .runner.executor import BenchmarkExecutor
+from .slt import SLT_DATASETS, SltDataset, install_fixtures, remove_stale_vortex
 from .storage.store import ResultStore
 
 app = typer.Typer(
@@ -196,7 +199,7 @@ def write_result_line(
 
 @app.command("prepare-data")
 def prepare_data(
-    benchmark: Annotated[Benchmark, typer.Argument(help="Benchmark suite to prepare data for")],
+    benchmarks: Annotated[list[Benchmark], typer.Argument(help="Benchmark suites to prepare data for")],
     format: Annotated[
         str | None,
         typer.Option("--format", "-f", help="Formats to generate (comma-separated)"),
@@ -205,6 +208,7 @@ def prepare_data(
         str | None,
         typer.Option("--formats-json", help="Exact data formats to generate as a JSON array"),
     ] = None,
+    parallel: Annotated[bool, typer.Option("--parallel", help="Generate the benchmarks' data concurrently")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Benchmark-specific options")] = None,
 ) -> None:
@@ -230,20 +234,68 @@ def prepare_data(
         console.print("Build benchmark binaries before running prepare-data")
         raise typer.Exit(1)
 
-    cmd = [str(binary_path), benchmark.value, "--formats", ",".join(fmt.value for fmt in formats)]
-    if verbose:
-        cmd.append("--verbose")
-    for key, value in bench_opts.items():
-        cmd.extend(["--opt", f"{key}={value}"])
+    jobs = [
+        DataGenJob(
+            name=benchmark.value,
+            cmd=data_gen_command(binary_path, benchmark.value, [fmt.value for fmt in formats], bench_opts, verbose),
+        )
+        for benchmark in dict.fromkeys(benchmarks)
+    ]
+    if run_data_gen_jobs(jobs, parallel=parallel, verbose=verbose):
+        raise typer.Exit(1)
 
-    if verbose:
-        console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as exc:
-        console.print(f"[red]Data generation failed: {exc}[/red]")
-        raise typer.Exit(1) from exc
+@app.command("prepare-slt")
+def prepare_slt(
+    datasets: Annotated[
+        list[SltDataset] | None,
+        typer.Argument(help="Datasets to generate (default: all)"),
+    ] = None,
+    parallel: Annotated[bool, typer.Option("--parallel", help="Generate the datasets concurrently")] = False,
+    build: Annotated[bool, typer.Option("--build/--no-build", help="Build data-gen before generating")] = True,
+    profile: Annotated[str, typer.Option("--profile", help="Cargo profile of the data-gen binary")] = "release",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
+) -> None:
+    """Generate the git-ignored fixtures of the vortex-sqllogictest generated-data suites.
+
+    Each dataset is generated with data-gen, like the benchmarks, and copied into
+    vortex-sqllogictest/slt/<dataset>/data/.
+    """
+    selected = list(dict.fromkeys(datasets or SltDataset))
+    # No benchmark RUSTFLAGS, so data-gen shares build artifacts with `cargo test`.
+    builder = BenchmarkBuilder(config=BuildConfig(profile=profile, rustflags=""), verbose=verbose)
+    workspace_root = builder.workspace_root
+
+    if build:
+        try:
+            binary_path = builder.build_data_generator()
+        except subprocess.CalledProcessError as exc:
+            console.print(f"[red]Failed to build data-gen: {exc}[/red]")
+            raise typer.Exit(1) from exc
+    else:
+        binary_path = builder.get_data_generator_path()
+        if not binary_path.exists():
+            console.print(f"[red]Binary not found: {binary_path}[/red]")
+            raise typer.Exit(1)
+
+    jobs = []
+    for dataset in selected:
+        spec = SLT_DATASETS[dataset]
+        jobs.append(
+            DataGenJob(
+                name=dataset.value,
+                cmd=data_gen_command(binary_path, spec.benchmark.value, list(spec.formats), spec.options, verbose),
+                before=functools.partial(remove_stale_vortex, workspace_root, spec),
+                after=functools.partial(install_fixtures, workspace_root, dataset),
+            )
+        )
+
+    # data-gen finds its data directory from the working directory.
+    failed = run_data_gen_jobs(jobs, parallel=parallel, cwd=workspace_root, verbose=verbose)
+    if failed:
+        console.print(f"[red]SLT data generation failed for: {', '.join(failed)}[/red]")
+        raise typer.Exit(1)
+    console.print("[green]SLT fixtures are ready[/green]")
 
 
 @app.command("matrix")

@@ -38,6 +38,20 @@ class BenchmarkBuilder:
         """Get path to the built benchmark data generator binary."""
         return self.workspace_root / "target" / self.config.profile / "data-gen"
 
+    def build_data_generator(self) -> Path:
+        """Build the benchmark data generator binary and return its path."""
+        cmd = ["cargo", "build", "--package", "vortex-bench", "--bin", "data-gen", "--profile", self.config.profile]
+        env = os.environ.copy()
+        if self.config.rustflags:
+            env["RUSTFLAGS"] = self.config.rustflags
+
+        console.print("[blue]Building data-gen...[/blue]")
+        if self.verbose:
+            console.print(f"[dim]$ RUSTFLAGS='{env.get('RUSTFLAGS', '')}' {' '.join(cmd)}[/dim]")
+        subprocess.run(cmd, cwd=self.workspace_root, env=env, check=True)
+        console.print("[green]Built data-gen[/green]")
+        return self.get_data_generator_path()
+
     def build(self, backends: list[Engine]) -> dict[Engine, Path]:
         """Build binaries for specified engines, return paths."""
         results: dict[Engine, Path] = {}
