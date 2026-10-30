@@ -126,6 +126,25 @@ impl RemoteDataDir {
         &self.store
     }
 
+    /// Key beneath the configured remote prefix, independent of any local directory.
+    pub fn object_key(&self, relative: &str) -> ObjectStorePath {
+        ObjectStorePath::from(format!("{}/{relative}", self.url.path()))
+    }
+
+    /// URI for an already resolved key in this bucket.
+    pub fn object_uri(&self, key: &ObjectStorePath) -> Result<String> {
+        let bucket = self
+            .url
+            .host_str()
+            .ok_or_else(|| anyhow!("Missing bucket"))?;
+        let mut url = Url::parse(&format!("{}://{bucket}/", self.url.scheme()))?;
+        url.path_segments_mut()
+            .map_err(|_| anyhow!("URL cannot hold object keys"))?
+            .clear()
+            .extend(key.as_ref().split('/'));
+        Ok(url.into())
+    }
+
     /// The object key of `local_path`, mirroring its location under the local data directory.
     pub fn key(&self, local_path: &Path) -> Result<ObjectStorePath> {
         let relative = local_path.strip_prefix(data_dir()).map_err(|_| {

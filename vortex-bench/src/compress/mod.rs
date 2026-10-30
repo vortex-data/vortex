@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,6 +18,9 @@ use arrow_schema::Schema;
 use async_trait::async_trait;
 use bytes::Bytes;
 use clap::ValueEnum;
+use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
+use object_store::path::Path as ObjectPath;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde::Serialize;
 use tempfile::NamedTempFile;
@@ -28,6 +32,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 use crate::Format;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::CustomUnitMeasurement;
+use crate::random_access::RemoteDataDir;
 
 /// Number of top-level columns in the wide-table decompression projection benchmark.
 pub const READ_PROJECTION_ROOT_COLUMNS: usize = 100_000;
@@ -180,6 +185,171 @@ pub enum CompressedData {
     File(NamedTempFile),
     /// Directory of files on disk.
     Dir(TempDir),
+    /// Immutable directory retained by an explicit remote-fixture cache.
+    CachedDir(PathBuf),
+    /// Object-store output used by an end-to-end read/decode benchmark.
+    Remote(RemoteCompressed),
+}
+
+/// Compressed fixture uploaded before timing; reads happen inside each timed iteration.
+pub struct RemoteCompressed {
+    /// Client shared across iterations; decoded bytes are never cached here.
+    pub store: Arc<dyn ObjectStore>,
+    /// File key, or the root of a directory-format dataset.
+    pub key: ObjectPath,
+    /// Fully qualified URI, used by formats with their own native remote reader.
+    pub uri: String,
+    /// Whether this fixture is a directory-format dataset.
+    pub directory: bool,
+}
+
+impl Compressed {
+    /// Reads an immutable fixture cache shared by real and model runs.
+    pub fn from_cache(path: &Path) -> Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let manifest: serde_json::Value =
+            serde_json::from_reader(File::open(path.join("manifest.json"))?)?;
+        anyhow::ensure!(manifest["version"] == 1, "Unsupported fixture cache");
+        let size = manifest["size"]
+            .as_u64()
+            .context("Missing fixture byte size")?;
+        let data = if manifest["directory"]
+            .as_bool()
+            .context("Missing fixture kind")?
+        {
+            CompressedData::CachedDir(path.join("data"))
+        } else {
+            CompressedData::Bytes(Bytes::from(std::fs::read(path.join("data"))?))
+        };
+        Ok(Some(Self {
+            data,
+            size,
+            elapsed: Duration::ZERO,
+        }))
+    }
+
+    /// Publishes a complete fixture atomically; failed preparation never leaves a reusable cache.
+    pub fn write_cache(&self, path: &Path) -> Result<()> {
+        let parent = path
+            .parent()
+            .context("Fixture cache needs a parent directory")?;
+        std::fs::create_dir_all(parent)?;
+        let temporary = tempfile::tempdir_in(parent)?;
+        let target = temporary.path().join("data");
+        let directory = match &self.data {
+            CompressedData::Bytes(bytes) => {
+                std::fs::write(&target, bytes)?;
+                false
+            }
+            CompressedData::File(file) => {
+                std::fs::copy(file.path(), &target)?;
+                false
+            }
+            CompressedData::Dir(_) | CompressedData::CachedDir(_) => {
+                let source = match &self.data {
+                    CompressedData::Dir(root) => root.path(),
+                    CompressedData::CachedDir(root) => root.as_path(),
+                    _ => unreachable!(),
+                };
+                std::fs::create_dir_all(&target)?;
+                let mut directories = vec![source.to_path_buf()];
+                while let Some(directory) = directories.pop() {
+                    for entry in std::fs::read_dir(&directory)? {
+                        let entry = entry?;
+                        let destination = target.join(entry.path().strip_prefix(source)?);
+                        if entry.file_type()?.is_dir() {
+                            std::fs::create_dir_all(&destination)?;
+                            directories.push(entry.path());
+                        } else {
+                            anyhow::ensure!(
+                                entry.file_type()?.is_file(),
+                                "Fixture cache requires regular files"
+                            );
+                            std::fs::create_dir_all(
+                                destination.parent().context("Missing parent")?,
+                            )?;
+                            std::fs::copy(entry.path(), destination)?;
+                        }
+                    }
+                }
+                true
+            }
+            CompressedData::Remote(_) => bail!("Cache the local compressed fixture before upload"),
+        };
+        std::fs::write(
+            temporary.path().join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1, "size": self.size, "directory": directory,
+            }))?,
+        )?;
+        std::fs::rename(temporary.path(), path)?;
+        Ok(())
+    }
+
+    /// Uploads a fixture verbatim outside the read/decode timer.
+    pub async fn upload(&self, remote: &RemoteDataDir, prefix: &str) -> Result<Self> {
+        let base = remote.object_key(prefix);
+        let (key, directory) = match &self.data {
+            CompressedData::Bytes(bytes) => {
+                let key = base.join("data");
+                remote.store().put(&key, bytes.clone().into()).await?;
+                (key, false)
+            }
+            CompressedData::File(file) => {
+                let key = base.join("data");
+                remote
+                    .store()
+                    .put(&key, tokio::fs::read(file.path()).await?.into())
+                    .await?;
+                (key, false)
+            }
+            CompressedData::Dir(_) | CompressedData::CachedDir(_) => {
+                let root = match &self.data {
+                    CompressedData::Dir(root) => root.path(),
+                    CompressedData::CachedDir(root) => root.as_path(),
+                    _ => unreachable!(),
+                };
+                let mut directories = vec![root.to_path_buf()];
+                while let Some(directory) = directories.pop() {
+                    for entry in std::fs::read_dir(directory)? {
+                        let entry = entry?;
+                        if entry.file_type()?.is_dir() {
+                            directories.push(entry.path());
+                        } else {
+                            anyhow::ensure!(
+                                entry.file_type()?.is_file(),
+                                "Compressed fixtures require regular files"
+                            );
+                            let path = entry.path();
+                            let relative = path
+                                .strip_prefix(root)?
+                                .to_str()
+                                .context("Non-UTF-8 fixture path")?;
+                            let key = relative.split('/').fold(base.clone(), ObjectPath::join);
+                            remote
+                                .store()
+                                .put(&key, tokio::fs::read(path).await?.into())
+                                .await?;
+                        }
+                    }
+                }
+                (base.join("dataset"), true)
+            }
+            CompressedData::Remote(_) => bail!("Compressed fixture has already been uploaded"),
+        };
+        Ok(Self {
+            data: CompressedData::Remote(RemoteCompressed {
+                uri: remote.object_uri(&key)?,
+                key,
+                directory,
+                store: Arc::clone(remote.store()),
+            }),
+            size: self.size,
+            elapsed: self.elapsed,
+        })
+    }
 }
 
 /// Output of one compression run: the compressed data, its size and the compression time.
@@ -237,6 +407,24 @@ pub trait Compressor: Send + Sync {
     /// Format implementations apply the fixed wide-table read projection when the input schema
     /// matches the projection benchmark.
     async fn decompress(&self, compressed: &Compressed) -> Result<Duration>;
+
+    /// Time a full object GET followed by decoding, including read and open costs.
+    /// Directory formats override this with their native remote scanner.
+    async fn decompress_remote(&self, remote: &RemoteCompressed) -> Result<Duration> {
+        anyhow::ensure!(
+            !remote.directory,
+            "This format needs a native remote directory reader"
+        );
+        let start = std::time::Instant::now();
+        let bytes = remote.store.get(&remote.key).await?.bytes().await?;
+        self.decompress(&Compressed {
+            size: bytes.len() as u64,
+            data: CompressedData::Bytes(bytes),
+            elapsed: Duration::ZERO,
+        })
+        .await?;
+        Ok(start.elapsed())
+    }
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -303,7 +491,10 @@ pub async fn benchmark_decompress(
     let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
-        let elapsed = compressor.decompress(compressed).await?;
+        let elapsed = match &compressed.data {
+            CompressedData::Remote(remote) => compressor.decompress_remote(remote).await?,
+            _ => compressor.decompress(compressed).await?,
+        };
 
         fastest = fastest.min(elapsed);
         all_runs.push(elapsed);
@@ -429,7 +620,108 @@ fn calculate_vortex_lance_ratios(
 mod tests {
     use std::time::Duration;
 
+    use object_store::memory::InMemory;
+    use object_store::throttle::ThrottleConfig;
+    use object_store::throttle::ThrottledStore;
+
     use super::*;
+
+    struct BytesDecoder;
+
+    #[test]
+    fn fixture_cache_preserves_file_images_and_directory_layouts() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let file_path = directory.path().join("file");
+        assert!(Compressed::from_cache(&file_path)?.is_none());
+        Compressed {
+            data: CompressedData::Bytes(Bytes::from_static(b"encoded bytes")),
+            size: 13,
+            elapsed: Duration::ZERO,
+        }
+        .write_cache(&file_path)?;
+        let cached = Compressed::from_cache(&file_path)?.context("Missing cached fixture")?;
+        let CompressedData::Bytes(bytes) = cached.data else {
+            bail!("Wrong cached fixture kind")
+        };
+        assert_eq!(bytes.as_ref(), b"encoded bytes");
+
+        let source = tempfile::tempdir()?;
+        std::fs::create_dir_all(source.path().join("dataset/data"))?;
+        std::fs::write(
+            source.path().join("dataset/data/uuid.lance"),
+            b"encoded Lance file",
+        )?;
+        let path = directory.path().join("lance");
+        Compressed {
+            data: CompressedData::Dir(source),
+            size: 18,
+            elapsed: Duration::ZERO,
+        }
+        .write_cache(&path)?;
+        let cached = Compressed::from_cache(&path)?.context("Missing cached directory")?;
+        let CompressedData::CachedDir(root) = cached.data else {
+            bail!("Wrong cached fixture kind")
+        };
+        assert_eq!(
+            std::fs::read(root.join("dataset/data/uuid.lance"))?,
+            b"encoded Lance file"
+        );
+        Ok(())
+    }
+
+    #[async_trait]
+    impl Compressor for BytesDecoder {
+        fn format(&self) -> Format {
+            Format::ArrowIpc
+        }
+        async fn load(&self, _: &Path) -> Result<Uncompressed> {
+            bail!("unused in read/decode test")
+        }
+        async fn compress(&self, _: &Uncompressed) -> Result<Compressed> {
+            bail!("unused in read/decode test")
+        }
+        async fn decompress(&self, compressed: &Compressed) -> Result<Duration> {
+            let CompressedData::Bytes(bytes) = &compressed.data else {
+                bail!("Expected fetched bytes")
+            };
+            assert_eq!(bytes.as_ref(), b"compressed fixture");
+            Ok(Duration::ZERO)
+        }
+    }
+
+    #[tokio::test]
+    async fn remote_decode_includes_a_fresh_object_read_in_every_iteration() -> Result<()> {
+        let store = ThrottledStore::new(
+            InMemory::new(),
+            ThrottleConfig {
+                wait_get_per_call: Duration::from_millis(30),
+                ..Default::default()
+            },
+        );
+        let key = ObjectPath::from("fixture");
+        store
+            .put(&key, Bytes::from_static(b"compressed fixture").into())
+            .await?;
+        let compressed = Compressed {
+            size: 18,
+            elapsed: Duration::ZERO,
+            data: CompressedData::Remote(RemoteCompressed {
+                store: Arc::new(store),
+                key,
+                uri: "memory://fixture".to_string(),
+                directory: false,
+            }),
+        };
+        let result = benchmark_decompress(&BytesDecoder, &compressed, 3, "read+decode").await?;
+        assert_eq!(result.all_runs.len(), 3);
+        assert!(
+            result
+                .all_runs
+                .iter()
+                .all(|elapsed| *elapsed >= Duration::from_millis(30))
+        );
+        Ok(())
+    }
 
     #[test]
     fn calculate_ratios_adds_vortex_lance_metrics() {

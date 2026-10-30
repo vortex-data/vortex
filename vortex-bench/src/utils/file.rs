@@ -195,7 +195,7 @@ pub fn url_scheme_to_storage(url: &Url) -> Result<String> {
     use super::constants::STORAGE_S3;
 
     match url.scheme() {
-        STORAGE_S3 => Ok(STORAGE_S3.to_owned()),
+        STORAGE_S3 => Ok(crate::s3::storage_name().to_owned()),
         "gs" => Ok(STORAGE_GCS.to_owned()),
         "file" => Ok(STORAGE_NVME.to_owned()),
         otherwise => {
