@@ -20,7 +20,7 @@ jobs:
           - name: baseline
             ami: ami-098c62767651982c5
           - name: candidate
-            ami: ami-0f952218b8fa14efb
+            ami: ami-0fdc1219767bbab8f
     runs-on: >-
       runs-on=${{ github.run_id }}/runner=bench-dedicated/family=m8gd.8xlarge/ami=${{ matrix.image.ami }}/volume=100gb:gp3/extras=s3-cache/tag=ami-canary-${{ matrix.image.name }}
     steps:
@@ -43,6 +43,9 @@ jobs:
           test "$(rustc --version | cut -d ' ' -f 2)" = "1.99.1"
           python3.11 -c 'import ssl, sqlite3; print("Python SSL and SQLite OK")'
           ninja --version
+          aws --version
+          command -v mdadm
+          java -version
           mold --version
           pkg-config --modversion openssl
       - name: Run Vortex buffer tests
