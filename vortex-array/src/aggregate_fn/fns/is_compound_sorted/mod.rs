@@ -98,15 +98,15 @@ pub enum SortDirection {
     Desc,
 }
 
-/// Options for [`SortOrder`].
+/// Options for [`IsCompoundSorted`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SortOrderOptions {
+pub struct IsCompoundSortedOptions {
     /// Top-level struct fields and their directions, in priority order.
     /// Currently only ascending directions are supported.
     pub fields: Vec<(FieldName, SortDirection)>,
 }
 
-impl SortOrderOptions {
+impl IsCompoundSortedOptions {
     /// Declare a lexicographic ordering over the given fields.
     pub fn new(fields: impl IntoIterator<Item = (impl Into<FieldName>, SortDirection)>) -> Self {
         Self {
@@ -129,7 +129,7 @@ impl SortOrderOptions {
         for (name, direction) in &self.fields {
             vortex_ensure!(
                 *direction == SortDirection::Asc,
-                "SortOrder currently supports ASC only"
+                "IsCompoundSorted currently supports ASC only"
             );
             vortex_ensure!(seen.insert(name), "Duplicate sort field: {}", name);
         }
@@ -145,7 +145,7 @@ impl SortOrderOptions {
 
         let fields = dtype
             .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("SortOrder requires a struct input"))?;
+            .ok_or_else(|| vortex_err!("IsCompoundSorted requires a struct input"))?;
 
         for (name, _) in &self.fields {
             let dtype = fields.field(name).ok_or_else(|| {
@@ -225,7 +225,7 @@ impl SortOrderOptions {
     }
 }
 
-impl Display for SortOrderOptions {
+impl Display for IsCompoundSortedOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for (index, (name, direction)) in self.fields.iter().enumerate() {
             if index > 0 {
@@ -249,7 +249,7 @@ impl Display for SortOrderOptions {
 /// `sort_fields` are the key columns in priority order, all the same length (at least
 /// 2 rows), and there must be at least one. Only rows *within* the batch are compared.
 /// The seam with the previous batch is checked separately by
-/// [`SortOrderOptions::compare_sort_keys`].
+/// [`IsCompoundSortedOptions::compare_sort_keys`].
 ///
 /// # How it works
 ///
@@ -347,7 +347,7 @@ fn check_chunk_sortedness(sort_fields: &[ArrayRef], ctx: &mut ExecutionCtx) -> V
 
         // Otherwise, this field only constrains pairs tied on all earlier fields.
         if !all_pairs_tied {
-            // Given that `SortOrder` uses only `ASC` and `NULLS` first,
+            // Given that `IsCompoundSorted` uses only `ASC` and `NULLS` first,
             // a valid value followed by null is also a violation.
             let null_violation = &previous_valid & &!&next_valid;
             let out_of_order = previous
@@ -388,17 +388,17 @@ fn check_chunk_sortedness(sort_fields: &[ArrayRef], ctx: &mut ExecutionCtx) -> V
 /// It is not `strict`, so equal row keys are allowed. Only `ASC` is supported for now,
 /// DESC remains reserved in the options.
 #[derive(Clone, Debug)]
-pub struct SortOrder;
+pub struct IsCompoundSorted;
 
-/// Running verdict and boundary keys for [`SortOrder`].
-pub struct SortOrderPartial {
+/// Running verdict and boundary keys for [`IsCompoundSorted`].
+pub struct IsCompoundSortedPartial {
     sorted: bool,
     // None means no rows. A row whose key fields are null still has a non-null key tuple.
     first: Option<Scalar>,
     last: Option<Scalar>,
 }
 
-impl SortOrderPartial {
+impl IsCompoundSortedPartial {
     /// The state of a group with no accumulated values.
     fn empty() -> Self {
         Self {
@@ -412,28 +412,28 @@ impl SortOrderPartial {
 static NAMES: LazyLock<FieldNames> =
     LazyLock::new(|| FieldNames::from(["is_sorted", "first", "last"]));
 
-impl AggregateFnVTable for SortOrder {
-    type Options = SortOrderOptions;
-    type Partial = SortOrderPartial;
+impl AggregateFnVTable for IsCompoundSorted {
+    type Options = IsCompoundSortedOptions;
+    type Partial = IsCompoundSortedPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.sort_order");
+        static ID: CachedId = CachedId::new("vortex.is_compound_sorted");
         *ID
     }
 
-    /// Serializes [`SortOrderOptions`] as protobuf.
+    /// Serializes [`IsCompoundSortedOptions`] as protobuf.
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         options.validate_fields()?;
         Ok(Some(
-            pb::SortOrderOpts {
+            pb::IsCompoundSortedOpts {
                 fields: options
                     .fields
                     .iter()
-                    .map(|(name, direction)| pb::sort_order_opts::SortField {
+                    .map(|(name, direction)| pb::is_compound_sorted_opts::SortField {
                         name: name.to_string(),
                         direction: match direction {
-                            SortDirection::Asc => pb::sort_order_opts::SortDirection::Asc,
-                            SortDirection::Desc => pb::sort_order_opts::SortDirection::Desc,
+                            SortDirection::Asc => pb::is_compound_sorted_opts::SortDirection::Asc,
+                            SortDirection::Desc => pb::is_compound_sorted_opts::SortDirection::Desc,
                         } as i32,
                     })
                     .collect(),
@@ -442,26 +442,26 @@ impl AggregateFnVTable for SortOrder {
         ))
     }
 
-    /// Deserializes [`SortOrderOptions`] from protobuf.
+    /// Deserializes [`IsCompoundSortedOptions`] from protobuf.
     fn deserialize(
         &self,
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        let proto = pb::SortOrderOpts::decode(metadata)?;
+        let proto = pb::IsCompoundSortedOpts::decode(metadata)?;
         let fields = proto
             .fields
             .into_iter()
             .map(|field| {
-                let direction = match pb::sort_order_opts::SortDirection::try_from(field.direction)?
-                {
-                    pb::sort_order_opts::SortDirection::Asc => SortDirection::Asc,
-                    pb::sort_order_opts::SortDirection::Desc => SortDirection::Desc,
-                };
+                let direction =
+                    match pb::is_compound_sorted_opts::SortDirection::try_from(field.direction)? {
+                        pb::is_compound_sorted_opts::SortDirection::Asc => SortDirection::Asc,
+                        pb::is_compound_sorted_opts::SortDirection::Desc => SortDirection::Desc,
+                    };
                 Ok((field.name, direction))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let options = SortOrderOptions::new(fields);
+        let options = IsCompoundSortedOptions::new(fields);
         options.validate_fields()?;
         Ok(options)
     }
@@ -487,7 +487,7 @@ impl AggregateFnVTable for SortOrder {
         &self,
         _args: AggregateArgs<'_, Self::Options>,
     ) -> VortexResult<Self::Partial> {
-        Ok(SortOrderPartial::empty())
+        Ok(IsCompoundSortedPartial::empty())
     }
 
     fn partial_from_scalar(
@@ -497,7 +497,7 @@ impl AggregateFnVTable for SortOrder {
     ) -> VortexResult<Self::Partial> {
         // A null struct means the producing accumulator was empty.
         if scalar.is_null() {
-            return Ok(SortOrderPartial::empty());
+            return Ok(IsCompoundSortedPartial::empty());
         }
 
         let fields = scalar.as_struct();
@@ -509,7 +509,7 @@ impl AggregateFnVTable for SortOrder {
             "Non-empty sortedness partials require boundary keys"
         );
 
-        Ok(SortOrderPartial {
+        Ok(IsCompoundSortedPartial {
             sorted: fields
                 .field_by_idx(0)
                 .vortex_expect("sorted verdict")
@@ -610,7 +610,7 @@ impl AggregateFnVTable for SortOrder {
             .partial_dtype
             .as_struct_fields_opt()
             .and_then(|fields| fields.field_by_index(1))
-            .vortex_expect("SortOrder partial contains the first key dtype");
+            .vortex_expect("IsCompoundSorted partial contains the first key dtype");
 
         let first = Scalar::struct_(
             key_dtype.clone(),
@@ -657,7 +657,7 @@ impl AggregateFnVTable for SortOrder {
         _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        unreachable!("SortOrder::try_accumulate handles all arrays")
+        unreachable!("IsCompoundSorted::try_accumulate handles all arrays")
     }
 
     fn finalize(
@@ -693,9 +693,9 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
+    use super::IsCompoundSorted;
+    use super::IsCompoundSortedOptions;
     use super::SortDirection;
-    use super::SortOrder;
-    use super::SortOrderOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -738,8 +738,8 @@ mod tests {
         .into_array())
     }
 
-    fn order_line_options() -> SortOrderOptions {
-        SortOrderOptions::new([
+    fn order_line_options() -> IsCompoundSortedOptions {
+        IsCompoundSortedOptions::new([
             ("order_id", SortDirection::Asc),
             ("line_item_id", SortDirection::Asc),
         ])
@@ -791,14 +791,15 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = order_lines(&[])?.dtype().clone();
         let options = order_line_options();
-        let mut accumulator = Accumulator::try_new(SortOrder, options.clone(), dtype.clone())?;
+        let mut accumulator =
+            Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
 
         for chunk in chunks {
             let array = order_lines(&chunk)?;
 
             if combine_partials {
                 let mut batch_accumulator =
-                    Accumulator::try_new(SortOrder, options.clone(), dtype.clone())?;
+                    Accumulator::try_new(IsCompoundSorted, options.clone(), dtype.clone())?;
                 batch_accumulator.accumulate(&array, &mut ctx)?;
                 let partial = batch_accumulator.partial_scalar()?;
 
@@ -835,7 +836,7 @@ mod tests {
     ) -> VortexResult<()> {
         check_batches(
             order_lines(&values)?,
-            SortOrderOptions::new([
+            IsCompoundSortedOptions::new([
                 ("line_item_id", SortDirection::Asc),
                 ("order_id", SortDirection::Asc),
             ]),
@@ -862,7 +863,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([("order_id", SortDirection::Asc)]),
+            IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]),
             one_row_batches,
             expected,
         )
@@ -870,12 +871,13 @@ mod tests {
 
     fn check_batches(
         array: ArrayRef,
-        options: SortOrderOptions,
+        options: IsCompoundSortedOptions,
         one_row_batches: bool,
         expected: bool,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut accumulator = Accumulator::try_new(SortOrder, options, array.dtype().clone())?;
+        let mut accumulator =
+            Accumulator::try_new(IsCompoundSorted, options, array.dtype().clone())?;
 
         if one_row_batches {
             for index in 0..array.len() {
@@ -928,7 +930,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([("price", SortDirection::Asc)]),
+            IsCompoundSortedOptions::new([("price", SortDirection::Asc)]),
             one_row_batches,
             expected,
         )
@@ -963,7 +965,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([
+            IsCompoundSortedOptions::new([
                 ("customer_id", SortDirection::Asc),
                 ("order_id", SortDirection::Asc),
                 ("line_item_id", SortDirection::Asc),
@@ -989,7 +991,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([
+            IsCompoundSortedOptions::new([
                 ("price", SortDirection::Asc),
                 ("line_item_id", SortDirection::Asc),
             ]),
@@ -1007,7 +1009,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([("order_id", SortDirection::Asc)]),
+            IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]),
             false,
             expected,
         )
@@ -1016,15 +1018,15 @@ mod tests {
     #[test]
     fn options_roundtrip() -> VortexResult<()> {
         let options = order_line_options();
-        let bytes = SortOrder
+        let bytes = IsCompoundSorted
             .serialize(&options)?
             .vortex_expect("serializable options");
 
-        assert_eq!(SortOrder.deserialize(&bytes, &SESSION)?, options);
+        assert_eq!(IsCompoundSorted.deserialize(&bytes, &SESSION)?, options);
         assert_eq!(options.to_string(), "order_id ASC, line_item_id ASC");
 
         assert!(
-            SortOrder
+            IsCompoundSorted
                 .zone_stat_default(&DType::from(crate::dtype::PType::I32))
                 .is_none()
         );
@@ -1039,10 +1041,10 @@ mod tests {
     #[case::descending_primary(vec![("order_id", 1), ("line_item_id", 0)])]
     #[case::descending_secondary(vec![("order_id", 0), ("line_item_id", 1)])]
     fn invalid_serialized_options_are_rejected(#[case] fields: Vec<(&str, i32)>) {
-        let bytes = pb::SortOrderOpts {
+        let bytes = pb::IsCompoundSortedOpts {
             fields: fields
                 .into_iter()
-                .map(|(name, direction)| pb::sort_order_opts::SortField {
+                .map(|(name, direction)| pb::is_compound_sorted_opts::SortField {
                     name: name.into(),
                     direction,
                 })
@@ -1050,7 +1052,7 @@ mod tests {
         }
         .encode_to_vec();
 
-        assert!(SortOrder.deserialize(&bytes, &SESSION).is_err());
+        assert!(IsCompoundSorted.deserialize(&bytes, &SESSION).is_err());
     }
 
     #[rstest]
@@ -1060,17 +1062,17 @@ mod tests {
     fn invalid_keys_are_rejected(#[case] fields: Vec<&str>) -> VortexResult<()> {
         let dtype = order_lines(&[])?.dtype().clone();
         let options =
-            SortOrderOptions::new(fields.into_iter().map(|name| (name, SortDirection::Asc)));
+            IsCompoundSortedOptions::new(fields.into_iter().map(|name| (name, SortDirection::Asc)));
 
         assert!(options.validate(&dtype).is_err());
-        assert!(Accumulator::try_new(SortOrder, options, dtype).is_err());
+        assert!(Accumulator::try_new(IsCompoundSorted, options, dtype).is_err());
 
         Ok(())
     }
 
     #[test]
     fn unsupported_input_and_field_are_rejected() -> VortexResult<()> {
-        let options = SortOrderOptions::new([("order_id", SortDirection::Asc)]);
+        let options = IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]);
         let primitive_input = buffer![1i32].into_array();
         let nested_input =
             StructArray::from_fields(&[("order_id", order_lines(&[(1, 2)])?)])?.into_array();
@@ -1084,7 +1086,7 @@ mod tests {
     #[test]
     fn descending_is_reserved_but_rejected() -> VortexResult<()> {
         let dtype = order_lines(&[])?.dtype().clone();
-        let options = SortOrderOptions::new([
+        let options = IsCompoundSortedOptions::new([
             ("order_id", SortDirection::Asc),
             ("line_item_id", SortDirection::Desc),
         ]);
@@ -1094,8 +1096,8 @@ mod tests {
 
         assert_eq!(options.to_string(), "order_id ASC, line_item_id DESC");
         assert!(error.to_string().contains("ASC only"));
-        assert!(Accumulator::try_new(SortOrder, options.clone(), dtype).is_err());
-        assert!(SortOrder.serialize(&options).is_err());
+        assert!(Accumulator::try_new(IsCompoundSorted, options.clone(), dtype).is_err());
+        assert!(IsCompoundSorted.serialize(&options).is_err());
 
         Ok(())
     }
@@ -1116,7 +1118,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([
+            IsCompoundSortedOptions::new([
                 ("price", SortDirection::Asc),
                 ("line_item_id", SortDirection::Asc),
             ]),
@@ -1198,7 +1200,7 @@ mod tests {
 
         check_batches(
             array,
-            SortOrderOptions::new([
+            IsCompoundSortedOptions::new([
                 ("order_id", SortDirection::Asc),
                 ("item_value", SortDirection::Asc),
             ]),

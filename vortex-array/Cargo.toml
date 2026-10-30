@@ -375,5 +375,5 @@ name = "run_end_decode_primitive"
 harness = false
 
 [[bench]]
-name = "sort_order"
+name = "is_compound_sorted"
 harness = false

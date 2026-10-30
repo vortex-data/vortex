@@ -31,14 +31,14 @@ pub struct NumericalAggregateOpts {
     #[prost(bool, tag = "1")]
     pub skip_nans: bool,
 }
-/// A declared lexicographic ordering, checked by `vortex.sort_order`.
+/// A declared lexicographic ordering, checked by `vortex.is_compound_sorted`.
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SortOrderOpts {
+pub struct IsCompoundSortedOpts {
     #[prost(message, repeated, tag = "1")]
-    pub fields: ::prost::alloc::vec::Vec<sort_order_opts::SortField>,
+    pub fields: ::prost::alloc::vec::Vec<is_compound_sorted_opts::SortField>,
 }
-/// Nested message and enum types in `SortOrderOpts`.
-pub mod sort_order_opts {
+/// Nested message and enum types in `IsCompoundSortedOpts`.
+pub mod is_compound_sorted_opts {
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
     pub struct SortField {
         #[prost(string, tag = "1")]

@@ -24,9 +24,9 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sort_order::SortDirection;
-use vortex_array::aggregate_fn::fns::sort_order::SortOrder;
-use vortex_array::aggregate_fn::fns::sort_order::SortOrderOptions;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSortedOptions;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::SortDirection;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::BoolArray;
@@ -2568,18 +2568,18 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     Ok(())
 }
 
-/// Assert that `SortOrder` is written in the
+/// Assert that `IsCompoundSorted` is written in the
 /// file stats, and also check that nothing was written
 /// as zone stats.
 #[tokio::test]
-async fn file_footer_contains_sort_order() -> VortexResult<()> {
+async fn file_footer_contains_is_compound_sorted() -> VortexResult<()> {
     let session = VortexSession::empty()
         .with::<EditionSession>()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
-    session.aggregate_fns().register(SortOrder);
+    session.aggregate_fns().register(IsCompoundSorted);
     for declaration in EDITION_DECLARATIONS {
         session.register_edition(declaration)?;
     }
@@ -2594,7 +2594,8 @@ async fn file_footer_contains_sort_order() -> VortexResult<()> {
     )
     .into_array();
 
-    let aggregate = SortOrder.bind(SortOrderOptions::new([("numbers", SortDirection::Asc)]));
+    let aggregate =
+        IsCompoundSorted.bind(IsCompoundSortedOptions::new([("numbers", SortDirection::Asc)]));
 
     // The default strategy skips zone maps beneath nullable structs. Write zones at the
     // root so the assertions below inspect stored zone statistics alongside file statistics.
@@ -2642,13 +2643,13 @@ async fn file_footer_contains_sort_order() -> VortexResult<()> {
         .vortex_expect("the test must write zone maps");
     assert_eq!(zoned.nzones(), 3);
 
-    let sort_order_id = aggregate.id();
+    let is_compound_sorted_id = aggregate.id();
     assert!(
         zoned
             .present_aggregates()
             .iter()
-            .all(|name| !name.starts_with(sort_order_id.as_ref())),
-        "zone metadata must not include any SortOrder aggregate",
+            .all(|name| !name.starts_with(is_compound_sorted_id.as_ref())),
+        "zone metadata must not include any IsCompoundSorted aggregate",
     );
 
     let zones = zoned.slot(1)?.vortex_expect("stored zone statistics");
@@ -2666,8 +2667,8 @@ async fn file_footer_contains_sort_order() -> VortexResult<()> {
         fields
             .names()
             .iter()
-            .all(|name| !name.as_ref().starts_with(sort_order_id.as_ref())),
-        "zone statistics must not contain any SortOrder partial",
+            .all(|name| !name.as_ref().starts_with(is_compound_sorted_id.as_ref())),
+        "zone statistics must not contain any IsCompoundSorted partial",
     );
 
     Ok(())

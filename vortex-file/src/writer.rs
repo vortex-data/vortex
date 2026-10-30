@@ -25,7 +25,7 @@ use vortex_array::ArrayRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::sort_order::SortOrder;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::iter::ArrayIterator;
@@ -307,10 +307,10 @@ impl VortexWriteOptions {
 
         // TODO (joacoc): could this validation be moved out of here?
         //
-        // `SortOrder` supports non-nullable structs, but storing the result requires
+        // `IsCompoundSorted` supports non-nullable structs, but storing the result requires
         // a root statistics entry, and the current file-stats layout omits it.
         for aggregate in self.file_statistics.iter().flatten() {
-            if let Some(options) = aggregate.as_opt::<SortOrder>() {
+            if let Some(options) = aggregate.as_opt::<IsCompoundSorted>() {
                 options.validate(&dtype)?;
                 if !dtype.is_nullable() {
                     vortex_bail!(

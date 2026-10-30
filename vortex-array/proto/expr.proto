@@ -32,8 +32,8 @@ message NumericalAggregateOpts {
   bool skip_nans = 1;
 }
 
-// A declared lexicographic ordering, checked by `vortex.sort_order`.
-message SortOrderOpts {
+// A declared lexicographic ordering, checked by `vortex.is_compound_sorted`.
+message IsCompoundSortedOpts {
   repeated SortField fields = 1;
 
   message SortField {
