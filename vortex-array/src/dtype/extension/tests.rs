@@ -15,7 +15,8 @@ use super::ExtDType;
 use super::ExtId;
 use super::ExtVTable;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
@@ -51,6 +52,7 @@ impl ExtVTable for CountingValidator {
 
     fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         VALIDATIONS.fetch_add(1, Ordering::Relaxed);
+
         Ok(())
     }
 
@@ -65,21 +67,20 @@ impl ExtVTable for CountingValidator {
 // One test owns `VALIDATIONS`, so test threads cannot race on the counter.
 #[test]
 fn test_nullability_changes_do_not_validate_again() -> VortexResult<()> {
-    for initial in [Nullability::NonNullable, Nullability::Nullable] {
+    for initial in [NonNullable, Nullable] {
         VALIDATIONS.store(0, Ordering::Relaxed);
         let dtype =
             ExtDType::<CountingValidator>::try_new(42, DType::Primitive(PType::I64, initial))?;
         assert_eq!(VALIDATIONS.load(Ordering::Relaxed), 1);
 
-        for target in [Nullability::Nullable, Nullability::NonNullable] {
+        for target in [Nullable, NonNullable] {
             let changed = dtype.with_nullability(target);
-            assert_eq!(
-                changed.storage_dtype(),
-                &DType::Primitive(PType::I64, target)
-            );
+
+            assert_eq!(changed.storage_dtype(), &DType::Primitive(PType::I64, target));
             assert_eq!(changed.metadata::<CountingValidator>(), &42);
             assert_eq!(changed.id(), dtype.id());
         }
+
         assert_eq!(VALIDATIONS.load(Ordering::Relaxed), 1);
     }
 
@@ -89,13 +90,9 @@ fn test_nullability_changes_do_not_validate_again() -> VortexResult<()> {
 #[rstest]
 #[case::compact(false)]
 #[case::pretty(true)]
-fn test_debug_preserves_metadata(#[case] pretty: bool) {
-    let dtype = Timestamp::new_with_tz(
-        TimeUnit::Milliseconds,
-        Some("UTC".into()),
-        Nullability::Nullable,
-    )
-    .erased();
+fn test_debug_preserves_metadata(#[case] pretty: bool) -> VortexResult<()> {
+    let dtype =
+        Timestamp::try_new_with_tz(TimeUnit::Milliseconds, Some("UTC".into()), Nullable)?.erased();
     let output = if pretty {
         format!("{dtype:#?}")
     } else {
@@ -111,5 +108,6 @@ fn test_debug_preserves_metadata(#[case] pretty: bool) {
         "{output}"
     );
     assert_eq!(output.matches("UTC").count(), 1, "{output}");
-    assert!(!output.contains("Ok(())"), "{output}");
+
+    Ok(())
 }

@@ -182,7 +182,7 @@ impl fmt::Debug for ExtDTypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExtDType")
             .field("id", &self.id())
-            .field("metadata", &MetadataDebug(&*self.0))
+            .field("metadata", &MetadataDebug(self.0.as_ref()))
             .field("storage_dtype", &self.storage_dtype())
             .finish()
     }
@@ -205,6 +205,7 @@ impl fmt::Display for ExtDTypeRef {
 // Private formatting helpers for Display and Debug impls.
 
 struct MetadataDebug<'a>(&'a dyn DynExtDType);
+
 impl fmt::Debug for MetadataDebug<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.metadata_debug(f)
