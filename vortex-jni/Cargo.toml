@@ -16,6 +16,7 @@ categories = { workspace = true }
 
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
+arrow-buffer = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
 async-fs = { workspace = true }

@@ -49,6 +49,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public final class JNIWriterTest {
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
@@ -219,8 +221,9 @@ public final class JNIWriterTest {
                 source.arrowSchema(allocator));
     }
 
-    @Test
-    public void testWriteBatch() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testWriteBatch(boolean independentBuffers) throws IOException {
         Path outputPath = tempDir.resolve("test_ffi.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();
 
@@ -248,11 +251,16 @@ public final class JNIWriterTest {
 
             root.setRowCount(3);
 
-            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
-                    ArrowSchema arrowSchemaFfi = ArrowSchema.allocateNew(allocator)) {
-                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
-                writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
+            if (independentBuffers) {
+                writer.writeBatch(root, allocator);
+            } else {
+                try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                        ArrowSchema arrowSchemaFfi = ArrowSchema.allocateNew(allocator)) {
+                    Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
+                    writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
+                }
             }
+            root.clear();
             bytesWhileOpen = writer.bytesWritten();
             summary = writer.finish();
             assertEquals(summary.fileSize(), writer.bytesWritten());
@@ -297,8 +305,9 @@ public final class JNIWriterTest {
         assertEquals(List.of(30, 25, 40), ages);
     }
 
-    @Test
-    public void testMapRoundTrip() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testMapRoundTrip(boolean independentBuffers) throws IOException {
         Path outputPath = tempDir.resolve("test_map.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();
 
@@ -310,10 +319,19 @@ public final class JNIWriterTest {
                         .build();
                 VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
             populateMapRoot(root);
-            try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
-                    ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
-                Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchema);
-                writer.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+            if (independentBuffers) {
+                writer.writeBatch(root, allocator);
+            } else {
+                try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                        ArrowSchema ffi = ArrowSchema.allocateNew(allocator)) {
+                    try {
+                        Data.exportVectorSchemaRoot(allocator, root, null, array, ffi);
+                        writer.writeBatch(array.memoryAddress(), ffi.memoryAddress());
+                    } finally {
+                        array.release();
+                        ffi.release();
+                    }
+                }
             }
         }
 

@@ -5,9 +5,6 @@ package dev.vortex.spark.write;
 
 import dev.vortex.api.Session;
 import dev.vortex.api.VortexWriter;
-import dev.vortex.relocated.org.apache.arrow.c.ArrowArray;
-import dev.vortex.relocated.org.apache.arrow.c.ArrowSchema;
-import dev.vortex.relocated.org.apache.arrow.c.Data;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.BigIntVector;
@@ -191,12 +188,7 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
 
         vectorSchemaRoot.setRowCount(batchRows.size());
 
-        // Export via Arrow C Data Interface and write to Vortex
-        try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
-                ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
-            Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
-            vortexWriter.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
-        }
+        vortexWriter.writeBatch(vectorSchemaRoot, allocator);
 
         vectorSchemaRoot.clear();
         batchRows.clear();

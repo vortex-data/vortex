@@ -19,6 +19,7 @@ macro_rules! throw_runtime {
 }
 
 mod arrow_compat;
+mod buffer;
 mod data_source;
 mod errors;
 mod expression;
