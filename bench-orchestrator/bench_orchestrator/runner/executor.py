@@ -54,6 +54,8 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
+            # Run every SQL benchmark on the planner-driven V2 Vortex scan.
+            cmd.extend(["--scan-v2", "true"])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 

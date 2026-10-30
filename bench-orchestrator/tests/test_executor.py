@@ -30,6 +30,7 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     ]
     assert cmd[cmd.index("--formats") + 1] == "parquet,vortex"
     assert "--delete-duckdb-database" in cmd
+    assert cmd[cmd.index("--scan-v2") + 1] == "true"
     assert cmd[cmd.index("--opt") + 1] == "scale-factor=1.0"
 
 
@@ -57,6 +58,7 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
+    assert "--scan-v2" not in cmd
     assert cmd[cmd.index("--queries") + 1] == "3"
 
 
