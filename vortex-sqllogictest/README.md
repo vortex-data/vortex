@@ -15,17 +15,17 @@ ClickBench dataset (about one million rows of `hits`). Generate them first, then
 with `cargo nextest`:
 
 ```shell
-./vortex-sqllogictest/slt/generate_data.sh
+uv run --project bench-orchestrator vx-bench prepare-slt --parallel
 cargo nextest run -p vortex-sqllogictest
 # the built-in cargo test harness also works:
 cargo test -p vortex-sqllogictest --test sqllogictests
 ```
 
-`generate_data.sh` accepts dataset names to generate only some of the fixtures, for example
-`./vortex-sqllogictest/slt/generate_data.sh tpch`, `... tpcds` or `... clickbench`. Run it with
-`--help` to list the datasets, or with `--parallel` to generate them concurrently. Every dataset
-is generated, and converted to Vortex, by `vortex-bench`'s `data-gen` binary, the same generator
-the benchmarks use.
+`vx-bench prepare-slt` accepts dataset names to generate only some of the fixtures, for example
+`... prepare-slt tpch`, `... tpcds` or `... clickbench`; `--parallel` generates them concurrently.
+Every dataset is generated, and converted to Vortex, by `vortex-bench`'s `data-gen` binary, the same
+generator the benchmarks use, and then copied into `slt/<dataset>/data/`. Existing Vortex files are
+reconverted on every run so the fixtures always come from the current writer.
 
 The generated Vortex and Parquet data lives under `slt/tpch/data/`, `slt/tpcds/data/` and
 `slt/clickbench/data/` (git-ignored). Both formats are required; regenerate older fixtures if they
@@ -54,9 +54,9 @@ variable selects the format in each engine's table setup.
 
 ClickBench plans explain the upstream queries unchanged. Where an upstream query leaves the order
 of tied rows unspecified, its result record adds tie-breaking `ORDER BY` columns so both formats
-and repeated runs produce the same rows. `generate_data.sh` also runs
-`slt/clickbench/duckdb/parity.slt` and `slt/tpcds/duckdb/parity.slt` right after converting their
-fixtures; they read both formats through DuckDB and fail if the Parquet and Vortex data differ.
+and repeated runs produce the same rows. `slt/clickbench/duckdb/parity.slt` and
+`slt/tpcds/duckdb/parity.slt` read both formats through DuckDB and fail if the Parquet and Vortex
+data differ, so a bad conversion fails the suite.
 After completing ClickBench or TPC-DS DataFusion plans, replace the byte ranges in `file_groups`
 with `<slt:ignore>`, as the TPC-H plans do:
 

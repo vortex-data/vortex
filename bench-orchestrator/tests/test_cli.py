@@ -17,7 +17,7 @@ def test_prepare_data_uses_formats_json(tmp_path, monkeypatch) -> None:
 
     captured: dict[str, list[str]] = {}
 
-    def fake_run(cmd: list[str], check: bool) -> None:
+    def fake_run(cmd: list[str], check: bool, **kwargs: object) -> None:
         assert check is True
         captured["cmd"] = cmd
 
