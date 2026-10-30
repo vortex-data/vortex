@@ -103,7 +103,7 @@ impl ChunkPlanner {
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
         Self {
-            segments: SegmentCache::new(rows.clone()),
+            segments: SegmentCache::new(rows.clone(), scan.filter.is_some()),
             unplanned: rows.clone(),
             scan,
             rows,

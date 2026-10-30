@@ -17,7 +17,14 @@ use crate::plan::physical::PlanByPtr;
 use crate::plan::physical::PlanRef;
 
 #[derive(Clone)]
-pub(crate) struct SegmentCache(Arc<Mutex<Cache>>);
+pub(crate) struct SegmentCache {
+    shared: Arc<SharedCache>,
+}
+
+struct SharedCache {
+    state: Mutex<Cache>,
+    reuse_whole: bool,
+}
 
 struct Cache {
     /// Disjoint unfinished intervals, including chunks that have not been planned yet.
@@ -38,16 +45,25 @@ fn overlaps(pending: &BTreeMap<u64, u64>, rows: &Range<u64>) -> bool {
 }
 
 impl SegmentCache {
-    pub(crate) fn new(rows: Range<u64>) -> Self {
+    pub(crate) fn new(rows: Range<u64>, reuse_whole: bool) -> Self {
         let pending = if rows.is_empty() {
             BTreeMap::new()
         } else {
             BTreeMap::from([(rows.start, rows.end)])
         };
-        Self(Arc::new(Mutex::new(Cache {
-            pending,
-            arrays: FxHashMap::default(),
-        })))
+        Self {
+            shared: Arc::new(SharedCache {
+                state: Mutex::new(Cache {
+                    pending,
+                    arrays: FxHashMap::default(),
+                }),
+                reuse_whole,
+            }),
+        }
+    }
+
+    pub(crate) fn reuse_whole(&self) -> bool {
+        self.shared.reuse_whole
     }
 
     pub(crate) fn lease(&self, rows: Range<u64>) -> Arc<SegmentLease> {
@@ -70,7 +86,7 @@ impl SegmentCache {
         if rows.is_empty() {
             return;
         }
-        let mut cache = self.0.lock();
+        let mut cache = self.shared.state.lock();
         while let Some((&start, &end)) = cache.pending.range(..rows.end).next_back() {
             if end <= rows.start {
                 break;
@@ -110,7 +126,8 @@ pub(crate) struct CachedSegment {
 impl CachedSegment {
     pub(crate) fn get(&self) -> Option<ArrayRef> {
         self.cache
-            .0
+            .shared
+            .state
             .lock()
             .arrays
             .get(&self.key)
@@ -125,7 +142,7 @@ impl CachedSegment {
         initialize: impl FnOnce() -> VortexResult<ArrayRef>,
     ) -> VortexResult<ArrayRef> {
         let array = {
-            let mut cache = self.cache.0.lock();
+            let mut cache = self.cache.shared.state.lock();
             if !overlaps(&cache.pending, &self.rows) {
                 drop(cache);
                 return initialize();

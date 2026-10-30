@@ -989,11 +989,12 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
 #[rstest]
 fn whole_segments_are_reused_across_selected_scans(
     #[values(false, true)] sparse: bool,
+    #[values(false, true)] reuse_whole: bool,
 ) -> VortexResult<()> {
     let mut store = Store::default();
     let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let plan = lower(&store.chunked(&expected, &[7, 13])?)?;
-    let cache = SegmentCache::new(0..ROWS);
+    let cache = SegmentCache::new(0..ROWS, reuse_whole);
     for rows in [0..10, 10..20] {
         let lease = cache.lease(rows.clone());
         let mask = if sparse {
@@ -1029,7 +1030,7 @@ fn a_private_sparse_reconstruction_cannot_answer_a_later_whole_read() -> VortexR
     let plan = lower(&store.flat(&expected)?)?;
     let mut private = Store::default();
     private.flat(&PrimitiveArray::from_iter([0i32; ROWS as usize]).into_array())?;
-    let cache = SegmentCache::new(0..ROWS);
+    let cache = SegmentCache::new(0..ROWS, true);
     let mut first = Scan::try_new(
         SESSION.clone(),
         plan.clone(),
@@ -1057,6 +1058,37 @@ fn a_private_sparse_reconstruction_cannot_answer_a_later_whole_read() -> VortexR
     let result = drive(&store, later, delivery(Delivery::Fifo))?;
     assert_eq!(segments_read(&result.events), [0]);
     assert_view(&expected, &(19..20), &Mask::new_true(1), result.arrays)
+}
+
+#[rstest]
+fn whole_segment_reads_only_retain_arrays_for_repeated_passes(
+    #[values(false, true)] reuse_whole: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&expected)?)?;
+    let cache = SegmentCache::new(0..ROWS, reuse_whole);
+    let _lease = cache.lease(0..ROWS);
+    for pass in 0..2 {
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..ROWS)])?
+            .with_segment_cache(Some(cache.clone()));
+        let result = drive(&store, scan, delivery(Delivery::Fifo))?;
+        assert_eq!(
+            segments_read(&result.events),
+            if pass == 0 || !reuse_whole {
+                vec![0]
+            } else {
+                vec![]
+            }
+        );
+        assert_view(
+            &expected,
+            &(0..ROWS),
+            &Mask::new_true(ROWS as usize),
+            result.arrays,
+        )?;
+    }
+    Ok(())
 }
 
 #[rstest]
