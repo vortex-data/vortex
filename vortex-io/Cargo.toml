@@ -19,6 +19,7 @@ all-features = true
 async-channel = { workspace = true }
 async-executor = { workspace = true }
 async-fs = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 crossbeam-channel = { workspace = true }

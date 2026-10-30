@@ -12118,6 +12118,7 @@ dependencies = [
  "async-channel",
  "async-executor",
  "async-fs",
+ "async-stream",
  "async-trait",
  "bytes",
  "crossbeam-channel",
