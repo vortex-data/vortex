@@ -185,7 +185,7 @@ fn nonnullable_selection_crosses_chunks() -> VortexResult<()> {
 #[test]
 fn nullable_selection_crosses_chunks() -> VortexResult<()> {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_option_iter(
         (0..400_000i64).map(|row| (row % 3 != 0).then_some(row * 3 + 1)),
