@@ -400,17 +400,3 @@ Rules of thumb:
   the child.
 - Treat `execute` as the fallback. If no reduce rule or parent kernel applies, the encoding
   decodes itself and uses `ExecuteSlot` or `AppendChild` to tell the scheduler what to do next.
-
-## Future Work
-
-The execution model is designed to support additional function types beyond scalar functions:
-
-- **Aggregate functions** -- functions like `sum`, `min`, `max`, and `count` that reduce an
-  array to a single value. These will follow a similar deferred pattern, with an `AggregateFnArray`
-  capturing the operation and inputs until execution.
-
-- **Window functions** -- functions that compute a value for each row based on a window of
-  surrounding rows.
-
-These extensions will use the same `Executable` trait and child-first optimization strategy,
-allowing encodings to provide optimized implementations for specific aggregation patterns.

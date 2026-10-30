@@ -1,6 +1,6 @@
 # User Guides
 
-Vortex has an integration with
+Vortex works with
 [DuckDB](https://duckdb.org),
 [Apache Datafusion](https://datafusion.apache.org),
 [Pandas](https://pandas.pydata.org),

@@ -42,11 +42,3 @@ segment retrieval, FlatBuffer metadata for O(1) schema access, and support for m
 
 **[Versioning](../specs/versioning/design.md)** explains how library implementations, serialized
 formats, and editions evolve while preserving read compatibility.
-
-## Integrations
-
-**Language bindings:** [Rust](https://docs.rs/vortex), [Python](../api/python/index.rst),
-[Java](../api/java/index.rst), [C](../api/c/index.rst)
-
-**Query engines:** [DataFusion](../user-guide/datafusion.md), [DuckDB](../user-guide/duckdb.md),
-[Spark](../user-guide/spark.md), [Polars](../user-guide/polars.md), [Ray](../user-guide/ray.md)
