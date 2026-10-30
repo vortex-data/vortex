@@ -359,10 +359,11 @@ impl ToJson for CompressionTimingMeasurement {
         let (name, engine) = match self.format {
             Format::ArrowIpc => (format!("arrow-ipc {}", self.name), Engine::Vortex),
             Format::OnDiskVortex => (self.name.to_string(), Engine::Vortex),
+            Format::VortexCompact => (format!("vortex-compact {}", self.name), Engine::Vortex),
             Format::Parquet => (format!("parquet_rs-zstd {}", self.name), Engine::Vortex),
             Format::Lance => (format!("lance {}", self.name), Engine::Vortex),
             _ => vortex_panic!(
-                "CompressionTimingMeasurement only supports arrow-ipc, vortex, lance, and parquet formats"
+                "CompressionTimingMeasurement only supports arrow-ipc, vortex, vortex-compact, lance, and parquet formats"
             ),
         };
 
@@ -535,6 +536,21 @@ pub struct MemoryMeasurementJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compression_timing_json_supports_vortex_compact() {
+        let measurement = CompressionTimingMeasurement {
+            name: "compress time/demo".to_string(),
+            format: Format::VortexCompact,
+            time: Duration::from_nanos(42),
+        };
+
+        let json = measurement.to_json();
+
+        assert_eq!(json["name"], "vortex-compact compress time/demo");
+        assert_eq!(json["target"]["format"], "vortex-compact");
+        assert_eq!(json["value"], 42.0);
+    }
 
     #[test]
     fn compression_timing_json_supports_arrow_ipc() {
