@@ -21,6 +21,7 @@ pub(super) fn accumulate_extension(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let non_nullable_ext_dtype = array.ext_dtype().with_nullability(Nullability::NonNullable);
+
     // A NaN in float storage comes back as NaN extrema, which `merge` skips or poisons with.
     let Some(MinMaxResult { min, max }) = min_max(array.storage_array(), ctx, *args.options)?
     else {

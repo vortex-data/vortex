@@ -11,7 +11,6 @@ mod tests {
     use rstest::rstest;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
 
     use crate::dtype::DType;
     use crate::dtype::FieldDType;
@@ -251,12 +250,10 @@ mod tests {
     fn test_f16_construction_normalizes_legacy_bits(#[case] bits: u16) -> VortexResult<()> {
         let dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
         let value = ScalarValue::Primitive(PValue::U64(u64::from(bits)));
-        let expected = Scalar::from(f16::from_bits(bits));
+        let expected = ScalarValue::Primitive(PValue::F16(f16::from_bits(bits)));
         let scalar = Scalar::try_new(dtype.clone(), Some(value.clone()))?;
 
-        assert_eq!(scalar.value(), expected.value());
-        assert_eq!(scalar, expected);
-        assert_eq!(expected, scalar);
+        assert_eq!(scalar.value(), Some(&expected));
         assert!(Scalar::validate(&dtype, Some(&value)).is_err());
 
         Ok(())
@@ -289,41 +286,9 @@ mod tests {
     }
 
     #[test]
-    fn test_extension_dtype_requires_canonical_storage() {
-        // Create an extension type with f16 storage
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct F16Ext;
-        impl ExtVTable for F16Ext {
-            type Metadata = usize;
-            type NativeValue<'a> = &'a str;
-
-            #[expect(clippy::disallowed_methods, reason = "test-only id")]
-            fn id(&self) -> ExtId {
-                ExtId::new("f16_ext")
-            }
-
-            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
-            }
-
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
-            }
-
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
-            }
-
-            fn unpack_native<'a>(
-                _ext_dtype: &'a ExtDType<Self>,
-                _storage_value: &'a ScalarValue,
-            ) -> VortexResult<Self::NativeValue<'a>> {
-                Ok("")
-            }
-        }
-
+    fn test_extension_dtype_requires_canonical_storage() -> VortexResult<()> {
         let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let ext_dtype = ExtDType::<F16Ext>::try_new(0, storage_dtype).unwrap();
+        let ext_dtype = ExtDType::<Apples>::try_new(0, storage_dtype)?;
 
         let f16_value = f16::from_f32(0.42);
         let dtype = DType::Extension(ext_dtype.erased());
@@ -337,7 +302,7 @@ mod tests {
             .is_err()
         );
 
-        let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::F16(f16_value))));
+        let scalar = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::F16(f16_value))))?;
 
         assert_eq!(
             scalar
@@ -348,42 +313,12 @@ mod tests {
                 .unwrap(),
             PValue::F16(f16_value)
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_extension_dtype_nested_struct_values() {
-        // Create an extension type with struct storage that contains f16 field
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct StructExt;
-        impl ExtVTable for StructExt {
-            type Metadata = usize;
-            type NativeValue<'a> = &'a str;
-
-            #[expect(clippy::disallowed_methods, reason = "test-only id")]
-            fn id(&self) -> ExtId {
-                ExtId::new("struct_ext")
-            }
-
-            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
-            }
-
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
-            }
-
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
-            }
-
-            fn unpack_native<'a>(
-                _ext_dtype: &'a ExtDType<Self>,
-                _storage_value: &'a ScalarValue,
-            ) -> VortexResult<Self::NativeValue<'a>> {
-                Ok("")
-            }
-        }
-
+    fn test_extension_dtype_nested_struct_values() -> VortexResult<()> {
         let struct_dtype = DType::Struct(
             StructFields::from_iter([
                 (
@@ -397,7 +332,7 @@ mod tests {
             ]),
             Nullability::NonNullable,
         );
-        let ext_dtype = ExtDType::<StructExt>::try_new(0, struct_dtype).unwrap();
+        let ext_dtype = ExtDType::<Apples>::try_new(0, struct_dtype)?;
 
         let f16_value = f16::from_f32(1.5);
         let field_values = vec![
@@ -405,12 +340,12 @@ mod tests {
             Some(ScalarValue::Primitive(PValue::F16(f16_value))),
         ];
 
-        let scalar = Scalar::new(
+        let scalar = Scalar::try_new(
             DType::Extension(ext_dtype.erased()),
             Some(ScalarValue::Tuple(field_values)),
-        );
+        )?;
 
-        let list_elems = scalar
+        let fields = scalar
             .as_extension()
             .to_storage_scalar()
             .as_struct()
@@ -418,13 +353,15 @@ mod tests {
             .vortex_expect("non null")
             .collect::<Vec<_>>();
         assert_eq!(
-            list_elems[0].as_primitive().pvalue().unwrap(),
+            fields[0].as_primitive().pvalue().unwrap(),
             PValue::U32(123)
         );
         assert_eq!(
-            list_elems[1].as_primitive().pvalue().unwrap(),
+            fields[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
         );
+
+        Ok(())
     }
 
     #[test]
