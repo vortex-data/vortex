@@ -739,6 +739,66 @@ fn test_literal_preserves_extension_metadata(
     Ok(())
 }
 
+#[rstest]
+#[case::comparison(false)]
+#[case::membership(true)]
+fn test_comparison_literal_metadata_is_not_replaced(
+    #[case] membership: bool,
+) -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), true);
+    field.try_with_extension_type(ArrowUuid)?;
+    let schema = Schema::new(vec![field.clone()]);
+    let value = ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcdef".to_vec()));
+    let valid = Arc::new(df_expr::Literal::new_with_metadata(
+        value.clone(),
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    field.metadata_mut().insert(
+        "ARROW:extension:name".into(),
+        "unregistered.extension".into(),
+    );
+    let invalid = Arc::new(df_expr::Literal::new_with_metadata(
+        value,
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    let column = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+    let predicate = if membership {
+        Arc::new(df_expr::InListExpr::try_new(
+            column,
+            vec![valid, invalid],
+            false,
+            &schema,
+        )?) as Arc<dyn PhysicalExpr>
+    } else {
+        Arc::new(df_expr::BinaryExpr::new(column, DFOperator::Eq, invalid))
+    };
+
+    assert!(!converts(&predicate, &schema)?);
+
+    Ok(())
+}
+
+#[test]
+fn test_comparison_literal_keeps_timestamp_units() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+        true,
+    )]);
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::TimestampNanosecond(
+            Some(1_000_000),
+            None,
+        ))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert!(!converts(&predicate, &schema)?);
+
+    Ok(())
+}
+
 #[test]
 fn test_expr_from_df_binary() -> DFResult<()> {
     let left = Arc::new(df_expr::Column::new("left", 0)) as Arc<dyn PhysicalExpr>;
