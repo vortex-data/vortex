@@ -679,8 +679,8 @@ mod tests {
     fn test_export_nested_residual_over_outer_null_core(
         session: VortexSession,
     ) -> VortexResult<()> {
-        let core = ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 2)
-            .into_array();
+        let core =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 2).into_array();
         let shredded = shredded_with_nested_residual()?;
         let array = VariantArray::try_new(core, Some(shredded))?.into_array();
 
@@ -705,8 +705,8 @@ mod tests {
             None,
         )?
         .into_array();
-        let inner_shredded = PrimitiveArray::from_option_iter([Some(1i32), Some(2), None])
-            .into_array();
+        let inner_shredded =
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None]).into_array();
         let inner = VariantArray::try_new(inner_core, Some(inner_shredded))?.into_array();
 
         let masked = MaskedArray::try_new(
@@ -715,8 +715,8 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let outer_shredded = PrimitiveArray::from_option_iter([Some(100i32), None, None])
-            .into_array();
+        let outer_shredded =
+            PrimitiveArray::from_option_iter([Some(100i32), None, None]).into_array();
         let array = VariantArray::try_new(masked, Some(outer_shredded))?.into_array();
 
         let Err(error) = export_variant(&session, array) else {
