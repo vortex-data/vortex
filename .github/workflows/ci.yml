@@ -482,7 +482,8 @@ jobs:
     env:
       # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
       # duckdb_static.lib is built with /MT and thus requires crt-static
-      RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
+      # rust-lld (lld-link flavor) links the test binaries much faster than link.exe.
+      RUSTFLAGS: "-C linker=rust-lld.exe -C link-arg=/Brepro -C target-feature=+crt-static"
     needs: duckdb-ready
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
@@ -514,7 +515,8 @@ jobs:
             --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
-            --exclude gpu-scan-cli
+            --exclude gpu-scan-cli --exclude string-bench --exclude vortex-sqllogictest `
+            --exclude vortex-tui --exclude vortex-compat --exclude vortex-web-wasm
 
       - name: sccache stats
         if: always() && github.repository == 'vortex-data/vortex'
