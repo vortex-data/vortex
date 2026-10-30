@@ -3,6 +3,9 @@
 
 //! Regression tests for extension storage validation and fallible scalar reads.
 
+use std::fmt::Debug;
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -23,7 +26,6 @@ use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
-use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -39,10 +41,21 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::expr::ext_storage;
 use crate::expr::root;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[track_caller]
+fn assert_non_zero_error(result: VortexResult<impl Debug>, value: &str) {
+    let error = result.unwrap_err().to_string();
+    let expected = format!("NonZero requires a finite nonzero value, got {value}");
+    assert!(error.contains(&expected), "{error}");
+}
 
 /// A test extension that rejects zero and non-finite storage values.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -112,23 +125,10 @@ impl ExtVTable for NonZero {
 #[case::constant(ConstantArray::new(0i64, 2).into_array())]
 fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexResult<()> {
     let array = NonZero::array(storage.clone())?;
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
-    let error = array.execute_scalar(0, &mut ctx).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("NonZero requires a finite nonzero value, got 0")
-    );
-    let error = array
-        .repeated_probe()
-        .execute_scalar(0, &mut ctx)
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("NonZero requires a finite nonzero value, got 0")
-    );
+    assert_non_zero_error(array.execute_scalar(0, &mut ctx), "0");
+    assert_non_zero_error(array.repeated_probe().execute_scalar(0, &mut ctx), "0");
 
     let optimized = array.optimize()?;
     assert!(optimized.is::<Extension>());
@@ -149,7 +149,7 @@ fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> Vortex
     let ext_dtype = NonZero::dtype(PType::I64, Nullability::Nullable)?;
     let scalar = Scalar::try_extension_ref(ext_dtype.clone(), storage.clone())?;
     let array = NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize()?;
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(scalar.dtype(), &DType::Extension(ext_dtype));
     assert_eq!(array.execute_scalar(0, &mut ctx)?, scalar);
@@ -164,18 +164,18 @@ fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> Vortex
 fn test_scalar_values_require_the_storage_dtype(#[case] value: ScalarValue) -> VortexResult<()> {
     let dtype = DType::Extension(NonZero::dtype(PType::I64, Nullability::NonNullable)?);
 
-    assert!(Scalar::validate(&dtype, Some(&value)).is_err());
     assert!(Scalar::try_new(dtype, Some(value)).is_err());
 
     Ok(())
 }
 
-#[test]
-fn test_extension_constructor_rejects_wrong_storage_dtype() -> VortexResult<()> {
+#[rstest]
+#[case::wrong_dtype(Scalar::from(1.0f64))]
+#[case::invalid_value(Scalar::from(0i64))]
+fn test_extension_constructor_rejects_invalid_storage(#[case] storage: Scalar) -> VortexResult<()> {
     let dtype = NonZero::dtype(PType::I64, Nullability::NonNullable)?;
 
-    assert!(Scalar::try_extension_ref(dtype.clone(), Scalar::from(1.0f64)).is_err());
-    assert!(Scalar::try_extension_ref(dtype, Scalar::from(0i64)).is_err());
+    assert!(Scalar::try_extension_ref(dtype, storage).is_err());
 
     Ok(())
 }
@@ -208,15 +208,10 @@ fn test_aggregates_return_extension_validation_errors(
     #[case] aggregate: AggregateFnRef,
 ) -> VortexResult<()> {
     let array = NonZero::array(buffer![0i64, 1].into_array())?;
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let mut accumulator = aggregate.accumulator(array.dtype())?;
 
-    let error = accumulator.accumulate(&array, &mut ctx).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("NonZero requires a finite nonzero value, got 0")
-    );
+    assert_non_zero_error(accumulator.accumulate(&array, &mut ctx), "0");
 
     Ok(())
 }
@@ -224,27 +219,28 @@ fn test_aggregates_return_extension_validation_errors(
 #[test]
 fn test_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
     let array = NonZero::array(buffer![f64::NAN, 1.0].into_array())?;
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
-    let error = min_max(&array, &mut ctx, NumericalAggregateOpts::include_nans()).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("NonZero requires a finite nonzero value, got NaN")
+    assert_non_zero_error(
+        min_max(&array, &mut ctx, NumericalAggregateOpts::include_nans()),
+        "NaN",
     );
 
     Ok(())
 }
 
 #[test]
-fn test_nan_scalar_returns_extension_validation_errors() -> VortexResult<()> {
-    let dtype = DType::Extension(NonZero::dtype(PType::F64, Nullability::Nullable)?);
+fn test_cached_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
+    let storage = PrimitiveArray::from_option_iter([Some(f64::NAN), Some(1.0)]).into_array();
+    let array = NonZero::array(storage)?;
+    array
+        .statistics()
+        .set(Stat::NaNCount, Precision::Exact(1u64.into()));
+    let mut ctx = SESSION.create_execution_ctx();
 
-    let error = nan_scalar(&dtype).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("NonZero requires a finite nonzero value, got NaN")
+    assert_non_zero_error(
+        min_max(&array, &mut ctx, NumericalAggregateOpts::include_nans()),
+        "NaN",
     );
 
     Ok(())

@@ -171,6 +171,7 @@ impl Scalar {
     ///   [`DType`]
     /// - `Union`: A non-null union selecting the first variant with a non-null child zero value
     /// - `Extension`: The zero value of the storage [`DType`], if the extension accepts it.
+    ///
     /// # Panics
     ///
     /// Panics if the dtype has no non-null zero value, such as `Null`, or if a nested dtype needed

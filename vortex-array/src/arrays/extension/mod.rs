@@ -3,7 +3,7 @@
 
 //! Extension arrays preserve a logical dtype around its storage array.
 //!
-//! Construction checks the storage shape. Reading a logical scalar also validates its value
+//! Construction checks the storage dtype. Reading a logical scalar also validates its value
 //! against the extension dtype.
 
 mod array;
