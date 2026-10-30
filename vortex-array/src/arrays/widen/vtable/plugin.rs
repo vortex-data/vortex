@@ -50,8 +50,6 @@ impl ArrayPlugin for WidenPlugin {
         // (#10733), and write it only where the writer permits it. This method cannot see the
         // permitted IDs today.
 
-        // The child validity can be lazy, so the writer needs recursive canonicalization to
-        // produce nodes that it can store.
         let widen = array.as_::<Widen>();
         let source = if array.dtype().is_decimal() {
             // A decimal node stores its width in metadata and takes its precision from the
@@ -60,6 +58,9 @@ impl ArrayPlugin for WidenPlugin {
         } else {
             array
         };
+
+        // The child validity can be lazy, so the writer needs recursive canonicalization to
+        // produce nodes that it can store.
         let canonical = source
             .clone()
             .execute::<RecursiveCanonical>(&mut session.create_execution_ctx())?

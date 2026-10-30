@@ -438,7 +438,7 @@ mod tests {
         flat_write_and_read_widen(array)
     }
 
-    /// The flat writer stores the chunk directly, so this exercises the plugin without a compressor.
+    /// The flat writer stores the chunk directly, exercising the plugin without a compressor.
     fn flat_write_and_read_widen(array: ArrayRef) -> VortexResult<()> {
         block_on(|handle| async {
             let mut ctx_exec = SESSION.create_execution_ctx();

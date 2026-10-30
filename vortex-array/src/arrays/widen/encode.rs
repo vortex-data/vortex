@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Selection of narrower `Widen` children from valid values.
+//!
+//! Null payloads do not constrain the child dtype. The result keeps the logical dtype and uses
+//! narrower storage only when that storage can hold every valid value.
+
 use std::ops::RangeInclusive;
 
 use vortex_error::VortexResult;

@@ -80,7 +80,7 @@ pub(super) fn validate_dtypes(values: &DType, logical: &DType) -> VortexResult<(
             );
         }
         _ => vortex_bail!(
-            "Widen requires integer dtypes or decimal dtypes, got {values} values for {logical}"
+            "Widen requires integer dtypes or decimal dtypes for {logical}, got {values}"
         ),
     }
 
