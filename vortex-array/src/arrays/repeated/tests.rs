@@ -166,6 +166,8 @@ fn append_to_builder() -> VortexResult<()> {
 #[case::whole_copies(4..12, vec![0, 1, 2, 3, 0, 1, 2, 3])]
 #[case::across_copies(3..6, vec![3, 0, 1])]
 #[case::across_many_copies(1..11, vec![1, 2, 3, 0, 1, 2, 3, 0, 1, 2])]
+#[case::one_unaligned_copy(3..7, vec![3, 0, 1, 2])]
+#[case::unaligned_whole_copies(1..9, vec![1, 2, 3, 0, 1, 2, 3, 0])]
 fn slice(#[case] range: Range<usize>, #[case] expected: Vec<i32>) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = repeated(buffer![0i32, 1, 2, 3], 3)?;
@@ -182,6 +184,17 @@ fn slice(#[case] range: Range<usize>, #[case] expected: Vec<i32>) -> VortexResul
 fn slice_of_whole_copies_stays_repeated() -> VortexResult<()> {
     let array = repeated(buffer![0i32, 1, 2, 3], 3)?;
     let sliced = array.slice(4..12)?;
+
+    let repeated = sliced.as_::<Repeated>();
+    assert_eq!(repeated.count(), 2);
+    assert_eq!(repeated.child().len(), 4);
+    Ok(())
+}
+
+#[test]
+fn slice_of_unaligned_whole_copies_stays_repeated() -> VortexResult<()> {
+    let array = repeated(buffer![0i32, 1, 2, 3], 3)?;
+    let sliced = array.slice(1..9)?;
 
     let repeated = sliced.as_::<Repeated>();
     assert_eq!(repeated.count(), 2);
