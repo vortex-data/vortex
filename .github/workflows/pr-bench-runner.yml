@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build-{1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build-{1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -57,6 +57,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
       - uses: ./.github/actions/setup-prebuild
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
