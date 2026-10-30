@@ -66,10 +66,12 @@ async fn vortex_source_from_batch_with_session(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(VortexDataSource::builder(file.data_source()?, session.clone())
-        .with_arrow_schema(schema)
-        .build()
-        .await?)
+    Ok(
+        VortexDataSource::builder(file.data_source()?, session.clone())
+            .with_arrow_schema(schema)
+            .build()
+            .await?,
+    )
 }
 
 #[tokio::test]
@@ -493,10 +495,10 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
 
     for (predicate, expected_scan, expected_result) in [
         (df_expr::lit(true), vec![1, 2, 3, 4], vec![1, 2, 3, 4]), //
-        (fixture.comparison(0), vec![1], vec![1]),              //
-        (fixture.comparison(2), vec![3], vec![3]),              //
-        (fixture.comparison(3), vec![], vec![]),                //
-        (fixture.membership()?, vec![2], vec![2]),              //
+        (fixture.comparison(0), vec![1], vec![1]),                //
+        (fixture.comparison(2), vec![3], vec![3]),                //
+        (fixture.comparison(3), vec![], vec![]),                  //
+        (fixture.membership()?, vec![2], vec![2]),                //
         (
             unsupported as Arc<dyn PhysicalExpr>,
             vec![1, 2, 3, 4],

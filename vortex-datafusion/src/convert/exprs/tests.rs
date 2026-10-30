@@ -793,9 +793,10 @@ fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> 
 
     let mut literal_field = field;
     literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
-    literal_field
-        .metadata_mut()
-        .insert(EXTENSION_TYPE_METADATA_KEY.into(), "unrelated payload".into());
+    literal_field.metadata_mut().insert(
+        EXTENSION_TYPE_METADATA_KEY.into(),
+        "unrelated payload".into(),
+    );
     let literal = df_expr::Literal::new_with_metadata(
         ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
         Some(FieldMetadata::new_from_field(&literal_field)),
