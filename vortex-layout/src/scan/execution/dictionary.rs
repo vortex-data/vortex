@@ -91,6 +91,7 @@ pub(super) fn string_dictionary_chunks(
 }
 
 #[cfg(test)]
+#[allow(clippy::single_range_in_vec_init)]
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;

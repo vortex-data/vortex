@@ -373,6 +373,7 @@ mod tests {
     use super::parts_per_file;
 
     #[test]
+    #[allow(clippy::single_range_in_vec_init)]
     fn dictionary_assignments_preserve_regions_and_bound_large_dictionaries() {
         assert_eq!(
             dictionary_parts(vec![0..30_000, 30_000..70_000, 70_000..100_000]),
