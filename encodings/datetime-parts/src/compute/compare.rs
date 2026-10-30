@@ -703,7 +703,9 @@ mod tests {
         TimestampOptions { unit: TimeUnit::Nanoseconds, tz: None },
         Scalar::from(1_500_000_000i64),
     ))]
-    fn test_comparison_rejects_mismatched_constant_dtype(#[case] scalar: Scalar) -> VortexResult<()> {
+    fn test_comparison_rejects_mismatched_constant_dtype(
+        #[case] scalar: Scalar,
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let temporal = TemporalArray::new_timestamp(
             buffer![1600i64, 1400].into_array(),

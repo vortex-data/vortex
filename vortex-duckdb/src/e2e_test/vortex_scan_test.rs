@@ -442,10 +442,7 @@ impl Drop for ConstantEqualityFilter {
 #[rstest]
 #[case::uuid("id", "UUID '00000000-0000-0000-0000-000000000002'")]
 #[case::timestamp("created_at", "TIMESTAMP_MS '1970-01-01 00:00:02'")]
-fn test_extension_static_table_filter(
-    #[case] column: &str,
-    #[case] literal: &str,
-) -> Result<()> {
+fn test_extension_static_table_filter(#[case] column: &str, #[case] literal: &str) -> Result<()> {
     let conn = database_connection();
     let file = extension_filter_file(&conn)?;
     let value = duckdb_literal(&conn, literal)?;
