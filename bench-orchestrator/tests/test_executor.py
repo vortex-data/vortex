@@ -33,6 +33,22 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     assert cmd[cmd.index("--opt") + 1] == "scale-factor=1.0"
 
 
+def test_build_command_enables_scan_v2_for_datafusion() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/datafusion-bench"), Engine.DATAFUSION)
+
+    cmd = executor.build_command(benchmark=Benchmark.FINEWEB, formats=[Format.VORTEX])
+
+    assert cmd[cmd.index("--scan-v2") + 1] == "true"
+
+
+def test_build_command_omits_scan_v2_for_duckdb() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
+
+    cmd = executor.build_command(benchmark=Benchmark.TPCH, formats=[Format.VORTEX])
+
+    assert "--scan-v2" not in cmd
+
+
 def test_build_command_serializes_vortex_spatial_native_format() -> None:
     executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
 
