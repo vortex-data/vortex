@@ -65,5 +65,8 @@ runs:
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
           -o "${RUNNER_TEMP}/rds-global-bundle.pem"
         DSN="postgresql://bench_pr_read@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
-        uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
-          --postgres "$DSN" --region "$AWS_REGION"
+        if ! uv run --no-project scripts/fetch-benchmark-baseline.py "$PR_RECORDS" "$OUTPUT" \
+            --postgres "$DSN" --region "$AWS_REGION"; then
+          echo "::warning::Could not read the baseline from the benchmarks database; reporting without a baseline."
+          rm -f "$OUTPUT"
+        fi
