@@ -10,7 +10,11 @@ use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexResult;
 use vortex_expr::BoundLabels;
@@ -181,7 +185,8 @@ impl PlanVTable for Take {
 /// otherwise per-row behaviour is not preserved.
 ///
 /// A boolean expression is pushed whole onto the values as they are, so it stays above any
-/// [`Share`] of them. Otherwise the largest part holding every read of the values and built only
+/// [`Share`] of them, except empty-byte comparisons that can use encoded kernels. Otherwise the
+/// largest part holding every read of the values and built only
 /// from negative-cost functions, such as the byte length in `cast(byte_length($))`, is pushed
 /// beneath the share, since it is cheaper over the encoded values than canonicalizing them; the
 /// rest stays above the take.
@@ -244,6 +249,15 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
                 return Ok(None);
             }
             let values = child.values()?;
+            // Empty-byte comparisons have encoded kernels that avoid decoding strings.
+            let values = if compares_empty_bytes(expression) {
+                match values.as_opt::<Share>() {
+                    Some(share) => share.child_plan()?,
+                    None => values,
+                }
+            } else {
+                values
+            };
             let Some(expression) = rebind_root(expression, child.dtype(), values.dtype()) else {
                 return Ok(None);
             };
@@ -281,6 +295,19 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         }
         Ok(Some(EvalPlan::try_new(outer, take)?.into_plan()))
     }
+}
+
+fn compares_empty_bytes(expression: &BoundExpression) -> bool {
+    matches!(
+        expression.as_opt::<Binary>(),
+        Some(Operator::Eq | Operator::NotEq)
+    ) && expression.children().iter().any(|child| {
+        match child.as_opt::<Literal>().and_then(|scalar| scalar.value()) {
+            Some(ScalarValue::Utf8(value)) => value.is_empty(),
+            Some(ScalarValue::Binary(value)) => value.is_empty(),
+            _ => false,
+        }
+    })
 }
 
 /// The largest strict, infallible, negative-cost part of `expression` holding every read of the
