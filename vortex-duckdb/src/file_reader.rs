@@ -272,6 +272,9 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
+        // DuckDB reads a batch in vectors of its own, so a part is exported as one batch, as a
+        // V1 split is.
+        .with_max_batch_rows(usize::MAX)
 }
 
 /// What a thread's split yields next.
