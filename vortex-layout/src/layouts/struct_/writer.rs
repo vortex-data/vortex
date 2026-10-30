@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use async_channel::bounded;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -31,7 +32,6 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
@@ -170,7 +170,7 @@ impl LayoutStrategy for StructStrategy {
         }
 
         let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
-            (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
+            (0..stream_count).map(|_| bounded(1)).unzip();
 
         // Fan out column chunks to their respective transposed streams. Keep this future joined
         // with the column writers so producer panics/errors cannot be hidden as channel EOF.
@@ -224,7 +224,7 @@ impl LayoutStrategy for StructStrategy {
             .enumerate()
             .map(move |(index, ((dtype, recv), name))| {
                 let column_stream =
-                    SequentialStreamAdapter::new(dtype, recv.into_stream().boxed()).sendable();
+                    SequentialStreamAdapter::new(dtype, recv.boxed()).sendable();
                 let child_eof = eof.split_off();
                 let session = session.clone();
                 let is_validity = index == 0 && is_nullable;

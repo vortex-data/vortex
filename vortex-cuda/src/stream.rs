@@ -9,8 +9,9 @@ use std::mem::size_of_val;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use async_channel::Receiver;
+use async_channel::Sender;
 use futures::future::BoxFuture;
-use kanal::Sender;
 use tracing::warn;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
@@ -221,8 +222,8 @@ pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<(
 /// # Errors
 ///
 /// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<()>> {
-    let (tx, rx) = kanal::bounded::<()>(1);
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<()>> {
+    let (tx, rx) = async_channel::bounded::<()>(1);
 
     let tx_ptr = Box::into_raw(Box::new(tx));
 
@@ -237,10 +238,10 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
         // before. We have unique ownership and can therefore free it.
         let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
 
-        // Blocking send as we're in a callback invoked by the CUDA driver.
+        // The callback sends once into an empty capacity-one channel.
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
         //  is closed and sends will fail.
-        if let Err(_e) = tx.send(()) {
+        if let Err(_e) = tx.try_send(()) {
             warn!(error = ?_e, "register_stream_callback send failed due to error");
         }
     }
@@ -263,7 +264,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
         })?;
     }
 
-    Ok(rx.to_async())
+    Ok(rx)
 }
 
 #[cfg(test)]

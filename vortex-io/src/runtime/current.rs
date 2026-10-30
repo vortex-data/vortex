@@ -4,6 +4,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use async_channel::TryRecvError;
 use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -72,7 +73,7 @@ impl CurrentThreadRuntime {
         // on the channel. Channel buffers up to one item per core so calling threads can get a
         // ready item without every one of them having to become an executor.
         let capacity = get_available_parallelism().unwrap_or(1).max(1);
-        let (result_tx, result_rx) = kanal::bounded_async(capacity);
+        let (result_tx, result_rx) = async_channel::bounded(capacity);
         let driver = self.executor.async_executor().spawn(async move {
             futures::pin_mut!(stream);
             while let Some(item) = stream.next().await {
@@ -136,7 +137,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 /// An iterator that drives a stream from multiple threads.
 pub struct ThreadSafeIterator<T> {
     executor: Arc<SmolExecutor>,
-    results: kanal::AsyncReceiver<T>,
+    results: async_channel::Receiver<T>,
     /// Handle to the task driving the stream. Once the stream ends, the first consumer to
     /// observe it joins the task so a panic raised while driving the stream is re-raised rather
     /// than silently ending the iterator.
@@ -160,9 +161,9 @@ impl<T> Iterator for ThreadSafeIterator<T> {
     fn next(&mut self) -> Option<Self::Item> {
         // If driver already has an item, take it without driving the executor
         match self.results.try_recv() {
-            Ok(Some(item)) => return Some(item),
-            Ok(None) => {}
-            Err(_) => return self.get_task_error(),
+            Ok(item) => return Some(item),
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Closed) => return self.get_task_error(),
         }
 
         match block_on(self.executor.run(self.results.recv())) {

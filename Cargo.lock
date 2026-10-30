@@ -5995,16 +5995,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanal"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3953adf0cd667798b396c2fa13552d6d9b3269d7dd1154c4c416442d1ff574"
-dependencies = [
- "futures-core",
- "lock_api",
-]
-
-[[package]]
 name = "kasuari"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11736,13 +11726,13 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "arrow-schema 59.3.2",
+ "async-channel",
  "async-trait",
  "bindgen",
  "codspeed-criterion-compat-walltime",
  "fastlanes 0.7.2",
  "futures",
  "itertools 0.14.0",
- "kanal",
  "memmap2",
  "mimalloc",
  "num-traits",
@@ -12025,13 +12015,13 @@ dependencies = [
  "allocator-api2",
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
+ "async-channel",
  "async-trait",
  "bytes",
  "codspeed-divan-compat",
  "flatbuffers",
  "futures",
  "itertools 0.14.0",
- "kanal",
  "mimalloc",
  "moka",
  "object_store 0.13.2",
@@ -12125,9 +12115,9 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "async-executor",
  "async-fs",
- "async-stream",
  "async-trait",
  "bytes",
  "crossbeam-channel",
@@ -12135,7 +12125,6 @@ dependencies = [
  "futures",
  "glob",
  "itertools 0.14.0",
- "kanal",
  "object_store 0.13.2",
  "parking_lot",
  "pin-project-lite",
@@ -12218,6 +12207,7 @@ dependencies = [
  "arcref",
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
+ "async-channel",
  "async-lock",
  "async-stream",
  "async-trait",
@@ -12228,7 +12218,6 @@ dependencies = [
  "goldenfile",
  "insta",
  "itertools 0.14.0",
- "kanal",
  "mimalloc",
  "moka",
  "object_store 0.13.2",

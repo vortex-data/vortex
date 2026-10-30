@@ -16,15 +16,14 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
+async-channel = { workspace = true }
 async-executor = { workspace = true }
 async-fs = { workspace = true }
-async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 glob = { workspace = true }
-kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
