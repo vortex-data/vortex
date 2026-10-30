@@ -24,18 +24,19 @@
 //! [`Dict`]: crate::arrays::Dict
 //! [`PrimitiveArray`]: crate::arrays::PrimitiveArray
 
+use vortex_session::VortexSession;
+
 mod array;
 pub use array::WidenArraySlotsExt;
 pub use array::WidenSlots;
 pub use array::WidenSlotsView;
-pub use vtable::WidenArray;
 
 pub(crate) mod compute;
 mod encode;
 
 mod vtable;
-use vortex_session::VortexSession;
 pub use vtable::Widen;
+pub use vtable::WidenArray;
 pub use vtable::WidenPlugin;
 
 use crate::array::VTable;
