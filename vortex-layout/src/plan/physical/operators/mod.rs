@@ -13,6 +13,7 @@ mod once;
 mod pack;
 mod scan;
 mod take;
+mod take_sparse;
 mod whole;
 
 pub(crate) use concat::*;
@@ -23,6 +24,7 @@ pub(crate) use pack::*;
 pub(crate) use scan::*;
 use smallvec::SmallVec;
 pub(crate) use take::*;
+pub(crate) use take_sparse::*;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;

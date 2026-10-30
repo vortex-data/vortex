@@ -44,6 +44,7 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
 use crate::plan::physical::Zoned;
 use crate::plan::physical::optimize;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::plan_row_idx_expression;
@@ -71,11 +72,12 @@ impl FilterPlans {
             .conjuncts()
             .iter()
             .map(|expr| {
-                let plan = optimize(
+                // Leaf filters already apply the demand. Wrapping the predicate in another
+                // Filter would reset it to all rows before evaluating the expression.
+                optimize(
                     plan_row_idx_expression(expr.clone(), root.clone())?,
                     session,
-                )?;
-                Ok(FilterPlan::new(plan).into_plan())
+                )
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -190,6 +192,17 @@ impl ActiveConjunct {
                 .as_ref()
                 .is_some_and(|filter| filter.predicates.len() > 1);
         let started = (learn || tracing::enabled!(tracing::Level::DEBUG)).then(Instant::now);
+        // Dense demand keeps vectorized evaluation cheaper than gathering almost every row.
+        // Random access and selective predicates retain demand all the way to their leaves.
+        let plan = if matches!(evaluation, Evaluation::Filter { .. })
+            && scan.access_mode() == AccessMode::Scan
+            && !selected.mask.all_true()
+            && selected.mask.true_count().saturating_mul(2) >= selected.mask.len()
+        {
+            FilterPlan::new(plan).into_plan()
+        } else {
+            plan
+        };
         let pipeline = Scan::try_new(
             scan.session.clone(),
             plan,
@@ -381,8 +394,8 @@ impl FilterPlanner {
         }
         self.pieces.clear();
         if matches!(active.evaluation, Evaluation::Prune) && !selected.mask.all_false() {
-            // Filter plans evaluate their entire row domain before selecting their result.
-            // Trim newly excluded edge zones so they never enter that domain or its prefetch.
+            // Trim newly excluded edge zones before compiling another predicate or prefetching
+            // its data, including dictionary values living in a separate row domain.
             let first = selected.mask.first().vortex_expect("non-empty mask");
             let end = selected.mask.last().vortex_expect("non-empty mask") + 1;
             selected.scope.rows =

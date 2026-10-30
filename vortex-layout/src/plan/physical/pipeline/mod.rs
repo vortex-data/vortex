@@ -40,6 +40,7 @@
 
 mod compile;
 mod port;
+mod predicate;
 mod scan;
 pub mod synthetic;
 mod values;
@@ -50,6 +51,7 @@ pub(crate) use self::compile::overlapping;
 pub(super) use self::port::Arena;
 pub use self::port::Inlet;
 pub(super) use self::port::PortId;
+pub(crate) use self::predicate::PredicateCache;
 pub use self::scan::ReadId;
 pub use self::scan::ReadRequest;
 pub use self::scan::Scan;
