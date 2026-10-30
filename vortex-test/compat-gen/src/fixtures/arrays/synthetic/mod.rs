@@ -24,10 +24,14 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Widen;
     use vortex_array::arrays::decimal::DecimalArrayExt;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::arrays::widen::WidenArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::BigCast;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DecimalType;
     use vortex_array::match_each_decimal_value_type;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -40,6 +44,56 @@ mod tests {
     use crate::fixtures::check_expected_encodings;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Returns the smallest precision, at least `max(scale, 1)`, that holds every value of
+    /// `valid_values` at `scale`.
+    ///
+    /// This is a slow reference for the child precision that a read of an old decimal node picks.
+    fn reference_precision(valid_values: &[i128], scale: i8) -> u8 {
+        let largest_magnitude = valid_values
+            .iter()
+            .map(|value| value.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        let mut precision = u8::try_from(scale.max(1)).vortex_expect("a positive scale fits u8");
+        while 10u128
+            .checked_pow(precision.into())
+            .is_some_and(|bound| largest_magnitude >= bound)
+        {
+            precision += 1;
+        }
+
+        precision
+    }
+
+    /// Returns the dtype of the decimal leaf that a read of a legacy column produces.
+    ///
+    /// A read keeps a column at the canonical width as it is. It reads any other column into a
+    /// `Widen` over the smallest precision that holds the valid values, or into the canonical
+    /// array when that precision has the canonical width. The leaf is the child of the `Widen`, or
+    /// else the canonical array.
+    fn expected_leaf_dtype(
+        decimal_dtype: DecimalDType,
+        stored_type: DecimalType,
+        slots: &[i128],
+        validity: Option<&[bool]>,
+    ) -> DecimalDType {
+        let scale = decimal_dtype.scale();
+        let valid_values = slots
+            .iter()
+            .enumerate()
+            .filter(|&(row, _)| validity.is_none_or(|validity| validity[row]))
+            .map(|(_, &value)| value)
+            .collect::<Vec<_>>();
+        let child_dtype = DecimalDType::new(reference_precision(&valid_values, scale), scale);
+
+        let canonical_type = decimal_dtype.canonical_values_type();
+        if stored_type == canonical_type || child_dtype.canonical_values_type() == canonical_type {
+            decimal_dtype
+        } else {
+            child_dtype
+        }
+    }
 
     /// Returns the raw value of every slot of `array`, including null slots.
     fn raw_slots(array: &DecimalArray) -> Vec<i128> {
@@ -97,10 +151,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_decimal_fixtures_keep_stored_widths() -> VortexResult<()> {
+    fn legacy_decimal_fixtures_read_canonical_or_widen() -> VortexResult<()> {
         for fixture in legacy_decimal_fixtures() {
             let mut ctx = SESSION.create_execution_ctx();
             let written = fixture.build_written(&mut ctx)?;
+            let expected = fixture.build(&mut ctx)?.execute::<StructArray>(&mut ctx)?;
             let bytes = adapter::write_file_to_bytes(written.clone())?;
             let read_back = adapter::read_file(bytes)?.execute::<StructArray>(&mut ctx)?;
             let written = written.as_::<Struct>();
@@ -133,19 +188,41 @@ mod tests {
                     "{context}",
                 );
 
-                let read_field = read_back
-                    .unmasked_field_by_name(column.name)?
-                    .clone()
-                    .execute::<DecimalArray>(&mut ctx)?;
-                assert_eq!(
-                    read_field.values_type(),
+                let leaf_dtype = expected_leaf_dtype(
+                    column.decimal_dtype,
                     column.stored_type,
-                    "{context} after a file round trip",
+                    &column.slots,
+                    column.validity.as_ref().map(|validity| validity.as_slice()),
                 );
+                let read_field = read_back.unmasked_field_by_name(column.name)?;
+                let leaf = match read_field.as_opt::<Widen>() {
+                    Some(widen) => widen.values().clone(),
+                    None => read_field.clone(),
+                };
+                let leaf = leaf.as_::<Decimal>();
+                let read_context = format!("{context} after a file round trip");
                 assert_eq!(
-                    raw_slots(&read_field),
-                    column.slots,
-                    "{context} after a file round trip",
+                    read_field.is::<Widen>(),
+                    leaf_dtype != column.decimal_dtype,
+                    "{read_context}",
+                );
+                assert_eq!(leaf.decimal_dtype(), leaf_dtype, "{read_context}");
+                assert_eq!(
+                    leaf.values_type(),
+                    leaf_dtype.canonical_values_type(),
+                    "{read_context}",
+                );
+                if column.stored_type == canonical_type {
+                    assert_eq!(
+                        raw_slots(&leaf.into_owned()),
+                        column.slots,
+                        "{read_context}"
+                    );
+                }
+                assert_arrays_eq!(
+                    read_field,
+                    expected.unmasked_field_by_name(column.name)?,
+                    &mut ctx
                 );
             }
         }

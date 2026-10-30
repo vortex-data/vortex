@@ -791,6 +791,39 @@ impl ArrayRef {
         true
     }
 
+    /// Returns `self` with the same values and every buffer of its tree on the host.
+    ///
+    /// Each device buffer is copied with [`BufferHandle::try_into_host_sync`].
+    ///
+    /// Fails if a copy to the host fails, or if an encoding with a device buffer cannot replace its
+    /// buffers.
+    pub(crate) fn try_into_host_sync(self) -> VortexResult<ArrayRef> {
+        if self.is_host() {
+            return Ok(self);
+        }
+
+        let slots = self
+            .slots()
+            .iter()
+            .map(|slot| slot.clone().map(ArrayRef::try_into_host_sync).transpose())
+            .collect::<VortexResult<ArraySlots>>()?;
+        // SAFETY: each slot holds the same values, and only the placement of its buffers changes.
+        let array = unsafe { self.with_slots(slots) }?;
+
+        let buffers = array.buffer_handles();
+        if buffers.iter().all(BufferHandle::is_on_host) {
+            return Ok(array);
+        }
+
+        let buffers = buffers
+            .into_iter()
+            .map(|buffer| Ok(BufferHandle::new_host(buffer.try_into_host_sync()?)))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        // SAFETY: each buffer is a host copy of the same bytes, so only the placement changes.
+        unsafe { array.with_buffers(buffers) }
+    }
+
     // ArrayVisitorExt delegation methods
 
     /// Count the number of buffers encoded by self and all child arrays.
