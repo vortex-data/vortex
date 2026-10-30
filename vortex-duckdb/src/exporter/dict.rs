@@ -132,13 +132,20 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::repeat_n;
+    use std::panic::resume_unwind;
+    use std::sync::Barrier;
+    use std::thread;
+
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::buffer::Buffer;
+    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
@@ -146,8 +153,10 @@ mod tests {
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::duckdb::SelectionVector;
     use crate::exporter::ColumnExporter;
     use crate::exporter::ConversionCache;
+    use crate::exporter::cached_values_dict;
     use crate::exporter::dict::new_exporter_with_flatten;
     use crate::exporter::new_array_exporter;
 
@@ -156,6 +165,52 @@ mod tests {
         cache: &ConversionCache,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
         new_exporter_with_flatten(array, cache, &mut SESSION.create_execution_ctx(), false)
+    }
+
+    #[test]
+    fn concurrent_dictionary_exports_share_values() -> VortexResult<()> {
+        let len = 262_144;
+        let values =
+            VarBinViewArray::from_iter_str(repeat_n("shared dictionary value", len)).into_array();
+        let cache = ConversionCache::default();
+        let barrier = Barrier::new(8);
+        let mut dictionaries = thread::scope(|scope| {
+            let workers = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut ctx = SESSION.create_execution_ctx();
+                        barrier.wait();
+                        cached_values_dict(values.clone(), &cache, &mut ctx)
+                    })
+                })
+                .collect::<Vec<_>>();
+            workers
+                .into_iter()
+                .map(|worker| match worker.join() {
+                    Ok(result) => result,
+                    Err(payload) => resume_unwind(payload),
+                })
+                .collect::<VortexResult<Vec<_>>>()
+        })?;
+
+        let expected_vector = dictionaries[0].vector().as_ptr();
+        let mut selection = SelectionVector::with_capacity(2);
+        // Both indices are within the dictionary and the selection has capacity for two rows.
+        let last = u32::try_from(len - 1).vortex_expect("dictionary index fits in u32");
+        unsafe { selection.as_slice_mut(2) }.copy_from_slice(&[0, last]);
+        for dict in &mut dictionaries {
+            assert_eq!(dict.vector().as_ptr(), expected_vector);
+            let mut chunk = DataChunk::new([LogicalType::varchar()]);
+            chunk
+                .get_vector_mut(0)
+                .reuse_dictionary(dict, &selection, 2);
+            chunk.set_len(2);
+            assert_eq!(
+                String::try_from(&*chunk)?,
+                "Chunk - [1 Columns]\n- DICTIONARY VARCHAR: 2 = [ shared dictionary value, shared dictionary value]\n"
+            );
+        }
+        Ok(())
     }
 
     #[test]
