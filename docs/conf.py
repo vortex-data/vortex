@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-import hawkmoth.docstring
 from sphinx.util import logging
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
@@ -113,12 +112,11 @@ nitpick_ignore += [
 
 hawkmoth_transform_default = "c_to_rust"
 
-# Track the hawkmoth references so we can warn if they are not all registered!
-C_DOCS: set[str] | None = None
-
 
 def _replace_rust_references(app, lines, transform, options) -> None:
-    """Replace Rust references with C equivalents in hawkmoth docstrings.
+    """Replace Rust references with C cross-references in hawkmoth docstrings.
+
+    The ``any`` role lets the C domain pick the function or type role for each reference.
 
     See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
     """
@@ -126,75 +124,11 @@ def _replace_rust_references(app, lines, transform, options) -> None:
         # Not for us!
         return
 
-    import sys
-
-    # This is one of my finest hacks...
-    # Hawkmoth doesn't expose type information to us. So we grab it from the caller's stack frame locals.
-    stack_frame = sys._getframe(1)
-    while not isinstance(stack_frame.f_locals.get("root"), hawkmoth.docstring.RootDocstring):
-        stack_frame = stack_frame.f_back
-    docs: hawkmoth.docstring.RootDocstring = stack_frame.f_locals["root"]
-
-    global C_DOCS
-    if C_DOCS is None:
-        # Iterate only the top-level docstrings to ignore e.g. enum members.
-        C_DOCS = set(
-            d.get_name()
-            for d in docs
-            if isinstance(
-                d,
-                (
-                    hawkmoth.docstring.FunctionDocstring,
-                    hawkmoth.docstring.EnumDocstring,
-                    hawkmoth.docstring.UnionDocstring,
-                    hawkmoth.docstring.StructDocstring,
-                ),
-            )
-        )
-
-    # Remove the current docstring from the set of C docs
-    slf = stack_frame.f_locals["self"]
-    C_DOCS.discard(slf.arguments[0])
-
     # Pattern to match [`crate::path::to::function`]
     pattern = r"\[`([^:]+::)*?(vx_[^`]+)`\]"
 
-    def replace_match(match) -> str:
-        # Extract the function name (already starts with vx_)
-        # TODO(ngates): detect if the reference is a function or a type
-        func_name = match.group(2)
-
-        refs = [d for d in docs if d.get_name() == func_name]
-        if not refs:
-            # If we can't find the function, return the original match without a reference
-            return func_name
-        ref = refs[0]
-        if isinstance(ref, hawkmoth.docstring.FunctionDocstring):
-            # If it's a function, return the C identifier
-            return f":c:func:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.EnumDocstring):
-            # If it's an enum, return the C identifier
-            return f":c:type:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.TypedefDocstring):
-            # If it's a typedef, return the C identifier
-            return f":c:type:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.StructDocstring):
-            # If it's a typedef, return the C identifier
-            return f":c:type:`{func_name}`"
-        else:
-            return func_name
-
     for i, line in enumerate(lines):
-        lines[i] = re.sub(pattern, replace_match, line)
-
-
-def _post_process(app, builder) -> None:
-    """Post-process the documentation after writing."""
-    global C_DOCS
-    if C_DOCS:
-        # TODO(ngates): enable this one we've cleaned up the entire C API.
-        # log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
-        C_DOCS = None  # Reset for next build
+        lines[i] = re.sub(pattern, r":any:`\2`", line)
 
 
 # Most tools change their table formatting based on the perceived number of columns. Most will
@@ -284,6 +218,5 @@ def _resolve_breathe_cpp_references(app, env, node, contnode) -> object | None:
 
 def setup(app) -> None:
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
-    app.connect("write-started", _post_process)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)
     app.connect("missing-reference", _resolve_breathe_cpp_references)
