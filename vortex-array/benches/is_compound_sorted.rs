@@ -5,7 +5,7 @@
 //!
 //! Covers order and line-item keys with dense and sparse ties, batch boundaries,
 //! nullable and UTF-8 fields, and constant and dictionary encodings. Also compares
-//! single-field `SortOrder` with `IsSorted` on the same ascending order IDs.
+//! single-field `IsCompoundSorted` with `IsSorted` on the same ascending order IDs.
 
 #![expect(clippy::unwrap_used)]
 
@@ -20,11 +20,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSorted;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::IsCompoundSortedOptions;
+use vortex_array::aggregate_fn::fns::is_compound_sorted::SortDirection;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
-use vortex_array::aggregate_fn::fns::sort_order::SortDirection;
-use vortex_array::aggregate_fn::fns::sort_order::SortOrder;
-use vortex_array::aggregate_fn::fns::sort_order::SortOrderOptions;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -44,8 +44,8 @@ fn main() {
     divan::main();
 }
 
-fn order_line_options() -> SortOrderOptions {
-    SortOrderOptions::new([
+fn order_line_options() -> IsCompoundSortedOptions {
+    IsCompoundSortedOptions::new([
         ("order_id", SortDirection::Asc),
         ("line_item_id", SortDirection::Asc),
     ])
@@ -81,7 +81,7 @@ fn measure_batches(bencher: Bencher, batch_rows: usize, make_array: impl Fn() ->
         .with_inputs(|| {
             let array = make_array();
             let accumulator =
-                Accumulator::try_new(SortOrder, order_line_options(), array.dtype().clone())
+                Accumulator::try_new(IsCompoundSorted, order_line_options(), array.dtype().clone())
                     .unwrap();
             let batches = (0..array.len())
                 .step_by(batch_rows)
@@ -110,7 +110,7 @@ fn order_lines_by_order_size(bencher: Bencher, items_per_order: u32) {
     let line_item_ids = (0..ROWS)
         .map(|index| u64::from(index % items_per_order))
         .collect::<Buffer<_>>();
-    measure(bencher, SortOrder, order_line_options(), || {
+    measure(bencher, IsCompoundSorted, order_line_options(), || {
         StructArray::from_fields(&[
             ("order_id", order_ids.clone().into_array()),
             ("line_item_id", line_item_ids.clone().into_array()),
@@ -122,7 +122,7 @@ fn order_lines_by_order_size(bencher: Bencher, items_per_order: u32) {
 
 #[divan::bench]
 fn repeated_order_line_key(bencher: Bencher) {
-    measure(bencher, SortOrder, order_line_options(), || {
+    measure(bencher, IsCompoundSorted, order_line_options(), || {
         StructArray::from_fields(&[
             (
                 "order_id",
@@ -151,8 +151,8 @@ fn customer_order_lines_sparse_ties(bencher: Bencher) {
     let line_item_ids = (0..ROWS).map(u64::from).collect::<Buffer<_>>();
     measure(
         bencher,
-        SortOrder,
-        SortOrderOptions::new([
+        IsCompoundSorted,
+        IsCompoundSortedOptions::new([
             ("customer_id", SortDirection::Asc),
             ("order_id", SortDirection::Asc),
             ("line_item_id", SortDirection::Asc),
@@ -203,7 +203,7 @@ fn nullable_order_line_keys(bencher: Bencher) {
             }
         })
         .collect::<Vec<_>>();
-    measure(bencher, SortOrder, order_line_options(), || {
+    measure(bencher, IsCompoundSorted, order_line_options(), || {
         StructArray::from_fields(&[
             (
                 "order_id",
@@ -230,8 +230,8 @@ fn customer_order_string_keys(bencher: Bencher) {
         .collect::<Vec<_>>();
     measure(
         bencher,
-        SortOrder,
-        SortOrderOptions::new([
+        IsCompoundSorted,
+        IsCompoundSortedOptions::new([
             ("customer_id", SortDirection::Asc),
             ("order_id", SortDirection::Asc),
         ]),
@@ -259,7 +259,7 @@ fn order_lines_with_dictionary_item_ids(bencher: Bencher) {
         .collect::<Buffer<_>>();
     let line_item_codes = (0..ROWS).map(|index| index % 16).collect::<Buffer<u32>>();
     let line_item_dictionary = (0..16u64).collect::<Buffer<_>>();
-    measure(bencher, SortOrder, order_line_options(), || {
+    measure(bencher, IsCompoundSorted, order_line_options(), || {
         StructArray::from_fields(&[
             ("order_id", order_ids.clone().into_array()),
             (
@@ -288,12 +288,12 @@ mod single_order_id {
     }
 
     #[divan::bench]
-    fn sort_order(bencher: Bencher) {
+    fn is_compound_sorted(bencher: Bencher) {
         let order_ids = order_ids();
         measure(
             bencher,
-            SortOrder,
-            SortOrderOptions::new([("order_id", SortDirection::Asc)]),
+            IsCompoundSorted,
+            IsCompoundSortedOptions::new([("order_id", SortDirection::Asc)]),
             || {
                 StructArray::from_fields(&[("order_id", order_ids.clone().into_array())])
                     .unwrap()
