@@ -14,6 +14,7 @@ use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -227,7 +228,12 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .with_projection(global.projection.clone())
             .with_some_filter(global.filter.filter.clone())
             .full_file_splits()?;
-        let scan = FileScan::try_new(v2_builder(state, global), &splits)?;
+        let dynamic = global
+            .filter
+            .filter
+            .as_ref()
+            .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
+        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }

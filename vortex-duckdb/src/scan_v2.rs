@@ -6,10 +6,10 @@
 //! A planner says what it needs: compute, or reads. This driver decides where each runs, and
 //! DuckDB's own threads run all of it. Each file is prepared once, and the thread that initializes
 //! it cuts the scanned rows into parts on the file's layout splits, the units a V1 scan hands its
-//! threads, after pruning the scan as a whole when it has a filter. A thread takes the next part
-//! and runs it on a run of its own, inline, waiting only for its reads: with a filter, the part's
-//! pruning plans again first, continuing into the chunks of the rows both prunings kept; without,
-//! the chunks directly. Threads join the file only while parts are left, so the threads a file
+//! threads, after pruning the scan as a whole when its filter is dynamic. A thread takes the next
+//! part and runs it on a run of its own, inline, waiting only for its reads: with a filter, the
+//! part's pruning plans first, continuing into the chunks of the rows pruning kept; without, the
+//! chunks directly. Threads join the file only while parts are left, so the threads a file
 //! cannot use move on to the next file.
 
 use std::collections::VecDeque;
@@ -70,21 +70,26 @@ enum Work {
 
 impl FileScan {
     /// Prepares `builder`, composes its planners, and runs the root until it has spawned the
-    /// planner of every part. The root only prunes the scan and cuts parts, so this reads zone
-    /// maps at most.
+    /// planner of every part. The root only prunes the scan, for a dynamic filter, and cuts parts,
+    /// so this reads zone maps at most.
     ///
     /// Running the root up front leaves the file with a known list of parts, like the splits of a
     /// V1 scan: a thread joins the file only while a part is left, and the threads DuckDB has to
     /// spare move on to the next file instead of waiting for this file's root.
     ///
     /// `splits` are the file's layout split boundaries, as a V1 scan of the same fields cuts it.
-    pub(crate) fn try_new(builder: ScanBuilder, splits: &[u64]) -> VortexResult<Self> {
+    /// `dynamic` says the filter's value changes while the scan runs, as a top-N's bound does.
+    pub(crate) fn try_new(
+        builder: ScanBuilder,
+        splits: &[u64],
+        dynamic: bool,
+    ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
         root.admit(
-            compose(&scan, splits),
+            compose(&scan, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
@@ -170,9 +175,9 @@ impl FileScan {
     }
 }
 
-/// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
-/// continuing into the parts of the rows they keep; without, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, splits: &[u64]) -> Box<dyn Planner> {
+/// The planners of a scan, composed: with a dynamic filter, its pruning plans first over the scan's
+/// rows, continuing into the parts of the rows they keep; otherwise, the parts directly.
+fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
@@ -182,7 +187,7 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64]) -> Box<dyn Planner> {
             Box::new(PartPlanner::new(scan, parts, first_row, kept))
         }
     };
-    if scan.filter().is_some() {
+    if dynamic && scan.filter().is_some() {
         Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
     } else {
         parts(None)
@@ -193,10 +198,12 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64]) -> Box<dyn Planner> {
 /// Parts are the file's layout splits, so a layout chunk, and the dictionary it carries, is
 /// exported by one thread, which lets DuckDB evaluate an expression over that dictionary once.
 ///
-/// With a filter, each part prunes again over its own rows before its chunks, on the thread that
-/// takes it, like the per-split pruning of a V1 scan. The scan-wide pruning ran before any part
-/// was taken; a dynamic filter, such as the bound a top-N pushes down, has tightened by the time a
-/// later part is taken, so pruning it again skips more.
+/// With a filter, each part prunes over its own rows before its chunks, on the thread that takes
+/// it, like the per-split pruning of a V1 scan, so the pruning of a file's parts runs in parallel.
+/// A dynamic filter, such as the bound a top-N pushes down, also prunes the scan as a whole before
+/// any part is taken, so a file whose zones it rules out takes no thread. It has tightened by the
+/// time a later part is taken, so pruning that part again skips more, from the zone maps the
+/// scan-wide pruning read.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
