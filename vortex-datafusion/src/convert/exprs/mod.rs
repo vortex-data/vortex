@@ -314,27 +314,20 @@ impl DefaultExpressionConverter {
             } else if !supported_data_types(&left_type) || !supported_data_types(&right_type) {
                 return Err(Unconverted::Unsupported);
             }
-            let (left, right) = if operator.is_comparison() {
-                (
-                    self.convert_comparison_operand(
-                        binary_expr.left(),
-                        binary_expr.right(),
-                        schema,
-                        input_dtype,
-                    )?,
-                    self.convert_comparison_operand(
-                        binary_expr.right(),
-                        binary_expr.left(),
-                        schema,
-                        input_dtype,
-                    )?,
-                )
-            } else {
-                (
-                    self.convert_expr(binary_expr.left(), schema, input_dtype)?,
-                    self.convert_expr(binary_expr.right(), schema, input_dtype)?,
-                )
-            };
+            let left = self.convert_binary_operand(
+                binary_expr.left(),
+                binary_expr.right(),
+                operator,
+                schema,
+                input_dtype,
+            )?;
+            let right = self.convert_binary_operand(
+                binary_expr.right(),
+                binary_expr.left(),
+                operator,
+                schema,
+                input_dtype,
+            )?;
 
             // DataFusion may evaluate the RHS only on rows selected by the LHS.
             if boolean_operator && !(is_infallible(&left) && is_infallible(&right)) {
@@ -437,16 +430,21 @@ impl DefaultExpressionConverter {
         Err(Unconverted::Unsupported)
     }
 
-    /// Imports a comparison literal with the other operand's extension metadata when the
-    /// DataFusion literal carries only its Arrow storage type.
-    fn convert_comparison_operand(
+    /// Converts a binary operand, using the other operand's field to type comparison literals.
+    ///
+    /// Arithmetic and Boolean operands convert independently. They do not accept extension dtypes,
+    /// so the other operand cannot supply an expected extension type for their literals.
+    fn convert_binary_operand(
         &self,
         expr: &Arc<dyn PhysicalExpr>,
         other: &Arc<dyn PhysicalExpr>,
+        operator: Operator,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
-        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+        if operator.is_comparison()
+            && let Some(literal) = expr.downcast_ref::<df_expr::Literal>()
+        {
             let field = other.return_field(schema)?;
             let scalar = self.import_literal_for_operand(literal, &field, schema)?;
 
@@ -460,6 +458,8 @@ impl DefaultExpressionConverter {
     ///
     /// The literal keeps its Arrow dtype, so different storage types or timestamp units still fail
     /// the comparison's dtype check. Explicit metadata, including an unknown extension, is preserved.
+    /// The inherited extension name and payload both come from `operand_field`, including an absent
+    /// payload, so the import cannot combine metadata from two different types.
     fn import_literal_for_operand(
         &self,
         literal: &df_expr::Literal,
@@ -473,6 +473,7 @@ impl DefaultExpressionConverter {
 
         let mut field = field.as_ref().clone();
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
+            field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
                 field.metadata_mut().insert(key.into(), value.clone());
             }
@@ -498,7 +499,11 @@ impl DefaultExpressionConverter {
             .arrow()
             .from_arrow_array(array, field)
             .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
-            .map_err(|e| exec_datafusion_err!("Failed to convert literal {literal}: {e}").into())
+            .map_err(|error| {
+                Unconverted::Failed(DataFusionError::External(Box::new(
+                    error.with_context(format!("Failed to convert literal {literal}")),
+                )))
+            })
     }
 
     fn convert_in_list(
