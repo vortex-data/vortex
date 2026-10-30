@@ -55,6 +55,12 @@ The written file has the same row groups, encodings and compression as a sequent
 `ArrowWriter` with the same settings. Arrow IPC is a serialization baseline and stays
 single-threaded.
 
+## Parquet compression
+
+The CPU suite writes Parquet with zstd level 3, the same level as the other benchmark Parquet
+writers. `ParquetCompressor` sets the level explicitly. In parquet-rs, `ZstdLevel::default()` is
+level 1, not level 3, which is the default of the zstd library and of DuckDB.
+
 ## Running locally
 
 ```bash
