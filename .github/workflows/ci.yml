@@ -309,8 +309,6 @@ jobs:
         config:
           - name: "all-features"
             runner: amd64-ci-large
-            # `check` keeps cargo-hack's per-crate feature isolation but skips codegen and linking;
-            # the test jobs already build and link all-features test binaries.
             command: check
             args: "--all-features --all-targets"
           - name: "default features"
@@ -325,7 +323,6 @@ jobs:
           - name: "wasm32 with default features"
             runner: amd64-ci-medium
             target: wasm32-unknown-unknown
-            # Keep `build` so wasm32 codegen and linking stay covered.
             command: build
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
