@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Converts DataFusion physical expressions for native Vortex evaluation.
+//!
+//! Unsupported expressions stay in DataFusion. Comparison and membership literals retain their own
+//! extension metadata, or inherit missing metadata from the operand they are compared with. This
+//! supplies the logical dtype that Vortex requires without adding implicit casts.
+
 use std::sync::Arc;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -39,17 +47,14 @@ use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
-
-#[cfg(test)]
-mod tests;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -309,8 +314,28 @@ impl DefaultExpressionConverter {
             } else if !supported_data_types(&left_type) || !supported_data_types(&right_type) {
                 return Err(Unconverted::Unsupported);
             }
-            let left = self.convert_expr(binary_expr.left(), schema, input_dtype)?;
-            let right = self.convert_expr(binary_expr.right(), schema, input_dtype)?;
+            let (left, right) = if operator.is_comparison() {
+                (
+                    self.convert_comparison_operand(
+                        binary_expr.left(),
+                        binary_expr.right(),
+                        schema,
+                        input_dtype,
+                    )?,
+                    self.convert_comparison_operand(
+                        binary_expr.right(),
+                        binary_expr.left(),
+                        schema,
+                        input_dtype,
+                    )?,
+                )
+            } else {
+                (
+                    self.convert_expr(binary_expr.left(), schema, input_dtype)?,
+                    self.convert_expr(binary_expr.right(), schema, input_dtype)?,
+                )
+            };
+
             // DataFusion may evaluate the RHS only on rows selected by the LHS.
             if boolean_operator && !(is_infallible(&left) && is_infallible(&right)) {
                 return Err(Unconverted::Unsupported);
@@ -329,23 +354,8 @@ impl DefaultExpressionConverter {
 
         if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
             let field = literal.return_field(schema)?;
-            let array = literal.value().to_array()?;
-            if array.len() != 1 {
-                return Err(exec_datafusion_err!(
-                    "Literal must contain exactly one value, found {}",
-                    array.len()
-                )
-                .into());
-            }
-            // Literals of unknown Arrow types stay in DataFusion; conversion failures are errors.
-            self.arrow_dtype(&field)?;
-            let scalar = self
-                .session
-                .arrow()
-                .from_arrow_array(array, &field)
-                .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
-                .map_err(|e| exec_datafusion_err!("Failed to convert literal {expr}: {e}"))?;
-            return Ok(lit(scalar));
+
+            return Ok(lit(self.import_literal(literal, &field)?));
         }
 
         if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
@@ -427,6 +437,70 @@ impl DefaultExpressionConverter {
         Err(Unconverted::Unsupported)
     }
 
+    /// Imports a comparison literal with the other operand's extension metadata when the
+    /// DataFusion literal carries only its Arrow storage type.
+    fn convert_comparison_operand(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        other: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+            let field = other.return_field(schema)?;
+            let scalar = self.import_literal_for_operand(literal, &field, schema)?;
+
+            return Ok(lit(scalar));
+        }
+
+        self.convert_expr(expr, schema, input_dtype)
+    }
+
+    /// Imports a literal, using `operand_field` only when the literal has no extension metadata.
+    ///
+    /// The literal keeps its Arrow dtype, so different storage types or timestamp units still fail
+    /// the comparison's dtype check. Explicit metadata, including an unknown extension, is preserved.
+    fn import_literal_for_operand(
+        &self,
+        literal: &df_expr::Literal,
+        operand_field: &Field,
+        schema: &Schema,
+    ) -> Conversion<Scalar> {
+        let field = literal.return_field(schema)?;
+        if field.extension_type_name().is_some() || operand_field.extension_type_name().is_none() {
+            return self.import_literal(literal, &field);
+        }
+
+        let mut field = field.as_ref().clone();
+        for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
+            if let Some(value) = operand_field.metadata().get(key) {
+                field.metadata_mut().insert(key.into(), value.clone());
+            }
+        }
+
+        self.import_literal(literal, &field)
+    }
+
+    /// Imports one scalar through the session's Arrow plugins, preserving `field`'s metadata.
+    fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
+        let array = literal.value().to_array()?;
+        if array.len() != 1 {
+            return Err(exec_datafusion_err!(
+                "Literal must contain exactly one value, got {}",
+                array.len()
+            )
+            .into());
+        }
+
+        self.arrow_dtype(field)?;
+
+        self.session
+            .arrow()
+            .from_arrow_array(array, field)
+            .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
+            .map_err(|e| exec_datafusion_err!("Failed to convert literal {literal}: {e}").into())
+    }
+
     fn convert_in_list(
         &self,
         in_list: &df_expr::InListExpr,
@@ -448,23 +522,20 @@ impl DefaultExpressionConverter {
             return Err(Unconverted::Unsupported);
         }
         let value_dtype = converted_dtype(&value, input_dtype)?;
+        let value_field = in_list.expr().return_field(schema)?;
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
-        // converts through Arrow, so equal elements are converted once.
+        // converts through Arrow, so equal values with equal metadata are converted once.
         let elements = in_list
             .list()
             .iter()
-            .unique_by(|element| {
-                element
-                    .downcast_ref::<df_expr::Literal>()
-                    .map(|literal| literal.value().clone())
-            })
+            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let element = self.convert_expr(element, schema, input_dtype)?;
-                element
-                    .as_opt::<Literal>()
-                    .cloned()
-                    .ok_or(Unconverted::Unsupported)
+                let literal = element
+                    .downcast_ref::<df_expr::Literal>()
+                    .ok_or(Unconverted::Unsupported)?;
+
+                self.import_literal_for_operand(literal, &value_field, schema)
             })
             .collect::<Conversion<Vec<_>>>()?;
 
@@ -747,3 +818,6 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> DFResult<Option<&Arc<dy
         )),
     }
 }
+
+#[cfg(test)]
+mod tests;
