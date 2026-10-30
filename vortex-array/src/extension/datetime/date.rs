@@ -100,12 +100,13 @@ impl ExtVTable for Date {
         let ptype = date_ptype(metadata)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
 
-        vortex_ensure_eq!(
-            ext_dtype.storage_dtype().as_ptype(),
-            ptype,
-            "Date storage dtype for {} has the wrong ptype",
-            metadata
-        );
+        let DType::Primitive(storage_ptype, _) = ext_dtype.storage_dtype() else {
+            vortex_bail!(
+                "Date storage dtype must be primitive, got {}",
+                ext_dtype.storage_dtype()
+            );
+        };
+        vortex_ensure_eq!(*storage_ptype, ptype);
 
         Ok(())
     }
@@ -131,11 +132,17 @@ mod tests {
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::extension::ExtDType;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    #[test]
+    fn test_reject_non_primitive_storage() {
+        assert!(ExtDType::<Date>::try_new(TimeUnit::Days, DType::Utf8(Nullable),).is_err());
+    }
 
     #[test]
     fn validate_date_scalar() -> VortexResult<()> {

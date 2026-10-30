@@ -5,7 +5,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_buffer::BufferAllocatorRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -226,14 +225,16 @@ impl FixedSizeListBuilder {
             "elements length must be equal to the array length times the list size"
         );
 
-        // TODO(connor): Use `new_unchecked` here.
-        FixedSizeListArray::try_new(
-            self.elements_builder.finish(),
-            self.list_size(),
-            self.nulls.finish_with_nullability(self.dtype.nullability()),
-            final_len,
-        )
-        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
+        // SAFETY: The assertion above checks that the elements length is `final_len * list_size`,
+        // and the validity is built from `self.nulls`, whose length is `final_len`.
+        unsafe {
+            FixedSizeListArray::new_unchecked(
+                self.elements_builder.finish(),
+                self.list_size(),
+                self.nulls.finish_with_nullability(self.dtype.nullability()),
+                final_len,
+            )
+        }
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of

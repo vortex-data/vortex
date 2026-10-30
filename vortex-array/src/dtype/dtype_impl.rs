@@ -606,7 +606,8 @@ mod tests {
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullable).erased(),
         );
         let t2 = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("America/New_York".into()), Nullable)
+                .erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
     }

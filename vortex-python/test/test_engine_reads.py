@@ -125,8 +125,7 @@ def test_duckdb_offset(source: pa.Table, conn: duckdb.DuckDBPyConnection) -> Non
 def test_duckdb_aggregation(source: pa.Table, conn: duckdb.DuckDBPyConnection) -> None:
     names = numeric_columns(source)
     aggregations = ",".join(f"avg(ds.{name}) as {name}" for name in names)
-    actual = conn.sql(f"select {aggregations} from ds").fetchone()
+    (actual,) = conn.sql(f"select {aggregations} from ds").fetchall()
 
-    assert actual is not None
     for name, value in zip(names, actual, strict=True):
         assert value == pytest.approx(pc.mean(source[name]).as_py())

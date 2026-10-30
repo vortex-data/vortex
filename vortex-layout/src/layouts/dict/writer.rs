@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use async_channel::SendError;
+use async_channel::Sender;
+use async_channel::bounded;
 use async_stream::stream;
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -36,7 +39,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
@@ -405,9 +407,9 @@ type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
 struct DictionaryTransformer {
     input: DictionaryStream,
-    active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
+    active_codes_tx: Option<Sender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
-    pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
+    pending_send: Option<BoxFuture<'static, Result<(), SendError<SequencedChunk>>>>,
 }
 
 impl DictionaryTransformer {
@@ -455,7 +457,7 @@ impl Stream for DictionaryTransformer {
                 }))) => {
                     if self.active_codes_tx.is_none() {
                         // Start a new group
-                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
+                        let (codes_tx, codes_rx) = bounded::<SequencedChunk>(1);
                         let (values_tx, values_rx) = oneshot::channel();
 
                         self.active_codes_tx = Some(codes_tx.clone());
@@ -471,11 +473,8 @@ impl Stream for DictionaryTransformer {
                             ));
 
                         // Create output streams.
-                        let codes_stream = SequentialStreamAdapter::new(
-                            codes_dtype,
-                            codes_rx.into_stream().boxed(),
-                        )
-                        .sendable();
+                        let codes_stream =
+                            SequentialStreamAdapter::new(codes_dtype, codes_rx.boxed()).sendable();
 
                         let values_future = async move {
                             values_rx

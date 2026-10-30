@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import pytest
+
 import vortex as vx
 
 
@@ -14,3 +16,8 @@ def test_factories() -> None:
     assert str(vx.uint(32)) == "u32"
     assert str(vx.float_(16)) == "f16"
     assert str(vx.struct({"a": vx.int_(nullable=True)})) == "{a=i64?}"
+
+
+def test_timestamp_rejects_unknown_timezone():
+    with pytest.raises(RuntimeError, match="Not/A/Timezone"):
+        vx.timestamp("s", tz="Not/A/Timezone")

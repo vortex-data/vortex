@@ -65,7 +65,7 @@ jobs:
     # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-codspeed-simulation/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -151,7 +151,7 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-codspeed-simulation/tag=bench-codspeed-python', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-python', github.run_id)
           || 'ubuntu-latest' }}
     env:
       # Same settings as the bench profile, which keeps the debug info that CodSpeed uses to
@@ -185,6 +185,9 @@ jobs:
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+          # Drive scans on the calling thread. Background workers wake every 100 ms to check
+          # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
+          VORTEX_MAX_THREADS: "0"
         with:
           run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -226,7 +229,7 @@ jobs:
     name: "Build Codspeed CPU benchmarks (${{ matrix.features }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=${{ matrix.build-runner }}/tag=bench-codspeed-cpu-features-build-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.build-runner }}/tag=bench-codspeed-cpu-features-build-${{ matrix.features }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -295,7 +298,7 @@ jobs:
     name: "Benchmark with Codspeed (${{ matrix.features }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}/tag=bench-codspeed-cpu-features-${{ matrix.features }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.runner }}/tag=bench-codspeed-cpu-features-${{ matrix.features }}
     steps:
       # Initialise the RunsOn artifact proxy used by download-artifact.
       - uses: runs-on/action@v2
@@ -348,7 +351,7 @@ jobs:
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=gpu-codspeed/tag=bench-codspeed-cuda-build
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu-codspeed/tag=bench-codspeed-cuda-build
     steps:
       - uses: runs-on/action@v2
         with:
@@ -409,7 +412,7 @@ jobs:
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=gpu-codspeed/tag=bench-codspeed-cuda-${{ matrix.shard }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu-codspeed/tag=bench-codspeed-cuda-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
         with:

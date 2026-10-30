@@ -120,6 +120,10 @@ name = "cast_decimal"
 harness = false
 
 [[bench]]
+name = "copy_to_canonical_width"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 

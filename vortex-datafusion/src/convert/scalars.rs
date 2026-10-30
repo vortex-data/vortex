@@ -18,11 +18,9 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::error::vortex_panic;
 use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
@@ -244,10 +242,8 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::Time32Millisecond(v) => {
             let dtype = session
                 .arrow()
-                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
-                .vortex_expect("arrow data type to dtype");
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                .vortex_expect("unable to create a time `Scalar`")
+                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
+            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
         }
         ScalarValue::Date64(v)
         | ScalarValue::Time64Microsecond(v)
@@ -258,10 +254,8 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::TimestampNanosecond(v, _) => {
             let dtype = session
                 .arrow()
-                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
-                .vortex_expect("arrow data type to dtype");
-            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                .vortex_expect("unable to create a time `Scalar`")
+                .from_arrow_datatype(&value.data_type(), Nullability::Nullable)?;
+            Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))?
         }
         ScalarValue::Decimal32(decimal, precision, scale) => {
             let decimal_dtype = DecimalDType::new(*precision, *scale);
@@ -316,7 +310,7 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
             }
         }
         ScalarValue::Dictionary(_, v) => scalar_from_df(v.as_ref(), session)?,
-        ScalarValue::Struct(array) => struct_from_df(array, session),
+        ScalarValue::Struct(array) => struct_from_df(array, session)?,
         ScalarValue::RunEndEncoded(_, _, v) => scalar_from_df(v.as_ref(), session)?,
         _ => vortex_bail!("Can't convert {value:?} value to a Vortex scalar"),
     })
@@ -369,13 +363,11 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
 /// same fields. Going through `ScalarValue` instead would drop each field's `ARROW:extension:name`
 /// (and its declared nullability), yielding storage-typed children that
 /// [`Scalar::struct_`] rejects against an extension-typed struct dtype.
-fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
+fn struct_from_df(array: &StructArray, session: &VortexSession) -> VortexResult<Scalar> {
     let arrow = session.arrow();
-    let dtype = arrow
-        .from_arrow_datatype(array.data_type(), Nullability::Nullable)
-        .vortex_expect("arrow data type to dtype");
+    let dtype = arrow.from_arrow_datatype(array.data_type(), Nullability::Nullable)?;
     if array.is_null(0) {
-        Scalar::null(dtype)
+        Ok(Scalar::null(dtype))
     } else {
         let mut ctx = session.create_execution_ctx();
         let children = array
@@ -386,12 +378,9 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
                 arrow
                     .from_arrow_array(ArrowArrayRef::clone(column), field)
                     .and_then(|column| column.execute_scalar(0, &mut ctx))
-                    .unwrap_or_else(|e| {
-                        vortex_panic!(e, "cannot convert struct field to a Vortex scalar")
-                    })
             })
-            .collect::<Vec<_>>();
-        Scalar::struct_(dtype, children)
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(Scalar::struct_(dtype, children))
     }
 }
 
@@ -411,6 +400,7 @@ mod tests {
     use vortex::dtype::StructFields;
     use vortex::dtype::UnionVariants;
     use vortex::dtype::i256;
+    use vortex::error::VortexExpect;
     use vortex::extension::datetime::Date;
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
@@ -423,6 +413,30 @@ mod tests {
     fn from_df(value: &ScalarValue) -> Scalar {
         scalar_from_df(value, &VortexSession::default())
             .vortex_expect("conversion should succeed in tests")
+    }
+
+    #[rstest]
+    #[case::invalid_zone(ScalarValue::TimestampSecond(None, Some("Not/A/Timezone".into())))]
+    #[case::extreme_timestamp(ScalarValue::TimestampSecond(Some(i64::MAX), None))]
+    #[case::extreme_time(ScalarValue::Time64Nanosecond(Some(i64::MIN)))]
+    fn test_reject_invalid_temporal_scalar(#[case] value: ScalarValue) {
+        assert!(scalar_from_df(&value, &VortexSession::default()).is_err());
+    }
+
+    #[test]
+    fn test_reject_struct_with_invalid_timestamp_metadata() {
+        let array =
+            arrow_array::TimestampSecondArray::from(vec![0]).with_timezone("Not/A/Timezone");
+        let field = Field::new("timestamp", array.data_type().clone(), false);
+        let array = StructArray::new(vec![field].into(), vec![Arc::new(array)], None);
+
+        assert!(
+            scalar_from_df(
+                &ScalarValue::Struct(Arc::new(array)),
+                &VortexSession::default(),
+            )
+            .is_err()
+        );
     }
 
     #[rstest]
