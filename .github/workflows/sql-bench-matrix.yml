@@ -45,6 +45,8 @@ jobs:
 
   build:
     timeout-minutes: 60
+    outputs:
+      duckdb_lib_dir: ${{ steps.duckdb-lib.outputs.dir }}
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
@@ -73,17 +75,48 @@ jobs:
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug
+      - name: Locate DuckDB library
+        id: duckdb-lib
+        shell: bash
+        run: |
+          # The bench binaries embed an absolute rpath to this directory, so the bench job must
+          # restore libduckdb.so at the same path relative to target/release_debug.
+          dir="$(cd target/release_debug && ls -d build/vortex-duckdb-cache/duckdb-lib-*-prebuilt)"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      # One artifact per file so the uploads (and the bench job's downloads) run concurrently
+      # instead of streaming a single large zip.
       - parallel:
-          - name: Upload binaries
+          - name: Upload data-gen
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
             with:
-              name: bench-binaries
-              path: |
-                target/release_debug/data-gen
-                target/release_debug/datafusion-bench
-                target/release_debug/duckdb-bench
-                target/release_debug/lance-bench
-                target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+              name: bench-bin-data-gen
+              path: target/release_debug/data-gen
+              if-no-files-found: error
+          - name: Upload datafusion-bench
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: bench-bin-datafusion-bench
+              path: target/release_debug/datafusion-bench
+              if-no-files-found: error
+          - name: Upload duckdb-bench
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: bench-bin-duckdb-bench
+              path: target/release_debug/duckdb-bench
+              if-no-files-found: error
+          - name: Upload lance-bench
+            if: inputs.mode != 'pr'
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: bench-bin-lance-bench
+              path: target/release_debug/lance-bench
+              if-no-files-found: error
+          - name: Upload libduckdb
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: bench-libduckdb
+              path: target/release_debug/${{ steps.duckdb-lib.outputs.dir }}/libduckdb.so
+              if-no-files-found: error
           - name: Pre-upload SQL benchmark debuginfo to Polar Signals
             if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
             uses: ./.github/actions/upload-parca-debuginfo
@@ -93,8 +126,8 @@ jobs:
                 target/release_debug/datafusion-bench
                 target/release_debug/duckdb-bench
                 ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
-                polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-                project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+              polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
   bench:
     needs: [resolve-matrix, build]
@@ -135,11 +168,18 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
-      - name: Download binaries
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          name: bench-binaries
-          path: target/release_debug/
+      - parallel:
+          - name: Download binaries
+            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+            with:
+              pattern: bench-bin-*
+              merge-multiple: true
+              path: target/release_debug/
+          - name: Download libduckdb
+            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+            with:
+              name: bench-libduckdb
+              path: target/release_debug/${{ needs.build.outputs.duckdb_lib_dir }}/
       - name: Make binaries executable
         shell: bash
         run: chmod +x target/release_debug/*
