@@ -309,17 +309,24 @@ jobs:
         config:
           - name: "all-features"
             runner: amd64-ci-large
+            # `check` keeps cargo-hack's per-crate feature isolation but skips codegen and linking;
+            # the test jobs already build and link all-features test binaries.
+            command: check
             args: "--all-features --all-targets"
           - name: "default features"
             runner: amd64-ci-large
+            command: check
             args: "--all-targets"
           - name: "with tokio dispatcher"
             runner: amd64-ci-medium
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
+            command: check
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
             runner: amd64-ci-medium
             target: wasm32-unknown-unknown
+            # Keep `build` so wasm32 codegen and linking stay covered.
+            command: build
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
@@ -336,7 +343,7 @@ jobs:
           targets: ${{ matrix.config.target }}
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
+          command: "${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --profile ci --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
