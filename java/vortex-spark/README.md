@@ -22,6 +22,16 @@ For example, with version `VERSION`:
 spark-shell --jars https://repo1.maven.org/maven2/dev/vortex/vortex-spark-4.0_2.13/VERSION/vortex-spark-4.0_2.13-VERSION-all.jar
 ```
 
+Or configure it on the session builder, for example in PySpark:
+
+```python
+spark = (
+    SparkSession.builder
+    .config("spark.jars", "/path/to/vortex-spark-4.0_2.13-VERSION-all.jar")
+    .getOrCreate()
+)
+```
+
 Or add the classified artifact to a JVM project:
 
 ```kotlin
@@ -103,4 +113,6 @@ cd java
 ```
 
 See the [Spark user guide](https://docs.vortex.dev/user-guide/spark.html) for supported types,
-options, partitioning, and remote storage details.
+options, partitioning, and remote storage details. The
+[Java quickstart](https://docs.vortex.dev/getting-started/java.html) covers the underlying
+`vortex-jni` API.
