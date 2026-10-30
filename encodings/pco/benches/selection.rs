@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::main as run_benchmarks;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
@@ -31,6 +32,23 @@ use vortex_session::VortexSession;
 const ROWS: usize = 4_194_304;
 const PROBES: usize = 1_048_576;
 const FIRST_PROBES: usize = 256;
+const TAKE_LEN: u64 = 524_288;
+// An odd stride visits distinct rows modulo the power-of-two ROWS.
+const STRIDE: u64 = 32_749;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+static FIXTURES: LazyLock<[(PrimitiveArray, ArrayRef); 2]> = LazyLock::new(|| {
+    [false, true].map(|nullable| {
+        let input = build_input(nullable);
+        let mut ctx = SESSION.create_execution_ctx();
+        let compressed = Pco::from_primitive(input.as_view(), 3, 1024, &mut ctx)
+            .vortex_expect("valid benchmark fixture")
+            .into_array();
+        (input, compressed)
+    })
+});
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<KernelSession>()
@@ -40,10 +58,11 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 fn main() {
+    LazyLock::force(&FIXTURES);
     run_benchmarks();
 }
 
-fn input(nullable: bool) -> PrimitiveArray {
+fn build_input(nullable: bool) -> PrimitiveArray {
     PrimitiveArray::new(
         (0..ROWS)
             .map(|i| (i as i64).wrapping_mul(17) ^ ((i / 1024) as i64))
@@ -56,15 +75,25 @@ fn input(nullable: bool) -> PrimitiveArray {
     )
 }
 
-fn compressed(nullable: bool) -> ArrayRef {
-    let mut ctx = SESSION.create_execution_ctx();
-    Pco::from_primitive(input(nullable).as_view(), 3, 1024, &mut ctx)
-        .vortex_expect("valid benchmark fixture")
-        .into_array()
+fn input(nullable: bool) -> PrimitiveArray {
+    FIXTURES[usize::from(nullable)].0.clone()
 }
 
-#[divan::bench(args = [false, true])]
-fn write(bencher: Bencher, nullable: bool) {
+fn compressed(nullable: bool) -> ArrayRef {
+    FIXTURES[usize::from(nullable)].1.clone()
+}
+
+fn is_nullable(label: &str) -> bool {
+    match label {
+        "non_nullable" => false,
+        "nullable" => true,
+        _ => unreachable!("unknown nullability {label}"),
+    }
+}
+
+#[divan::bench(args = ["non_nullable", "nullable"])]
+fn write(bencher: Bencher, nullability: &str) {
+    let nullable = is_nullable(nullability);
     let input = input(nullable);
     let mut check = SESSION.create_execution_ctx();
     let written =
@@ -78,8 +107,9 @@ fn write(bencher: Bencher, nullable: bool) {
         });
 }
 
-#[divan::bench(args = [false, true])]
-fn full(bencher: Bencher, nullable: bool) {
+#[divan::bench(args = ["non_nullable", "nullable"])]
+fn full(bencher: Bencher, nullability: &str) {
+    let nullable = is_nullable(nullability);
     let source = compressed(nullable);
     let mut check = SESSION.create_execution_ctx();
     assert_arrays_eq!(source, input(nullable), &mut check);
@@ -94,27 +124,28 @@ fn full(bencher: Bencher, nullable: bool) {
         });
 }
 
-const SELECTIONS: &[(&str, bool)] = &[
-    ("contiguous", false),
-    ("contiguous", true),
-    ("mixed", false),
-    ("mixed", true),
-    ("narrow_repeated", false),
-    ("narrow_repeated", true),
-    ("sparse", false),
-    ("sparse", true),
-    ("broad", false),
-    ("broad", true),
-    ("repeated", false),
-    ("repeated", true),
-    ("near_full", false),
-    ("near_full", true),
-    ("ranges", false),
-    ("ranges", true),
+const SELECTIONS: &[(&str, &str)] = &[
+    ("contiguous", "non_nullable"),
+    ("contiguous", "nullable"),
+    ("mixed", "non_nullable"),
+    ("mixed", "nullable"),
+    ("narrow_repeated", "non_nullable"),
+    ("narrow_repeated", "nullable"),
+    ("sparse", "non_nullable"),
+    ("sparse", "nullable"),
+    ("broad", "non_nullable"),
+    ("broad", "nullable"),
+    ("repeated", "non_nullable"),
+    ("repeated", "nullable"),
+    ("near_full", "non_nullable"),
+    ("near_full", "nullable"),
+    ("ranges", "non_nullable"),
+    ("ranges", "nullable"),
 ];
 
 #[divan::bench(args = SELECTIONS)]
-fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
+fn selection(bencher: Bencher, (kind, nullability): (&str, &str)) {
+    let nullable = is_nullable(nullability);
     let source = compressed(nullable);
     let source = if kind == "narrow_repeated" {
         source.slice(ROWS - 128..ROWS).vortex_expect("narrow view")
@@ -125,19 +156,19 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
     let indices = match kind {
         "contiguous" => PrimitiveArray::from_iter(1..ROWS as u64 - 1).into_array(),
         "mixed" => PrimitiveArray::from_iter(
-            (0..524288u64).map(|i| if i < 2 { i } else { (i * 32749) % ROWS as u64 }),
+            (0..TAKE_LEN).map(|i| if i < 2 { i } else { (i * STRIDE) % ROWS as u64 }),
         )
         .into_array(),
         "narrow_repeated" => {
-            PrimitiveArray::from_iter((0..4_194_304u64).map(|i| (i % 2) * 127)).into_array()
+            PrimitiveArray::from_iter((0..ROWS as u64).map(|i| (i % 2) * 127)).into_array()
         }
         "sparse" => {
-            PrimitiveArray::from_iter((0..128u64).map(|i| (i * 32749) % ROWS as u64)).into_array()
+            PrimitiveArray::from_iter((0..128u64).map(|i| (i * STRIDE) % ROWS as u64)).into_array()
         }
-        "broad" => PrimitiveArray::from_iter((0..524288u64).map(|i| (i * 32749) % ROWS as u64))
+        "broad" => PrimitiveArray::from_iter((0..TAKE_LEN).map(|i| (i * STRIDE) % ROWS as u64))
             .into_array(),
         "repeated" => {
-            PrimitiveArray::from_iter((0..524288u64).map(|i| (i % 16) * 127)).into_array()
+            PrimitiveArray::from_iter((0..TAKE_LEN).map(|i| (i % 16) * 127)).into_array()
         }
         "ranges" => PiecewiseSequenceArray::try_new(
             PrimitiveArray::from_iter([0u64, 100000, 200000, 300000]).into_array(),
@@ -147,7 +178,9 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
         )
         .vortex_expect("range indices")
         .into_array(),
-        _ => PrimitiveArray::from_iter([0u64]).into_array(),
+        // This selects the same rows as contiguous, using slice rather than take.
+        "near_full" => PrimitiveArray::from_iter([] as [u64; 0]).into_array(),
+        _ => unreachable!("unknown selection {kind}"),
     };
     let mut check = SESSION.create_execution_ctx();
     let reference = input(nullable).into_array();
@@ -187,8 +220,10 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
         });
 }
 
-#[divan::bench(args = [false, true])]
-fn retained_probes(bencher: Bencher, nullable: bool) {
+#[divan::bench(args = ["non_nullable", "nullable"])]
+// These retained probes stay within one page; scalar.rs also covers scattered probes.
+fn retained_probes(bencher: Bencher, nullability: &str) {
+    let nullable = is_nullable(nullability);
     let source = compressed(nullable);
     let reference = input(nullable).into_array();
     let mut check = SESSION.create_execution_ctx();
@@ -232,8 +267,13 @@ fn retained_probes(bencher: Bencher, nullable: bool) {
 }
 
 // Each request starts a new probe. Missing and defined rows are separate cases.
-#[divan::bench(args = [false, true])]
-fn first_probes(bencher: Bencher, missing: bool) {
+#[divan::bench(args = ["defined", "missing"])]
+fn first_probes(bencher: Bencher, kind: &str) {
+    let missing = match kind {
+        "defined" => false,
+        "missing" => true,
+        _ => unreachable!("unknown probe kind {kind}"),
+    };
     let source = compressed(true);
     let index = if missing { 8190 } else { 8191 };
     let mut check = SESSION.create_execution_ctx();
@@ -249,7 +289,6 @@ fn first_probes(bencher: Bencher, missing: bool) {
             .vortex_expect("primitive oracle")
     );
     assert_eq!(actual.is_null(), missing);
-    drop(actual);
 
     drop(check);
     bencher
@@ -267,8 +306,9 @@ fn first_probes(bencher: Bencher, missing: bool) {
 }
 
 // Buffers/children are already materialized: this measures metadata/index preparation, not IO.
-#[divan::bench(args = [false, true])]
-fn metadata_open_batch(bencher: Bencher, nullable: bool) {
+#[divan::bench(args = ["non_nullable", "nullable"])]
+fn metadata_open_batch(bencher: Bencher, nullability: &str) {
+    let nullable = is_nullable(nullability);
     const OPENS: usize = 256;
     let source = compressed(nullable);
     let wire = SESSION
