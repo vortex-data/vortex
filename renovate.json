@@ -26,7 +26,26 @@
     "enabled": true,
     "vulnerabilityFixStrategy": "lowest"
   },
+  "npmrc": "allow-remote=all",
+  "npmrcMerge": true,
   "packageRules": [
+    {
+      "description": "Wait 7 days after a release before proposing it, so most malicious publishes are found and removed upstream first. Security updates skip this wait. Lock file maintenance has no package name, so this rule does not reach it; see the lock file maintenance rules below.",
+      "matchPackageNames": ["*"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "vortex-data and vortex-data-cuda are built from this repository, not taken from PyPI.",
+      "matchDatasources": ["pypi"],
+      "matchPackageNames": ["vortex-data", "vortex-data-cuda"],
+      "enabled": false
+    },
+    {
+      "description": "vortex-python-cuda is not a uv workspace member and pins the unpublished vortex-data==0.1.0, so uv cannot lock it from its own directory. The workspace uv.lock already includes its dependencies.",
+      "matchFileNames": ["vortex-python-cuda/pyproject.toml"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "enabled": false
+    },
     {
       "matchPackageNames": [
         "ubuntu",
@@ -106,6 +125,7 @@
       ]
     },
     {
+      "description": "Renovate cannot apply minimumReleaseAge to uv lock file maintenance. The 7-day wait comes from exclude-newer in pyproject.toml instead.",
       "groupName": "Python lock file maintenance",
       "groupSlug": "python-lock-file-maintenance",
       "matchManagers": [
@@ -116,6 +136,7 @@
       ]
     },
     {
+      "description": "Renovate passes the 7-day wait to npm as --before. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove that npmrc when the bug is fixed.",
       "groupName": "JS lock file maintenance",
       "groupSlug": "js-lock-file-maintenance",
       "matchManagers": [
@@ -123,7 +144,8 @@
       ],
       "matchUpdateTypes": [
         "lockFileMaintenance"
-      ]
+      ],
+      "minimumReleaseAge": "7 days"
     }
   ],
   "customManagers": [

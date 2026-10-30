@@ -28,6 +28,7 @@ def writer() -> ModuleType:
 def commit() -> dict[str, str]:
     return {
         "sha": "a" * 40,
+        "branch": "develop",
         "timestamp": "2026-09-08T12:00:00Z",
         "message": "benchmark",
         "author_name": "Author",
