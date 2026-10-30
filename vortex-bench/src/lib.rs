@@ -73,6 +73,8 @@ pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -93,6 +95,9 @@ pub fn configure_allocator() {
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
+    session
+        .enable_edition(UNSTABLE)
+        .vortex_expect("unstable edition is registered");
     session
 });
 
