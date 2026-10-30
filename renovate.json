@@ -136,7 +136,7 @@
       ]
     },
     {
-      "description": "Renovate passes the 7-day wait to npm as --before. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove that npmrc when the bug is fixed.",
+      "description": "Renovate passes the 7-day wait to npm as --before. A lock refresh has no release timestamp, so timestamp-optional lets its stability check pass instead of holding the branch forever; npm's --before still applies the wait. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove that npmrc when the bug is fixed.",
       "groupName": "JS lock file maintenance",
       "groupSlug": "js-lock-file-maintenance",
       "matchManagers": [
@@ -145,7 +145,8 @@
       "matchUpdateTypes": [
         "lockFileMaintenance"
       ],
-      "minimumReleaseAge": "7 days"
+      "minimumReleaseAge": "7 days",
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     }
   ],
   "customManagers": [
