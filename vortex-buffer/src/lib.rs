@@ -65,6 +65,7 @@ mod bytes;
 mod const_;
 mod debug;
 mod dispatch;
+pub mod filter;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;

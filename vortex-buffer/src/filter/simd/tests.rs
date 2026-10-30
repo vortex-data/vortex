@@ -4,31 +4,49 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use rstest::rstest;
-use vortex_buffer::BitBuffer;
-use vortex_mask::Mask;
-use vortex_mask::MaskValues;
 
 use super::*;
+use crate::BitBuffer;
+use crate::filter::scalar::compact_by_bitmap;
 
-fn filter_slice_by_bitmap<T: Copy>(values: &[T], mask: &MaskValues) -> Option<Buffer<T>> {
-    super::filter_slice_by_bitmap(values, mask, &BufferAllocatorRef::statically_allocated())
+/// The scalar result of filtering `values` by `bits`.
+fn expected<T: Copy>(values: &[T], bits: &BitBuffer) -> Vec<T> {
+    let mut out = Vec::with_capacity(values.len());
+    // SAFETY: `bits` covers `values`, and the output has room for every element.
+    let written =
+        unsafe { compact_by_bitmap(values, MaskBits::Bitmap(bits), out.spare_capacity_mut()) };
+    // SAFETY: the walk initialized the first `written` elements.
+    unsafe { out.set_len(written) };
+    out
 }
 
-fn mask_values(mask: &Mask) -> Option<&MaskValues> {
-    match mask {
-        Mask::Values(values) => Some(values.as_ref()),
-        _ => None,
-    }
+/// Filter `values` out of place with the SIMD kernel, if one applies.
+fn compress_out_of_place<T: Copy>(values: &[T], bits: &BitBuffer) -> Option<Vec<T>> {
+    let true_count = bits.true_count();
+    let mut out = Vec::with_capacity(true_count + SLACK_BYTES / size_of::<T>());
+    // SAFETY: `bits` covers `values`, and the output has a vector of slack.
+    let written = unsafe {
+        compress(
+            values,
+            MaskBits::Bitmap(bits),
+            density(bits),
+            out.spare_capacity_mut(),
+        )
+    }?;
+    assert_eq!(written, true_count);
+    // SAFETY: the kernel initialized the first `written` elements.
+    unsafe { out.set_len(written) };
+    Some(out)
 }
 
-fn make_mask(len: usize, offset: usize, pattern: impl Fn(usize) -> bool) -> Mask {
+fn density(bits: &BitBuffer) -> f64 {
+    bits.true_count() as f64 / bits.len() as f64
+}
+
+fn make_bits(len: usize, offset: usize, pattern: impl Fn(usize) -> bool) -> BitBuffer {
     let backing =
         BitBuffer::from_iter(std::iter::repeat_n(false, offset).chain((0..len).map(pattern)));
-    Mask::from_buffer(BitBuffer::new_with_offset(
-        backing.inner().clone(),
-        len,
-        offset,
-    ))
+    BitBuffer::new_with_offset(backing.inner().clone(), len, offset)
 }
 
 type Pattern = fn(usize) -> bool;
@@ -42,26 +60,18 @@ fn patterns() -> [Pattern; 4] {
     ]
 }
 
-fn expected_values<T: Copy>(values: &[T], mask: &MaskValues) -> Vec<T> {
-    values
-        .iter()
-        .zip(mask.bit_buffer().iter())
-        .filter_map(|(&value, selected)| selected.then_some(value))
-        .collect()
-}
+fn check<T: Copy + PartialEq + std::fmt::Debug>(values: &[T], bits: &BitBuffer) {
+    let expected = expected(values, bits);
 
-fn check<T: Copy + PartialEq + std::fmt::Debug>(values: &[T], mask: &Mask) {
-    let Some(mask) = mask_values(mask) else {
-        return;
-    };
-    let expected = expected_values(values, mask);
-
-    if let Some(actual) = filter_slice_by_bitmap(values, mask) {
-        assert_eq!(actual.as_slice(), expected.as_slice());
+    if let Some(actual) = compress_out_of_place(values, bits) {
+        assert_eq!(actual, expected);
     }
 
     let mut compacted = values.to_vec();
-    if let Some(new_len) = filter_slice_mut_by_bitmap(&mut compacted, mask) {
+    // SAFETY: `bits` covers `compacted`.
+    if let Some(new_len) =
+        unsafe { compress_in_place(&mut compacted, MaskBits::Bitmap(bits), density(bits)) }
+    {
         assert_eq!(&compacted[..new_len], expected.as_slice());
     }
 }
@@ -69,44 +79,48 @@ fn check<T: Copy + PartialEq + std::fmt::Debug>(values: &[T], mask: &Mask) {
 #[rstest]
 fn simd_matches_scalar(#[values(0, 5)] offset: usize, #[values(64, 151)] len: usize) {
     for pattern in patterns() {
-        let mask = make_mask(len, offset, pattern);
+        let bits = make_bits(len, offset, pattern);
 
         let u8_values: Vec<u8> = (0..len).map(|i| i as u8).collect();
         let u16_values: Vec<u16> = (0..len).map(|i| i as u16).collect();
         let u32_values: Vec<u32> = (0..len).map(|i| i as u32).collect();
         let u64_values: Vec<u64> = (0..len).map(|i| i as u64).collect();
 
-        check(&u8_values, &mask);
-        check(&u16_values, &mask);
-        check(&u32_values, &mask);
-        check(&u64_values, &mask);
+        check(&u8_values, &bits);
+        check(&u16_values, &bits);
+        check(&u32_values, &bits);
+        check(&u64_values, &bits);
     }
 }
 
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
 fn check_engagement<T: Copy + PartialEq + std::fmt::Debug>(
     values: &[T],
-    mask: &MaskValues,
-    expected: bool,
+    bits: &BitBuffer,
+    engaged: bool,
 ) {
-    let actual = filter_slice_by_bitmap(values, mask);
-    assert_eq!(actual.is_some(), expected);
+    let expected = expected(values, bits);
+
+    let actual = compress_out_of_place(values, bits);
+    assert_eq!(actual.is_some(), engaged);
     if let Some(actual) = actual {
-        assert_eq!(actual.as_slice(), expected_values(values, mask));
+        assert_eq!(actual, expected);
     }
+
     let mut compacted = values.to_vec();
-    let written = filter_slice_mut_by_bitmap(&mut compacted, mask);
-    assert_eq!(written.is_some(), expected);
+    // SAFETY: `bits` covers `compacted`.
+    let written =
+        unsafe { compress_in_place(&mut compacted, MaskBits::Bitmap(bits), density(bits)) };
+    assert_eq!(written.is_some(), engaged);
     if let Some(written) = written {
-        assert_eq!(&compacted[..written], expected_values(values, mask));
+        assert_eq!(&compacted[..written], expected.as_slice());
     }
 }
 
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
 #[test]
 fn engages_on_supported_cpus() {
-    let mask = make_mask(256, 0, |i| i % 2 == 0);
-    let mask = mask_values(&mask).expect("alternating mask is mixed");
+    let bits = make_bits(256, 0, |i| i % 2 == 0);
 
     #[cfg(target_arch = "x86_64")]
     let expected = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("popcnt");
@@ -115,25 +129,23 @@ fn engages_on_supported_cpus() {
 
     check_engagement(
         &(0..256).map(|i| i as u8).collect::<Vec<_>>(),
-        mask,
+        &bits,
         expected,
     );
-    check_engagement(&(0u16..256).collect::<Vec<_>>(), mask, expected);
-    check_engagement(&(0u32..256).collect::<Vec<_>>(), mask, expected);
-    check_engagement(&(0u64..256).collect::<Vec<_>>(), mask, expected);
+    check_engagement(&(0u16..256).collect::<Vec<_>>(), &bits, expected);
+    check_engagement(&(0u32..256).collect::<Vec<_>>(), &bits, expected);
+    check_engagement(&(0u64..256).collect::<Vec<_>>(), &bits, expected);
 }
 
 #[test]
 fn declines_sparse_and_short_masks() {
     let values: Vec<u32> = (0..1024).collect();
 
-    let sparse = make_mask(1024, 0, |i| i % 128 == 0);
-    let sparse = mask_values(&sparse).expect("sparse mask is mixed");
-    assert!(filter_slice_by_bitmap(&values, sparse).is_none());
+    let sparse = make_bits(1024, 0, |i| i % 128 == 0);
+    assert!(compress_out_of_place(&values, &sparse).is_none());
 
-    let short = make_mask(32, 0, |i| i % 2 == 0);
-    let short = mask_values(&short).expect("alternating mask is mixed");
-    assert!(filter_slice_by_bitmap(&values[..32], short).is_none());
+    let short = make_bits(32, 0, |i| i % 2 == 0);
+    assert!(compress_out_of_place(&values[..32], &short).is_none());
 }
 
 // AVX-512 machines need direct coverage of the otherwise-unselected AVX2-tier kernels.
@@ -148,37 +160,34 @@ fn avx2_kernels_match_scalar() {
         kernel_out_of_place: Kernel,
         kernel_in_place: Kernel,
         values: &[T],
-        mask: &MaskValues,
+        bits: &BitBuffer,
     ) {
-        let expected = expected_values(values, mask);
+        let expected = expected(values, bits);
 
-        let mut out = vec![T::default(); mask.true_count() + SLACK_BYTES / size_of::<T>()];
+        let mut out = vec![T::default(); bits.true_count() + SLACK_BYTES / size_of::<T>()];
         // SAFETY: AVX2 and POPCNT were detected above and the output has a vector of slack.
         let written = unsafe {
             kernel_out_of_place(
                 values.as_ptr().cast(),
                 out.as_mut_ptr().cast(),
-                MaskBits::Mask(mask),
+                MaskBits::Bitmap(bits),
             )
         };
-        assert_eq!(written, mask.true_count());
+        assert_eq!(written, bits.true_count());
         assert_eq!(&out[..written], expected.as_slice());
 
         let mut compacted = values.to_vec();
         let ptr = compacted.as_mut_ptr().cast::<u8>();
         // SAFETY: AVX2 and POPCNT were detected above; in-place compaction stays within the slice.
-        let written = unsafe { kernel_in_place(ptr.cast_const(), ptr, MaskBits::Mask(mask)) };
-        assert_eq!(written, mask.true_count());
+        let written = unsafe { kernel_in_place(ptr.cast_const(), ptr, MaskBits::Bitmap(bits)) };
+        assert_eq!(written, bits.true_count());
         assert_eq!(&compacted[..written], expected.as_slice());
     }
 
     for pattern in patterns() {
         for len in [64, 151] {
             for offset in [0, 5] {
-                let mask = make_mask(len, offset, pattern);
-                let Some(mask) = mask_values(&mask) else {
-                    continue;
-                };
+                let bits = make_bits(len, offset, pattern);
                 let u8_values: Vec<u8> = (0..len).map(|i| i as u8).collect();
                 let u16_values: Vec<u16> = (0..len).map(|i| i as u16).collect();
                 let u32_values: Vec<u32> = (0..len as u32).collect();
@@ -187,25 +196,25 @@ fn avx2_kernels_match_scalar() {
                     generic::compress_generic_8::<false>,
                     generic::compress_generic_8::<true>,
                     &u8_values,
-                    mask,
+                    &bits,
                 );
                 check_kernel(
                     generic::compress_generic_16::<false>,
                     generic::compress_generic_16::<true>,
                     &u16_values,
-                    mask,
+                    &bits,
                 );
                 check_kernel(
                     x86::compress_avx2_epi32::<false>,
                     x86::compress_avx2_epi32::<true>,
                     &u32_values,
-                    mask,
+                    &bits,
                 );
                 check_kernel(
                     x86::compress_avx2_epi64::<false>,
                     x86::compress_avx2_epi64::<true>,
                     &u64_values,
-                    mask,
+                    &bits,
                 );
             }
         }

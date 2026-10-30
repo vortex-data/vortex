@@ -22,17 +22,12 @@
 //! \* The 1- and 2-byte fallbacks require AVX2.
 //!
 //! On x86, the widest available kernel is considered first for each width. When no entry matches,
-//! control returns to [`buffer`](super::buffer) for scalar selection.
+//! control returns to [`filter`](super) for scalar selection.
 
 use std::mem::MaybeUninit;
 use std::ptr;
 
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_mask::MaskValues;
-
-use super::slice::MaskBits;
+use super::bits::MaskBits;
 
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 mod generic;
@@ -45,61 +40,11 @@ mod x86;
 
 const MIN_LEN: usize = 64;
 
+/// The number of bytes that an out-of-place kernel can store past the last element it writes.
 pub(super) const SLACK_BYTES: usize = 64;
 
 /// `dst == src` for in-place kernels.
 type Kernel = unsafe fn(*const u8, *mut u8, MaskBits<'_>) -> usize;
-
-/// Filter a slice with a SIMD compress kernel, if one applies.
-///
-/// Returns `None` when the caller should use a scalar strategy.
-#[inline]
-pub(super) fn filter_slice_by_bitmap<T: Copy>(
-    values: &[T],
-    mask: &MaskValues,
-    allocator: &BufferAllocatorRef,
-) -> Option<Buffer<T>> {
-    debug_assert_eq!(values.len(), mask.len());
-    let kernel = select_kernel::<T, false>(mask.len(), mask.density())?;
-
-    let true_count = mask.true_count();
-    let mut out = BufferMut::<T>::with_capacity_in(
-        true_count + SLACK_BYTES / size_of::<T>(),
-        allocator.clone(),
-    );
-    // SAFETY: `select_kernel` probed the kernel's target features; `values` holds `mask.len()`
-    // elements and the output has capacity for every selected element plus a full vector of
-    // slack, so each unmasked store stays in bounds.
-    let written = unsafe {
-        kernel(
-            values.as_ptr().cast(),
-            out.spare_capacity_mut().as_mut_ptr().cast(),
-            MaskBits::Mask(mask),
-        )
-    };
-    debug_assert_eq!(written, true_count);
-    // SAFETY: the kernel initialized the first `true_count` elements.
-    unsafe { out.set_len(true_count) };
-    Some(out.freeze())
-}
-
-/// In-place variant of [`filter_slice_by_bitmap`]: compact the selected elements to the front
-/// of `values` and return the new length, if a SIMD kernel applies.
-pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
-    values: &mut [T],
-    mask: &MaskValues,
-) -> Option<usize> {
-    debug_assert_eq!(values.len(), mask.len());
-    let kernel = select_kernel::<T, true>(mask.len(), mask.density())?;
-
-    let dst = values.as_mut_ptr().cast::<u8>();
-    // SAFETY: `select_kernel` probed the kernel's target features; the in-place instantiation
-    // compacts forward (stores never pass the positions it has already read) and keeps partial
-    // tail chunks off the full-width store path, so all accesses stay inside `values`.
-    let written = unsafe { kernel(dst.cast_const(), dst, MaskBits::Mask(mask)) };
-    debug_assert_eq!(written, mask.true_count());
-    Some(written)
-}
 
 /// Compact the elements of `src` selected by `bits` to `dst` with a SIMD kernel, if one applies
 /// at `density`, and return the number of elements written.
@@ -111,16 +56,38 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
 /// `bits` must select only elements of `src`, and `dst` must hold every selected element plus
 /// [`SLACK_BYTES`].
 #[inline]
-pub(super) unsafe fn compress_bits<T: Copy>(
+pub(super) unsafe fn compress<T: Copy>(
     src: &[T],
     bits: MaskBits<'_>,
     density: f64,
     dst: &mut [MaybeUninit<T>],
 ) -> Option<usize> {
     let kernel = select_kernel::<T, false>(src.len(), density)?;
-    // SAFETY: `select_kernel` probed the kernel's target features, and the caller upholds the
-    // out-of-place pointer contract of `filter_slice_by_bitmap`.
+
+    // SAFETY: `select_kernel` probed the kernel's target features, `bits` selects only elements
+    // of `src`, and `dst` has room for every selected element plus a full vector of slack, so
+    // each unmasked store stays in bounds.
     Some(unsafe { kernel(src.as_ptr().cast(), dst.as_mut_ptr().cast(), bits) })
+}
+
+/// In-place variant of [`compress`]: compact the selected elements to the front of `values` and
+/// return the new length, if a SIMD kernel applies at `density`.
+///
+/// # Safety
+///
+/// `bits` must select only elements of `values`.
+pub(super) unsafe fn compress_in_place<T: Copy>(
+    values: &mut [T],
+    bits: MaskBits<'_>,
+    density: f64,
+) -> Option<usize> {
+    let kernel = select_kernel::<T, true>(values.len(), density)?;
+
+    let dst = values.as_mut_ptr().cast::<u8>();
+    // SAFETY: `select_kernel` probed the kernel's target features; the in-place instantiation
+    // compacts forward (stores never pass the positions it has already read) and keeps partial
+    // tail chunks off the full-width store path, so all accesses stay inside `values`.
+    Some(unsafe { kernel(dst.cast_const(), dst, bits) })
 }
 
 /// Choose the widest profitable kernel available for `T` to filter `len` elements at `density`.
@@ -182,7 +149,7 @@ const fn compress_lut<const ROWS: usize, const BYTES: usize>(
 ///
 /// # Safety
 ///
-/// The pointer contract of [`filter_slice_by_bitmap`] / [`filter_slice_mut_by_bitmap`] must hold,
+/// The pointer contract of [`compress`] / [`compress_in_place`] must hold,
 /// and `bits` must only select elements that are in bounds.
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
 #[allow(clippy::inline_always)]

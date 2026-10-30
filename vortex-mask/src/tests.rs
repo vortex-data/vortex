@@ -3,6 +3,9 @@
 
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::filter::filter_buffer;
 
 use crate::AllOr;
 use crate::Mask;
@@ -788,4 +791,48 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
     if it.next().is_some() {
         assert_eq!(it.len(), mask.len() - 1);
     }
+}
+
+/// The representation that a test mask caches before [`MaskValues::selection`] reads it.
+#[derive(Clone, Copy, Debug)]
+enum Cached {
+    Nothing,
+    Indices,
+    Slices,
+}
+
+/// Every cached representation, at densities and run lengths on both sides of the selection
+/// thresholds, filters to the same values as the bitmap.
+#[rstest]
+fn selection_filters_like_bitmap(
+    #[values(Cached::Nothing, Cached::Indices, Cached::Slices)] cached: Cached,
+    #[values(|i| i % 10 == 0, |i| i % 10 != 0, |i| i % 32 < 4, |i| i % 32 < 16)]
+    pattern: fn(usize) -> bool,
+) {
+    let mask = Mask::from_buffer((0..1000).map(pattern).collect::<BitBuffer>());
+    let Mask::Values(values) = &mask else {
+        unreachable!("the patterns select some but not all values")
+    };
+    match cached {
+        Cached::Nothing => {}
+        Cached::Indices => {
+            values.indices();
+        }
+        Cached::Slices => {
+            values.slices();
+        }
+    }
+
+    let selection = values.selection();
+    assert_eq!(selection.len(), 1000);
+    assert_eq!(selection.true_count(), values.true_count());
+
+    let data = (0..1000u32).collect::<Buffer<_>>();
+    let expected = data
+        .iter()
+        .zip(values.bit_buffer().iter())
+        .filter_map(|(&value, selected)| selected.then_some(value))
+        .collect::<Vec<_>>();
+    let filtered = filter_buffer(data, selection, BufferAllocatorRef::static_ref());
+    assert_eq!(filtered.as_slice(), expected.as_slice());
 }
