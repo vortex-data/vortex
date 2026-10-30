@@ -8,10 +8,19 @@
 #include "config.cuh"
 #include "types.cuh"
 
+// Codes under null positions may hold any value, and so may corrupt input, so every gather
+// checks the code against the dictionary length.
+template <typename IndexT>
+__device__ inline bool in_dictionary(IndexT code, uint64_t values_len) {
+    return static_cast<uint64_t>(code) < values_len;
+}
+
+// A code outside the dictionary writes a zero value instead of reading past the end of `values`.
 template <typename ValueT, typename IndexT>
 __device__ void dict_kernel(const IndexT *const __restrict codes,
                             uint64_t codes_len,
                             const ValueT *const __restrict values,
+                            uint64_t values_len,
                             ValueT *const __restrict output) {
     const uint32_t elements_per_block = blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
@@ -20,7 +29,7 @@ __device__ void dict_kernel(const IndexT *const __restrict codes,
 
     for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
         const IndexT code = codes[idx];
-        output[idx] = values[code];
+        output[idx] = in_dictionary(code, values_len) ? values[code] : ValueT {};
     }
 }
 
@@ -39,6 +48,7 @@ template <typename IndexT>
 __device__ void dict_bool_kernel(const IndexT *const __restrict codes,
                                  uint64_t codes_len,
                                  const uint8_t *const __restrict values,
+                                 uint64_t values_len,
                                  uint64_t values_bit_offset,
                                  uint8_t *const __restrict output) {
     const uint64_t output_len = (codes_len + 7) / 8;
@@ -53,7 +63,7 @@ __device__ void dict_bool_kernel(const IndexT *const __restrict codes,
 #pragma unroll
         for (uint32_t bit = 0; bit < 8; ++bit) {
             const uint64_t row = row_start + bit;
-            if (row < codes_len) {
+            if (row < codes_len && in_dictionary(codes[row], values_len)) {
                 const uint64_t value_idx = values_bit_offset + static_cast<uint64_t>(codes[row]);
                 const uint8_t value = (values[value_idx / 8] >> (value_idx % 8)) & 1;
                 packed |= static_cast<uint8_t>(value << bit);
@@ -69,8 +79,9 @@ __device__ void dict_bool_kernel(const IndexT *const __restrict codes,
         const IndexType *const __restrict codes,                                                             \
         uint64_t codes_len,                                                                                  \
         const ValueType *const __restrict values,                                                            \
+        uint64_t values_len,                                                                                 \
         ValueType *const __restrict output) {                                                                \
-        dict_kernel<ValueType, IndexType>(codes, codes_len, values, output);                                 \
+        dict_kernel<ValueType, IndexType>(codes, codes_len, values, values_len, output);                     \
     }
 
 // Generate dict kernel for all index types (unsigned integers) for a given value type
@@ -84,9 +95,10 @@ __device__ void dict_bool_kernel(const IndexT *const __restrict codes,
     extern "C" __global__ void dict_bool_##index_suffix(const IndexType *const __restrict codes,             \
                                                         uint64_t codes_len,                                  \
                                                         const uint8_t *const __restrict values,              \
+                                                        uint64_t values_len,                                 \
                                                         uint64_t values_bit_offset,                          \
                                                         uint8_t *const __restrict output) {                  \
-        dict_bool_kernel<IndexType>(codes, codes_len, values, values_bit_offset, output);                    \
+        dict_bool_kernel<IndexType>(codes, codes_len, values, values_len, values_bit_offset, output);        \
     }
 
 // Generate fixed-width kernels for all native ptypes and decimal values.
