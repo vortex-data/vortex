@@ -86,7 +86,7 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// The comparison direction of a field in a declared sort key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -1171,7 +1171,8 @@ mod tests {
         DecimalArray::new(
             buffer![1i128, 2, 0, 1],
             DecimalDType::new(10, 0),
-            Validity::NonNullable,
+            Validity::NonNullable
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array(),
         true,
@@ -1180,7 +1181,8 @@ mod tests {
         DecimalArray::new(
             buffer![2i128, 1, 0, 1],
             DecimalDType::new(10, 0),
-            Validity::NonNullable,
+            Validity::NonNullable
+            &mut SESSION.create_execution_ctx(),
         )
         .into_array(),
         false,

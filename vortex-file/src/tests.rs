@@ -7,6 +7,7 @@ mod scan_metrics;
 
 use std::fs;
 use std::iter;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -26,7 +27,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::sort_order::SortDirection;
+use vortex_array::aggregate_fn::fns::sort_order::SortOrder;
+use vortex_array::aggregate_fn::fns::sort_order::SortOrderOptions;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -49,6 +54,7 @@ use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -120,6 +126,8 @@ use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
+use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
+use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
@@ -2747,6 +2755,119 @@ async fn field_file_statistics_reject_unknown_fields() -> VortexResult<()> {
         .write(ByteBufferMut::empty(), array.to_array_stream())
         .await;
     assert!(result.is_err());
+
+    Ok(())
+}
+
+/// Assert that `SortOrder` is written in the
+/// file stats, and also check that nothing was written
+/// as zone stats.
+#[tokio::test]
+async fn file_footer_contains_sort_order() -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    crate::register_default_encodings(&session);
+    session.aggregate_fns().register(SortOrder);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    session.enable_edition(UNSTABLE)?;
+
+    let numbers = [1u32, 2, 3, 4, 5];
+    let array = StructArray::new(
+        FieldNames::from(["numbers"]),
+        [Buffer::copy_from(numbers).into_array()],
+        numbers.len(),
+        Validity::AllValid,
+    )
+    .into_array();
+
+    let aggregate = SortOrder.bind(SortOrderOptions::new([("numbers", SortDirection::Asc)]));
+
+    // The default strategy skips zone maps beneath nullable structs. Write zones at the
+    // root so the assertions below inspect stored zone statistics alongside file statistics.
+    let zone_len = NonZeroUsize::new(2).vortex_expect("non-zero zone length");
+    let strategy = ZonedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        FlatLayoutStrategy::default(),
+        ZonedLayoutOptions {
+            block_size: zone_len,
+            ..Default::default()
+        },
+    );
+    let mut buf = ByteBufferMut::empty();
+    let mut writer = session
+        .write_options()
+        .with_strategy(Arc::new(strategy))
+        .with_file_statistics(vec![aggregate.clone()])
+        .include_nested_statistics()
+        .disable_editions()
+        .writer(&mut buf, array.dtype().clone());
+
+    for chunk in numbers.chunks(zone_len.get()) {
+        let chunk = StructArray::new(
+            FieldNames::from(["numbers"]),
+            [Buffer::copy_from(chunk).into_array()],
+            chunk.len(),
+            Validity::AllValid,
+        );
+        writer.push(chunk.into_array()).await?;
+    }
+
+    let summary = writer.finish().await?;
+    let statistics = summary
+        .footer()
+        .statistics()
+        .vortex_expect("statistics were written");
+    let (root_stats, _) = statistics
+        .get_by_path(&FieldPath::root())
+        .vortex_expect("root statistics were written");
+
+    assert_eq!(
+        root_stats.get(&aggregate),
+        Precision::exact(Scalar::bool(true, Nullability::NonNullable)),
+    );
+
+    // Reopen layout and check serialized zones metadata.
+    let file = session.open_options().open_buffer(buf)?;
+    let zoned = file
+        .footer()
+        .layout()
+        .as_opt::<Zoned>()
+        .vortex_expect("the test must write zone maps");
+    assert_eq!(zoned.nzones(), 3);
+
+    let sort_order_id = aggregate.id();
+    assert!(
+        zoned
+            .present_aggregates()
+            .iter()
+            .all(|name| !name.starts_with(sort_order_id.as_ref())),
+        "zone metadata must not include any SortOrder aggregate",
+    );
+
+    let zones = zoned.slot(1)?.vortex_expect("stored zone statistics");
+    assert_eq!(zones.row_count(), 3);
+
+    let fields = zones
+        .dtype()
+        .as_struct_fields_opt()
+        .vortex_expect("zone statistics table is a struct");
+    assert!(
+        !fields.names().is_empty(),
+        "zone statistics must actually be stored"
+    );
+    assert!(
+        fields
+            .names()
+            .iter()
+            .all(|name| !name.as_ref().starts_with(sort_order_id.as_ref())),
+        "zone statistics must not contain any SortOrder partial",
+    );
 
     Ok(())
 }
