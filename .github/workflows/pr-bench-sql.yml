@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   sql:
-    uses: vortex-data/vortex/.github/workflows/sql-bench-matrix.yml@0fbef9535a8e164f5ca355765f0aab52c47daf4e
+    uses: vortex-data/vortex/.github/workflows/sql-bench-matrix.yml@ca9b32d8c60fe441be819473e029d3ce1656cb8c
     secrets: inherit
     with:
       mode: "pr"
