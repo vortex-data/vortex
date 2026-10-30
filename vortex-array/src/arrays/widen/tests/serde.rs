@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Serialization through existing wire forms, including nested arrays and stored statistics.
+//!
+//! Wire IDs and logical values are checked separately because a `Widen` can read back as another
+//! encoding.
+
 use rstest::rstest;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -78,12 +83,6 @@ fn serialize_round_trip(
     Ok((decoded, ids))
 }
 
-/// Asserts that `decoded` is a canonical leaf at the canonical width of its dtype.
-#[track_caller]
-fn assert_canonical_leaf(decoded: &ArrayRef) {
-    assert!(decoded.is::<Primitive>(), "{}", decoded.encoding_id());
-}
-
 #[rstest]
 #[case::integer(widen_over(buffer![-1i8, 0, 100], DType::from(PType::I64)))]
 #[case::integer_nullable(widen_over(
@@ -104,7 +103,7 @@ fn serialization_writes_widen(#[case] widen: VortexResult<ArrayRef>) -> VortexRe
 
     let (decoded, ids) = serialize_round_trip(&widen, &SESSION)?;
 
-    assert_canonical_leaf(&decoded);
+    assert!(decoded.is::<Primitive>(), "{}", decoded.encoding_id());
     assert!(!ids.contains(&ArrayVTable::id(&Widen)), "{ids:?}");
     assert_arrays_eq!(decoded, widen, &mut SESSION.create_execution_ctx());
 

@@ -167,7 +167,7 @@ impl MessageDecoder {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
     use vortex_array::ArrayVTable;
