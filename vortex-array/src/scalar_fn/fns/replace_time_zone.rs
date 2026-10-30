@@ -252,7 +252,7 @@ fn replace_scalar(
         || Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
         |v| Scalar::primitive(v, Nullability::Nullable),
     );
-    Ok(Scalar::extension_ref(ext, storage))
+    Scalar::try_extension_ref(ext, storage)
 }
 
 fn timestamp_options(dtype: &DType) -> VortexResult<&TimestampOptions> {

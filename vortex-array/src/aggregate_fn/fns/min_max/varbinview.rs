@@ -22,8 +22,7 @@ pub(super) fn accumulate_varbinview(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    partial.merge(args, compute_min_max_with_validity(array, ctx)?);
-    Ok(())
+    partial.merge(args, compute_min_max_with_validity(array, ctx)?)
 }
 
 fn compute_min_max_with_validity(

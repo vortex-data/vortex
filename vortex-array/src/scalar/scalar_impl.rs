@@ -7,15 +7,17 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::NativeDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::half::f16;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -66,25 +68,39 @@ impl Scalar {
     /// Attempts to create a new [`Scalar`] with the given [`DType`] and potentially null
     /// [`ScalarValue`].
     ///
+    /// Legacy `U64` bit representations of `F16` are converted to `F16` during construction.
+    /// Nested and extension values must already match their storage dtypes.
+    ///
     /// # Errors
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     #[inline]
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
-        if !Self::is_compatible(&dtype, value.as_ref()) {
-            return Err(Self::try_new_failed(dtype, value));
+        if Self::is_compatible(&dtype, value.as_ref()) {
+            return Ok(Self { dtype, value });
         }
 
-        Ok(Self { dtype, value })
+        Self::try_new_fallback(dtype, value)
     }
 
-    /// The error path of [`Self::try_new`].
+    /// Converts legacy `F16` values or reports why the value is incompatible.
     ///
-    /// It takes ownership of the parts so that their drop code is also out of line.
+    /// It owns the parts so their drop code stays out of the canonical construction path.
     #[cold]
     #[inline(never)]
-    fn try_new_failed(dtype: DType, value: Option<ScalarValue>) -> VortexError {
-        Self::incompatible_error(&dtype, value.as_ref())
+    fn try_new_fallback(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
+        let value = match (&dtype, value) {
+            (DType::Primitive(PType::F16, _), Some(ScalarValue::Primitive(PValue::U64(bits)))) => {
+                let bits = u16::try_from(bits).map_err(|_| {
+                    vortex_err!("f16 bit representation must fit in 16 bits, got {bits}")
+                })?;
+
+                Some(ScalarValue::Primitive(PValue::F16(f16::from_bits(bits))))
+            }
+            (_, value) => return Err(Self::incompatible_error(&dtype, value.as_ref())),
+        };
+
+        Ok(Self { dtype, value })
     }
 
     /// Creates a new [`Scalar`] with the given [`DType`] and potentially null [`ScalarValue`]
@@ -154,19 +170,21 @@ impl Scalar {
     /// - `Struct`: A struct where each field has a zero value, which is determined by the field
     ///   [`DType`]
     /// - `Union`: A non-null union selecting the first variant with a non-null child zero value
-    /// - `Extension`: The zero value of the storage [`DType`]
+    /// - `Extension`: The zero value of the storage [`DType`], if the extension accepts it.
+    ///
     /// # Panics
     ///
     /// Panics if the dtype has no non-null zero value, such as `Null`, or if a nested dtype needed
-    /// to construct the zero value has no non-null zero value.
+    /// to construct the zero value has no non-null zero value. An extension dtype has no zero
+    /// value if it rejects the zero value of its storage dtype.
     ///
     /// Unlike [`Scalar::default_value`], this never uses either an outer or inner null for a union:
     /// even a nullable union's zero value is non-null and contains a non-null selected child.
     pub fn zero_value(dtype: &DType) -> Self {
         let value = ScalarValue::zero_value(dtype);
 
-        // SAFETY: `zero_value` creates a valid `ScalarValue` for the `DType`.
-        unsafe { Self::new_unchecked(dtype.clone(), Some(value)) }
+        Self::try_new(dtype.clone(), Some(value))
+            .unwrap_or_else(|error| vortex_panic!("{dtype} has no non-null zero value: {error}"))
     }
 
     // Other methods.
