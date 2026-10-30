@@ -129,9 +129,8 @@ impl VTable for Widen {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // NB: Decimals copy their values instead of yielding a cast. A decimal cast keeps a stored
-        // width that already holds the target precision, so it can return values wider than the
-        // canonical width of the logical dtype.
+        // NB: Decimals copy their values instead of yielding a cast. A same-scale decimal cast that
+        // grows the canonical width returns a `Widen`, so a yielded cast would execute to itself.
         if let DType::Decimal(decimal_dtype, _) = array.dtype() {
             let decimal_dtype = *decimal_dtype;
             let array = require_child!(array, array.values(), WidenSlots::VALUES => Decimal);

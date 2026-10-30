@@ -16,6 +16,17 @@ use crate::scalar_fn::fns::cast::CastReduce;
 impl CastReduce for Widen {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let values = array.values();
+        if matches!(values.dtype(), DType::Decimal(..)) {
+            // The child holds exactly the values of the `Widen`, so its cast to the same target
+            // gives the same result. The decimal cast checks or rescales every value itself, and
+            // a same-scale cast that grows the canonical width returns a `Widen` again. Other
+            // targets decline, so execution widens the values before the cast.
+            return match dtype {
+                DType::Decimal(..) | DType::Primitive(..) => values.cast(dtype.clone()).map(Some),
+                _ => Ok(None),
+            };
+        }
+
         let (DType::Primitive(target_ptype, nullability), DType::Primitive(values_ptype, _)) =
             (dtype, values.dtype())
         else {
