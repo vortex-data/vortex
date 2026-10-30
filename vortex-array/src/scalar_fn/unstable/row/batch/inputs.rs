@@ -11,7 +11,10 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 
 /// The same-length input columns of one row-function execution, borrowed by index.
-pub(crate) trait RowInputs {
+///
+/// The trait is `pub` only so that the sealed tuple decoding can bound on it. The private module
+/// keeps it out of the public API.
+pub trait RowInputs {
     /// Return the number of input columns.
     fn num_inputs(&self) -> usize;
 
@@ -31,7 +34,7 @@ pub(crate) trait RowInputs {
     /// Return the input columns in order, if this already holds them contiguously.
     ///
     /// The slice **must** hold exactly [`num_inputs`](Self::num_inputs) columns. Batch execution
-    /// otherwise clones the columns.
+    /// otherwise clones the columns when a visit cannot finish the batch directly.
     fn as_slice(&self) -> Option<&[ArrayRef]> {
         None
     }

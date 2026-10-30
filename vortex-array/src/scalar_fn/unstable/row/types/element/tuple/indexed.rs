@@ -8,12 +8,16 @@
 
 use vortex_compute::lane_kernels::IndexedSource;
 use vortex_compute::lane_kernels::LaneZip;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 
 use super::ElementTuple;
 use super::element_tuple::ArgColumn;
 use super::element_tuple::ArgColumnKind;
+use crate::ExecutionCtx;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::scalar_fn::unstable::row::ViewLen;
+use crate::scalar_fn::unstable::row::batch::RowInputs;
 
 /// An argument tuple that supports a validated dense indexed traversal.
 ///
@@ -41,6 +45,44 @@ pub(in crate::scalar_fn::unstable::row) fn decoded_source<'a, Args: IndexedEleme
     row_count: usize,
 ) -> Option<impl IndexedSource<Item = Args::Elems<'a>>> {
     <Args as private::DecodedSource>::decoded_source(columns, row_count)
+}
+
+/// Decode one borrowed array per argument, like [`ElementTuple::decode`].
+///
+/// Bit `i` of `const_mask` is set exactly when input `i` is batch-constant, as classified by
+/// `is_batch_const`. Only those inputs repeat the batch-constant checks.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+pub(in crate::scalar_fn::unstable::row) fn decode_rows<Args, Inputs>(
+    inputs: &Inputs,
+    const_mask: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Args::Columns>
+where
+    Args: IndexedElementTuple,
+    Inputs: RowInputs + ?Sized,
+{
+    vortex_ensure_eq!(
+        inputs.num_inputs(),
+        Args::ARITY,
+        "row input count must match the argument tuple arity",
+    );
+
+    <Args as private::DecodedSource>::decode_rows(inputs, const_mask, ctx)
+}
+
+/// Decode input `index` as an argument of element type `T`.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+fn decode_input<T: InputElement, Inputs: RowInputs + ?Sized>(
+    inputs: &Inputs,
+    index: usize,
+    const_mask: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArgColumn<T>> {
+    let is_const = const_mask & (1 << index) != 0;
+
+    ArgColumn::decode_rows(inputs.input(index), is_const, ctx)
 }
 
 /// Indexed access to one decoded [`ArgColumn`].
@@ -182,6 +224,14 @@ impl IndexedElementTuple for () {
 }
 
 impl private::DecodedSource for () {
+    fn decode_rows<Inputs: RowInputs + ?Sized>(
+        _inputs: &Inputs,
+        _const_mask: u32,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self::Columns> {
+        Ok(())
+    }
+
     fn decoded_source<'a>(
         _columns: &'a Self::Columns,
         row_count: usize,
@@ -202,6 +252,16 @@ impl<A: InputElement> IndexedElementTuple for (A,) {
 }
 
 impl<A: InputElement> private::DecodedSource for (A,) {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn decode_rows<Inputs: RowInputs + ?Sized>(
+        inputs: &Inputs,
+        const_mask: u32,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self::Columns> {
+        Ok((decode_input(inputs, 0, const_mask, ctx)?,))
+    }
+
     fn decoded_source<'a>(
         columns: &'a Self::Columns,
         row_count: usize,
@@ -222,6 +282,19 @@ impl<A: InputElement, B: InputElement> IndexedElementTuple for (A, B) {
 }
 
 impl<A: InputElement, B: InputElement> private::DecodedSource for (A, B) {
+    #[expect(clippy::inline_always)]
+    #[inline(always)]
+    fn decode_rows<Inputs: RowInputs + ?Sized>(
+        inputs: &Inputs,
+        const_mask: u32,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self::Columns> {
+        Ok((
+            decode_input(inputs, 0, const_mask, ctx)?,
+            decode_input(inputs, 1, const_mask, ctx)?,
+        ))
+    }
+
     fn decoded_source<'a>(
         columns: &'a Self::Columns,
         row_count: usize,
@@ -283,6 +356,16 @@ macro_rules! indexed_element_tuple {
         }
 
         impl<$($t: InputElement),+> private::DecodedSource for ($($t,)+) {
+            #[allow(clippy::inline_always)]
+            #[inline(always)]
+            fn decode_rows<Inputs: RowInputs + ?Sized>(
+                inputs: &Inputs,
+                const_mask: u32,
+                ctx: &mut ExecutionCtx,
+            ) -> VortexResult<Self::Columns> {
+                Ok(($(decode_input::<$t, Inputs>(inputs, $idx, const_mask, ctx)?,)+))
+            }
+
             fn decoded_source<'a>(
                 columns: &'a Self::Columns,
                 row_count: usize,
@@ -312,14 +395,25 @@ indexed_element_tuple!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8, J: 
 
 mod private {
     use vortex_compute::lane_kernels::IndexedSource;
+    use vortex_error::VortexResult;
 
     use super::ElementTuple;
+    use crate::ExecutionCtx;
+    use crate::scalar_fn::unstable::row::batch::RowInputs;
 
     /// The crate-private half of [`super::IndexedElementTuple`].
     ///
     /// Rust trait methods have the visibility of their trait. This companion keeps source
     /// construction from decoded columns out of the public unstable API.
     pub trait DecodedSource: ElementTuple {
+        /// Decode one array per argument. Bit `i` of `const_mask` marks input `i` as
+        /// batch-constant.
+        fn decode_rows<Inputs: RowInputs + ?Sized>(
+            inputs: &Inputs,
+            const_mask: u32,
+            ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Self::Columns>;
+
         fn decoded_source<'a>(
             columns: &'a Self::Columns,
             row_count: usize,

@@ -18,6 +18,7 @@ mod packed_bool;
 pub(super) use packed_bool::execute_bool_dense_attempt;
 pub(super) use packed_bool::execute_owned_bool;
 pub(super) use packed_bool::execute_owned_infallible_bool;
+pub(super) use packed_bool::execute_rows_infallible_bool;
 
 mod retry;
 pub(super) use retry::DenseAttempt;

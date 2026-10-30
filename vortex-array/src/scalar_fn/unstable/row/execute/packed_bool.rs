@@ -25,37 +25,103 @@ use crate::arrays::BoolArray;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
+use crate::scalar_fn::unstable::row::batch::RowInputs;
+use crate::scalar_fn::unstable::row::types::decode_rows;
 use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::validity::Validity;
 
-/// Decode every input column, then pack infallible Boolean outputs.
+/// Decode every input column, then pack infallible Boolean outputs with `validity` attached.
 pub(crate) fn execute_owned_infallible_bool<Args, const MULTIVERSIONED: bool>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
+    validity: Validity,
     apply: impl Fn(Args::Elems<'_>) -> bool,
 ) -> VortexResult<ArrayRef>
 where
     Args: IndexedElementTuple,
 {
     let columns = Args::decode(args, ctx)?;
-    let row_count = args.row_count();
 
-    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
-        vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+    pack_infallible_bool::<Args, MULTIVERSIONED>(&columns, args.row_count(), ctx, validity, apply)
+}
+
+/// Decode one borrowed array per argument, then pack infallible Boolean outputs with `validity`
+/// attached.
+///
+/// Bit `i` of `const_mask` is set exactly when input `i` is batch-constant.
+///
+/// Decoding and packing inline into this one frame, and this frame stays out of the dispatch
+/// that calls it. A short batch then pays for one call boundary, not one per step, and each arm
+/// of the dispatch stays small.
+#[inline(never)]
+pub(crate) fn execute_rows_infallible_bool<Args, I, const MULTIVERSIONED: bool>(
+    inputs: &I,
+    const_mask: u32,
+    ctx: &mut ExecutionCtx,
+    validity: Validity,
+    apply: impl Fn(Args::Elems<'_>) -> bool,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+    I: RowInputs + ?Sized,
+{
+    let columns = decode_rows::<Args, I>(inputs, const_mask, ctx)?;
+
+    pack_infallible_bool::<Args, MULTIVERSIONED>(&columns, inputs.row_count(), ctx, validity, apply)
+}
+
+#[expect(clippy::inline_always)]
+#[inline(always)]
+fn pack_infallible_bool<Args, const MULTIVERSIONED: bool>(
+    columns: &Args::Columns,
+    row_count: usize,
+    ctx: &mut ExecutionCtx,
+    validity: Validity,
+    apply: impl Fn(Args::Elems<'_>) -> bool,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+{
+    // Without batch constants, read plain views. Selecting each argument's constant or row
+    // source per row stays in short scalar loops, which LLVM does not unswitch.
+    let values = if let Some(views) = Args::views_if_no_consts(columns) {
+        if !Args::view_lens_match(&views, row_count) {
+            vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        }
+
+        // SAFETY: `view_lens_match` checked that these exact views address `row_count` rows.
+        let source = unsafe { Args::indexed_source(views, row_count) };
+        collect_source_bits::<MULTIVERSIONED, _>(&source, row_count, ctx, &apply)
+    } else {
+        let Some(source) = decoded_source::<Args>(columns, row_count) else {
+            vortex_bail!("a decoded row input does not address exactly {row_count} rows");
+        };
+        collect_source_bits::<MULTIVERSIONED, _>(&source, row_count, ctx, &apply)
     };
 
+    Ok(BoolArray::try_new(values, validity)?.into_array())
+}
+
+/// Pack `apply` over the `row_count` rows of `source`.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+fn collect_source_bits<const MULTIVERSIONED: bool, S: IndexedSource>(
+    source: &S,
+    row_count: usize,
+    ctx: &ExecutionCtx,
+    apply: &impl Fn(S::Item) -> bool,
+) -> BitBuffer {
     let collect = |index| {
-        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
-        // source was constructed with exactly `row_count` rows.
+        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the
+        // source addresses exactly `row_count` rows.
         apply(unsafe { source.get_unchecked(index) })
     };
-    let values = if MULTIVERSIONED {
+
+    if MULTIVERSIONED {
         BitBuffer::collect_bool_multiversioned_in(row_count, collect, ctx.allocator().clone())
     } else {
         BitBuffer::collect_bool_in(row_count, collect, ctx.allocator().clone())
-    };
-
-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+    }
 }
 
 /// Decode every input column, then pack Boolean outputs while combining failure evidence.

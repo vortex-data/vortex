@@ -22,13 +22,30 @@ impl RowFnExecutionArgs<'_> {
     /// Run every stored payload, then attach the input validity without materializing its mask.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        // Offer a partial validity to the kernel. A collector that takes it builds the output with
+        // that validity attached, so the output needs neither a second construction nor an
+        // all-valid check.
+        let offered = matches!(self.batch.probe.validity, Validity::Array(_));
+        let mut validity = offered.then(|| self.batch.probe.validity.clone());
         let values = kernel(
             self.execution_args(&self.batch.inputs, self.batch.probe.row_count),
+            &mut validity,
             ctx,
         )?;
+
+        // A taken validity proves nothing alone. Row kernels build non-nullable storage, so only a
+        // nullable output carries the validity. Mask every other output, including one from a
+        // collector that took the validity without attaching it.
+        if offered && validity.is_none() && values.dtype().is_nullable() {
+            return self.finalize_output(values, self.batch.probe.row_count);
+        }
 
         self.finalize_dense_output(values, ctx)
     }
@@ -91,9 +108,9 @@ impl RowFnExecutionArgs<'_> {
             .execute_mask(self.batch.probe.row_count, ctx)?
         {
             // An array-backed validity can materialize to all valid even though the cheap checks
-            // in `RowFnExecutionArgs::execute` could not prove that. The deferred error therefore
-            // came from an observable row and remains terminal. An empty mask is both all-valid
-            // and all-null, so preserve the all-valid behavior.
+            // in `BatchInputs::try_execute_without_retry` could not prove that. The deferred error
+            // therefore came from an observable row and remains terminal. An empty mask is both
+            // all-valid and all-null, so preserve the all-valid behavior.
             Mask::AllTrue(_) | Mask::AllFalse(0) => return Err(deferred_error),
             Mask::AllFalse(_) => return Ok(self.all_null()),
             Mask::Values(valid_rows) => valid_rows,

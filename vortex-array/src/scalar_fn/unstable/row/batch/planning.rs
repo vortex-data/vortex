@@ -21,6 +21,7 @@ use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::arrays::Constant;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::unstable::row::types::is_batch_const;
 use crate::validity::Validity;
@@ -47,6 +48,7 @@ impl BatchProbe {
 
         let mut const_mask = 0u32;
         let mut has_null_const = false;
+        let mut nullability = Nullability::NonNullable;
         for index in 0..num_inputs {
             let input = inputs.input(index);
             vortex_ensure_eq!(
@@ -61,6 +63,10 @@ impl BatchProbe {
                 has_null_const |= input
                     .as_opt::<Constant>()
                     .is_some_and(|constant| constant.scalar().is_null());
+            }
+
+            if input.dtype().is_nullable() {
+                nullability = Nullability::Nullable;
             }
         }
 
@@ -83,7 +89,38 @@ impl BatchProbe {
             validity,
             const_mask,
             has_null_const,
+            nullability,
         })
+    }
+
+    /// Return the output validity of a _direct_ batch, or return the probe unchanged for any other
+    /// batch.
+    ///
+    /// A visit finishes a direct batch from its kernel output alone, once that output carries
+    /// this validity. A direct batch has no null literal, at least one input that is not
+    /// batch-constant, and at least one possibly valid row. It therefore needs no all-null or
+    /// all-constant handling. Set `dense` when the visit plans
+    /// [`RowPolicy::Dense`](super::RowPolicy::Dense). Without it, only a batch that provably has
+    /// no null row is direct, because the kernel visits every row.
+    pub(crate) fn into_direct_validity(
+        self,
+        num_inputs: usize,
+        dense: bool,
+    ) -> Result<Validity, Self> {
+        if self.has_null_const
+            || self.const_mask.count_ones() as usize == num_inputs
+            || matches!(self.validity, Validity::AllInvalid)
+            || !(dense || self.validity.definitely_no_nulls())
+        {
+            return Err(self);
+        }
+
+        Ok(self.validity.union_nullability(self.nullability))
+    }
+
+    /// Return the batch-constant classification of the inputs: bit `i` marks input `i`.
+    pub(crate) fn const_mask(&self) -> u32 {
+        self.const_mask
     }
 }
 
@@ -119,7 +156,7 @@ impl<'a> BatchInputs<'a> {
     }
 
     /// Attach the plan a dispatch selected for these inputs.
-    pub(crate) fn with_plan<'b>(
+    pub(super) fn with_plan<'b>(
         &'b self,
         arg_dtypes: &'b [DType],
         plan: BatchPlan,
@@ -136,6 +173,11 @@ impl<'a> BatchInputs<'a> {
 }
 
 impl RowFnExecutionArgs<'_> {
+    /// Return the plan, discarding the batch view.
+    pub(super) fn into_plan(self) -> BatchPlan {
+        self.plan
+    }
+
     /// Pair an input view with this batch's planning metadata.
     pub(super) fn execution_args<'b>(
         &'b self,
