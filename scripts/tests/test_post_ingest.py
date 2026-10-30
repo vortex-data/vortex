@@ -93,3 +93,54 @@ def test_fact_rows_apply_in_lock_order(writer, commit, records, monkeypatch):
     ) == sorted(expected_records, key=lambda record: (record["kind"], record.get("query_idx", 0)))
     keys = [(kind, mid) for kind, mid, _ in applied]
     assert keys == sorted(keys)
+
+
+class _Transient(Exception):
+    pass
+
+
+def test_retries_transient_errors_until_success(writer):
+    calls: list[int] = []
+    sleeps: list[float] = []
+
+    def attempt() -> str:
+        calls.append(1)
+        if len(calls) < 3:
+            raise _Transient("connection refused")
+        return "written"
+
+    result = writer._with_retries(
+        attempt, should_retry=lambda e: isinstance(e, _Transient), delays=(5, 10, 20), sleep=sleeps.append
+    )
+    assert result == "written"
+    assert len(calls) == 3
+    assert sleeps == [5, 10]
+
+
+def test_raises_the_last_error_when_retries_run_out(writer):
+    sleeps: list[float] = []
+
+    def attempt() -> None:
+        raise _Transient("connection refused")
+
+    with pytest.raises(_Transient):
+        writer._with_retries(
+            attempt, should_retry=lambda e: isinstance(e, _Transient), delays=(5, 10), sleep=sleeps.append
+        )
+    assert sleeps == [5, 10]
+
+
+def test_does_not_retry_other_errors(writer):
+    sleeps: list[float] = []
+
+    def attempt() -> None:
+        raise ValueError("bad record")
+
+    with pytest.raises(ValueError):
+        writer._with_retries(attempt, should_retry=lambda e: isinstance(e, _Transient), sleep=sleeps.append)
+    assert sleeps == []
+
+
+def test_retry_schedule_spans_an_rds_restart(writer):
+    # An OS update on the instance refused connections for about 3 minutes.
+    assert sum(writer._RETRY_DELAYS_S) >= 180
