@@ -12,10 +12,18 @@ use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -79,13 +87,44 @@ fn indices() -> Vec<usize> {
         .collect()
 }
 
-const ARRAYS: &[&str] = &["primitive", "dict", "struct"];
+const ARRAYS: &[&str] = &[
+    "primitive",
+    "dict",
+    "struct",
+    "bool",
+    "constant",
+    "decimal",
+    "null",
+    "varbinview",
+];
 
 fn array(name: &str) -> ArrayRef {
     match name {
         "primitive" => nullable_primitive(LEN),
         "dict" => dict_over_nullable_values(),
         "struct" => nullable_struct(),
+        "bool" => {
+            BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
+        }
+        "constant" => ConstantArray::new(42i64, LEN).into_array(),
+        "decimal" => DecimalArray::from_iter(
+            (0..LEN).map(|index| index as i128),
+            DecimalDType::new(18, 2),
+        )
+        .into_array(),
+        "null" => NullArray::new(LEN).into_array(),
+        "varbinview" => VarBinViewArray::from_iter(
+            [
+                Some("short"),
+                None,
+                Some("this is a much longer string to force outlining"),
+            ]
+            .into_iter()
+            .cycle()
+            .take(LEN),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array(),
         _ => unreachable!("unknown fixture {name}"),
     }
 }

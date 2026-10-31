@@ -24,8 +24,14 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+
+[[bench]]
+name = "probe"
+harness = false
 
 [lints]
 workspace = true
