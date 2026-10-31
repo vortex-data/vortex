@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, TypeVar, final
+from urllib.parse import quote
 
+from pyarrow.fs import FileSystem, FSSpecHandler, PyFileSystem
 from ray.data import Datasource, ReadTask
 from ray.data._internal.util import RetryingPyFileSystem
 from ray.data.block import BlockMetadata
@@ -44,6 +46,17 @@ def partition(k: int, ls: list[T]) -> list[list[T]]:
     return out
 
 
+def _url_scheme(fs: FileSystem) -> str | None:
+    if isinstance(fs, PyFileSystem) and isinstance(fs.handler, FSSpecHandler):
+        protocol = getattr(fs.handler.fs, "protocol", "")
+        name = protocol if isinstance(protocol, str) else str(protocol[0])
+    else:
+        name = fs.type_name
+    if name in ("file", "local"):
+        return None
+    return "gs" if name == "gcs" else name
+
+
 @final
 class VortexDatasource(Datasource):
     """Read a folder of Vortex files as a row-wise-partitioned table."""
@@ -72,7 +85,11 @@ class VortexDatasource(Datasource):
                 ignore_missing_paths=False,
             )
         )
-        self._paths: list[str] = [path for path, _ in paths_and_sizes]
+        paths = [path for path, _ in paths_and_sizes]
+        scheme = _url_scheme(fs.unwrap())
+        if scheme is not None:
+            paths = [path if "://" in path else f"{scheme}://{quote(path)}" for path in paths]
+        self._paths: list[str] = paths
         self._batch_size = batch_size
 
     @override
