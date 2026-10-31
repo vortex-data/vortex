@@ -378,6 +378,8 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            dynamic_filter_pushdown: self.options.predicate_pushdown
+                && self.options.dynamic_filter_pushdown,
             partitions: base_config.file_groups.len(),
         };
 

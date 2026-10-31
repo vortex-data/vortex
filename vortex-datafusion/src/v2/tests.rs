@@ -266,7 +266,36 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
             )) as Arc<dyn PhysicalExpr>,
             equal_bound,
         ),
-        (unsupported as Arc<dyn PhysicalExpr>, unrestricted),
+        (Arc::clone(&unsupported) as Arc<dyn PhysicalExpr>, unrestricted),
+        // A convertible bound survives beside a conjunct Vortex cannot evaluate.
+        (
+            Arc::new(df_expr::BinaryExpr::new(
+                above(25_i32),
+                Operator::And,
+                Arc::clone(&unsupported) as Arc<dyn PhysicalExpr>,
+            )) as Arc<dyn PhysicalExpr>,
+            above_bound.clone(),
+        ),
+        // A partitioned join's filter keeps the union of its branches' bounds.
+        (
+            Arc::new(df_expr::CaseExpr::try_new(
+                Some(Arc::new(df_expr::BinaryExpr::new(
+                    Arc::clone(&column),
+                    Operator::Modulo,
+                    df_expr::lit(2_i32),
+                ))),
+                vec![(
+                    df_expr::lit(0_i32),
+                    Arc::new(df_expr::BinaryExpr::new(
+                        above(25_i32),
+                        Operator::And,
+                        Arc::clone(&unsupported) as Arc<dyn PhysicalExpr>,
+                    )) as Arc<dyn PhysicalExpr>,
+                )],
+                Some(df_expr::lit(false)),
+            )?) as Arc<dyn PhysicalExpr>,
+            above_bound,
+        ),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
         let schema = stream.schema();

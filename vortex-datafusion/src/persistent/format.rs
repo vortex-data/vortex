@@ -208,6 +208,13 @@ extensions_options! {
         /// or for one table with `OPTIONS(scan_v2 'true')`. In Rust, set
         /// `VortexTableOptions { scan_v2: true, ..Default::default() }` on the factory.
         pub scan_v2: bool, default = false
+        /// Whether a V2 scan evaluates DataFusion's dynamic filters, such as hash join build
+        /// bounds and TopK thresholds, to prune zones and filter rows.
+        ///
+        /// The operator that produced a dynamic filter still enforces it exactly, so the scan
+        /// uses only the parts Vortex can evaluate, relaxed to keep every row the filter might.
+        /// Requires `predicate_pushdown`. Enabled by default.
+        pub dynamic_filter_pushdown: bool, default = true
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum

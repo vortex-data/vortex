@@ -214,6 +214,15 @@ async fn main() -> anyhow::Result<()> {
                             .await?;
                         let time = timer.elapsed();
 
+                        // Lets a run's results be compared across formats and scan options.
+                        if let Ok(dir) = std::env::var("DF_BENCH_DUMP_RESULTS") {
+                            let text = pretty_format_batches(&batches)?.to_string();
+                            std::fs::write(
+                                PathBuf::from(dir).join(format!("q{query_idx}-{format}.txt")),
+                                text,
+                            )?;
+                        }
+
                         // Store plan for metrics (only store once per query/format combination)
                         if show_metrics {
                             let mut plans_mut = plans.lock();
