@@ -8,10 +8,20 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::BooleanArray;
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchOptions;
+use arrow_array::UInt32Array;
+use arrow_array::builder::BooleanBufferBuilder;
+use arrow_array::cast::AsArray;
+use arrow_array::types::UInt64Type;
 use arrow_schema::DataType;
 use arrow_schema::SchemaRef;
+use datafusion_common::DataFusionError;
+use datafusion_common::Result as DFResult;
+use datafusion_common::ScalarValue;
+use datafusion_common::arrow::compute::take_record_batch;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions as df_expr;
 use datafusion_physical_expr::utils::collect_columns;
@@ -35,6 +45,7 @@ use vortex::scalar_fn::ScalarFnVTable;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::session::registry::CachedId;
 use vortex_arrow::ArrowSessionExt;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// A DataFusion predicate that Vortex cannot express, such as the hash table lookup in the
 /// dynamic filter of a hash join, evaluated by DataFusion on Arrow batches of the columns it reads.
@@ -58,11 +69,6 @@ impl DataFusionPredicate {
         predicate: &Arc<dyn PhysicalExpr>,
         schema: &SchemaRef,
     ) -> Option<Expression> {
-        // The dynamic filter of a partitioned join routes each row by its hash to the filter of
-        // its partition, which repeats the hashing the join does for every row anyway.
-        if predicate.downcast_ref::<df_expr::CaseExpr>().is_some() {
-            return None;
-        }
         let indices = collect_columns(predicate)
             .into_iter()
             .map(|column| column.index())
@@ -157,13 +163,87 @@ impl ScalarFnVTable for DataFusionPredicate {
             &RecordBatchOptions::new().with_row_count(Some(args.row_count())),
         )
         .map_err(|err| vortex_err!("Failed to build a batch for {}: {err}", options.predicate))?;
-        let result = options
-            .predicate
-            .evaluate(&batch)
-            .and_then(|value| value.into_array(batch.num_rows()))
-            .map_err(|err| vortex_err!("Failed to evaluate {}: {err}", options.predicate))?;
+        let result = match options.predicate.downcast_ref::<df_expr::CaseExpr>() {
+            Some(case) => evaluate_routed(case, &batch),
+            None => options
+                .predicate
+                .evaluate(&batch)
+                .and_then(|value| value.into_array(batch.num_rows())),
+        }
+        .map_err(|err| vortex_err!("Failed to evaluate {}: {err}", options.predicate))?;
         arrow.from_arrow_array(result, true)
     }
+}
+
+/// Evaluates `case`, which routes each row to one boolean branch by the value of its base
+/// expression, in one pass over the rows.
+///
+/// The dynamic filter of a partitioned hash join is
+/// `CASE hash(keys) % n WHEN 0 THEN filter_0 ... ELSE false END`. DataFusion evaluates such a
+/// CASE by comparing every row with each WHEN value and filtering the batch for each branch, which
+/// copies the batch once per partition. Here the rows of each branch are gathered once and each
+/// branch evaluates only its rows. A null result is false, as the predicate filters rows.
+fn evaluate_routed(case: &df_expr::CaseExpr, batch: &RecordBatch) -> DFResult<ArrowArrayRef> {
+    let generic = || {
+        case.evaluate(batch)
+            .and_then(|value| value.into_array(batch.num_rows()))
+    };
+    let Some(base) = case.expr() else {
+        return generic();
+    };
+    let mut branches = HashMap::<u64, usize>::default();
+    for (idx, (when, _)) in case.when_then_expr().iter().enumerate() {
+        match when
+            .downcast_ref::<df_expr::Literal>()
+            .map(|literal| literal.value())
+        {
+            Some(ScalarValue::UInt64(Some(value))) => {
+                branches.entry(*value).or_insert(idx);
+            }
+            _ => return generic(),
+        }
+    }
+    let otherwise = match case.else_expr() {
+        None => false,
+        Some(expr) => match expr
+            .downcast_ref::<df_expr::Literal>()
+            .map(|literal| literal.value())
+        {
+            Some(ScalarValue::Boolean(value)) => value.unwrap_or(false),
+            _ => return generic(),
+        },
+    };
+
+    let routes = base.evaluate(batch)?.into_array(batch.num_rows())?;
+    let Some(routes) = routes.as_primitive_opt::<UInt64Type>() else {
+        return generic();
+    };
+    let mut rows = vec![Vec::<u32>::new(); case.when_then_expr().len()];
+    let mut result = BooleanBufferBuilder::new(batch.num_rows());
+    result.append_n(batch.num_rows(), otherwise);
+    for (row, route) in routes.iter().enumerate() {
+        if let Some(branch) = route.and_then(|route| branches.get(&route)) {
+            rows[*branch]
+                .push(u32::try_from(row).map_err(|err| DataFusionError::External(Box::new(err)))?);
+        }
+    }
+    for ((_, then), rows) in case.when_then_expr().iter().zip(rows) {
+        if rows.is_empty() {
+            continue;
+        }
+        let indices = UInt32Array::from(rows);
+        let branch_batch = take_record_batch(batch, &indices)?;
+        let kept = then
+            .evaluate(&branch_batch)?
+            .into_array(branch_batch.num_rows())?;
+        let kept = kept.as_boolean_opt().ok_or_else(|| {
+            DataFusionError::Internal(format!("CASE branch {then} is not boolean"))
+        })?;
+        for (row, kept) in indices.values().iter().zip(kept.iter()) {
+            result.set_bit(*row as usize, kept.unwrap_or(false));
+        }
+    }
+    Ok(Arc::new(BooleanArray::new(result.finish(), None)))
 }
 
 impl Debug for DataFusionPredicateOptions {
@@ -200,6 +280,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use datafusion_expr::Operator;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -241,6 +322,68 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(false), Some(false)]),
             &mut ctx
         );
+        Ok(())
+    }
+
+    /// A CASE that routes rows by a partition number gives the same result as DataFusion, with
+    /// rows routed to no branch taking the default and null branch results false.
+    #[rstest]
+    #[case::default_false(false)]
+    #[case::default_true(true)]
+    fn test_routed_case_matches_datafusion(#[case] default: bool) -> DFResult<()> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("route", DataType::UInt64, true),
+            Field::new("a", DataType::Int32, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(arrow_array::UInt64Array::from(vec![
+                    Some(0),
+                    Some(1),
+                    Some(2),
+                    None,
+                    Some(1),
+                    Some(0),
+                    Some(3),
+                ])),
+                Arc::new(arrow_array::Int32Array::from(vec![
+                    Some(1),
+                    Some(5),
+                    Some(9),
+                    Some(1),
+                    None,
+                    Some(7),
+                    Some(2),
+                ])),
+            ],
+        )?;
+        let a: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("a", 1));
+        let compare = |op, value: i32| -> Arc<dyn PhysicalExpr> {
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::clone(&a),
+                op,
+                df_expr::lit(value),
+            ))
+        };
+        let case = df_expr::CaseExpr::try_new(
+            Some(Arc::new(df_expr::Column::new("route", 0))),
+            vec![
+                (df_expr::lit(0u64), compare(Operator::Lt, 5)),
+                (df_expr::lit(1u64), compare(Operator::Gt, 3)),
+                (df_expr::lit(2u64), df_expr::lit(false)),
+            ],
+            Some(df_expr::lit(default)),
+        )?;
+
+        let routed = evaluate_routed(&case, &batch)?;
+        let expected = case.evaluate(&batch)?.into_array(batch.num_rows())?;
+        let expected = expected
+            .as_boolean()
+            .iter()
+            .map(|value| value.unwrap_or(false))
+            .collect::<BooleanArray>();
+        assert_eq!(routed.as_boolean(), &expected);
         Ok(())
     }
 

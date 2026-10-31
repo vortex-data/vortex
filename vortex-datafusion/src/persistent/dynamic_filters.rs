@@ -49,6 +49,7 @@ use vortex::expr::stats::Stat;
 use vortex::expr::switch;
 use vortex::expr::transform::replace;
 use vortex::file::VortexFile;
+use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
@@ -57,6 +58,8 @@ use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::switch::Switch;
+use vortex::scalar_fn::fns::switch::SwitchState;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -89,8 +92,6 @@ pub(crate) struct DynamicFilterConversions {
     filters: DashMap<(usize, SchemaKey), Arc<FileDynamicFilter>>,
     /// The switched conjuncts of each complete filter for each file, as of a generation.
     complete: DashMap<(usize, Path), (u64, Vec<Expression>)>,
-    /// The switched dynamic expression of each filter that can still change, for each file.
-    dynamic: DashMap<(usize, Path), Expression>,
 }
 
 /// The file a scan reads.
@@ -130,8 +131,9 @@ impl DynamicFilterConversions {
     /// change again, so its current value is pushed. A filter that can still change is pushed as a
     /// dynamic expression, which the scan reads again each time the filter changes.
     ///
-    /// Every partition of a file gets the same conjuncts, with the same switches, so they share
-    /// the filter plans of the file and the decision to skip a conjunct.
+    /// Every file of the scan with the same schema gets the same switches, so the files share the
+    /// measurements of each conjunct and the decision to skip it. Every partition of a file gets
+    /// the same conjuncts, so the partitions share the filter plans of the file.
     pub(crate) fn conjuncts(
         &self,
         predicate: &Arc<dyn PhysicalExpr>,
@@ -151,11 +153,7 @@ impl DynamicFilterConversions {
             DynamicFilterTracking::classify(&filter.adapted),
             DynamicFilterTracking::AllComplete
         ) {
-            if let Some(switched) = self.dynamic.get(&key) {
-                return Ok(vec![switched.clone()]);
-            }
-            let switched = switch(filter.dynamic_expression(), DYNAMIC_MAX_KEPT_PERCENT);
-            return Ok(vec![self.dynamic.entry(key).or_insert(switched).clone()]);
+            return Ok(vec![filter.dynamic_expression()]);
         }
 
         let (generation, conjuncts) = filter.current();
@@ -167,9 +165,9 @@ impl DynamicFilterConversions {
         let switched = conjuncts
             .iter()
             .filter(|(conjunct, _)| saves_decoding(conjunct, projected))
-            .filter_map(|(conjunct, max_kept_percent)| {
+            .filter_map(|(conjunct, state)| {
                 let conjunct = drop_always_true(conjunct, file)?;
-                Some(switch(conjunct, *max_kept_percent))
+                Some(Switch.new_expr(state.clone(), [conjunct]))
             })
             .collect::<Vec<_>>();
         Ok(self
@@ -208,9 +206,8 @@ impl DynamicFilterConversions {
     }
 }
 
-/// The Vortex conjuncts of a dynamic filter, each with the largest percentage of rows it can keep
-/// and still be evaluated.
-type Conjuncts = Arc<[(Expression, u8)]>;
+/// The Vortex conjuncts of a dynamic filter, each with the state of its switch.
+type Conjuncts = Arc<[(Expression, SwitchState)]>;
 
 /// A dynamic filter adapted to a file schema, with its conversion as of a generation.
 struct FileDynamicFilter {
@@ -220,7 +217,8 @@ struct FileDynamicFilter {
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
     conversion: RwLock<Option<(u64, Conjuncts)>>,
-    /// The dynamic expression of the filter, built once so that every file shares its plans.
+    /// The switched dynamic expression of the filter, built once so that every file shares its
+    /// switch.
     dynamic: OnceLock<Expression>,
 }
 
@@ -237,20 +235,33 @@ impl FileDynamicFilter {
             return (generation, Arc::clone(conjuncts));
         }
 
-        // Openers that miss convert concurrently rather than wait on each other.
+        // Openers that miss convert concurrently rather than wait on each other, and the first
+        // conversion stored wins, so that every file shares its switches.
         let conjuncts: Conjuncts =
             match snapshot_conjuncts(&self.adapted, &self.schema, self.converter.as_ref()) {
-                Ok(conjuncts) => conjuncts.into(),
+                Ok(conjuncts) => conjuncts
+                    .into_iter()
+                    .map(|(conjunct, max_kept_percent)| {
+                        (conjunct, SwitchState::new(max_kept_percent))
+                    })
+                    .collect(),
                 Err(err) => {
                     tracing::debug!(filter = %self.adapted, %err, "dropping dynamic filter");
                     Arc::from([])
                 }
             };
-        *self.conversion.write() = Some((generation, Arc::clone(&conjuncts)));
+        let mut conversion = self.conversion.write();
+        if let Some((converted, stored)) = conversion.as_ref()
+            && *converted == generation
+        {
+            return (generation, Arc::clone(stored));
+        }
+        *conversion = Some((generation, Arc::clone(&conjuncts)));
         (generation, conjuncts)
     }
 
-    /// A dynamic expression over the columns of the filter that evaluates its current value.
+    /// A switched dynamic expression over the columns of the filter that evaluates its current
+    /// value.
     fn dynamic_expression(self: &Arc<Self>) -> Expression {
         self.dynamic
             .get_or_init(|| {
@@ -269,13 +280,14 @@ impl FileDynamicFilter {
                     }),
                     Nullability::NonNullable,
                 );
-                dynamic_expression(
+                let dynamic = dynamic_expression(
                     Arc::new(DataFusionDynamicFilter {
                         filter: Arc::clone(self),
                         scope_projection,
                     }),
                     inputs,
-                )
+                );
+                switch(dynamic, DYNAMIC_MAX_KEPT_PERCENT)
             })
             .clone()
     }
@@ -336,9 +348,14 @@ fn snapshot_conjuncts(
     let mut memberships = Vec::new();
     for conjunct in split_conjunction(&snapshot) {
         // A partitioned join routes each row by its hash to the filter of its partition. The
-        // bounds that hold in every partition hold for the whole filter.
+        // bounds that hold in every partition hold for the whole filter, and are cheap to check
+        // before DataFusion evaluates the routed filter on the rows they keep.
         let parts = match conjunct.downcast_ref::<df_expr::CaseExpr>() {
-            Some(case) => partition_bounds(case),
+            Some(case) => {
+                let mut parts = partition_bounds(case);
+                parts.push(Arc::clone(conjunct));
+                parts
+            }
             None => vec![Arc::clone(conjunct)],
         };
         for part in parts {
@@ -628,7 +645,6 @@ mod tests {
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::scalar::Scalar;
-    use vortex::scalar_fn::fns::switch::Switch;
     use vortex::session::VortexSession;
 
     use super::*;
