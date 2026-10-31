@@ -441,6 +441,7 @@ impl FileOpener for VortexOpener {
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
+            let audit_path = file.path().to_string();
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
@@ -647,14 +648,14 @@ impl FileOpener for VortexOpener {
 
             let audit = crate::persistent::stream::AuditStream::new(
                 stream,
-                file.path().to_string(),
+                audit_path.clone(),
                 audit_partition,
             )
             .boxed();
             if let Some(file_pruner) = file_pruner
                 && file_pruner.is_watching()
             {
-                Ok(PrunableStream::new(file_pruner, audit, file.path().to_string()).boxed())
+                Ok(PrunableStream::new(file_pruner, audit, audit_path).boxed())
             } else {
                 Ok(audit)
             }
