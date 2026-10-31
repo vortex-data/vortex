@@ -46,7 +46,7 @@ LogicalOperatorPtr TryReplaceAggregate(ClientContext &context,
     }
 
     LogicalGet *const get = GetChildGet(agg);
-    if (get == nullptr) {
+    if (get == nullptr || get->table_filters.HasFilters()) {
         return op;
     }
 

@@ -23,3 +23,44 @@ query IIIIR
 SELECT count(*), count(i), sum(i), max(j), avg(j) FROM '${WORK_DIR}/aggregate-with-filter.vortex' WHERE i > 1;
 ----
 2 2 5 30 25
+
+# Filters on hive partition and filename columns
+statement ok
+COPY (SELECT * FROM (VALUES ('EU-West', 1), ('US-East', 2), ('EU-West', 3)) t(region, v))
+TO '${WORK_DIR}/aggregate-with-filter-hive' (FORMAT vortex, PARTITION_BY (region));
+
+query I
+SELECT sum(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE region = 'US-East';
+----
+2
+
+query I
+SELECT sum(v) FROM read_vortex('${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex', filename = true)
+WHERE filename LIKE '%US-East%';
+----
+2
+
+statement ok
+COPY (SELECT * FROM (VALUES (2024, 1::BIGINT), (2025, 2::BIGINT), (2024, 3::BIGINT)) t(y, v))
+TO '${WORK_DIR}/aggregate-with-filter-year' (FORMAT vortex, PARTITION_BY (y));
+
+query II
+SELECT count(*), max(v) FROM '${WORK_DIR}/aggregate-with-filter-year/**/*.vortex' WHERE y = 2024;
+----
+2 3
+
+# A filter on a file column keeps the aggregate in the scan
+query TT
+EXPLAIN (FORMAT json) SELECT sum(v), max(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE v > 1;
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT sum(v), max(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE v > 1;
+----
+5 3
+
+query TT
+EXPLAIN (FORMAT json) SELECT sum(i), max(j) FROM '${WORK_DIR}/aggregate-with-filter.vortex' WHERE i > 1;
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
