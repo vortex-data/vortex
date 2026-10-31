@@ -1060,6 +1060,54 @@ mod tests {
         })
     }
 
+    #[rstest]
+    #[case::one_element(buffer![100i8])]
+    #[case::min_max(buffer![1i8, 100i8])]
+    #[case::negative_min(buffer![-100i8, 1i8])]
+    fn test_decimal_value_outside_precision_errors(#[case] values: Buffer<i8>) -> VortexResult<()> {
+        // 100 and -100 do not fit in decimal(2, 0), and `DecimalArray::new` does not check the
+        // values.
+        let decimal = DecimalArray::new(values, DecimalDType::new(2, 0), Validity::NonNullable);
+        let mut ctx = SESSION.create_execution_ctx();
+        let err = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        // The out-of-range value sits in a null slot, so it must be ignored.
+        let decimal = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
+
+        let expected = Scalar::decimal(
+            DecimalValue::I8(5),
+            DecimalDType::new(2, 0),
+            Nullability::NonNullable,
+        );
+        assert_eq!(result.min, expected);
+        assert_eq!(result.max, expected);
+        Ok(())
+    }
+
     #[test]
     fn list_and_fixed_size_list_return_dtype() {
         let element_dtype = DType::Primitive(PType::I32, Nullability::Nullable);

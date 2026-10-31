@@ -65,16 +65,35 @@ impl Scalar {
     }
 
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `value` does not fit in the precision of `decimal_type`. Use
+    /// [`Scalar::try_decimal`] when the value comes from data that has not been validated.
     pub fn decimal(
         value: DecimalValue,
         decimal_type: DecimalDType,
         nullability: Nullability,
     ) -> Self {
+        Self::try_decimal(value, decimal_type, nullability)
+            .vortex_expect("decimal value must fit the precision of `decimal_type`")
+    }
+
+    /// Attempts to create a new decimal scalar with the given value, precision, scale, and
+    /// nullability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `value` does not fit in the precision of `decimal_type`.
+    pub fn try_decimal(
+        value: DecimalValue,
+        decimal_type: DecimalDType,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
         Self::try_new(
             DType::Decimal(decimal_type, nullability),
             Some(ScalarValue::Decimal(value)),
         )
-        .vortex_expect("unable to construct a decimal `Scalar`")
     }
 
     /// Creates a new UTF-8 scalar from a string-like value.

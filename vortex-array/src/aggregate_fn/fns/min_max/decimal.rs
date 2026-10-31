@@ -47,21 +47,23 @@ where
 
     let decimal_dtype = array.decimal_dtype();
 
-    Ok(
-        valid_range(array.buffer::<D>().as_slice(), &validity).map(|(min, max)| {
-            let min_scalar = Scalar::decimal(min.into(), decimal_dtype, NonNullable);
-            let max_scalar = if min == max {
-                min_scalar.clone()
-            } else {
-                Scalar::decimal(max.into(), decimal_dtype, NonNullable)
-            };
+    let Some((min, max)) = valid_range(array.buffer::<D>().as_slice(), &validity) else {
+        return Ok(None);
+    };
 
-            MinMaxResult {
-                min: min_scalar,
-                max: max_scalar,
-            }
-        }),
-    )
+    // Stored values are not guaranteed to fit the precision (for example, when read from a
+    // file), so return an error instead of panicking.
+    let min_scalar = Scalar::try_decimal(min.into(), decimal_dtype, NonNullable)?;
+    let max_scalar = if min == max {
+        min_scalar.clone()
+    } else {
+        Scalar::try_decimal(max.into(), decimal_dtype, NonNullable)?
+    };
+
+    Ok(Some(MinMaxResult {
+        min: min_scalar,
+        max: max_scalar,
+    }))
 }
 
 /// Returns the smallest and the largest valid value, or `None` when no value is valid.
