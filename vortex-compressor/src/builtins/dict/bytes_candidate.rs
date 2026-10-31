@@ -27,6 +27,7 @@ use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::builders::dict::DictConstraints;
+use vortex_array::builders::dict::codes_ptype_for_max_len;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builders::dict::dict_encode_with_constraints;
 use vortex_error::VortexResult;
@@ -36,6 +37,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
 use crate::compressor::estimate_compression_ratio_with_sampling;
+use crate::compressor::exact_uncompressed_size;
 use crate::compressor::sample_slices;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
@@ -47,9 +49,16 @@ use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 
 /// Limits the number of entries so that trial codes remain two bytes wide.
-const MAX_DICTIONARY_ENTRIES: usize = u16::MAX as usize + 1;
+const MAX_DICTIONARY_ENTRIES: usize = 1 << u16::BITS;
+
+/// Holds the width of a trial dictionary's codes.
+const TRIAL_CODE_BYTES: usize = codes_ptype_for_max_len(MAX_DICTIONARY_ENTRIES as u64).byte_width();
 
 /// Limits the value and view storage in a trial dictionary.
+///
+/// This is larger than the 1 MiB that `DictLayoutConstraints` gives a dictionary shared across a
+/// column's chunks: one array's dictionary of 50,000 28-byte values still beats FSST, and a
+/// smaller limit would hand it back to sampling, which cannot see that.
 const MAX_DICTIONARY_BYTES: usize = 1 << 22;
 
 /// Limits code storage while the trial scans the complete input.
@@ -154,8 +163,8 @@ fn estimate_bytes_dictionary(
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<EstimateVerdict> {
+    let profile = InputProfile::new(data, exec_ctx)?;
     let array = data.array_as_varbinview();
-    let profile = InputProfile::new(&array, exec_ctx)?;
     if profile.valid_rows == 0 {
         return Ok(EstimateVerdict::Skip);
     }
@@ -196,7 +205,7 @@ fn estimate_bytes_dictionary(
         );
     };
     let compressed = compress_dictionary(scheme, compressor, &dictionary, compress_ctx, exec_ctx)?;
-    let score = EstimateScore::from_sample_sizes(profile.logical_nbytes, compressed.nbytes());
+    let score = EstimateScore::from_sample_sizes(profile.uncompressed_nbytes, compressed.nbytes());
     if !score_is_best(score, best_so_far) {
         return Ok(EstimateVerdict::Skip);
     }
@@ -249,46 +258,32 @@ struct InputProfile {
     valid_rows: usize,
     /// Sums the lengths of non-null values.
     value_bytes: usize,
-    /// Measures the input as if its data buffers held only referenced, non-null values.
-    ///
-    /// Sample estimates measure compacted samples, so the trial measures the same way.
-    logical_nbytes: u64,
+    /// Measures the bytes the rows reference, as every other estimate measures its input.
+    uncompressed_nbytes: u64,
     /// Marks non-null rows.
     validity: Mask,
 }
 
 impl InputProfile {
     /// Profiles the complete input.
-    fn new(array: &ArrayView<'_, VarBinView>, exec_ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    fn new(data: &ArrayAndStats, exec_ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let array = data.array_as_varbinview();
         let validity = array.validity()?.execute_mask(array.len(), exec_ctx)?;
         let views = array.views();
-        let mut value_bytes = 0usize;
-        let mut outlined_bytes = 0usize;
-        let mut add = |view: &BinaryView| {
-            let len = view.len() as usize;
-            value_bytes += len;
-            if !view.is_inlined() {
-                outlined_bytes += len;
-            }
+        let value_bytes = match validity.bit_buffer() {
+            AllOr::All => views.iter().map(|view| view.len() as usize).sum(),
+            AllOr::None => 0,
+            AllOr::Some(bits) => bits
+                .set_indices()
+                .map(|index| views[index].len() as usize)
+                .sum(),
         };
-        match validity.bit_buffer() {
-            AllOr::All => views.iter().for_each(&mut add),
-            AllOr::None => {}
-            AllOr::Some(bits) => bits.set_indices().for_each(|index| add(&views[index])),
-        }
-
-        let buffer_bytes = array
-            .data_buffers()
-            .iter()
-            .map(|buffer| buffer.len() as u64)
-            .sum::<u64>();
-        let logical_nbytes = array.as_ref().nbytes() - buffer_bytes + outlined_bytes as u64;
 
         Ok(Self {
             rows: array.len(),
             valid_rows: validity.true_count(),
             value_bytes,
-            logical_nbytes,
+            uncompressed_nbytes: exact_uncompressed_size(data.array(), exec_ctx)?,
             validity,
         })
     }
@@ -434,7 +429,7 @@ fn admit_trial(
     if entries > MAX_DICTIONARY_ENTRIES as f64
         || distinct * profile.mean_value_bytes() > MAX_DICTIONARY_BYTES as f64
         || profile.value_bytes > MAX_DICTIONARY_INPUT_BYTES
-        || profile.rows.saturating_mul(size_of::<u16>()) > MAX_DICTIONARY_CODE_BYTES
+        || profile.rows.saturating_mul(TRIAL_CODE_BYTES) > MAX_DICTIONARY_CODE_BYTES
     {
         return Admission::TooLarge;
     }
@@ -454,7 +449,7 @@ fn optimistic_ratio(
     let values_bytes = entries * (profile.mean_value_bytes() + size_of::<BinaryView>() as f64);
     let code_bits = entries.max(2.0).log2().ceil();
     let code_bytes = profile.rows as f64 * sample.run_start_fraction() * code_bits / 8.0;
-    profile.logical_nbytes as f64 / (values_bytes / values_ratio + code_bytes).max(1.0)
+    profile.uncompressed_nbytes as f64 / (values_bytes / values_ratio + code_bytes).max(1.0)
 }
 
 /// Builds a dictionary within the trial storage bounds, or returns `None` if it exceeds them.

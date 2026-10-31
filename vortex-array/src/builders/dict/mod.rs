@@ -36,6 +36,19 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
     max_len: usize::MAX,
 };
 
+/// Returns the narrowest unsigned code type that can index `max_len` dictionary values.
+///
+/// Codes count from zero, so a code type indexes one more value than its maximum: `u8` codes
+/// index up to 256 values.
+pub const fn codes_ptype_for_max_len(max_len: u64) -> PType {
+    match max_len {
+        len if len <= 1 << u8::BITS => PType::U8,
+        len if len <= 1 << u16::BITS => PType::U16,
+        len if len <= 1 << u32::BITS => PType::U32,
+        _ => PType::U64,
+    }
+}
+
 pub trait DictEncoder: Send {
     /// Assign dictionary codes to the given input array.
     fn encode(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray>;
