@@ -6,7 +6,7 @@ use std::mem::MaybeUninit;
 
 use fastlanes::Delta;
 use fastlanes::FastLanes;
-use fastlanes::Transpose;
+use fearless_simd::Level;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 
 use crate::ChunkBoundary;
 use crate::FL_CHUNK_SIZE;
+use crate::delta::array::transpose::TransposeKernel;
 use crate::fill_forward_nulls;
 
 /// Encode nonnullable bases and deltas. The caller retains the source validity.
@@ -43,7 +44,7 @@ pub fn delta_compress(
 
 fn compress_primitive<T, const LANES: usize>(array: &[T]) -> (Buffer<T>, Buffer<T>)
 where
-    T: NativePType + Delta + Transpose,
+    T: NativePType + Delta,
 {
     let padded_len = array.len().next_multiple_of(FL_CHUNK_SIZE);
     let bases_len = (padded_len / FL_CHUNK_SIZE) * LANES;
@@ -58,9 +59,10 @@ where
         deltas.spare_capacity_mut()[..padded_len].as_chunks_mut::<FL_CHUNK_SIZE>();
 
     // Loop over all full 1024-element chunks.
+    let transpose = TransposeKernel::transpose(Level::new());
     let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
     let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], output: &mut [MaybeUninit<T>; 1024]| {
-        Transpose::transpose(input, &mut transposed);
+        transpose.apply(input, &mut transposed);
         bases.extend_from_slice(&transposed[0..T::LANES]);
 
         unsafe {

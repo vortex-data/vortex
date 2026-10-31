@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use fastlanes::BitPacking;
 use fastlanes::Delta;
-use fastlanes::FL_ORDER;
 use fastlanes::FastLanes;
-use fastlanes::Transpose;
+use fearless_simd::Level;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -36,6 +34,7 @@ use crate::bitpack_decompress::execute_block_offsets;
 use crate::bitpack_decompress::for_each_packed_block;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
+use crate::delta::array::transpose::TransposeKernel;
 use crate::unpack_iter::for_each_packed_chunk;
 
 pub fn delta_decompress(
@@ -120,7 +119,7 @@ impl<'a> PackedDeltas<'a> {
 /// All chunks must be full 1024-element chunks (deltas length must be a multiple of 1024).
 pub(crate) fn decompress_primitive<T, const LANES: usize>(bases: &[T], deltas: &[T]) -> Buffer<T>
 where
-    T: NativePType + Delta + Transpose,
+    T: NativePType + Delta,
 {
     let (chunks, remainder) = deltas.as_chunks::<1024>();
     debug_assert!(
@@ -136,6 +135,7 @@ where
     let (output_chunks, _) = output.spare_capacity_mut()[..deltas.len()].as_chunks_mut::<1024>();
 
     // Loop over all the chunks
+    let untranspose = TransposeKernel::untranspose(Level::new());
     let mut transposed: [T; 1024] = [T::default(); 1024];
     for ((i, chunk), output_chunk) in chunks.iter().enumerate().zip_eq(output_chunks.iter_mut()) {
         Delta::undelta::<LANES>(
@@ -144,7 +144,7 @@ where
             &mut transposed,
         );
 
-        untranspose(&transposed, output_chunk);
+        untranspose.apply_uninit(&transposed, output_chunk);
     }
 
     unsafe { output.set_len(deltas.len()) };
@@ -184,6 +184,7 @@ where
     let (output_chunks, _) = output.spare_capacity_mut()[..len].as_chunks_mut::<FL_CHUNK_SIZE>();
 
     let mut decoded = 0;
+    let untranspose = TransposeKernel::untranspose(Level::new());
     let mut transposed: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
     let mut unpacked: [T; FL_CHUNK_SIZE] = [T::default(); FL_CHUNK_SIZE];
     let mut decode_block = |packed: &[T], bit_width: usize, block: usize| {
@@ -208,7 +209,7 @@ where
                 .vortex_expect("one base per lane");
             Delta::undelta::<LANES>(&unpacked, base, &mut transposed);
         }
-        untranspose(&transposed, &mut output_chunks[chunk]);
+        untranspose.apply_uninit(&transposed, &mut output_chunks[chunk]);
         decoded += 1;
     };
 
@@ -280,26 +281,6 @@ fn chunk_patches<T: NativePType>(
         });
     chunk_patches.sort_unstable_by_key(|&(position, _)| position);
     Ok(chunk_patches)
-}
-
-/// Reorder a transposed chunk into logical order, like [`Transpose::untranspose`].
-///
-/// Writes the output in order and gathers from the input, which the compiler vectorizes far
-/// better than the scattered writes of `Transpose::untranspose`.
-#[inline]
-pub(crate) fn untranspose<T: Copy>(
-    input: &[T; FL_CHUNK_SIZE],
-    output: &mut [MaybeUninit<T>; FL_CHUNK_SIZE],
-) {
-    // `transpose` maps logical index `row * 128 + order * 16 + lane` to transposed index
-    // `lane * 64 + FL_ORDER[order] * 8 + row`, and FL_ORDER is its own inverse.
-    for lane in 0..16 {
-        for (fl_order, &order) in FL_ORDER.iter().enumerate() {
-            for row in 0..8 {
-                output[lane * 64 + fl_order * 8 + row].write(input[row * 128 + order * 16 + lane]);
-            }
-        }
-    }
 }
 
 /// Runtime bit width dispatch for [`Delta::undelta_pack`].

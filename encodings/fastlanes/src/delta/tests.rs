@@ -4,12 +4,10 @@
 //! Delta roundtrips and compute operations against primitive arrays.
 
 use std::array;
-use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
 use fastlanes::Delta as FlDelta;
 use fastlanes::FastLanes;
-use fastlanes::Transpose;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Distribution;
@@ -52,7 +50,6 @@ use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
 use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::delta_decompress::UndeltaPack;
-use crate::delta::array::delta_decompress::untranspose;
 
 fn session() -> VortexSession {
     let session = VortexSession::empty();
@@ -500,27 +497,4 @@ where
         T::undelta_pack_width(width, &packed, &base, &mut actual);
         assert_eq!(actual, expected, "{} width {width}", T::PTYPE);
     }
-}
-
-#[test]
-fn untranspose_matches_fastlanes() {
-    check_untranspose::<u8>();
-    check_untranspose::<u16>();
-    check_untranspose::<u32>();
-    check_untranspose::<u64>();
-}
-
-fn check_untranspose<T: NativePType + Transpose>()
-where
-    StandardUniform: Distribution<T>,
-{
-    let mut rng = StdRng::seed_from_u64(0);
-    let input: [T; FL_CHUNK_SIZE] = array::from_fn(|_| rng.random());
-    let mut expected = [T::zero(); FL_CHUNK_SIZE];
-    Transpose::untranspose(&input, &mut expected);
-    let mut actual = [const { MaybeUninit::uninit() }; FL_CHUNK_SIZE];
-    untranspose(&input, &mut actual);
-    // SAFETY: `untranspose` initializes every value.
-    let actual = actual.map(|value| unsafe { value.assume_init() });
-    assert_eq!(actual, expected, "{}", T::PTYPE);
 }
