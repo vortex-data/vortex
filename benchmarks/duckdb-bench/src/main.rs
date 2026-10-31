@@ -109,7 +109,8 @@ struct Args {
 }
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: vortex_bench::memory::CountingAlloc<MiMalloc> =
+    vortex_bench::memory::CountingAlloc(MiMalloc);
 
 fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();

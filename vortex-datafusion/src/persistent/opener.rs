@@ -5,6 +5,7 @@ use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::time::Instant;
 
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -65,7 +66,9 @@ use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::mask::Mask;
 use vortex::metrics::Label;
+use vortex::metrics::MetricBuilder as VortexMetricBuilder;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::first_output;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -164,6 +167,10 @@ impl FileOpener for VortexOpener {
 
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
+        let first_batch_timer = VortexMetricBuilder::new(metrics_registry.as_ref())
+            .add_labels(labels.clone())
+            .timer("vortex.scan.first_batch");
+        let opened_at = Instant::now();
 
         let mut file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
@@ -596,6 +603,15 @@ impl FileOpener for VortexOpener {
                 )?))
             })
             .filter_map(|batch| ready(batch.transpose()))
+            .inspect({
+                let mut first_batch_timer = Some(first_batch_timer);
+                move |_| {
+                    first_output::record();
+                    if let Some(timer) = first_batch_timer.take() {
+                        timer.update(opened_at.elapsed());
+                    }
+                }
+            })
             .boxed();
 
             let stream = if let Some((limit, schema)) = native_limit {

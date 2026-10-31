@@ -54,6 +54,7 @@ pub mod measurements;
 pub mod memory;
 pub mod output;
 pub mod polarsignals;
+pub mod probe;
 pub mod public_bi;
 pub mod random_access;
 pub mod realnest;

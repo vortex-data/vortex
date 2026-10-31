@@ -146,6 +146,9 @@ fn metric_value_to_datafusion(name: &str, metric: &MetricValue) -> Vec<Datafusio
                     res.push(df_gauge(format!("{name}_min"), min));
                 }
 
+                if let Some(p50) = f_to_u(hist.quantile(0.5).vortex_expect("must not be empty")) {
+                    res.push(df_gauge(format!("{name}_p50"), p50));
+                }
                 if let Some(p95) = f_to_u(hist.quantile(0.95).vortex_expect("must not be empty")) {
                     res.push(df_gauge(format!("{name}_p95"), p95));
                 }
@@ -166,6 +169,9 @@ fn metric_value_to_datafusion(name: &str, metric: &MetricValue) -> Vec<Datafusio
 
                 let min = timer.quantile(0.0).vortex_expect("must not be empty");
                 res.push(df_timer(format!("{name}_min"), min));
+
+                let p50 = timer.quantile(0.5).vortex_expect("must not be empty");
+                res.push(df_timer(format!("{name}_p50"), p50));
 
                 let p95 = timer.quantile(0.95).vortex_expect("must not be empty");
                 res.push(df_timer(format!("{name}_p95"), p95));

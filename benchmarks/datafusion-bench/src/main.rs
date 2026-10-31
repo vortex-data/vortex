@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -24,6 +25,7 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use datafusion_physical_plan::metrics::MetricsSet;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
@@ -129,7 +131,8 @@ struct Args {
 }
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: vortex_bench::memory::CountingAlloc<MiMalloc> =
+    vortex_bench::memory::CountingAlloc(MiMalloc);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -393,6 +396,38 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
             for metric in metrics_set.aggregate().sorted_for_display().iter() {
                 eprintln!("\t\t{metric}");
             }
+            print_distribution_summary(metrics_set);
+        }
+    }
+}
+
+/// DataFusion aggregates metrics by summing them, which is meaningless for per-file quantiles:
+/// fold `_max` by max, `_min` by min, and other quantiles by their median across files.
+fn print_distribution_summary(metrics_set: &MetricsSet) {
+    let mut by_name: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for metric in metrics_set.iter() {
+        let name = metric.value().name();
+        if ["_max", "_min", "_p50", "_p95", "_p99"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+        {
+            by_name
+                .entry(name.to_string())
+                .or_default()
+                .push(metric.value().as_usize());
+        }
+    }
+    for (name, mut values) in by_name {
+        values.sort_unstable();
+        let folded = if name.ends_with("_max") {
+            values.last().copied()
+        } else if name.ends_with("_min") {
+            values.first().copied()
+        } else {
+            values.get(values.len() / 2).copied()
+        };
+        if let Some(folded) = folded {
+            eprintln!("\t\tfolded {name}={folded} (files={})", values.len());
         }
     }
 }

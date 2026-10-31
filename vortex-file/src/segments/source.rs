@@ -213,6 +213,8 @@ impl<R: VortexReadAt> ReadDriver<R> {
 
             self.metrics.read_ranges_calls.add(1);
             self.metrics.read_ranges_num_ranges.update(batch_len as f64);
+            self.metrics.queue_in_flight.update(self.num_active as f64);
+            self.metrics.queue_pending.update(self.pending.len() as f64);
             if batch_len > 1 {
                 self.metrics.read_ranges_multi.add(1);
             }
@@ -489,6 +491,10 @@ pub struct RequestMetrics {
     pub read_ranges_multi: Counter,
     /// Distribution of physical range counts submitted per `read_ranges` call.
     pub read_ranges_num_ranges: Histogram,
+    /// Physical reads in flight on the reader, sampled after each submission.
+    pub queue_in_flight: Histogram,
+    /// Coalesced reads waiting for a concurrency slot, sampled after each submission.
+    pub queue_pending: Histogram,
 }
 
 impl RequestMetrics {
@@ -511,8 +517,14 @@ impl RequestMetrics {
                 .add_labels(labels.clone())
                 .counter("io.read_ranges.multi_range_calls"),
             read_ranges_num_ranges: MetricBuilder::new(metrics_registry)
-                .add_labels(labels)
+                .add_labels(labels.clone())
                 .histogram("io.read_ranges.num_ranges"),
+            queue_in_flight: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .histogram("io.queue.in_flight"),
+            queue_pending: MetricBuilder::new(metrics_registry)
+                .add_labels(labels)
+                .histogram("io.queue.pending"),
         }
     }
 }

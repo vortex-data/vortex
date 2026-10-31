@@ -35,6 +35,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
+use vortex::scan::first_output;
 use vortex::session::SessionExt as _;
 
 use crate::REGISTRY;
@@ -324,6 +325,14 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
     }
 }
 
+/// Notes a batch with rows on its way to DuckDB.
+fn record_first_output(array: ArrayRef) -> ArrayRef {
+    if !array.is_empty() {
+        first_output::record();
+    }
+    array
+}
+
 /// Called by all threads under global lock. If this function returns true,
 /// thread calls reader_scan on this file. If this function returns false,
 /// duckdb thinks file is exhausted, closes the file, and the first thread to
@@ -384,7 +393,7 @@ pub fn reader_scan(
             SplitItem::Done => return Ok(false),
             // split is filtered
             SplitItem::Empty => return Ok(true),
-            SplitItem::Array(array) => array,
+            SplitItem::Array(array) => record_first_output(array),
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
@@ -405,7 +414,7 @@ fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> Vortex
         SplitItem::Done => return Ok(false),
         // split is filtered
         SplitItem::Empty => return Ok(true),
-        SplitItem::Array(array) => array,
+        SplitItem::Array(array) => record_first_output(array),
     };
 
     let mut ctx = SESSION.create_execution_ctx();
