@@ -50,6 +50,13 @@ impl Operator for MaskStage {
         );
         let mask = self.mask.slice(self.cursor..end);
         self.cursor = end;
+        tracing::trace!(
+            target: "vortex_audit::mask_stage",
+            batch_len = batch.len(),
+            mask_true = mask.true_count(),
+            predicate = self.predicate,
+            "mask stage"
+        );
         if mask.all_true() {
             return Ok(Step::Final(batch));
         }

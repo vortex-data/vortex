@@ -103,15 +103,27 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
+        let (segment, bytes) = cx
             .take_segment()
             .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
         self.done = true;
+        let started = std::time::Instant::now();
+        let byte_len = bytes.len();
         let array = decode(&self.plan, bytes, cx.session())?;
-        Ok(Step::Final(select(
-            array,
-            self.slice.as_ref(),
-            self.filter.as_ref(),
-        )?))
+        let segment_rows = array.len();
+        let out = select(array, self.slice.as_ref(), self.filter.as_ref())?;
+        tracing::debug!(
+            target: "vortex_audit::decode",
+            segment = *segment,
+            byte_len,
+            segment_rows,
+            slice_start = self.slice.as_ref().map(|s| s.start),
+            slice_end = self.slice.as_ref().map(|s| s.end),
+            filter_true = self.filter.as_ref().map(|m| m.true_count()),
+            out_rows = out.len(),
+            elapsed_us = started.elapsed().as_micros() as u64,
+            "segment decoded"
+        );
+        Ok(Step::Final(out))
     }
 }

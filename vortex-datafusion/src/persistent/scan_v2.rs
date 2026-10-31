@@ -66,6 +66,15 @@ impl ScanDriver {
         let map: MapBatch = Arc::new(map);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
+        tracing::debug!(
+            target: "vortex_audit::driver",
+            concurrency = self.concurrency,
+            in_flight,
+            inline,
+            ordered = self.ordered,
+            rows = ?scan.rows(),
+            "scan driver started"
+        );
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -97,7 +106,16 @@ impl ScanDriver {
             return batches.map_ok(|(_, batch)| batch).boxed();
         }
         stream::once(async move {
+            let started = std::time::Instant::now();
             let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
+            tracing::debug!(
+                target: "vortex_audit::driver",
+                held_batches = held.len(),
+                held_rows = held.iter().map(|(_, b)| b.num_rows()).sum::<usize>(),
+                held_bytes = held.iter().map(|(_, b)| b.get_array_memory_size()).sum::<usize>(),
+                elapsed_us = started.elapsed().as_micros() as u64,
+                "ordered scan buffered whole partition"
+            );
             // Morsels finish in whatever order their reads arrive.
             held.sort_by_key(|(start, _)| *start);
             VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
@@ -216,6 +234,10 @@ fn chunk_stream(
 ) -> BoxStream<'static, VortexResult<(u64, RecordBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
+        let chunk_rows = scope.rows.clone();
+        let started = std::time::Instant::now();
+        let mut sent = 0u64;
+        let mut sent_rows = 0u64;
         let mut run = Run::new();
         run.admit(root, scope, Arc::clone(&io));
         loop {
@@ -224,15 +246,38 @@ fn chunk_stream(
                     let start = batch.scope.rows.start;
                     let batch = map(batch.array);
                     let failed = batch.is_err();
+                    let rows = batch.as_ref().map_or(0, |b| b.num_rows() as u64);
                     if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
+                        tracing::debug!(
+                            target: "vortex_audit::driver",
+                            chunk_start = chunk_rows.start,
+                            chunk_end = chunk_rows.end,
+                            sent,
+                            discarded_rows = rows,
+                            elapsed_us = started.elapsed().as_micros() as u64,
+                            "chunk aborted: consumer gone"
+                        );
                         return Ok(());
                     }
+                    sent += 1;
+                    sent_rows += rows;
                 }
                 Progress::Spawn(scope, child) => {
                     run.admit(child, scope, Arc::clone(&io));
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
-                Progress::RootDone(_) | Progress::Idle => return Ok(()),
+                Progress::RootDone(_) | Progress::Idle => {
+                    tracing::debug!(
+                        target: "vortex_audit::driver",
+                        chunk_start = chunk_rows.start,
+                        chunk_end = chunk_rows.end,
+                        batches = sent,
+                        rows = sent_rows,
+                        elapsed_us = started.elapsed().as_micros() as u64,
+                        "chunk done"
+                    );
+                    return Ok(());
+                }
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }

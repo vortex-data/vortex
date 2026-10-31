@@ -59,7 +59,11 @@ impl RetainedSegments {
         let mut state = self.state.lock();
         state.tick += 1;
         let tick = state.tick;
-        let (buffer, used) = state.segments.get_mut(&id)?;
+        let Some((buffer, used)) = state.segments.get_mut(&id) else {
+            tracing::debug!(target: "vortex_audit::retain", segment = *id, outcome = "miss");
+            return None;
+        };
+        tracing::debug!(target: "vortex_audit::retain", segment = *id, len = buffer.len(), outcome = "hit");
         let buffer = buffer.clone();
         let previous = std::mem::replace(used, tick);
         state.by_use.remove(&previous);
@@ -70,6 +74,7 @@ impl RetainedSegments {
     fn insert(&self, id: SegmentId, buffer: &BufferHandle) {
         let len = buffer.len() as u64;
         if !buffer.is_on_host() || len > self.budget / 4 {
+            tracing::debug!(target: "vortex_audit::retain", segment = *id, len, outcome = "skip_large");
             return;
         }
         let mut state = self.state.lock();
@@ -86,6 +91,7 @@ impl RetainedSegments {
                 break;
             };
             if let Some((evicted, _)) = state.segments.remove(&oldest) {
+                tracing::debug!(target: "vortex_audit::retain", segment = *oldest, len = evicted.len(), outcome = "evict");
                 state.bytes -= evicted.len() as u64;
             }
         }

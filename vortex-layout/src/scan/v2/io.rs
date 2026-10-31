@@ -119,6 +119,15 @@ impl IoSource for SegmentIoSource {
                 .ranges
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
+            tracing::debug!(
+                target: "vortex_audit::io",
+                segment = *segment,
+                len,
+                intent = ?request.intent,
+                session_has = prefetched.contains_key(&segment),
+                session = ?(self as *const Self),
+                "segment io request"
+            );
             if request.intent == IoIntent::Announce {
                 self.announced
                     .lock()

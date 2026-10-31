@@ -180,6 +180,10 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
+        let audit_partition = self.partition;
+        let audit_has_dynamic = self.file_pruning_predicate.as_ref().is_some_and(|p| {
+            datafusion_physical_expr::DynamicFilterTracking::classify(p).contains_dynamic_filter()
+        });
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -224,9 +228,11 @@ impl FileOpener for VortexOpener {
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
+            let open_started = std::time::Instant::now();
             if let Some(file_pruner) = file_pruner.as_mut()
                 && file_pruner.should_prune()?
             {
+                tracing::debug!(target: "vortex_audit::open", path = %file.path(), partition = audit_partition, "file pruned at open");
                 return Ok(stream::empty().boxed());
             }
 
@@ -344,6 +350,21 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            tracing::debug!(
+                target: "vortex_audit::open",
+                path = %file.path(),
+                partition = audit_partition,
+                byte_range = ?file.range.as_ref().map(|r| (r.start, r.end)),
+                file_rows = vxf.row_count(),
+                footer_cache_hit,
+                native_conjuncts = native_filters.len(),
+                residual_conjuncts = residual_filters.len(),
+                residuals = ?residual_filters.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
+                dynamic_in_pruning_predicate = audit_has_dynamic,
+                pruner_watching = file_pruner.as_ref().is_some_and(|p| p.is_watching()),
+                open_us = open_started.elapsed().as_micros() as u64,
+                "file opened"
+            );
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
@@ -473,6 +494,17 @@ impl FileOpener for VortexOpener {
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
+                tracing::debug!(
+                    target: "vortex_audit::open",
+                    path = %file.path(),
+                    partition = audit_partition,
+                    rows = ?scan.rows(),
+                    has_filter = scan.filter().is_some(),
+                    concurrency,
+                    partitions,
+                    ordered = has_output_ordering,
+                    "v2 scan prepared"
+                );
                 let scan = Arc::new(scan);
 
                 // The planners, composed: with a filter, its pruning plans first over the whole
@@ -613,12 +645,18 @@ impl FileOpener for VortexOpener {
                 stream
             };
 
+            let audit = crate::persistent::stream::AuditStream::new(
+                stream,
+                file.path().to_string(),
+                audit_partition,
+            )
+            .boxed();
             if let Some(file_pruner) = file_pruner
                 && file_pruner.is_watching()
             {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
+                Ok(PrunableStream::new(file_pruner, audit, file.path().to_string()).boxed())
             } else {
-                Ok(stream)
+                Ok(audit)
             }
         }
         .in_current_span()
@@ -700,14 +738,17 @@ fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) ->
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing scan cache for {path}");
+                tracing::debug!(target: "vortex_audit::open", %path, outcome = "reused", "scan cache");
                 shared
             } else {
+                tracing::debug!(target: "vortex_audit::open", %path, outcome = "expired", "scan cache");
                 let fresh = ScanCache::default();
                 entry.insert(fresh.downgrade());
                 fresh
             }
         }
         Entry::Vacant(entry) => {
+            tracing::debug!(target: "vortex_audit::open", %path, outcome = "new", "scan cache");
             let fresh = ScanCache::default();
             entry.insert(fresh.downgrade());
             fresh
@@ -726,8 +767,10 @@ fn shared_segment_source(
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing segment source for {path}");
+                tracing::debug!(target: "vortex_audit::open", %path, outcome = "reused", "segment source");
                 shared
             } else {
+                tracing::debug!(target: "vortex_audit::open", %path, outcome = "expired", "segment source");
                 entry.insert(Arc::downgrade(&fresh));
                 fresh
             }

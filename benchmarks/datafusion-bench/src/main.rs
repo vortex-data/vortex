@@ -23,6 +23,7 @@ use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::collect;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
@@ -382,6 +383,10 @@ pub async fn execute_query(
 /// Print Vortex metrics from execution plans.
 fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
     for (query_idx, format, plan) in plans {
+        eprintln!(
+            "plan with metrics for query={query_idx}, {format}:\n{}",
+            DisplayableExecutionPlan::with_metrics(plan.as_ref()).indent(true)
+        );
         let metric_sets = VortexMetricsFinder::find_all(plan.as_ref());
         if metric_sets.is_empty() {
             continue;

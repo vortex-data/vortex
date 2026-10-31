@@ -167,9 +167,18 @@ impl ScanBuilder {
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
+        let prepare_started = std::time::Instant::now();
         let root = match cache.root() {
-            Some(root) => root,
-            None => cache.insert_root(lower(&file.layout)?),
+            Some(root) => {
+                tracing::debug!(target: "vortex_audit::plan_cache", kind = "root", hit = true);
+                root
+            }
+            None => {
+                let t = std::time::Instant::now();
+                let lowered = lower(&file.layout)?;
+                tracing::debug!(target: "vortex_audit::plan_cache", kind = "root", hit = false, build_us = t.elapsed().as_micros() as u64);
+                cache.insert_root(lowered)
+            }
         };
         let row_count = root.row_count();
         let filtered_chunk_rows = self
@@ -181,10 +190,15 @@ impl ScanBuilder {
             .filter
             .map(|filter| -> VortexResult<_> {
                 match cache.filter_plans(&filter) {
-                    Some(plans) => Ok(plans),
+                    Some(plans) => {
+                        tracing::debug!(target: "vortex_audit::plan_cache", kind = "filter", hit = true);
+                        Ok(plans)
+                    }
                     None => {
+                        let t = std::time::Instant::now();
                         let plans =
                             Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
+                        tracing::debug!(target: "vortex_audit::plan_cache", kind = "filter", hit = false, build_us = t.elapsed().as_micros() as u64, filter = %filter);
                         Ok(cache.insert_filter_plans(filter, plans))
                     }
                 }
@@ -194,12 +208,17 @@ impl ScanBuilder {
         // chunked column lazy, so an identity projection is optimized like any other.
         let identity = self.projection.is_root() && self.projection.dtype() == root.dtype();
         let projection = match cache.projection(&self.projection) {
-            Some(plan) => plan,
+            Some(plan) => {
+                tracing::debug!(target: "vortex_audit::plan_cache", kind = "projection", hit = true);
+                plan
+            }
             None => {
+                let t = std::time::Instant::now();
                 let plan = optimize(
                     plan_row_idx_expression(self.projection.clone(), root)?,
                     &self.session,
                 )?;
+                tracing::debug!(target: "vortex_audit::plan_cache", kind = "projection", hit = false, build_us = t.elapsed().as_micros() as u64);
                 cache.insert_projection(self.projection, plan)
             }
         };
@@ -215,6 +234,7 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        tracing::debug!(target: "vortex_audit::plan_cache", kind = "prepare_total", elapsed_us = prepare_started.elapsed().as_micros() as u64, chunk_rows, row_count);
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
