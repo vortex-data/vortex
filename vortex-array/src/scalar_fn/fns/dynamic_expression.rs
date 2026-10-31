@@ -24,6 +24,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
@@ -31,6 +32,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::validity::Validity;
 
 /// A source of a predicate that can change while a query runs, such as the build-side bounds of
@@ -118,6 +120,32 @@ impl ScalarFnVTable for DynamicExpression {
             .cast(DType::Bool(Nullability::Nullable))?
             .execute(ctx)
     }
+}
+
+/// Whether `expr` is a dynamic expression whose current predicate is the literal `true`, such
+/// as a filter whose producer has no value yet. Evaluating it would only read its inputs.
+pub fn is_currently_true(expr: &BoundExpression) -> bool {
+    let Some(options) = expr.as_opt::<DynamicExpression>() else {
+        return false;
+    };
+    let names = (0..expr.children().len())
+        .map(input_field_name)
+        .collect::<FieldNames>();
+    let scope = DType::Struct(
+        StructFields::new(
+            names,
+            expr.children()
+                .iter()
+                .map(|child| child.dtype().clone())
+                .collect(),
+        ),
+        Nullability::NonNullable,
+    );
+    options.current(&scope).is_ok_and(|predicate| {
+        predicate
+            .as_opt::<Literal>()
+            .is_some_and(|value| value.as_bool_opt().and_then(|v| v.value()) == Some(true))
+    })
 }
 
 /// The options of a [`DynamicExpression`]: its source, and the predicate last bound from it.

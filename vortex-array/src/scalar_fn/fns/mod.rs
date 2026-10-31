@@ -28,5 +28,6 @@ pub mod pack;
 pub mod replace_time_zone;
 pub mod select;
 pub mod stat;
+pub mod switch;
 pub mod variant_get;
 pub mod zip;

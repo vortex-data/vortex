@@ -223,11 +223,24 @@ impl Planner for FilterPlanner {
         };
         if !self.announced {
             self.announced = true;
+            // Conjuncts the chunk skips are decided before any read, so their segments are not
+            // fetched.
+            let input_rows = selected.mask.true_count();
+            for index in 0..self.filter.predicates.len() {
+                if !self.filter.expression.should_evaluate(index, input_rows) {
+                    self.remaining.set(index, false);
+                }
+            }
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| self.remaining[*index])
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -285,7 +298,7 @@ impl Planner for FilterPlanner {
             );
             self.filter
                 .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
+                .report_evaluation(*index, input, selected.mask.true_count());
             self.active = None;
             self.pieces.clear();
         }

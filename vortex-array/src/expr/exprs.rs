@@ -64,6 +64,8 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::switch::Switch;
+use crate::scalar_fn::fns::switch::SwitchState;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -1161,6 +1163,16 @@ pub fn bound_dynamic_expression(
     DynamicExpression
         .try_new_bound_expr(DynamicExpressionOptions::new(source), inputs)
         .vortex_expect("dynamic expressions accept any inputs")
+}
+
+// ---- Switch ----
+
+/// Creates a switch, initially on, over a predicate that a scan may turn off: `on ⇒ predicate`.
+/// The scan turns it off while it keeps more than `max_kept_percent` percent of its input rows.
+///
+/// See [`Switch`] for when a predicate may be turned off.
+pub fn switch(predicate: Expression, max_kept_percent: u8) -> Expression {
+    Switch.new_expr(SwitchState::new(max_kept_percent), [predicate])
 }
 
 // ---- ListContains ----
