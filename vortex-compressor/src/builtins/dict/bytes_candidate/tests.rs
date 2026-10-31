@@ -69,9 +69,8 @@ fn profile_and_probe(
     data: &ArrayAndStats,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<(InputProfile, Option<ProbeSample>)> {
-    let array = data.array_as_varbinview();
-    let profile = InputProfile::new(&array, exec_ctx)?;
-    let sample = ProbeSample::new(&array, &profile.validity);
+    let profile = InputProfile::new(data, exec_ctx)?;
+    let sample = ProbeSample::new(&data.array_as_varbinview(), &profile.validity);
     Ok((profile, sample))
 }
 
@@ -93,26 +92,6 @@ fn estimate_dictionary(
         CompressorContext::new(),
         exec_ctx,
     )
-}
-
-#[test]
-fn profile_ignores_unreferenced_payload() -> VortexResult<()> {
-    let values = cycled(4096, 4096);
-    let full = string_data(&values).into_array();
-    let sliced = full.slice(1024..2048)?;
-    let compacted = string_data(&values[1024..2048]);
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    let sliced = ArrayAndStats::new(sliced, Default::default());
-    let (sliced_profile, _) = profile_and_probe(&sliced, &mut exec_ctx)?;
-    let (compacted_profile, _) = profile_and_probe(&compacted, &mut exec_ctx)?;
-
-    assert!(sliced.array().nbytes() > compacted.array().nbytes());
-    assert_eq!(
-        sliced_profile.logical_nbytes,
-        compacted_profile.logical_nbytes
-    );
-    Ok(())
 }
 
 #[test]

@@ -28,7 +28,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -73,7 +72,8 @@ pub struct DictLayoutConstraints {
     ///
     /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive dictionaries
     /// use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries including
-    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 255`.
+    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 256`, as
+    /// [`codes_ptype_for_max_len`](vortex_array::builders::dict::codes_ptype_for_max_len) picks.
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
     pub max_len: u16,
@@ -174,10 +174,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
+                !self
                     .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
-                !compressed.is::<Dict>()
+                    .chooses_dictionary(&sample, &mut exec_ctx)?
             }
         };
         if should_fallback {

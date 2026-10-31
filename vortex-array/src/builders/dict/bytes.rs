@@ -25,6 +25,7 @@ use vortex_utils::aliases::hash_map::HashTableEntry;
 
 use super::DictConstraints;
 use super::DictEncoder;
+use super::codes_ptype_for_max_len;
 use crate::ArrayRef;
 use crate::ArrayView;
 use crate::IntoArray;
@@ -59,18 +60,18 @@ pub fn bytes_dict_builder(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    match constraints.max_len as u64 {
-        max if max <= u8::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u8>::new_in(
+    match codes_ptype_for_max_len(constraints.max_len as u64) {
+        PType::U8 => Box::new(BytesDictBuilder::<u8>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u16::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u16>::new_in(
+        PType::U16 => Box::new(BytesDictBuilder::<u16>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u32::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u32>::new_in(
+        PType::U32 => Box::new(BytesDictBuilder::<u32>::new_in(
             dtype,
             constraints,
             allocator,
