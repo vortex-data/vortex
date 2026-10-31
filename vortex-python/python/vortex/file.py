@@ -98,7 +98,7 @@ def open(
 
 
 def open_readable(
-    reader: ReadBytesAt | ReadAt | IO[bytes],
+    reader: ReadBytesAt | ReadAt | IO[bytes] | pa.NativeFile,
     *,
     footer: Footer | None = None,
     concurrency: int | None = None,
@@ -114,19 +114,20 @@ def open_readable(
 
     Parameters
     ----------
-    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | binary file object
-        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, or a
-        binary file object with ``seek`` and ``readinto`` (or ``read``), such as
-        ``open(path, "rb")``, :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep
-        it open for as long as the returned file, or anything scanned from it, is in use.
+    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | pyarrow file | binary file object
+        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, a
+        pyarrow file such as one from :meth:`pyarrow.fs.FileSystem.open_input_file`, or a binary
+        file object with ``seek`` and ``readinto`` (or ``read``), such as ``open(path, "rb")``,
+        :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep it open for as long
+        as the returned file, or anything scanned from it, is in use.
     footer : :class:`vortex.file.Footer` | None
         The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does no IO,
         which saves the footer read when a file is opened again and again. Vortex checks only that
         the footer fits within the size of ``reader``, so the file must not have changed since.
     concurrency : :class:`int` | None
-        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt` or
-        :class:`vortex.io.ReadAt`, 192 by default. Not accepted for a file object, whose reads are
-        serialized because each one has to ``seek`` first.
+        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt`, a
+        :class:`vortex.io.ReadAt` or a pyarrow file, 192 by default. Not accepted for a binary file
+        object, whose reads are serialized because each one has to ``seek`` first.
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
     segment_cache : :class:`vortex.SegmentCache` | None
@@ -152,6 +153,8 @@ def open_readable(
     ...     vxf = vx.open_readable(f, footer=footer)
     """
 
+    if isinstance(reader, pa.NativeFile):
+        reader = _NativeFileReader(reader)
     return VortexFile(
         _file.open_readable(
             reader,
@@ -162,6 +165,20 @@ def open_readable(
             cache_key=cache_key,
         )
     )
+
+
+@final
+class _NativeFileReader:
+    """A :class:`vortex.io.ReadBytesAt` over a pyarrow file, whose ``read_at`` takes ``(nbytes, offset)``."""
+
+    def __init__(self, file: pa.NativeFile) -> None:
+        self._file = file
+
+    def size(self) -> int:
+        return self._file.size()
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        return self._file.read_at(length, offset)  # ty: ignore[too-many-positional-arguments]
 
 
 @final
