@@ -58,6 +58,7 @@ pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
 pub mod runner;
+pub mod s3;
 pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;

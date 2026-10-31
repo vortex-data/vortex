@@ -46,7 +46,11 @@ geoarrow = { workspace = true }
 geoarrow-cast = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
 humansize = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
 libmimalloc-sys = { workspace = true }
@@ -56,6 +60,8 @@ noodles-vcf = { workspace = true, features = ["async"] }
 object_store = { workspace = true, features = ["aws"] }
 parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async", "object_store"] }
+percent-encoding = { workspace = true }
+quick-xml = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
