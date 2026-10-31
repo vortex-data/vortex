@@ -474,6 +474,7 @@ mod test {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt as _;
+    use crate::sequence::fully_demanded;
     use crate::test::SESSION;
     use crate::test::new_session;
 
@@ -495,9 +496,18 @@ mod test {
                     SequentialStreamAdapter::new(
                         DType::Primitive(PType::I32, NonNullable),
                         stream::iter([
-                            Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
-                            Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
-                            Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
+                            Ok(fully_demanded(
+                                sequence_id.advance(),
+                                buffer![1, 2, 3].into_array(),
+                            )),
+                            Ok(fully_demanded(
+                                sequence_id.advance(),
+                                buffer![4, 5, 6].into_array(),
+                            )),
+                            Ok(fully_demanded(
+                                sequence_id.advance(),
+                                buffer![7, 8, 9].into_array(),
+                            )),
                         ]),
                     )
                     .sendable(),

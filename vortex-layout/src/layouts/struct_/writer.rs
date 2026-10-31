@@ -21,7 +21,6 @@ use futures::future::join;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
@@ -44,10 +43,11 @@ use crate::LayoutWriterContext;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
+use crate::sequence::SequentialChunk;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
+use crate::sequence::fully_demanded;
 
 /// Writes struct-typed arrays into a [`StructLayout`], one child layout per field.
 ///
@@ -129,10 +129,9 @@ impl LayoutStrategy for StructStrategy {
         // StructLayout.
         if struct_dtype.nfields() == 0 && !is_nullable {
             let row_count = stream
-                .try_fold(
-                    0u64,
-                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
-                )
+                .try_fold(0u64, |acc, (_, arr, _)| async move {
+                    Ok(acc + arr.len() as u64)
+                })
                 .await?;
             return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
@@ -140,26 +139,37 @@ impl LayoutStrategy for StructStrategy {
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_session = session.clone();
         let columns_vec_stream = stream.map(move |chunk| {
-            let (sequence_id, chunk) = chunk?;
+            let (sequence_id, chunk, demand) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
             let mut ctx = columns_session.create_execution_ctx();
             let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
-            let mut columns: Vec<(SequenceId, ArrayRef)> = Vec::new();
-            if is_nullable {
-                columns.push((
-                    sequence_pointer.advance(),
-                    chunk
-                        .validity()?
-                        .execute_mask(chunk.len(), &mut ctx)?
-                        .into_array(),
-                ));
-            }
+            let mut columns: Vec<SequentialChunk> = Vec::new();
+            let validity = is_nullable
+                .then(|| chunk.validity()?.execute_mask(chunk.len(), &mut ctx))
+                .transpose()?;
 
-            columns.extend(
-                struct_chunk
-                    .iter_unmasked_fields()
-                    .map(|field| (sequence_pointer.advance(), field.clone())),
-            );
+            // Fields are written unmasked, so each field is demanded only where its ancestors
+            // demand the struct and the struct is valid. Every row of the validity is part of
+            // the column.
+            let field_demand = match &validity {
+                Some(validity) => {
+                    let field_demand = &demand & validity;
+                    columns.push(fully_demanded(
+                        sequence_pointer.advance(),
+                        validity.clone().into_array(),
+                    ));
+                    field_demand
+                }
+                None => demand,
+            };
+
+            columns.extend(struct_chunk.iter_unmasked_fields().map(|field| {
+                (
+                    sequence_pointer.advance(),
+                    field.clone(),
+                    field_demand.clone(),
+                )
+            }));
 
             Ok(columns)
         });
@@ -227,14 +237,7 @@ impl LayoutStrategy for StructStrategy {
                 let child_eof = eof.split_off();
                 let session = session.clone();
                 let is_validity = index == 0 && is_nullable;
-                // Fields are written unmasked, so a nullable struct hides some of their values
-                // behind its own validity. Tell the field writers so they omit statistics that
-                // those hidden values would corrupt.
-                let ctx = if is_nullable && !is_validity {
-                    ctx.clone().with_nullable_ancestor()
-                } else {
-                    ctx.clone()
-                };
+                let ctx = ctx.clone();
                 let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |_| {
                     // Validity is written through the validity strategy; every other field
@@ -274,8 +277,13 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -290,103 +298,112 @@ mod tests {
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::FailingStrategy;
     use crate::test::SESSION;
     use crate::test::new_session;
+    use crate::test::read_zone_stats;
 
-    /// Write a single-field struct with zoned fields, returning whether the field got a zone map.
-    fn field_has_zone_map(validity: Validity) -> VortexResult<bool> {
-        let strategy = StructStrategy::new(
-            Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(ZonedStrategy::new(
-                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-                FlatLayoutStrategy::default(),
-                ZonedLayoutOptions {
-                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                    ..Default::default()
-                },
-            )),
-        );
-        let is_nullable = validity.nullability().is_nullable();
+    fn zoned_leaf() -> Arc<dyn LayoutStrategy> {
+        Arc::new(ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                ..Default::default()
+            },
+        ))
+    }
+
+    /// Write `array` through `strategy`, returning the layout and the segments it was written to.
+    fn write<S: LayoutStrategy>(
+        strategy: S,
+        array: ArrayRef,
+    ) -> VortexResult<(LayoutRef, Arc<TestSegments>)> {
         let (ptr, eof) = SequenceId::root().split();
-        let stream = StructArray::try_from_iter_with_validity(
-            [("a", buffer![1, 2, 3].into_array())],
-            validity,
-        )?
-        .into_array()
-        .to_array_stream()
-        .sequenced(ptr);
-
+        let stream = array.to_array_stream().sequenced(ptr);
+        let segments = Arc::new(TestSegments::default());
+        let segments2 = Arc::clone(&segments);
         let layout = block_on(|handle| async move {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     LayoutWriterContext::new(ArrayContext::empty()),
-                    Arc::new(TestSegments::default()),
+                    segments2,
                     stream,
                     eof,
                     &session,
                 )
                 .await
         })?;
-
-        // The validity child, when present, precedes the fields.
-        Ok(layout.children()?[usize::from(is_nullable)].is::<Zoned>())
+        Ok((layout, segments))
     }
 
-    /// Write `array` through a [`TableStrategy`] with zoned leaves, returning the layout.
-    fn write_table(array: StructArray) -> VortexResult<LayoutRef> {
-        let strategy = TableStrategy::new(
-            Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(ZonedStrategy::new(
-                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-                FlatLayoutStrategy::default(),
-                ZonedLayoutOptions {
-                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                    ..Default::default()
-                },
-            )),
-        );
-        let (ptr, eof) = SequenceId::root().split();
-        let stream = array.into_array().to_array_stream().sequenced(ptr);
-        block_on(|handle| async move {
-            let session = new_session().with_handle(handle);
-            strategy
-                .write_stream(
-                    LayoutWriterContext::new(ArrayContext::empty()),
-                    Arc::new(TestSegments::default()),
-                    stream,
-                    eof,
-                    &session,
-                )
-                .await
-        })
+    /// Write a single-field struct of `[1, 2, 3]` with zoned fields, returning the field's layout.
+    fn write_field(validity: Validity) -> VortexResult<(LayoutRef, Arc<TestSegments>)> {
+        let strategy = StructStrategy::new(Arc::new(FlatLayoutStrategy::default()), zoned_leaf());
+        let is_nullable = validity.nullability().is_nullable();
+        let array = StructArray::try_from_iter_with_validity(
+            [("a", buffer![1, 2, 3].into_array())],
+            validity,
+        )?;
+        let (layout, segments) = write(strategy, array.into_array())?;
+        // The validity child, when present, precedes the fields.
+        Ok((
+            Arc::clone(&layout.children()?[usize::from(is_nullable)]),
+            segments,
+        ))
+    }
+
+    /// Write `array` through a [`TableStrategy`] with zoned leaves.
+    fn write_table(array: StructArray) -> VortexResult<(LayoutRef, Arc<TestSegments>)> {
+        let strategy = TableStrategy::new(Arc::new(FlatLayoutStrategy::default()), zoned_leaf());
+        write(strategy, array.into_array())
+    }
+
+    /// The minimum and maximum a zoned leaf of at most three rows records for its single zone.
+    fn zone_bounds(leaf: &LayoutRef, segments: &Arc<TestSegments>) -> VortexResult<(i32, i32)> {
+        assert!(leaf.is::<Zoned>(), "{leaf} has no zone map");
+        let mut ctx = new_session().create_execution_ctx();
+        let mut bound = |aggregate_fn| -> VortexResult<i32> {
+            let scalar: Scalar =
+                read_zone_stats(leaf, segments, &aggregate_fn)?.execute_scalar(0, &mut ctx)?;
+            Ok(scalar
+                .as_primitive()
+                .typed_value::<i32>()
+                .vortex_expect("demanded zone has a bound"))
+        };
+        Ok((
+            bound(Min.bind(Default::default()))?,
+            bound(Max.bind(Default::default()))?,
+        ))
+    }
+
+    fn some_nulls() -> Validity {
+        Validity::Array(BoolArray::from_iter([false, true, true]).into_array())
     }
 
     #[test]
     fn non_nullable_struct_fields_get_a_zone_map() -> VortexResult<()> {
-        assert!(field_has_zone_map(Validity::NonNullable)?);
+        let (field, segments) = write_field(Validity::NonNullable)?;
+        assert_eq!(zone_bounds(&field, &segments)?, (1, 3));
         Ok(())
     }
 
-    /// The field holds values in rows the struct nulls out, so no aggregate over it is exact for
-    /// the logical column and no zone map is written.
+    /// The field holds a value in the row the struct nulls out, and its zone map leaves it out.
     #[test]
-    fn nullable_struct_fields_get_no_zone_map() -> VortexResult<()> {
-        assert!(!field_has_zone_map(Validity::Array(
-            BoolArray::from_iter([false, true, true]).into_array(),
-        ))?);
+    fn nullable_struct_fields_zone_map_only_valid_rows() -> VortexResult<()> {
+        let (field, segments) = write_field(some_nulls())?;
+        assert_eq!(zone_bounds(&field, &segments)?, (2, 3));
         Ok(())
     }
 
     /// A nullable struct anywhere above a leaf hides its values, however deep the leaf sits, while
     /// leaves beside a nullable struct are unaffected.
     #[test]
-    fn nullable_ancestor_propagates_through_nested_structs() -> VortexResult<()> {
-        let some_nulls = || Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
-
-        // Nullable outer struct, non-nullable inner struct: the inner leaf is still hidden.
+    fn demand_propagates_through_nested_structs() -> VortexResult<()> {
+        // Nullable outer struct, non-nullable inner struct: the inner leaf still skips row 0.
         let outer_nullable = StructArray::try_from_iter_with_validity(
             [(
                 "inner",
@@ -394,12 +411,12 @@ mod tests {
             )],
             some_nulls(),
         )?;
-        let layout = write_table(outer_nullable)?;
+        let (layout, segments) = write_table(outer_nullable)?;
         let inner = &layout.children()?[1];
-        assert!(!inner.children()?[0].is::<Zoned>());
+        assert_eq!(zone_bounds(&inner.children()?[0], &segments)?, (2, 3));
 
-        // Non-nullable outer struct: a leaf beside the nullable inner struct keeps its zone map,
-        // the leaf below it loses it.
+        // Non-nullable outer struct: a leaf beside the nullable inner struct covers every row,
+        // the leaf below it skips row 0.
         let inner_nullable = StructArray::try_from_iter([
             ("sibling", buffer![1, 2, 3].into_array()),
             (
@@ -411,10 +428,55 @@ mod tests {
                 .into_array(),
             ),
         ])?;
-        let layout = write_table(inner_nullable)?;
+        let (layout, segments) = write_table(inner_nullable)?;
         let children = layout.children()?;
-        assert!(children[0].is::<Zoned>());
-        assert!(!children[1].children()?[1].is::<Zoned>());
+        assert_eq!(zone_bounds(&children[0], &segments)?, (1, 3));
+        assert_eq!(zone_bounds(&children[1].children()?[1], &segments)?, (2, 3));
+        Ok(())
+    }
+
+    /// The demand on a leaf under two nullable structs is the rows where both are valid.
+    #[test]
+    fn nested_nullable_structs_compose_their_validity() -> VortexResult<()> {
+        let inner = StructArray::try_from_iter_with_validity(
+            [("a", buffer![1, 2, 3].into_array())],
+            some_nulls(),
+        )?;
+        let outer = StructArray::try_from_iter_with_validity(
+            [("inner", inner.into_array())],
+            Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
+        )?;
+        let (layout, segments) = write_table(outer)?;
+        let leaf = &layout.children()?[1].children()?[1];
+        assert_eq!(zone_bounds(leaf, &segments)?, (2, 2));
+        Ok(())
+    }
+
+    /// A chunked writer below the struct writes each chunk through its own child, and hands each
+    /// child the demand on its chunk.
+    #[test]
+    fn chunked_fields_take_each_chunks_demand() -> VortexResult<()> {
+        let chunk = |values: ArrayRef, validity: [bool; 3]| -> VortexResult<ArrayRef> {
+            Ok(StructArray::try_from_iter_with_validity(
+                [("a", values)],
+                Validity::Array(BoolArray::from_iter(validity).into_array()),
+            )?
+            .into_array())
+        };
+        let array = ChunkedArray::from_iter([
+            chunk(buffer![1, 2, 3].into_array(), [false, true, true])?,
+            chunk(buffer![10, 20, 30].into_array(), [true, false, true])?,
+        ])
+        .into_array();
+        let strategy = StructStrategy::new(
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+            Arc::new(ChunkedLayoutStrategy::new(zoned_leaf())),
+        );
+
+        let (layout, segments) = write(strategy, array)?;
+        let chunks = layout.children()?[1].children()?;
+        assert_eq!(zone_bounds(&chunks[0], &segments)?, (2, 3));
+        assert_eq!(zone_bounds(&chunks[1], &segments)?, (10, 30));
         Ok(())
     }
 
@@ -432,25 +494,24 @@ mod tests {
         })
     }
 
-    /// The flag survives any number of non-nullable struct levels below the nullable one, and is
-    /// only set at the nullable level, not above it.
+    /// The demand survives any number of non-nullable struct levels below the nullable one, and
+    /// only applies below the nullable level, not above it.
     #[test]
-    fn nullable_ancestor_propagates_through_deep_nesting() -> VortexResult<()> {
+    fn demand_propagates_through_deep_nesting() -> VortexResult<()> {
         const DEPTH: usize = 6;
-        let some_nulls = || Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
 
         // Nullable root over DEPTH non-nullable levels.
         let root = StructArray::try_from_iter_with_validity(
             [("top", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
             some_nulls(),
         )?;
-        let layout = write_table(root)?;
+        let (layout, segments) = write_table(root)?;
         // Skip the root's validity child, then walk every non-nullable level to the leaf.
         let leaf = descend(&layout.children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert_eq!(zone_bounds(&leaf, &segments)?, (2, 3));
 
         // Non-nullable levels above, a nullable struct in the middle, non-nullable levels below.
-        // A leaf above the nullable level keeps its zone map, the leaf below it does not.
+        // A leaf above the nullable level covers every row, the leaf below it skips row 0.
         let middle = StructArray::try_from_iter_with_validity(
             [("below", nest(buffer![1, 2, 3].into_array(), DEPTH)?)],
             some_nulls(),
@@ -464,13 +525,13 @@ mod tests {
             DEPTH,
         )?
         .execute::<StructArray>(&mut new_session().create_execution_ctx())?;
-        let layout = write_table(root)?;
+        let (layout, segments) = write_table(root)?;
         let holder = descend(&layout, DEPTH)?;
         let holder_children = holder.children()?;
-        assert!(holder_children[0].is::<Zoned>());
+        assert_eq!(zone_bounds(&holder_children[0], &segments)?, (1, 3));
         // The nullable middle struct's children are `[validity, below]`.
         let leaf = descend(&holder_children[1].children()?[1], DEPTH)?;
-        assert!(!leaf.is::<Zoned>());
+        assert_eq!(zone_bounds(&leaf, &segments)?, (2, 3));
         Ok(())
     }
 

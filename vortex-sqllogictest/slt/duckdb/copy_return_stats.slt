@@ -12,10 +12,9 @@ TO '${WORK_DIR}/copy_return_stats.vortex' (FORMAT vortex, RETURN_STATS);
 
 # As in parquet, statistics are reported per leaf column: struct fields are keyed by their full
 # quoted path and the struct itself gets no entry. Lists are reported as a single column.
-# DuckDB structs are nullable, so their fields report no min, max or null count until struct
-# nulls are propagated into children (https://github.com/vortex-data/vortex/issues/9205).
+# DuckDB structs are nullable, and their fields' statistics treat the struct's null rows as null.
 query TIII???
 COPY (SELECT {'a': 1, 'b': 2} AS st, [1, 2, 3] AS lst, 7 AS i)
 TO '${WORK_DIR}/copy_return_stats_nested.vortex' (FORMAT vortex, RETURN_STATS);
 ----
-<REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"\."a"'=\{column_size_bytes=\d+, num_values=1\}, '"st"\."b"'=\{column_size_bytes=\d+, num_values=1\}\} NULL \{\}
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"\."a"'=\{column_size_bytes=\d+, max=1, min=1, null_count=0, num_values=1\}, '"st"\."b"'=\{column_size_bytes=\d+, max=2, min=2, null_count=0, num_values=1\}\} NULL \{\}

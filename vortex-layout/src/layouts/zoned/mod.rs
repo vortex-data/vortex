@@ -23,6 +23,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(crate) use builder::AggregateStatsAccumulator;
+pub(crate) use builder::aggregate_demanded_partials;
 pub(crate) use builder::aggregate_partials;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;

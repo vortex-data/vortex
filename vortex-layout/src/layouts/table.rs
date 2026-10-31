@@ -355,6 +355,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::sequence::SequentialChunk;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
     use crate::test::SESSION;
@@ -724,10 +725,9 @@ mod tests {
             )]),
             Nullability::NonNullable,
         );
-        let stream =
-            futures::stream::poll_fn(|_| -> Poll<Option<VortexResult<(SequenceId, ArrayRef)>>> {
-                panic!("panic while transposing table stream");
-            });
+        let stream = futures::stream::poll_fn(|_| -> Poll<Option<VortexResult<SequentialChunk>>> {
+            panic!("panic while transposing table stream");
+        });
         let strategy = TableStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),

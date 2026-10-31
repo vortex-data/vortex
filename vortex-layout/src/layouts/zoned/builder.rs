@@ -18,6 +18,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_mask::Mask;
 
 use crate::layouts::zoned::schema::aggregate_state_dtype;
 
@@ -113,6 +114,24 @@ pub(crate) fn aggregate_partials(
         .map(|aggregate_fn| {
             let mut accumulator = aggregate_fn.accumulator(array.dtype())?;
             accumulator.accumulate(array, ctx)?;
+            accumulator.partial_scalar()
+        })
+        .collect()
+}
+
+/// Aggregate `array` as null wherever `demand` is false, e.g. a struct field as null wherever the
+/// struct is null.
+pub(crate) fn aggregate_demanded_partials(
+    array: &ArrayRef,
+    demand: &Mask,
+    aggregate_fns: &[AggregateFnRef],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Scalar>> {
+    aggregate_fns
+        .iter()
+        .map(|aggregate_fn| {
+            let mut accumulator = aggregate_fn.accumulator(array.dtype())?;
+            accumulator.accumulate_demanded(array, demand, ctx)?;
             accumulator.partial_scalar()
         })
         .collect()

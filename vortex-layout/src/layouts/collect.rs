@@ -10,6 +10,7 @@ use futures::pin_mut;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -53,11 +54,13 @@ impl LayoutStrategy for CollectStrategy {
             pin_mut!(stream);
 
             let mut chunks = Vec::new();
+            let mut demands = Vec::new();
             let mut latest_sequence_id = None;
             while let Some(chunk) = stream.next().await {
-                let (sequence_id, chunk) = chunk?;
+                let (sequence_id, chunk, demand) = chunk?;
                 latest_sequence_id = Some(sequence_id);
                 chunks.push(chunk);
+                demands.push(demand);
             }
 
             // an empty input yields no chunk; the child layout handles it.
@@ -66,7 +69,7 @@ impl LayoutStrategy for CollectStrategy {
             };
 
             let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
-            yield (sequence_id, collected);
+            yield (sequence_id, collected, Mask::concat(demands.iter())?);
         };
 
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));

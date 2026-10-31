@@ -516,9 +516,9 @@ impl LayoutStrategy for IndexedStrategy {
         let stream = SequentialStreamAdapter::new(
             dtype,
             stream.map(move |item| {
-                let (sequence_id, chunk) = item?;
+                let (sequence_id, chunk, demand) = item?;
                 feed_state.lock().push(&chunk, &feed_tracker)?;
-                Ok((sequence_id, chunk))
+                Ok((sequence_id, chunk, demand))
             }),
         )
         .sendable();

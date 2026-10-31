@@ -110,7 +110,7 @@ impl LayoutStrategy for CompressingStrategy {
                 let stats = Arc::clone(&stats);
                 let session = compute_session.clone();
                 handle.spawn_cpu(move || {
-                    let (sequence_id, chunk) = chunk?;
+                    let (sequence_id, chunk, demand) = chunk?;
                     let mut ctx = session.create_execution_ctx();
                     // Compute the stats for the chunk prior to compression. The exact
                     // uncompressed size is measured once here and cached for the compressor.
@@ -118,7 +118,11 @@ impl LayoutStrategy for CompressingStrategy {
                     if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
                         uncompressed_size_in_bytes(&chunk, &mut ctx)?;
                     }
-                    Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
+                    Ok((
+                        sequence_id,
+                        compressor.compress_chunk(&chunk, &mut ctx)?,
+                        demand,
+                    ))
                 })
             })
             .buffered(self.concurrency);

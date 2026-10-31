@@ -20,6 +20,7 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -113,10 +114,10 @@ impl LayoutStrategy for RepartitionStrategy {
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream.map(move |chunk| {
-                    let (sequence_id, chunk) = chunk?;
+                    let (sequence_id, chunk, demand) = chunk?;
                     let mut ctx = canonicalize_session.create_execution_ctx();
                     let canonical = chunk.execute::<Canonical>(&mut ctx)?.into_array();
-                    VortexResult::Ok((sequence_id, canonical))
+                    VortexResult::Ok((sequence_id, canonical, demand))
                 }),
             )
             .sendable()
@@ -141,17 +142,18 @@ impl LayoutStrategy for RepartitionStrategy {
             let mut ctx = repartition_session.create_execution_ctx();
             let mut chunks = ChunksBuffer::new(block_size_minimum, block_len);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
-                let (sequence_id, chunk) = chunk?;
+                let (sequence_id, chunk, demand) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + block_len).min(chunk.len());
                     let sliced = chunk.slice(offset..end)?;
-                    chunks.push_back(sliced, &mut ctx)?;
+                    chunks.push_back(sliced, demand.slice(offset..end), &mut ctx)?;
                     offset = end;
 
                     if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks(&mut ctx)?;
+                        let (output_chunks, output_demands): (Vec<_>, Vec<_>) =
+                            chunks.collect_exact_blocks(&mut ctx)?.into_iter().unzip();
                         assert!(!output_chunks.is_empty());
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
@@ -160,20 +162,24 @@ impl LayoutStrategy for RepartitionStrategy {
                             yield (
                                 sequence_pointer.advance(),
                                 canonical,
+                                Mask::concat(output_demands.iter())?,
                             )
                         }
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr),
-                        dtype_clone.clone(),
-                    )?;
+                    let (to_flush, flush_demands): (Vec<_>, Vec<_>) = chunks
+                        .data
+                        .drain(..)
+                        .map(|(arr, demand, _)| (arr, demand))
+                        .unzip();
+                    let to_flush = ChunkedArray::try_new(to_flush, dtype_clone.clone())?;
                     if !to_flush.is_empty() {
                         let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
                         yield (
                             sequence_pointer.advance(),
                             canonical,
+                            Mask::concat(flush_demands.iter())?,
                         )
                     }
                 }
@@ -197,10 +203,11 @@ impl LayoutStrategy for RepartitionStrategy {
 /// Bytes are the exact uncompressed size of each block, not the buffers it holds: a view array
 /// read from Arrow points into whole decompressed pages, which `nbytes()` would count in full.
 struct ChunksBuffer {
-    /// Each entry stores the chunk and the size snapshot taken at push time.
+    /// Each entry stores the chunk, the demand on its rows, and the size snapshot taken at push
+    /// time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
-    data: VecDeque<(ArrayRef, u64)>,
+    data: VecDeque<(ArrayRef, Mask, u64)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
@@ -222,12 +229,15 @@ impl ChunksBuffer {
         self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
     }
 
-    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<ArrayRef>> {
+    fn collect_exact_blocks(
+        &mut self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<(ArrayRef, Mask)>> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, _) = self
+            let (chunk, demand, _) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
             let len = chunk.len();
@@ -235,36 +245,46 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                self.push_front(right, ctx)?;
-                res.push(left);
+                self.push_front(right, demand.slice(remaining..len), ctx)?;
+                res.push((left, demand.slice(0..remaining)));
                 remaining = 0;
             } else {
-                res.push(chunk);
+                res.push((chunk, demand));
                 remaining -= len;
             }
         }
         Ok(res)
     }
 
-    fn push_back(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn push_back(
+        &mut self,
+        chunk: ArrayRef,
+        demand: Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_back((chunk, nb));
+        self.data.push_back((chunk, demand, nb));
         Ok(())
     }
 
-    fn push_front(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn push_front(
+        &mut self,
+        chunk: ArrayRef,
+        demand: Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_front((chunk, nb));
+        self.data.push_front((chunk, demand, nb));
         Ok(())
     }
 
-    fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
+    fn pop_front(&mut self) -> Option<(ArrayRef, Mask, u64)> {
         let res = self.data.pop_front();
-        if let Some((chunk, nb)) = res.as_ref() {
+        if let Some((chunk, _, nb)) = res.as_ref() {
             self.row_count -= chunk.len();
             self.nbytes -= nb;
         }
@@ -302,6 +322,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -577,8 +598,9 @@ mod tests {
         let s2 = arr.slice(block_len..n)?;
 
         let mut buf = ChunksBuffer::new(0, block_len);
-        buf.push_back(s1, &mut ctx)?;
-        buf.push_back(s2, &mut ctx)?;
+        let (d1, d2) = (Mask::new_true(s1.len()), Mask::new_true(s2.len()));
+        buf.push_back(s1, d1, &mut ctx)?;
+        buf.push_back(s2, d2, &mut ctx)?;
 
         let _output = buf.pop_front().unwrap();
 
@@ -592,6 +614,36 @@ mod tests {
         assert_eq!(buf.nbytes, 0);
         assert_eq!(buf.row_count, 0);
 
+        Ok(())
+    }
+
+    /// Blocks cut across input chunks keep the demand on each of their rows.
+    #[test]
+    fn exact_blocks_carry_the_demand_on_their_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut buf = ChunksBuffer::new(0, 3);
+        buf.push_back(
+            buffer![1i32, 2].into_array(),
+            Mask::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        buf.push_back(
+            buffer![3i32, 4, 5, 6].into_array(),
+            Mask::from_iter([false, true, true, false]),
+            &mut ctx,
+        )?;
+
+        let blocks = buf.collect_exact_blocks(&mut ctx)?;
+        let demands: Vec<_> = blocks.iter().map(|(_, demand)| demand.clone()).collect();
+        assert_eq!(
+            Mask::concat(demands.iter())?,
+            Mask::from_iter([true, false, false, true, true, false])
+        );
+        assert!(
+            blocks
+                .iter()
+                .all(|(block, demand)| block.len() == demand.len())
+        );
         Ok(())
     }
 }

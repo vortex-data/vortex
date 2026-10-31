@@ -40,6 +40,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -53,9 +54,11 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
+use crate::sequence::SequentialChunk;
 use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
+use crate::sequence::fully_demanded;
 
 /// Constraints for dictionary layout encoding.
 ///
@@ -271,9 +274,11 @@ enum DictionaryChunk {
     Codes {
         seq_id: SequenceId,
         codes: ArrayRef,
+        /// The demand on the rows of the codes, which are the rows of the input.
+        demand: Mask,
         codes_ptype: PType,
     },
-    Values((SequenceId, ArrayRef)),
+    Values(SequentialChunk),
 }
 
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
@@ -293,7 +298,7 @@ fn dict_encode_stream(
         pin_mut!(input);
 
         while let Some(item) = input.next().await {
-            let (sequence_id, chunk) = item?;
+            let (sequence_id, chunk, demand) = item?;
 
             // labeler potentially creates sub sequences, we must
             // create it on both arms to avoid having a SequencePointer
@@ -301,7 +306,7 @@ fn dict_encode_stream(
             match input.as_mut().peek().await {
                 Some(_) => {
                     let mut labeler = DictChunkLabeler::new(sequence_id);
-                    let chunks = state.encode(&mut labeler, chunk, &mut exec_ctx)?;
+                    let chunks = state.encode(&mut labeler, chunk, demand, &mut exec_ctx)?;
                     drop(labeler);
                     for dict_chunk in chunks {
                         yield dict_chunk;
@@ -310,7 +315,7 @@ fn dict_encode_stream(
                 None => {
                     // this is the last element, encode and drain chunks
                     let mut labeler = DictChunkLabeler::new(sequence_id);
-                    let encoded = state.encode(&mut labeler, chunk, &mut exec_ctx)?;
+                    let encoded = state.encode(&mut labeler, chunk, demand, &mut exec_ctx)?;
                     let drained = state.drain_values(&mut labeler);
                     drop(labeler);
                     for dict_chunk in encoded.into_iter().chain(drained.into_iter()) {
@@ -332,23 +337,30 @@ impl DictStreamState {
         &mut self,
         labeler: &mut DictChunkLabeler,
         chunk: ArrayRef,
+        mut demand: Mask,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Vec<DictionaryChunk>> {
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
+        // The codes of each encoded prefix take the demand on its rows.
+        let mut codes_demand = |encoded: &ArrayRef| {
+            let prefix = demand.slice(..encoded.len());
+            demand = demand.slice(encoded.len()..);
+            prefix
+        };
         while let Some(remaining) = to_be_encoded.take() {
             match self.encoder.take() {
                 None => match start_encoding(&self.constraints, &remaining, exec_ctx)? {
                     EncodingState::Continue((encoder, encoded)) => {
                         let ptype = encoder.codes_ptype();
-                        res.push(labeler.codes(encoded, ptype));
+                        res.push(labeler.codes(codes_demand(&encoded), encoded, ptype));
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
                         // Encoder was created and consumed within start_encoding
                         let ptype = PType::try_from(encoded.dtype())
                             .vortex_expect("codes should be primitive");
-                        res.push(labeler.codes(encoded, ptype));
+                        res.push(labeler.codes(codes_demand(&encoded), encoded, ptype));
                         res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);
                     }
@@ -357,11 +369,11 @@ impl DictStreamState {
                     let ptype = encoder.codes_ptype();
                     match encode_chunk(encoder, &remaining, exec_ctx)? {
                         EncodingState::Continue((encoder, encoded)) => {
-                            res.push(labeler.codes(encoded, ptype));
+                            res.push(labeler.codes(codes_demand(&encoded), encoded, ptype));
                             self.encoder = Some(encoder);
                         }
                         EncodingState::Done((values, encoded, unencoded)) => {
-                            res.push(labeler.codes(encoded, ptype));
+                            res.push(labeler.codes(codes_demand(&encoded), encoded, ptype));
                             res.push(labeler.values(values));
                             to_be_encoded = Some(unencoded);
                         }
@@ -390,20 +402,22 @@ impl DictChunkLabeler {
         Self { sequence_pointer }
     }
 
-    fn codes(&mut self, chunk: ArrayRef, ptype: PType) -> DictionaryChunk {
+    fn codes(&mut self, demand: Mask, chunk: ArrayRef, ptype: PType) -> DictionaryChunk {
         DictionaryChunk::Codes {
             seq_id: self.sequence_pointer.advance(),
             codes: chunk,
+            demand,
             codes_ptype: ptype,
         }
     }
 
+    /// Every value is part of the dictionary, so every value is demanded.
     fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
-        DictionaryChunk::Values((self.sequence_pointer.advance(), chunk))
+        DictionaryChunk::Values(fully_demanded(self.sequence_pointer.advance(), chunk))
     }
 }
 
-type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
+type SequencedChunk = VortexResult<SequentialChunk>;
 
 struct DictionaryTransformer {
     input: DictionaryStream,
@@ -453,6 +467,7 @@ impl Stream for DictionaryTransformer {
                 Poll::Ready(Some(Ok(DictionaryChunk::Codes {
                     seq_id,
                     codes,
+                    demand,
                     codes_ptype,
                 }))) => {
                     if self.active_codes_tx.is_none() {
@@ -467,10 +482,9 @@ impl Stream for DictionaryTransformer {
                         let codes_dtype = DType::Primitive(codes_ptype, Nullability::NonNullable);
 
                         // Send first codes.
-                        self.pending_send =
-                            Some(Box::pin(
-                                async move { codes_tx.send(Ok((seq_id, codes))).await },
-                            ));
+                        self.pending_send = Some(Box::pin(async move {
+                            codes_tx.send(Ok((seq_id, codes, demand))).await
+                        }));
 
                         // Create output streams.
                         let codes_stream =
@@ -490,8 +504,9 @@ impl Stream for DictionaryTransformer {
                     // Continue streaming codes to existing group
                     if let Some(tx) = &self.active_codes_tx {
                         let tx = tx.clone();
-                        self.pending_send =
-                            Some(Box::pin(async move { tx.send(Ok((seq_id, codes))).await }));
+                        self.pending_send = Some(Box::pin(async move {
+                            tx.send(Ok((seq_id, codes, demand))).await
+                        }));
                     }
                 }
                 Poll::Ready(Some(Ok(DictionaryChunk::Values(values)))) => {
@@ -536,16 +551,16 @@ async fn peek_probe_sample(
         let Some(item) = stream.next().await else {
             break;
         };
-        let (sequence_id, chunk) = item?;
+        let (sequence_id, chunk, demand) = item?;
         peeked_len += chunk.len();
-        peeked.push((sequence_id, chunk));
+        peeked.push((sequence_id, chunk, demand));
     }
     let sample_len = peeked_len.min(probe_len);
     let sample = match peeked.as_slice() {
         [] => return Ok((stream, None)),
-        [(_, chunk)] => chunk.slice(0..sample_len)?,
-        [(_, first), ..] => ChunkedArray::try_new(
-            peeked.iter().map(|(_, chunk)| chunk.clone()),
+        [(_, chunk, _)] => chunk.slice(0..sample_len)?,
+        [(_, first, _), ..] => ChunkedArray::try_new(
+            peeked.iter().map(|(_, chunk, _)| chunk.clone()),
             first.dtype().clone(),
         )?
         .into_array()
@@ -626,6 +641,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use super::DictChunkLabeler;
@@ -644,6 +660,7 @@ mod tests {
     use crate::sequence::SequentialStream;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
+    use crate::sequence::fully_demanded;
     use crate::test::new_session;
 
     static SESSION: LazyLock<VortexSession> =
@@ -668,7 +685,7 @@ mod tests {
         let mut pointer = SequenceId::root();
         let input_stream = SequentialStreamAdapter::new(
             arr.dtype().clone(),
-            futures::stream::once(async move { Ok((pointer.advance(), arr)) }),
+            futures::stream::once(async move { Ok(fully_demanded(pointer.advance(), arr)) }),
         )
         .sendable();
 
@@ -711,7 +728,7 @@ mod tests {
         let mut pointer = SequenceId::root();
         let input_stream = SequentialStreamAdapter::new(
             arr.dtype().clone(),
-            futures::stream::once(async move { Ok((pointer.advance(), arr)) }),
+            futures::stream::once(async move { Ok(fully_demanded(pointer.advance(), arr)) }),
         )
         .sendable();
 
@@ -761,7 +778,13 @@ mod tests {
         let value = "x".repeat(49);
         let chunk = VarBinArray::from(vec![value.as_str()]).into_array();
         let mut labeler = DictChunkLabeler::new(SequenceId::root().advance());
-        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+        let demand = Mask::new_true(chunk.len());
+        let encoded = state.encode(
+            &mut labeler,
+            chunk,
+            demand,
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         assert_eq!(encoded_row_count(&encoded), 1);
         Ok(())
@@ -780,7 +803,13 @@ mod tests {
         let big = "x".repeat(49);
         let chunk = VarBinArray::from(vec!["a", big.as_str(), "b"]).into_array();
         let mut labeler = DictChunkLabeler::new(SequenceId::root().advance());
-        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+        let demand = Mask::new_true(chunk.len());
+        let encoded = state.encode(
+            &mut labeler,
+            chunk,
+            demand,
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let drained = state.drain_values(&mut labeler);
 
         assert_eq!(encoded_row_count(&encoded) + encoded_row_count(&drained), 3);
@@ -788,7 +817,7 @@ mod tests {
             .iter()
             .chain(&drained)
             .filter_map(|chunk| match chunk {
-                DictionaryChunk::Values((_, values)) => Some(values),
+                DictionaryChunk::Values((_, values, _)) => Some(values),
                 DictionaryChunk::Codes { .. } => None,
             })
             .collect::<Vec<_>>();
@@ -841,7 +870,7 @@ mod tests {
         let chunks = (0..nchunks)
             .map(|i| {
                 let chunk = values.slice(i * chunk_len..(i + 1) * chunk_len)?;
-                Ok((sequence_id.advance(), chunk))
+                Ok(fully_demanded(sequence_id.advance(), chunk))
             })
             .collect::<Vec<VortexResult<_>>>();
         let segments = Arc::new(TestSegments::default());
