@@ -47,6 +47,11 @@ use crate::RUNTIME;
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
 const CHUNKS_PER_THREAD: usize = 1;
+/// The chunks a thread runs beside each other when the scan selects rows by index, as a late
+/// materialized top-N fetches its winners. Such a chunk projects a few rows, but reads the whole
+/// segment of every column that holds them, so its time is reads and running several chunks
+/// overlaps them.
+const SPARSE_CHUNKS_PER_THREAD: usize = 4;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -58,6 +63,8 @@ pub(crate) struct FileScan {
     exhausted: AtomicBool,
     /// The rows of the chunks taken so far, for DuckDB's progress bar.
     rows_taken: AtomicU64,
+    /// The chunks a thread runs beside each other.
+    chunks_per_thread: usize,
 }
 
 /// What a thread takes from the file next.
@@ -108,9 +115,15 @@ impl FileScan {
                 }
             }
         }
+        let chunks_per_thread = if matches!(scan.selection(), Selection::IncludeByIndex(_)) {
+            SPARSE_CHUNKS_PER_THREAD
+        } else {
+            CHUNKS_PER_THREAD
+        };
         Ok(Self {
             scan,
             io,
+            chunks_per_thread,
             exhausted: AtomicBool::new(queue.is_empty()),
             queue: Mutex::new(queue),
             rows_taken: AtomicU64::new(0),
@@ -137,7 +150,7 @@ impl FileScan {
     /// waits for reads on the calling thread.
     pub(crate) fn next_array(&self, run: &mut Run) -> VortexResult<Option<ArrayRef>> {
         loop {
-            while run.live_roots() < CHUNKS_PER_THREAD {
+            while run.live_roots() < self.chunks_per_thread {
                 match self.next_work() {
                     Some(Work::Chunk(scope, chunk)) => {
                         run.admit(chunk, scope, self.io.session());
