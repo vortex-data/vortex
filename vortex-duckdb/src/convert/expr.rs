@@ -106,6 +106,18 @@ fn string_matcher_pattern(children: &[&ExpressionRef]) -> Option<String> {
     }
 }
 
+/// Escape each of `chars` in `pattern` with `\`, the escape character of Vortex LIKE.
+fn escape_like(pattern: &str, chars: &[char]) -> String {
+    let mut escaped = String::with_capacity(pattern.len());
+    for c in pattern.chars() {
+        if chars.contains(&c) {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 /// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
 fn returns_a_list(expr: &ExpressionRef) -> bool {
     matches!(
@@ -312,17 +324,17 @@ fn try_from_bound_function(
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure_eq!(children.len(), 2);
-            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
+            let Some(pattern) = from_bound_str(children[1]) else {
                 return Ok(None);
             };
-            let Some(target) = try_from_expression_inner(children[1], ctx)? else {
+            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let opts = LikeOptions {
                 negated: like == "!~~",
                 case_insensitive: false,
             };
-            Like.new_expr(opts, [string, target])
+            Like.new_expr(opts, [string, lit(escape_like(&pattern, &['\\']))])
         }
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
@@ -332,6 +344,7 @@ fn try_from_bound_function(
             let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
+            let pattern = escape_like(&pattern, &['%', '_', '\\']);
             let pattern = match matchers {
                 "contains" => format!("%{pattern}%"),
                 "prefix" => format!("{pattern}%"),
@@ -459,7 +472,8 @@ pub fn can_push_expression(value: &ExpressionRef) -> bool {
         ExpressionClass::BoundFunction(func) => {
             let children: Vec<_> = func.children().collect();
             let supported = match func.scalar_function.name() {
-                "~~" | "!~~" | "strlen" => true,
+                "~~" | "!~~" => children.len() == 2 && from_bound_str(children[1]).is_some(),
+                "strlen" => true,
                 "struct_extract" => children.len() == 2 && from_bound_str(children[1]).is_some(),
                 "contains" | "prefix" | "suffix" => string_matcher_pattern(&children).is_some(),
                 "array_length" => children.len() == 1,
