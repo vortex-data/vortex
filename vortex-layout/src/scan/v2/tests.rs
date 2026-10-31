@@ -55,7 +55,6 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ChunkPlanner;
-use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
@@ -74,6 +73,7 @@ use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
+use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
 use crate::scan::execution::scan_chunks;

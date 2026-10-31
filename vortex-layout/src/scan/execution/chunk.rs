@@ -27,6 +27,9 @@ use super::selection::plan_selection;
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
 /// The rows of a projection chunk.
 pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+/// The rows of an unfiltered chunk that reads only some columns: a row of it costs too little
+/// for [`MAX_ROWS_PER_CHUNK`] to hold more than one segment per column, and those do not coalesce.
+pub(crate) const PROJECTED_ROWS_PER_CHUNK: usize = 32 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk, balancing conjunct setup against parallelism.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;

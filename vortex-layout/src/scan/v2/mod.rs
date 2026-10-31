@@ -49,7 +49,7 @@ use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
-use crate::scan::execution::MAX_ROWS_PER_CHUNK;
+use crate::scan::execution::PROJECTED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
@@ -208,7 +208,7 @@ impl ScanBuilder {
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
-            MAX_ROWS_PER_CHUNK
+            PROJECTED_ROWS_PER_CHUNK
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
