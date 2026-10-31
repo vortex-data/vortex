@@ -393,6 +393,10 @@ impl FileOpener for VortexOpener {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
 
+            if let Some(native_filter) = &native_filter {
+                tracing::debug!(path = %file.path(), %native_filter, "native scan filter");
+            }
+
             // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
                 scan_projection,
