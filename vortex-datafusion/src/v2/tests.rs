@@ -266,7 +266,10 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
             )) as Arc<dyn PhysicalExpr>,
             equal_bound,
         ),
-        (Arc::clone(&unsupported) as Arc<dyn PhysicalExpr>, unrestricted),
+        (
+            Arc::clone(&unsupported) as Arc<dyn PhysicalExpr>,
+            unrestricted,
+        ),
         // A convertible bound survives beside a conjunct Vortex cannot evaluate.
         (
             Arc::new(df_expr::BinaryExpr::new(

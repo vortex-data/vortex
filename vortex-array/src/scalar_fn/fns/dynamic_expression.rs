@@ -46,6 +46,13 @@ pub trait DynamicExpressionSource: Debug + Display + Send + Sync + 'static {
     /// The scope is a struct whose field `i`, named by [`input_field_name`], holds the child `i`
     /// of the dynamic expression. The predicate must return a boolean.
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression>;
+
+    /// Whether the operator that produced the predicate still enforces it on every row it
+    /// receives, so a scan may skip evaluating the predicate, for example when it keeps nearly
+    /// every row. Defaults to `false`: the scan must evaluate the predicate.
+    fn is_advisory(&self) -> bool {
+        false
+    }
 }
 
 /// The name of the scope field that holds child `idx` of a dynamic expression.

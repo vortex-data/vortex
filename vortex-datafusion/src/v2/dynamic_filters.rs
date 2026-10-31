@@ -5,6 +5,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
+use datafusion_common::HashMap;
+use datafusion_common::ScalarValue;
+use datafusion_common::Statistics;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
@@ -12,9 +15,7 @@ use datafusion_physical_expr::expressions::BinaryExpr;
 use datafusion_physical_expr::expressions::CaseExpr;
 use datafusion_physical_expr::expressions::CastExpr;
 use datafusion_physical_expr::expressions::Column;
-use datafusion_common::HashMap;
-use datafusion_common::ScalarValue;
-use datafusion_common::Statistics;
+use datafusion_physical_expr::expressions::InListExpr;
 use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_generation;
@@ -152,6 +153,11 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
         snapshot_generation(&self.expression)
     }
 
+    /// The DataFusion operator that produced the filter enforces it exactly.
+    fn is_advisory(&self) -> bool {
+        true
+    }
+
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
         let converted = snapshot_physical_expr(Arc::clone(&self.expression))
             .ok()
@@ -216,6 +222,11 @@ fn relax_snapshot(
     {
         return None;
     }
+    if let (Some(in_list), Some(ranges)) = (expr.downcast_ref::<InListExpr>(), ranges)
+        && in_list_share(in_list, ranges).is_some_and(|share| share >= UNINFORMATIVE_SHARE)
+    {
+        return None;
+    }
     if let Ok(Some(converted)) = converter.try_convert(expr, schema)
         && is_infallible(&converted)
     {
@@ -255,12 +266,8 @@ fn relax_snapshot(
 }
 
 fn is_false_literal(expr: &Arc<dyn PhysicalExpr>) -> bool {
-    expr.downcast_ref::<Literal>().is_some_and(|literal| {
-        matches!(
-            literal.value(),
-            ScalarValue::Boolean(Some(false) | None)
-        )
-    })
+    expr.downcast_ref::<Literal>()
+        .is_some_and(|literal| matches!(literal.value(), ScalarValue::Boolean(Some(false) | None)))
 }
 
 /// The share of a column's file value range that a `column <op> literal` bound keeps, if the
@@ -291,6 +298,31 @@ fn bound_share(expr: &BinaryExpr, ranges: &ColumnRanges) -> Option<f64> {
     })
 }
 
+/// The share of an integer column's file value range that an `IN` list of literals keeps, if
+/// every list element is an integer.
+fn in_list_share(in_list: &InListExpr, ranges: &ColumnRanges) -> Option<f64> {
+    if in_list.negated() {
+        return None;
+    }
+    let &(min, max) = ranges.get(bound_column(in_list.expr())?.name())?;
+    let mut values = in_list
+        .list()
+        .iter()
+        .map(|element| scalar_to_f64(bound_literal(element)?.value()))
+        .collect::<Option<Vec<_>>>()?;
+    if values.iter().any(|value| value.fract() != 0.0) {
+        return None;
+    }
+    values.retain(|value| (min..=max).contains(value));
+    values.sort_unstable_by(f64::total_cmp);
+    values.dedup();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a share of a range tolerates rounding"
+    )]
+    Some(values.len() as f64 / (max - min + 1.0))
+}
+
 fn bound_column(expr: &Arc<dyn PhysicalExpr>) -> Option<&Column> {
     expr.downcast_ref::<Column>().or_else(|| {
         expr.downcast_ref::<CastExpr>()
@@ -304,7 +336,10 @@ fn bound_literal(expr: &Arc<dyn PhysicalExpr>) -> Option<&Literal> {
 
 /// A numeric scalar's position on a line, for comparing bounds with a file's value range.
 fn scalar_to_f64(value: &ScalarValue) -> Option<f64> {
-    #[expect(clippy::cast_precision_loss, reason = "a share of a range tolerates rounding")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a share of a range tolerates rounding"
+    )]
     Some(match value {
         ScalarValue::Int8(Some(v)) => f64::from(*v),
         ScalarValue::Int16(Some(v)) => f64::from(*v),
@@ -384,11 +419,18 @@ mod tests {
         #[case] high: i32,
         #[case] kept: bool,
     ) {
-        let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Int32, false)]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
         let converter = DefaultExpressionConverter::new(VortexSession::default());
         let ranges = ColumnRanges::from_iter([("value".to_string(), (0.0, 100.0))]);
         let snapshot = and(
-            and(compare(DFOperator::GtEq, low), compare(DFOperator::LtEq, high)),
+            and(
+                compare(DFOperator::GtEq, low),
+                compare(DFOperator::LtEq, high),
+            ),
             unsupported(),
         );
         let relaxed = relax_snapshot(&snapshot, &schema, &converter, Some(&ranges));
@@ -399,7 +441,11 @@ mod tests {
 
     #[test]
     fn unsupported_snapshot_constrains_nothing() {
-        let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Int32, false)]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
         let converter = DefaultExpressionConverter::new(VortexSession::default());
         assert!(relax_snapshot(&unsupported(), &schema, &converter, None).is_none());
     }

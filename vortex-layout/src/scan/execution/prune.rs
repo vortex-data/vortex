@@ -51,6 +51,8 @@ pub struct PrunePlanner {
     pruning: IntoIter<PlanRef>,
     active: Option<ScanAdaptor>,
     pieces: Vec<Mask>,
+    /// Audit: CPU time spent computing the active pruning plan.
+    audit_cpu_us: u64,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
@@ -75,6 +77,7 @@ impl PrunePlanner {
             pruning: pruning.into_iter(),
             active: None,
             pieces: Vec::new(),
+            audit_cpu_us: 0,
             announced: false,
             next_hint: u32::MAX,
             done: false,
@@ -131,14 +134,17 @@ impl Planner for PrunePlanner {
         }
         if let Some(adaptor) = &mut self.active {
             if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
+                let started = std::time::Instant::now();
+                let out = match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
                     AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                     AdaptorStep::Piece(piece) => {
                         self.pieces.push(piece_mask(&self.scan.session, piece)?);
                         PlannerOutput::Continue
                     }
-                });
+                };
+                self.audit_cpu_us += started.elapsed().as_micros() as u64;
+                return Ok(out);
             }
             let input = self.mask.true_count();
             let excluded = Mask::concat(self.pieces.iter())?;
@@ -149,8 +155,10 @@ impl Planner for PrunePlanner {
                 row_end = self.rows.end,
                 input_rows = input,
                 output_rows = self.mask.true_count(),
+                cpu_us = self.audit_cpu_us,
                 "v2 pruning plan evaluated"
             );
+            self.audit_cpu_us = 0;
             self.active = None;
             self.pieces.clear();
             self.pruned = true;

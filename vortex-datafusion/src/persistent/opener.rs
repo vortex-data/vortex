@@ -51,6 +51,7 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
@@ -84,10 +85,10 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
+use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::column_ranges;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 use crate::v2::dynamic_filters::dynamic_filter_is_convertible;
-use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -143,6 +144,8 @@ pub(crate) struct VortexOpener {
     pub scan_v2: bool,
     /// Whether a V2 scan evaluates the dynamic conjuncts of `file_pruning_predicate`.
     pub dynamic_filter_pushdown: bool,
+    /// Each file's conversion of each dynamic filter, shared by the file's partitions.
+    pub dynamic_filters: Arc<DashMap<(Path, usize), Option<Expression>>>,
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
@@ -187,10 +190,12 @@ impl FileOpener for VortexOpener {
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
         let dynamic_filter_pushdown = self.scan_v2 && self.dynamic_filter_pushdown;
+        let dynamic_conversions = Arc::clone(&self.dynamic_filters);
         let audit_partition = self.partition;
-        let audit_has_dynamic = self.file_pruning_predicate.as_ref().is_some_and(|p| {
-            DynamicFilterTracking::classify(p).contains_dynamic_filter()
-        });
+        let audit_has_dynamic = self
+            .file_pruning_predicate
+            .as_ref()
+            .is_some_and(|p| DynamicFilterTracking::classify(p).contains_dynamic_filter());
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -230,9 +235,7 @@ impl FileOpener for VortexOpener {
             .map(|predicate| {
                 split_conjunction(predicate)
                     .into_iter()
-                    .filter(|expr| {
-                        DynamicFilterTracking::classify(expr).contains_dynamic_filter()
-                    })
+                    .filter(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter())
                     .cloned()
                     .collect::<Vec<_>>()
             })
@@ -374,9 +377,27 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
-            let dynamic_filters = dynamic_filters
+            // Every partition of a file converts its dynamic filters alike, so they share one
+            // conversion, and with it the filter plans and the selectivity they observe.
+            let mut unconverted = Vec::new();
+            for expr in dynamic_filters {
+                let key = (
+                    file.object_meta.location.clone(),
+                    Arc::as_ptr(&expr).cast::<()>() as usize,
+                );
+                match dynamic_conversions.get(&key) {
+                    Some(converted) => {
+                        if let Some(converted) = converted.value() {
+                            native_filters.push(converted.clone());
+                            audit_dynamic_pushed += 1;
+                        }
+                    }
+                    None => unconverted.push((key, expr)),
+                }
+            }
+            let adapted = unconverted
                 .into_iter()
-                .map(|expr| simplifier.simplify(expr_adapter.rewrite(expr)?))
+                .map(|(key, expr)| Ok((key, simplifier.simplify(expr_adapter.rewrite(expr)?)?)))
                 .collect::<DFResult<Vec<_>>>()
                 .map_err(|e| {
                     exec_datafusion_err!("Failed to adapt dynamic filter in {}: {e}", file.path())
@@ -385,11 +406,11 @@ impl FileOpener for VortexOpener {
             let ranges = file
                 .statistics
                 .as_ref()
-                .filter(|_| !dynamic_filters.is_empty())
+                .filter(|_| !adapted.is_empty())
                 .map(|statistics| {
-                    let columns = dynamic_filters
+                    let columns = adapted
                         .iter()
-                        .flat_map(collect_columns)
+                        .flat_map(|(_, expr)| collect_columns(expr))
                         .map(|column| column.name().to_string())
                         .collect::<Vec<_>>();
                     Arc::new(column_ranges(
@@ -398,19 +419,24 @@ impl FileOpener for VortexOpener {
                         columns.iter().map(String::as_str),
                     ))
                 });
-            for expr in dynamic_filters {
-                if dynamic_filter_is_convertible(
+            for (key, expr) in adapted {
+                let converted = dynamic_filter_is_convertible(
                     &expr,
                     &this_file_schema,
                     expr_converter.as_ref(),
                     ranges.as_deref(),
-                ) {
-                    native_filters.push(convert_dynamic_filter(
+                )
+                .then(|| {
+                    convert_dynamic_filter(
                         expr,
                         Arc::clone(&this_file_schema),
                         Arc::clone(&expr_converter),
                         ranges.clone(),
-                    ));
+                    )
+                });
+                let converted = dynamic_conversions.entry(key).or_insert(converted).clone();
+                if let Some(converted) = converted {
+                    native_filters.push(converted);
                     audit_dynamic_pushed += 1;
                 }
             }
@@ -510,7 +536,9 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk| {
+            let map_batch = move |chunk: vortex::array::ArrayRef| {
+                let started = std::time::Instant::now();
+                let rows = chunk.len();
                 let mut ctx = session.create_execution_ctx();
                 let arrow_session = ctx.session().clone();
                 let arrow = arrow_session.arrow().execute_arrow(
@@ -518,6 +546,12 @@ impl FileOpener for VortexOpener {
                     Some(&stream_target_field),
                     &mut ctx,
                 )?;
+                tracing::debug!(
+                    target: "vortex_audit::to_arrow",
+                    rows,
+                    cpu_us = started.elapsed().as_micros() as u64,
+                    "batch to arrow"
+                );
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
@@ -1266,6 +1300,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         }
     }
 
@@ -1677,6 +1712,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1770,6 +1806,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         };
 
         let stream = opener.open(file)?.await?;
@@ -1954,6 +1991,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -2020,6 +2058,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         }
     }
 
@@ -2237,6 +2276,7 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
             dynamic_filter_pushdown: true,
+            dynamic_filters: Arc::default(),
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

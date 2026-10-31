@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use itertools::Itertools;
@@ -10,6 +13,8 @@ use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
@@ -17,6 +22,13 @@ use vortex_error::vortex_panic;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
+
+/// An advisory conjunct is skipped once its median observed selectivity keeps at least this
+/// share of rows: evaluating it then costs more than the rows it removes save.
+const ADVISORY_SKIP_SELECTIVITY: f64 = 0.75;
+
+/// The observations of an advisory conjunct needed before it may be skipped.
+const ADVISORY_MIN_OBSERVATIONS: usize = 3;
 
 /// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
@@ -32,6 +44,18 @@ pub struct FilterExpr {
     ordering: RwLock<Vec<usize>>,
     /// The quantile to use from the selectivity histogram of each conjunct.
     selectivity_quantile: f64,
+    /// The source of each conjunct that is an advisory dynamic expression, which the scan may
+    /// skip, with the generation its selectivity histogram observed.
+    advisory: Vec<Option<(Arc<dyn DynamicExpressionSource>, AtomicU64)>>,
+}
+
+/// The source of `conjunct` if it is a dynamic expression whose producer enforces it itself.
+fn advisory_source(conjunct: &BoundExpression) -> Option<Arc<dyn DynamicExpressionSource>> {
+    let dynamic = conjunct.as_opt::<DynamicExpression>()?;
+    dynamic
+        .source()
+        .is_advisory()
+        .then(|| Arc::clone(dynamic.source()))
 }
 
 fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
@@ -59,6 +83,15 @@ impl FilterExpr {
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
+        let advisory = conjuncts
+            .iter()
+            .map(|conjunct| {
+                advisory_source(conjunct).map(|source| {
+                    let generation = AtomicU64::new(source.generation());
+                    (source, generation)
+                })
+            })
+            .collect();
 
         Self {
             conjuncts,
@@ -70,7 +103,31 @@ impl FilterExpr {
             // comparison operator to perform. e.g. == might be more selective than <=? Not obvious.
             ordering: RwLock::new((0..num_conjuncts).collect()),
             selectivity_quantile: DEFAULT_SELECTIVITY_QUANTILE,
+            advisory,
         }
+    }
+
+    /// Whether the conjunct is an advisory dynamic expression, which its producer enforces itself.
+    pub fn is_advisory(&self, conjunct_idx: usize) -> bool {
+        self.advisory[conjunct_idx].is_some()
+    }
+
+    /// Whether the scan skips the conjunct: it is advisory and, at the current generation of
+    /// its source, has kept too many rows to be worth evaluating.
+    pub fn is_skipped(&self, conjunct_idx: usize) -> bool {
+        let Some((source, observed)) = &self.advisory[conjunct_idx] else {
+            return false;
+        };
+        if source.generation() != observed.load(Ordering::Acquire) {
+            return false;
+        }
+        let histogram = self.conjunct_selectivity[conjunct_idx].read();
+        histogram.count() >= ADVISORY_MIN_OBSERVATIONS
+            && histogram
+                .quantile(0.5)
+                .ok()
+                .flatten()
+                .is_some_and(|selectivity| selectivity >= ADVISORY_SKIP_SELECTIVITY)
     }
 
     /// The conjuncts that make up this filter expression.
@@ -90,7 +147,9 @@ impl FilterExpr {
     pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
         let read = self.ordering.read();
         // Take the first remaining conjunct in the ordered list.
-        read.iter().find(|&idx| remaining[*idx]).copied()
+        read.iter()
+            .find(|&idx| remaining[*idx] && !self.is_skipped(*idx))
+            .copied()
     }
 
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.

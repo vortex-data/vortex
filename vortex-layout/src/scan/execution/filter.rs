@@ -44,6 +44,9 @@ use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
 
+/// Below this share of a chunk's rows still selected, advisory conjuncts are not evaluated.
+const ADVISORY_MIN_DENSITY: f64 = 0.1;
+
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
     expression: FilterExpr,
@@ -132,6 +135,8 @@ pub(super) struct FilterPlanner {
     remaining: BitVec,
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
+    /// Audit: CPU time spent computing the active conjunct.
+    audit_cpu_us: u64,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
@@ -164,6 +169,7 @@ impl FilterPlanner {
             filter,
             active: None,
             pieces: Vec::new(),
+            audit_cpu_us: 0,
             announced: false,
             next_hint: u32::MAX,
         }
@@ -227,7 +233,12 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| !self.filter.expression.is_skipped(*index))
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -262,14 +273,17 @@ impl Planner for FilterPlanner {
         }
         if let Some((index, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
+                let started = std::time::Instant::now();
+                let out = match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
                     AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                     AdaptorStep::Piece(piece) => {
                         self.pieces.push(piece_mask(&self.scan.session, piece)?);
                         PlannerOutput::Continue
                     }
-                });
+                };
+                self.audit_cpu_us += started.elapsed().as_micros() as u64;
+                return Ok(out);
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
@@ -281,8 +295,10 @@ impl Planner for FilterPlanner {
                 input_rows = input,
                 output_rows = selected.mask.true_count(),
                 conjunct = *index,
+                cpu_us = self.audit_cpu_us,
                 "v2 filter conjunct evaluated"
             );
+            self.audit_cpu_us = 0;
             self.filter
                 .expression
                 .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
@@ -293,8 +309,15 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
+            // An advisory conjunct reads its column for every row of the chunk but can only drop
+            // rows still selected: once few are, the rows it could drop save less than it costs.
+            if self.filter.expression.is_advisory(index)
+                && selected.mask.density() < ADVISORY_MIN_DENSITY
+            {
+                continue;
+            }
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].clone(),
