@@ -3,7 +3,7 @@
 
 use std::mem::size_of;
 
-use num_traits::ToPrimitive;
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -82,7 +82,7 @@ fn referenced_len(lengths: &PrimitiveArray, validity: &Mask) -> VortexResult<usi
     match_each_integer_ptype!(lengths.ptype(), |P| {
         let lengths = lengths.as_slice::<P>();
         let out_of_line = |acc: usize, &length: &P| {
-            let length = length.to_usize()?;
+            let length: usize = length.as_();
             if length > BinaryView::MAX_INLINED_SIZE {
                 acc.checked_add(length)
             } else {
@@ -98,7 +98,7 @@ fn referenced_len(lengths: &PrimitiveArray, validity: &Mask) -> VortexResult<usi
                 .try_fold(0usize, |acc, &row| out_of_line(acc, &lengths[row])),
         }
     })
-    .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))
+    .ok_or_else(|| vortex_err!("OnPair uncompressed lengths overflow"))
 }
 
 fn validity_size(validity: Mask) -> u64 {
