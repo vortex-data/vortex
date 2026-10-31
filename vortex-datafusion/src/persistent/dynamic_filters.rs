@@ -336,7 +336,7 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
 /// The range bounds of the filter form one optional conjunct, so the scan can merge them into
 /// betweens, and each membership test forms another. Conjuncts that Vortex cannot express are
 /// dropped, apart from those DataFusion can evaluate on the columns they read.
-fn snapshot_conjuncts(
+pub(crate) fn snapshot_conjuncts(
     filter: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
     converter: &dyn ExpressionConverter,

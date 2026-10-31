@@ -11,12 +11,12 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::BinaryExpr;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_generation;
-use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::and_collect;
 use vortex::expr::binary;
 use vortex::expr::dynamic_expression;
 use vortex::expr::get_item;
@@ -30,6 +30,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
+use crate::persistent::dynamic_filters::snapshot_conjuncts;
 
 pub(super) fn convert_dynamic_filter(
     expression: Arc<dyn PhysicalExpr>,
@@ -116,16 +117,16 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
     }
 
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
-        let converted = snapshot_physical_expr(Arc::clone(&self.expression))
-            .and_then(|snapshot| self.converter.try_convert(&snapshot, &self.schema))
-            .ok()
-            .flatten()
-            .filter(is_infallible);
-        // The producing DataFusion operator retains exact enforcement when conversion fails.
-        let expression = converted.map_or_else(
-            || lit(true),
-            |expr| replace(expr, &root(), self.scope_projection.clone()),
-        );
+        // The producing DataFusion operator retains exact enforcement, so the parts of the filter
+        // that do not convert are dropped, such as the hash table lookup next to the bounds of a
+        // join, rather than the whole filter.
+        let conjuncts = snapshot_conjuncts(&self.expression, &self.schema, self.converter.as_ref())
+            .unwrap_or_default();
+        let expression = and_collect(conjuncts.into_iter().map(|(conjunct, _)| conjunct))
+            .map_or_else(
+                || lit(true),
+                |expr| replace(expr, &root(), self.scope_projection.clone()),
+            );
         expression.bind(scope)
     }
 }

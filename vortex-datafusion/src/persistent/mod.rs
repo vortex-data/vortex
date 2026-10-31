@@ -24,7 +24,7 @@
 
 mod access_plan;
 mod cache;
-mod dynamic_filters;
+pub(crate) mod dynamic_filters;
 mod format;
 pub mod metrics;
 mod opener;
