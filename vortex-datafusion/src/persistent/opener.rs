@@ -467,7 +467,7 @@ impl FileOpener for VortexOpener {
                     builder = builder.with_selection(selection.clone());
                 }
                 // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
+                // leave cores idle: at one partition per core, one slot.
                 let concurrency = scan_concurrency.unwrap_or_else(|| {
                     get_available_parallelism()
                         .unwrap_or(1)
