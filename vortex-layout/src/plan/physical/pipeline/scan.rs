@@ -28,6 +28,7 @@ use super::port::PipelineId;
 use super::port::PortId;
 use super::port::Slab;
 use super::port::SourceEnd;
+use super::primitive::PrimitiveRead;
 use super::values::ValueCache;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::operator::Cx;
@@ -54,6 +55,8 @@ pub struct ReadRequest {
     pub id: ReadId,
     /// The segment to read.
     pub segment_id: SegmentId,
+    /// Optional sparse primitive byte demand. Owners may ignore it and read the whole segment.
+    pub primitive: Option<PrimitiveRead>,
 }
 
 /// A row range of the plan's domain, and the rows of it to produce.
@@ -106,7 +109,7 @@ pub(crate) struct Pipeline {
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
     /// The segments it asked for that have arrived, in order of arrival.
-    bytes: VecDeque<(SegmentId, BufferHandle)>,
+    bytes: VecDeque<(SegmentId, BufferHandle, bool)>,
     /// Reads it asked for that have not arrived, so retiring it cancels them only when any
     /// are left.
     pending: usize,
@@ -139,7 +142,7 @@ fn drive(
     arena: &mut Arena,
     session: &VortexSession,
     exec: &mut ExecutionCtx,
-    reads: &mut SmallVec<[SegmentId; 1]>,
+    reads: &mut SmallVec<[(SegmentId, Option<PrimitiveRead>); 1]>,
 ) -> VortexResult<Progress> {
     let Pipeline {
         source,
@@ -288,6 +291,7 @@ pub(crate) struct Core {
     pub(crate) segments: Vec<SegmentId>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
+    pub(crate) segment_cache: Option<super::SegmentCache>,
 }
 
 impl Core {
@@ -307,6 +311,7 @@ impl Core {
             dirty_flags: Vec::new(),
             segments: Vec::new(),
             values: ValueCache::default(),
+            segment_cache: None,
         }
     }
 
@@ -405,8 +410,8 @@ impl Core {
             &mut self.exec,
             &mut reads,
         )?;
-        for segment_id in reads {
-            self.ask(id, segment_id);
+        for (segment_id, primitive) in reads {
+            self.ask(id, segment_id, primitive);
         }
         #[cfg(debug_assertions)]
         self.validate_progress(id, &progress);
@@ -429,8 +434,8 @@ impl Core {
     }
 
     /// Issues a read of `segment_id`, which pipeline `id`'s source asked for.
-    fn ask(&mut self, id: PipelineId, segment_id: SegmentId) {
-        self.read(id, segment_id);
+    fn ask(&mut self, id: PipelineId, segment_id: SegmentId, primitive: Option<PrimitiveRead>) {
+        self.read(id, segment_id, primitive);
         self.pipeline_mut(id).pending += 1;
     }
 
@@ -522,7 +527,7 @@ impl Core {
         }
     }
 
-    fn deliver(&mut self, read: ReadId, bytes: BufferHandle) -> VortexResult<()> {
+    fn deliver(&mut self, read: ReadId, bytes: BufferHandle, whole: bool) -> VortexResult<()> {
         let (owner, segment) = self
             .reads
             .remove(&read)
@@ -530,20 +535,21 @@ impl Core {
         if let Some(id) = owner {
             let pipe = self.pipeline_mut(id);
             pipe.pending -= 1;
-            pipe.bytes.push_back((segment, bytes));
+            pipe.bytes.push_back((segment, bytes, whole));
             self.make_runnable(id);
         }
         Ok(())
     }
 
     /// Issues a read of `segment` for pipeline `owner`.
-    fn read(&mut self, owner: PipelineId, segment_id: SegmentId) {
+    fn read(&mut self, owner: PipelineId, segment_id: SegmentId, primitive: Option<PrimitiveRead>) {
         let read = ReadId(self.next_read);
         self.next_read += 1;
         self.reads.insert(read, (Some(owner), segment_id));
         self.new_reads.push_back(ReadRequest {
             id: read,
             segment_id,
+            primitive,
         });
     }
 
@@ -617,8 +623,7 @@ impl fmt::Debug for Scan {
 impl Scan {
     /// A scan of `plan` over `splits`, with one split active at a time.
     ///
-    /// Counts, from the plan, how often each split will read each segment, so segments read
-    /// more than once are decoded once. Builds no pipeline and issues no read.
+    /// Validates split bounds without building a pipeline or issuing a read.
     pub fn try_new(
         session: VortexSession,
         plan: PlanRef,
@@ -685,6 +690,11 @@ impl Scan {
         self
     }
 
+    pub(crate) fn with_segment_cache(mut self, cache: Option<super::SegmentCache>) -> Self {
+        self.core.segment_cache = cache;
+        self
+    }
+
     /// Runs pipelines until the owner has something to do.
     pub fn step(&mut self) -> VortexResult<Turn> {
         loop {
@@ -724,7 +734,16 @@ impl Scan {
 
     /// Delivers the bytes of a read [`step`](Self::step) returned.
     pub fn deliver(&mut self, read: ReadId, bytes: BufferHandle) -> VortexResult<()> {
-        self.core.deliver(read, bytes)
+        self.core.deliver(read, bytes, true)
+    }
+
+    /// Delivers a private reconstruction whose unselected rows are not valid segment data.
+    pub(crate) fn deliver_partial(
+        &mut self,
+        read: ReadId,
+        bytes: BufferHandle,
+    ) -> VortexResult<()> {
+        self.core.deliver(read, bytes, false)
     }
 
     /// Starts the next split in a free slot.

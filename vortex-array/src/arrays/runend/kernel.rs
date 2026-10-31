@@ -21,6 +21,7 @@ use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
 use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
+use crate::arrays::runend::ops::find_slice_indices;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
@@ -64,20 +65,23 @@ fn slice(
 ) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
-    let slice_begin = array.find_physical_index(range.start, ctx)?;
-    let slice_end = array.find_slice_end_index(range.end, ctx)?;
+    let indices = find_slice_indices(
+        array.ends(),
+        range.start + array.offset()..range.end + array.offset(),
+        ctx,
+    )?;
 
     // If the sliced range contains only a single run, opt to return a ConstantArray.
-    if slice_begin + 1 == slice_end {
-        let value = array.values().execute_scalar(slice_begin, ctx)?;
+    if indices.start + 1 == indices.end {
+        let value = array.values().execute_scalar(indices.start, ctx)?;
         return Ok(ConstantArray::new(value, new_length).into_array());
     }
 
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
         RunEnd::new_unchecked(
-            array.ends().slice(slice_begin..slice_end)?,
-            array.values().slice(slice_begin..slice_end)?,
+            array.ends().slice(indices.clone())?,
+            array.values().slice(indices)?,
             range.start + array.offset(),
             new_length,
         )

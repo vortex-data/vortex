@@ -170,7 +170,11 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.active = Some(ScanAdaptor::new(
+                scan,
+                Arc::clone(&self.scan.locations),
+                self.scan.subsegment_reads,
+            ));
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.

@@ -74,7 +74,7 @@ jobs:
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
-          cargo build "${packages[@]}" --profile release_debug
+          cargo build "${packages[@]}" --profile release_debug --features datafusion-bench/io-uring
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -200,6 +200,23 @@ jobs:
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
+          VORTEX_USE_SCAN_API: "0"
+          VORTEX_IO_BACKEND: "shared-1-mapped"
+          VORTEX_IO_QUEUE_DEPTH: "64"
+          VORTEX_IO_FORCE_ASYNC: "1"
+          VORTEX_IO_CHECK_RESIDENT_PAGES: "1"
+          VORTEX_IO_CHECK_QUEUED_RESIDENT_PAGES: "1"
+          VORTEX_IO_READ_MAPPED_MISSES: "1"
+          VORTEX_IO_COALESCE_FIFO: "1"
+          VORTEX_IO_COALESCE_LOOKAHEAD: "256"
+          VORTEX_IO_COALESCE_GAP: "0"
+          VORTEX_IO_COALESCE_MAX_BYTES: "1048576"
+          VORTEX_IO_REUSE_INFLIGHT: "1"
+          VORTEX_SCAN_V2_SHARE_PLANS: "1"
+          VORTEX_SCAN_V2_IO_CACHE_BYTES: "0"
+          VORTEX_SCAN_V2_CHUNK_ROWS: "131072"
+          VORTEX_SCAN_V2_CONSUMER_MAPPING: "1"
+          VORTEX_SCAN_V2_CONSUMER_MAPPING_FIXED_WIDTH_ONLY: "0"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"

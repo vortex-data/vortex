@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 pco = { workspace = true }
 prost = { workspace = true }
+tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

@@ -59,6 +59,7 @@ impl ProjectionPlanner {
                                 ..selected.scope.rows.start + end as u64,
                         },
                         mask,
+                        lease: selected.lease.clone(),
                     })
                 })
                 .collect()
@@ -176,8 +177,13 @@ impl Morsel for ProjectionMorsel {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
-            self.adaptor = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            .with_value_cache(self.scan.values.clone())
+            .with_segment_cache(self.selected.segment_cache());
+            self.adaptor = Some(ScanAdaptor::new(
+                scan,
+                Arc::clone(&self.scan.locations),
+                self.scan.subsegment_reads,
+            ));
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {

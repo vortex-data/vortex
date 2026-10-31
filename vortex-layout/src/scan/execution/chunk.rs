@@ -22,6 +22,7 @@ use vortex_scan::selection::Selection;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::plan::physical::pipeline::SegmentCache;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -87,6 +88,8 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    segments: SegmentCache,
+    unplanned: Range<u64>,
 }
 
 impl ChunkPlanner {
@@ -100,12 +103,20 @@ impl ChunkPlanner {
     ) -> Self {
         let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
         Self {
+            segments: SegmentCache::new(rows.clone(), scan.filter.is_some()),
+            unplanned: rows.clone(),
             scan,
             rows,
             chunks,
             selection,
             kept,
         }
+    }
+}
+
+impl Drop for ChunkPlanner {
+    fn drop(&mut self) {
+        self.segments.complete(self.unplanned.clone());
     }
 }
 
@@ -125,11 +136,14 @@ impl Planner for ChunkPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
+            let lease = self.segments.lease(chunk.clone());
+            self.unplanned.start = chunk.end;
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
+            if let Some((scope, planner)) =
+                plan_selection(&self.scan, scope, &self.selection, kept, lease)
             {
                 return Ok(PlannerOutput::Spawn(scope, planner));
             }

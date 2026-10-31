@@ -19,7 +19,7 @@ path = "src/main.rs"
 test = false
 
 [lib]
-test = false
+test = true
 
 [dependencies]
 anyhow = { workspace = true }
@@ -35,12 +35,14 @@ datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures.workspace = true
 itertools.workspace = true
+libc.workspace = true
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
@@ -51,6 +53,9 @@ vortex-metrics = { workspace = true }
 
 [build-dependencies]
 custom-labels = { workspace = true }
+
+[features]
+io-uring = ["vortex/io-uring", "vortex-datafusion/io-uring"]
 
 [lints]
 workspace = true

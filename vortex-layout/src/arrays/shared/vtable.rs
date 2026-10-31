@@ -19,9 +19,11 @@ use vortex_array::ProbeState;
 use vortex_array::RepeatedArrayProbe;
 use vortex_array::VTable;
 use vortex_array::ValidityVTable;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::validity::Validity;
 use vortex_array::with_empty_buffers;
 use vortex_error::VortexExpect;
@@ -124,6 +126,25 @@ impl VTable for Shared {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
             .map(ExecutionResult::done)
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(comparison) = parent.as_opt::<ExactScalarFn<Binary>>() else {
+            return Ok(None);
+        };
+        if !comparison.options.is_comparison() {
+            return Ok(None);
+        }
+        // A metadata-only comparison rewrite can use encoded values without decoding the
+        // shared dictionary. Other operations retain the shared canonicalization boundary.
+        let source = array.current_array_ref();
+        // SAFETY: The source and cached form have the same logical values as this wrapper.
+        let parent = unsafe { parent.clone().with_slot(child_idx, source.clone())? };
+        source.reduce_parent(&parent, child_idx)
     }
 }
 

@@ -214,6 +214,8 @@ pub struct VortexSource {
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
+    /// DataFusion's batch size for evaluating residual expressions.
+    batch_size: Option<usize>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
 }
@@ -249,6 +251,7 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
+            batch_size: None,
             ordered: false,
             options: VortexTableOptions::default(),
         }
@@ -378,6 +381,14 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            scan_v2_share_plans: self.options.scan_v2_share_plans,
+            scan_v2_io_cache_bytes: self.options.scan_v2_io_cache_bytes,
+            scan_v2_chunk_rows: self.options.scan_v2_chunk_rows,
+            scan_v2_consumer_mapping: self.options.scan_v2_consumer_mapping,
+            scan_v2_consumer_mapping_fixed_width_only: self
+                .options
+                .scan_v2_consumer_mapping_fixed_width_only,
+            batch_size: self.batch_size,
             partitions: base_config.file_groups.len(),
         };
 
@@ -399,9 +410,11 @@ impl FileSource for VortexSource {
         )?))
     }
 
-    fn with_batch_size(&self, _batch_size: usize) -> Arc<dyn FileSource> {
-        // DataSourceExec applies BatchSplitStream after the FileSource stream.
-        Arc::new(self.clone())
+    fn with_batch_size(&self, batch_size: usize) -> Arc<dyn FileSource> {
+        assert!(batch_size > 0);
+        let mut source = self.clone();
+        source.batch_size = Some(batch_size);
+        Arc::new(source)
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {

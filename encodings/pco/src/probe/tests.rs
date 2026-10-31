@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::thread;
 
 use rstest::rstest;
 use vortex_array::ArrayProbe;
@@ -11,12 +13,16 @@ use vortex_array::RepeatedArrayProbe;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Pco;
+use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -109,4 +115,121 @@ fn probe_outlives_source_and_moves() -> VortexResult<()> {
     }
     assert!(moved.0.execute_scalar(4096, &mut ctx).is_err());
     Ok(())
+}
+
+#[rstest]
+fn probe_pages_survive_slices_and_bulk_decode(
+    #[values(false, true)] repeated: bool,
+    #[values(false, true)] nullable: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = if nullable {
+        PrimitiveArray::from_option_iter((0..4096u32).map(|i| (i % 7 != 0).then_some(i * 19)))
+    } else {
+        PrimitiveArray::from_iter((0..4096u32).map(|i| i * 19))
+    };
+    let data =
+        PcoData::from_primitive_with_values_per_chunk(input.as_view(), 3, 512, 128, &mut ctx)?;
+    let encoded = Pco::try_new(input.dtype().clone(), data, input.validity()?)?;
+    assert_arrays_eq!(encoded.clone(), input.clone(), &mut ctx);
+    assert!(encoded.probe_pages.get().is_none());
+
+    let mut retained = None;
+    let mut probe = probe_for(encoded.as_array(), &mut retained, repeated);
+    for index in [129, 701, 129] {
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            input.as_array().execute_scalar(index, &mut ctx)?
+        );
+    }
+    let pages = encoded.probe_pages.get().unwrap();
+    assert_eq!(pages.iter().filter(|p| p.get().is_some()).count(), 2);
+    let sliced = encoded.slice(100..4000)?;
+    assert!(Arc::ptr_eq(
+        pages,
+        sliced.as_::<Pco>().probe_pages.get().unwrap()
+    ));
+    for range in [0..0, 0..28, 27..670, 300..3900] {
+        assert_arrays_eq!(
+            sliced.slice(range.clone())?,
+            input.slice(100 + range.start..100 + range.end)?,
+            &mut ctx
+        );
+    }
+    assert_arrays_eq!(encoded.clone(), input, &mut ctx);
+    assert_eq!(pages.iter().filter(|p| p.get().is_some()).count(), 2);
+    Ok(())
+}
+
+#[test]
+fn cached_page_slice_is_zero_copy_and_cache_follows_array_lifetime() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter(0..1024u32);
+    let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?;
+    assert_eq!(
+        encoded.as_array().execute_scalar(130, &mut ctx)?,
+        130u32.into()
+    );
+    let cache = Arc::downgrade(encoded.probe_pages.get().unwrap());
+    let sliced = encoded.slice(129..150)?;
+    let decoded = sliced.clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let page = Buffer::<u32>::from_byte_buffer(
+        encoded.probe_pages.get().unwrap()[1].get().unwrap().clone(),
+    );
+    assert_eq!(decoded.as_slice::<u32>().as_ptr(), page[1..].as_ptr());
+    assert_arrays_eq!(decoded, input.slice(129..150)?, &mut ctx);
+    drop(encoded);
+    assert!(cache.upgrade().is_some());
+    drop(sliced);
+    assert!(cache.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
+fn physical_buffer_rewrite_releases_probe_cache() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter(0..1024u32);
+    let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?.into_array();
+    assert_eq!(encoded.execute_scalar(42, &mut ctx)?, 42u32.into());
+    let cache = Arc::downgrade(encoded.as_::<Pco>().probe_pages.get().unwrap());
+    let buffers = encoded
+        .buffers()
+        .into_iter()
+        .map(|buffer| BufferHandle::new_host(ByteBuffer::from(buffer.as_slice().to_vec())))
+        .collect::<Vec<_>>();
+    // SAFETY: each replacement is a byte-for-byte copy, preserving the logical values.
+    let rewritten = unsafe { encoded.with_buffers(buffers)? };
+    assert!(cache.upgrade().is_none());
+    assert!(rewritten.as_::<Pco>().probe_pages.get().is_none());
+    assert_eq!(rewritten.execute_scalar(42, &mut ctx)?, 42u32.into());
+    assert_arrays_eq!(rewritten, input, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn concurrent_probes_and_bulk_reads_share_pages() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::from_iter(0..1024u32);
+    let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?.into_array();
+    thread::scope(|scope| -> VortexResult<()> {
+        let handles = (0..4)
+            .map(|_| {
+                scope.spawn(|| -> VortexResult<()> {
+                    let mut ctx = SESSION.create_execution_ctx();
+                    for index in [130, 2, 130, 1023] {
+                        assert_eq!(
+                            encoded.execute_scalar(index, &mut ctx)?,
+                            u32::try_from(index)?.into()
+                        );
+                        assert_arrays_eq!(encoded.clone(), input.clone(), &mut ctx);
+                    }
+                    Ok(())
+                })
+            })
+            .collect::<Vec<_>>();
+        for handle in handles {
+            handle.join().expect("probe thread panicked")?;
+        }
+        Ok(())
+    })
 }

@@ -36,6 +36,8 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
+use vortex_io::request::IoService;
+use vortex_io::request::ScopedIoCache;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -56,6 +58,7 @@ pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
@@ -100,6 +103,10 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    io: Option<Arc<dyn IoService>>,
+    io_cache_bytes: usize,
+    chunk_rows: Option<usize>,
+    subsegment_reads: bool,
 }
 
 impl ScanBuilder {
@@ -113,7 +120,38 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            io: None,
+            io_cache_bytes: 0,
+            chunk_rows: None,
+            subsegment_reads: true,
         }
+    }
+
+    /// Uses positional reads of the same immutable file instead of segment requests.
+    /// The driver creates a separate registration scope for each planning run.
+    pub fn with_io_service(mut self, io: Arc<dyn IoService>) -> Self {
+        self.io = Some(io);
+        self
+    }
+
+    /// Retains completed reads within each planning run, up to this requested-byte budget.
+    /// Zero disables the additional cache. Dropping the run releases its retained buffers.
+    pub fn with_io_cache_bytes(mut self, budget: usize) -> Self {
+        self.io_cache_bytes = budget;
+        self
+    }
+
+    /// Sets the number of rows per planning chunk. Must be positive.
+    pub fn with_chunk_rows(mut self, rows: usize) -> Self {
+        assert!(rows > 0);
+        self.chunk_rows = Some(rows);
+        self
+    }
+
+    /// Allows sparse reads within verified primitive segments when positional IO is installed.
+    pub fn with_subsegment_reads(mut self, enabled: bool) -> Self {
+        self.subsegment_reads = enabled;
+        self
     }
 
     /// The output dtype after projection.
@@ -215,19 +253,28 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let subsegment_reads = self.subsegment_reads && self.io.is_some();
+        let io = self.io.unwrap_or_else(|| {
+            Arc::new(SegmentScanIo::new(cache.retaining(file.segments), ranges))
+        });
+        let io = if self.io_cache_bytes == 0 {
+            io
+        } else {
+            Arc::new(ScopedIoCache::new(io, self.io_cache_bytes)) as Arc<dyn IoService>
+        };
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: cache.retaining(file.segments),
-            ranges,
+            io,
+            subsegment_reads,
             cache,
             locations: file.locations,
             projection,
             filter,
             row_offset: self.row_offset,
             values,
-            chunk_rows,
+            chunk_rows: self.chunk_rows.unwrap_or(chunk_rows),
         })
     }
 }

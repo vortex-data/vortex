@@ -11,6 +11,7 @@ use vortex_session::VortexSession;
 
 use crate::plan::physical::Concat;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::Share;
 use crate::plan::physical::optimizer::reduce_parent;
 use crate::plan::physical::optimizer::reduce_plan;
 
@@ -38,6 +39,9 @@ pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef>
     }
     if let Some(rewritten) = reduce(&plan, session)? {
         return optimize(rewritten, session);
+    }
+    if let Some(share) = plan.as_opt::<Share>() {
+        return share.optimize_child(session);
     }
 
     let mut children: Option<Vec<PlanRef>> = None;

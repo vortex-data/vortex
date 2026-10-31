@@ -13,7 +13,10 @@ use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::session::VortexSession;
+
+pub use crate::persistent::scan_v2::ScanDriver;
 
 /// Factory to create [`VortexReadAt`] instances for a `PartitionedFile`.
 ///
@@ -26,6 +29,22 @@ use vortex::session::VortexSession;
 ///
 /// [`VortexSource::with_vortex_reader_factory`]: crate::VortexSource::with_vortex_reader_factory
 pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
+    /// Configures the positional I/O service and executor of a planner-driven V2 scan.
+    /// The configured service must address the same immutable object as `create_reader`.
+    fn configure_v2_scan(
+        &self,
+        _file: &PartitionedFile,
+        _session: &VortexSession,
+        scan: ScanBuilder,
+    ) -> DFResult<ScanBuilder> {
+        Ok(scan)
+    }
+
+    /// Configures where a V2 scan's compute and completion scopes are driven.
+    fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
+        driver
+    }
+
     /// Create a reader for a target object.
     fn create_reader(
         &self,

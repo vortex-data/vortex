@@ -2,13 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(clippy::cast_possible_truncation)]
 
+use std::iter;
+use std::ops::Range;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::runend::RunEnd;
+use vortex_array::arrays::runend::RunEndArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
@@ -37,6 +42,48 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 use crate::Pco;
+
+#[rstest]
+#[case(0..0)]
+#[case(0..1)]
+#[case(1..2)]
+#[case(0..3)]
+#[case(3..6)]
+#[case(2..4)]
+#[case(379..389)]
+#[case(1536..1539)]
+#[case(1538..1539)]
+#[case(1539..1542)]
+#[case(0..3070)]
+#[case(3069..3070)]
+#[case(3070..3070)]
+fn runend_slice_with_pco_ends(
+    #[case] range: Range<usize>,
+    #[values(false, true)] nested: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let ends = PrimitiveArray::from_iter((1..=1024u32).map(|run| run * 3));
+    let ends = Pco::from_primitive(ends.as_view(), 3, 128, &mut ctx)?.into_array();
+    let array = RunEnd::try_new(
+        ends,
+        PrimitiveArray::from_iter(0..1024i32).into_array(),
+        &mut ctx,
+    )?;
+    let offset = usize::from(nested);
+    // Execute the outer slice to retain its nonzero run-end offset for the inner slice.
+    let array = array
+        .slice(offset..3072 - offset)?
+        .execute_until::<RunEnd>(&mut ctx)?;
+    assert_eq!(array.as_::<RunEnd>().offset(), offset);
+    let expected = PrimitiveArray::from_iter((0..1024i32).flat_map(|run| iter::repeat_n(run, 3)));
+    assert_arrays_eq!(
+        array.slice(range.clone())?,
+        expected.slice(offset + range.start..offset + range.end)?,
+        &mut ctx
+    );
+    Ok(())
+}
+
 #[test]
 fn test_compress_decompress() {
     let mut ctx = SESSION.create_execution_ctx();

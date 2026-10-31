@@ -29,6 +29,7 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::Share;
 use crate::plan::physical::check_child_count;
+use crate::plan::physical::operators::EvalStage;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
@@ -146,12 +147,21 @@ impl PlanVTable for Take {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
-            return Ok(None);
-        };
         let cache = compiler.values().clone();
         let values_plan = plan.values()?;
-        if let Some(values) = cache.get(&values_plan) {
+        let cached_values = cache.get(&values_plan);
+        if cached_values.is_none()
+            && (mask.true_count() as u64) < values_plan.row_count()
+            && let Some((selected, expression)) = predicate_over_selected_codes(plan, &values_plan)?
+        {
+            return Ok(compiler
+                .compile_rows(&selected.into_plan(), rows, mask)?
+                .map(|chain| chain.with(EvalStage::new(expression))));
+        }
+        let Some(codes) = compiler.compile_rows(&plan.codes()?, rows, mask)? else {
+            return Ok(None);
+        };
+        if let Some(values) = cached_values {
             let source = TakeSource::new(plan.clone(), Some(values), None);
             return Ok(Some(compiler.join(vec![codes], source)));
         }
@@ -192,6 +202,61 @@ pub(crate) struct ExpressionTakeRule;
 /// only from negative-cost functions.
 type Labels = BoundLabels<(bool, bool, bool, bool)>;
 
+fn expression_labels(expression: &BoundExpression, codes_nullable: bool) -> Labels {
+    label_bound_tree(
+        expression,
+        |node| match node.as_scalar() {
+            Some(scalar_fn) => (
+                false,
+                scalar_fn.signature().is_strict() || !codes_nullable,
+                scalar_fn.signature().is_infallible(),
+                is_negative_cost(scalar_fn.id()),
+            ),
+            None => (true, true, true, true),
+        },
+        |acc, &child| {
+            (
+                acc.0 | child.0,
+                acc.1 & child.1,
+                acc.2 & child.2,
+                acc.3 & child.3,
+            )
+        },
+    )
+}
+
+/// Evaluates a pushed predicate after selecting its codes when that avoids evaluating more
+/// dictionary entries than selected rows. Taking the original values also shares them with a
+/// later projection, while negative-cost expressions keep their access to encoded values.
+fn predicate_over_selected_codes(
+    plan: &TakePlan,
+    values: &PlanRef,
+) -> VortexResult<Option<(TakePlan, BoundExpression)>> {
+    let Some(eval) = values.as_opt::<Eval>() else {
+        return Ok(None);
+    };
+    if !eval.dtype().is_boolean() || eval.expression().contains::<DynamicComparison>()? {
+        return Ok(None);
+    }
+    let codes = plan.codes()?;
+    let labels = expression_labels(eval.expression(), codes.dtype().is_nullable());
+    if !matches!(
+        labels.get(&ExactBoundExpr(eval.expression().clone())),
+        Some((true, true, true, false))
+    ) {
+        return Ok(None);
+    }
+    let input = eval.child_plan()?;
+    let selected = TakePlan::new(codes, input.clone());
+    let Some(expression) = rebind_root(eval.expression(), input.dtype(), selected.dtype()) else {
+        return Ok(None);
+    };
+    if expression.dtype() != plan.dtype() {
+        return Ok(None);
+    }
+    Ok(Some((selected, expression)))
+}
+
 impl PlanParentReduceRule<Take> for ExpressionTakeRule {
     type Parent = Eval;
 
@@ -211,26 +276,7 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         }
         // Strictness keeps a null code null. Without null codes every row takes its value's result.
         let codes_nullable = child.codes()?.dtype().is_nullable();
-        let labels = label_bound_tree(
-            expression,
-            |node| match node.as_scalar() {
-                Some(scalar_fn) => (
-                    false,
-                    scalar_fn.signature().is_strict() || !codes_nullable,
-                    scalar_fn.signature().is_infallible(),
-                    is_negative_cost(scalar_fn.id()),
-                ),
-                None => (true, true, true, true),
-            },
-            |acc, &child| {
-                (
-                    acc.0 | child.0,
-                    acc.1 & child.1,
-                    acc.2 & child.2,
-                    acc.3 & child.3,
-                )
-            },
-        );
+        let labels = expression_labels(expression, codes_nullable);
         let label = |node: &BoundExpression| {
             labels
                 .get(&ExactBoundExpr(node.clone()))

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -38,6 +39,14 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
 }
 
 impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
+    fn supports_ranges(&self) -> bool {
+        self.inner.supports_ranges()
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<usize>) -> SegmentFuture {
+        self.inner.request_range(id, range)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         loop {
             match self.in_flight.entry(id) {

@@ -135,7 +135,7 @@ impl PlanVTable for Eval {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let chain = compiler.compile(&plan.child_plan()?, rows, mask)?;
+        let chain = compiler.compile_rows(&plan.child_plan()?, rows, mask)?;
         Ok(chain.map(|chain| chain.with(EvalStage::new(plan.expression().clone()))))
     }
 }
