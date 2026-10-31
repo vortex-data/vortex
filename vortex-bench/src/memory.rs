@@ -3,11 +3,92 @@
 
 //! Memory measurement and reclamation utilities for benchmarks
 
+use std::alloc::GlobalAlloc;
+use std::alloc::Layout;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicI64;
+use std::sync::atomic::AtomicIsize;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
 use parking_lot::Mutex;
 use sysinfo::ProcessRefreshKind;
 use sysinfo::ProcessesToUpdate;
 use sysinfo::RefreshKind;
 use sysinfo::System;
+
+const PEAK_SAMPLE_INTERVAL: Duration = Duration::from_millis(5);
+
+const HEAP_STRIPES: usize = 64;
+
+#[repr(align(128))]
+struct HeapStripe(AtomicIsize);
+
+/// Live heap bytes, striped so allocating threads rarely share a cache line.
+static LIVE_HEAP: [HeapStripe; HEAP_STRIPES] =
+    [const { HeapStripe(AtomicIsize::new(0)) }; HEAP_STRIPES];
+
+/// A [`GlobalAlloc`] wrapper that counts live heap bytes, unlike RSS, which an allocator that
+/// never purges only ever grows.
+pub struct CountingAlloc<A>(pub A);
+
+#[inline]
+fn heap_stripe() -> &'static AtomicIsize {
+    // Thread stacks are megabytes apart, so a stack address picks a stripe per thread without TLS,
+    // which an allocator cannot safely use.
+    let marker = 0u8;
+    let index = (&raw const marker as usize >> 20) % HEAP_STRIPES;
+    &LIVE_HEAP[index].0
+}
+
+#[allow(clippy::cast_possible_wrap)]
+// SAFETY: forwards every call to the wrapped allocator unchanged, only counting sizes.
+unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAlloc<A> {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller upholds `alloc`'s contract.
+        let ptr = unsafe { self.0.alloc(layout) };
+        if !ptr.is_null() {
+            heap_stripe().fetch_add(layout.size() as isize, Ordering::Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller upholds `alloc_zeroed`'s contract.
+        let ptr = unsafe { self.0.alloc_zeroed(layout) };
+        if !ptr.is_null() {
+            heap_stripe().fetch_add(layout.size() as isize, Ordering::Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: the caller upholds `dealloc`'s contract.
+        unsafe { self.0.dealloc(ptr, layout) };
+        heap_stripe().fetch_sub(layout.size() as isize, Ordering::Relaxed);
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the caller upholds `realloc`'s contract.
+        let new_ptr = unsafe { self.0.realloc(ptr, layout, new_size) };
+        if !new_ptr.is_null() {
+            heap_stripe().fetch_add(
+                new_size as isize - layout.size() as isize,
+                Ordering::Relaxed,
+            );
+        }
+        new_ptr
+    }
+}
+
+/// Live heap bytes allocated through [`CountingAlloc`], or zero without it.
+pub fn live_heap_bytes() -> i64 {
+    LIVE_HEAP
+        .iter()
+        .map(|stripe| stripe.0.load(Ordering::Relaxed) as i64)
+        .sum()
+}
 
 /// Memory statistics for a process
 #[derive(Debug, Clone, Copy)]
@@ -149,8 +230,11 @@ pub struct MemoryMeasurementResult {
 
 /// Simplified interface for memory tracking with a global tracker
 pub struct BenchmarkMemoryTracker {
-    global_tracker: MemoryTracker,
+    global_tracker: Arc<MemoryTracker>,
     baseline_memory: Option<MemoryStats>,
+    stop_sampler: Arc<AtomicBool>,
+    baseline_heap: i64,
+    peak_heap: Arc<AtomicI64>,
 }
 
 impl Default for BenchmarkMemoryTracker {
@@ -162,15 +246,44 @@ impl Default for BenchmarkMemoryTracker {
 impl BenchmarkMemoryTracker {
     /// Create a new benchmark memory tracker
     pub fn new() -> Self {
+        let global_tracker = Arc::new(MemoryTracker::new());
+        let stop_sampler = Arc::new(AtomicBool::new(false));
+        let peak_heap = Arc::new(AtomicI64::new(live_heap_bytes()));
+        // Peak memory is only as good as its sampling: query boundaries alone miss it.
+        {
+            let tracker = Arc::clone(&global_tracker);
+            let stop = Arc::clone(&stop_sampler);
+            let peak_heap = Arc::clone(&peak_heap);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    tracker.current_memory();
+                    peak_heap.fetch_max(live_heap_bytes(), Ordering::Relaxed);
+                    std::thread::sleep(PEAK_SAMPLE_INTERVAL);
+                }
+            });
+        }
         Self {
-            global_tracker: MemoryTracker::new(),
+            global_tracker,
             baseline_memory: None,
+            stop_sampler,
+            baseline_heap: 0,
+            peak_heap,
         }
     }
 
     /// Mark the start of a query execution - should be called before running a query
     pub fn start_query(&mut self) {
+        self.global_tracker.reset_peak();
         self.baseline_memory = self.global_tracker.current_memory();
+        self.baseline_heap = live_heap_bytes();
+        self.peak_heap.store(self.baseline_heap, Ordering::Relaxed);
+    }
+
+    /// Heap bytes above the query's starting point: at peak, and still live after it finished.
+    pub fn heap_usage(&self) -> (i64, i64) {
+        let after = live_heap_bytes();
+        let peak = self.peak_heap.load(Ordering::Relaxed).max(after);
+        (peak - self.baseline_heap, after - self.baseline_heap)
     }
 
     /// Mark the end of a query execution and collect memory measurements
@@ -194,6 +307,12 @@ impl BenchmarkMemoryTracker {
     /// Get the current peak memory without ending a query
     pub fn peak_memory(&self) -> MemoryStats {
         self.global_tracker.peak_memory()
+    }
+}
+
+impl Drop for BenchmarkMemoryTracker {
+    fn drop(&mut self) {
+        self.stop_sampler.store(true, Ordering::Relaxed);
     }
 }
 

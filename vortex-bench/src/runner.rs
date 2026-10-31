@@ -46,6 +46,7 @@ use crate::display::render_table;
 use crate::measurements::MemoryMeasurement;
 use crate::measurements::QueryMeasurement;
 use crate::memory::BenchmarkMemoryTracker;
+use crate::probe::QueryProbe;
 use crate::url_scheme_to_storage;
 
 /// Results from a benchmark run.
@@ -141,18 +142,28 @@ impl SqlBenchmarkRunner {
 
         let mut runs = Vec::with_capacity(iterations);
         let mut row_count = None;
+        let mut probe = self.memory_tracker.is_some().then(QueryProbe::start);
 
         for _ in 0..iterations {
+            if let Some(probe) = probe.as_mut() {
+                probe.start_iteration();
+            }
             let start = Instant::now();
             let (timing, result) = f();
             let elapsed = timing.unwrap_or_else(|| start.elapsed());
             runs.push(elapsed);
+            if let Some(probe) = probe.as_mut() {
+                probe.end_iteration();
+            }
 
             if row_count.is_none() {
                 row_count = Some(result.row_count());
             }
         }
 
+        if let Some(probe) = probe {
+            eprintln!("{}", probe.finish().line(query_idx, format));
+        }
         let row_count = row_count.expect("iterations must be > 0");
         self.record_query(query_idx, format, runs, row_count);
     }
@@ -196,6 +207,12 @@ impl SqlBenchmarkRunner {
         }
 
         // Record memory measurement if tracking is enabled
+        if let Some(tracker) = self.memory_tracker.as_ref() {
+            let (peak_heap, retained_heap) = tracker.heap_usage();
+            eprintln!(
+                "heap query={query_idx} format={format} peak_bytes={peak_heap} retained_bytes={retained_heap}"
+            );
+        }
         if let Some(tracker) = self.memory_tracker.as_ref()
             && let Some(memory_result) = tracker.end_query()
         {
@@ -396,10 +413,14 @@ impl SqlBenchmarkRunner {
 
                         let mut runs = Vec::with_capacity(iterations);
                         let mut row_count = None;
+                        let mut probe = self.memory_tracker.is_some().then(QueryProbe::start);
 
                         tracing::debug!(%format, query_idx, "Running query");
 
                         for _ in 0..iterations {
+                            if let Some(probe) = probe.as_mut() {
+                                probe.start_iteration();
+                            }
                             let start = Instant::now();
                             let (timing, result) = execute(query_idx, &ctx, query.as_str())
                                 .await
@@ -408,12 +429,18 @@ impl SqlBenchmarkRunner {
                                 });
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
                             runs.push(elapsed);
+                            if let Some(probe) = probe.as_mut() {
+                                probe.end_iteration();
+                            }
 
                             if row_count.is_none() {
                                 row_count = Some(result.row_count());
                             }
                         }
 
+                        if let Some(probe) = probe {
+                            eprintln!("{}", probe.finish().line(query_idx, format));
+                        }
                         let row_count = row_count.expect("iterations must be > 0");
                         self.record_query(query_idx, format, runs, row_count);
 
