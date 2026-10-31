@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+use std::num::NonZeroU64;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +19,8 @@ use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::execution::memory_pool::FairSpillPool;
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
@@ -128,6 +132,18 @@ struct Args {
 
     #[arg(long, default_value_t = false)]
     track_memory: bool,
+
+    /// Budget tracked query memory with fair spill reservations; this does not cap process RSS.
+    #[arg(long)]
+    memory_limit_bytes: Option<NonZeroUsize>,
+
+    /// Directory for DataFusion's temporary spill files.
+    #[arg(long)]
+    spill_directory: Option<PathBuf>,
+
+    /// Limit the total size of DataFusion's temporary spill files in bytes.
+    #[arg(long, requires = "spill_directory")]
+    spill_limit_bytes: Option<NonZeroU64>,
 
     #[arg(long, default_value = "unknown")]
     runner: String,
@@ -243,6 +259,9 @@ async fn run() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+    let memory_limit = args.memory_limit_bytes;
+    let spill_directory = args.spill_directory;
+    let spill_limit = args.spill_limit_bytes;
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -258,8 +277,20 @@ async fn run() -> anyhow::Result<()> {
             mode,
             |format| {
                 let benchmark = &*benchmark;
+                let spill_directory = spill_directory.clone();
                 async move {
-                    let session = datafusion_bench::get_session_context();
+                    let mut runtime = RuntimeEnvBuilder::new();
+                    if let Some(limit) = memory_limit {
+                        runtime =
+                            runtime.with_memory_pool(Arc::new(FairSpillPool::new(limit.get())));
+                    }
+                    if let Some(directory) = spill_directory {
+                        runtime = runtime.with_temp_file_path(directory);
+                    }
+                    if let Some(limit) = spill_limit {
+                        runtime = runtime.with_max_temp_directory_size(limit.get());
+                    }
+                    let session = datafusion_bench::get_session_context(runtime);
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
