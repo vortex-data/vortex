@@ -44,6 +44,9 @@ use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
 
+/// Below this share of a chunk's rows still selected, advisory conjuncts are not evaluated.
+const ADVISORY_MIN_DENSITY: f64 = 0.1;
+
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
     expression: FilterExpr,
@@ -227,7 +230,12 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| !self.filter.expression.is_skipped(*index))
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -293,8 +301,15 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
+            // An advisory conjunct reads its column for every row of the chunk but can only drop
+            // rows still selected: once few are, the rows it could drop save less than it costs.
+            if self.filter.expression.is_advisory(index)
+                && selected.mask.density() < ADVISORY_MIN_DENSITY
+            {
+                continue;
+            }
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].clone(),

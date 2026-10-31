@@ -118,6 +118,8 @@ fn vortex_table_options() -> VortexTableOptions {
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.dynamic_filter_pushdown =
+        std::env::var("VORTEX_DYNAMIC_FILTER_PUSHDOWN").map_or(true, |v| v != "0");
 
     opts
 }

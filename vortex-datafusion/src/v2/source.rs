@@ -943,6 +943,7 @@ impl DataSource for VortexDataSource {
                     Arc::clone(&filter),
                     Arc::clone(&self.projected_schema),
                     Arc::clone(&self.expression_converter),
+                    None,
                 ));
                 this.dynamic_filters.push(filter);
                 pushdown_results.push(PushedDown::No);

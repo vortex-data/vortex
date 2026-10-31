@@ -32,6 +32,7 @@ use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
+use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
@@ -209,6 +210,9 @@ pub struct VortexSource {
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
+    /// Each file's conversion of each dynamic filter, keyed by path and filter identity, so the
+    /// partitions of a file share one filter and the scan state it plans.
+    dynamic_filters: Arc<DashMap<(Path, usize), Option<Expression>>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -245,6 +249,7 @@ impl VortexSource {
             scan_caches: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
+            dynamic_filters: Arc::new(DashMap::default()),
             expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -372,12 +377,15 @@ impl VortexSource {
             scan_caches: Arc::clone(&self.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
+            dynamic_filters: Arc::clone(&self.dynamic_filters),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            dynamic_filter_pushdown: self.options.predicate_pushdown
+                && self.options.dynamic_filter_pushdown,
             partitions: base_config.file_groups.len(),
         };
 
@@ -620,7 +628,7 @@ mod tests {
             &self,
             expr: &PhysicalExprRef,
             schema: &Schema,
-        ) -> DFResult<Option<vortex::expr::Expression>> {
+        ) -> DFResult<Option<Expression>> {
             self.inner.try_convert(expr, schema)
         }
 
