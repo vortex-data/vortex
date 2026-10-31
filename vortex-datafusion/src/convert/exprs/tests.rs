@@ -6,14 +6,19 @@ use std::sync::Arc;
 use arrow_array::Array;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
+use arrow_array::FixedSizeListArray;
 use arrow_array::Int32Array;
+use arrow_array::ListArray;
 use arrow_array::RecordBatch;
 use arrow_array::RunArray;
 use arrow_array::StringArray;
 use arrow_array::StructArray;
 use arrow_array::UInt32Array;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
 use arrow_array::types::UInt32Type;
+use arrow_array::types::UInt64Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
@@ -103,6 +108,27 @@ fn array_length_expr(args: Vec<Arc<dyn PhysicalExpr>>, schema: &Schema) -> Arc<d
         )
         .unwrap(),
     )
+}
+
+/// Plans `array_sum(list)` as DataFusion does, casting the list to the `Float64` list type that
+/// `array_sum` coerces it to.
+fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let function = ScalarUDF::from(ArraySum::new());
+    let list_type = list.data_type(schema)?;
+    let coerced = function
+        .coerce_types(std::slice::from_ref(&list_type))?
+        .remove(0);
+    let list = if coerced == list_type {
+        list
+    } else {
+        Arc::new(df_expr::CastExpr::new(list, coerced, None))
+    };
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(function),
+        vec![list],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
 }
 
 fn get_field_expr(
@@ -2014,6 +2040,98 @@ fn test_native_nested_list_length(
     } else {
         assert_native_matches(length, batch)
     }
+}
+
+#[rstest]
+fn test_native_array_sum(
+    #[values(
+        DataType::Boolean,
+        DataType::Int8,
+        DataType::Int64,
+        DataType::UInt64,
+        DataType::Float32,
+        DataType::Float64
+    )]
+    element: DataType,
+    #[values(false, true)] large: bool,
+) -> anyhow::Result<()> {
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![]),
+        Some(vec![None, None]),
+        None,
+        Some(vec![Some(0), Some(3)]),
+    ]);
+    let item = Arc::new(Field::new("item", element, true));
+    let data_type = if large {
+        DataType::LargeList(item)
+    } else {
+        DataType::List(item)
+    };
+    let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
+    assert_native_matches(expr, batch)
+}
+
+#[test]
+fn test_native_array_sum_fixed_size_list() -> anyhow::Result<()> {
+    let lists = FixedSizeListArray::from_iter_primitive::<Int32Type, _, _>(
+        [Some(vec![Some(1), Some(2)]), Some(vec![None, None]), None],
+        2,
+    );
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
+    assert_native_matches(expr, batch)
+}
+
+/// Evaluates the converted `array_sum` of the first list in `lists`.
+fn native_array_sum(lists: arrow_array::ArrayRef) -> anyhow::Result<Scalar> {
+    let batch = RecordBatch::try_from_iter([("xs", lists)])?;
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
+    let converted = convert(expr, &batch.schema())?;
+    let session = VortexSession::default();
+    Ok(session
+        .arrow()
+        .from_arrow_record_batch(batch.clone(), &batch.schema())?
+        .apply(&converted)?
+        .execute_scalar(0, &mut session.create_execution_ctx())?)
+}
+
+#[test]
+fn test_native_array_sum_nan() -> anyhow::Result<()> {
+    let values = vec![Some(1.0), Some(f64::NAN)];
+    let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(values)]);
+    let sum = native_array_sum(Arc::new(lists))?;
+    assert!(
+        sum.as_primitive()
+            .typed_value::<f64>()
+            .is_some_and(f64::is_nan)
+    );
+    Ok(())
+}
+
+/// Integer sums are exact and null on overflow, where DataFusion adds the elements as `Float64`.
+#[test]
+fn test_native_array_sum_integer_overflow_is_null() -> anyhow::Result<()> {
+    let values = vec![Some(u64::MAX), Some(1)];
+    let lists = ListArray::from_iter_primitive::<UInt64Type, _, _>([Some(values)]);
+    assert!(native_array_sum(Arc::new(lists))?.is_null());
+    Ok(())
+}
+
+#[rstest]
+#[case::decimal(DataType::Decimal128(10, 2))]
+#[case::utf8(DataType::Utf8)]
+#[case::nested(DataType::new_list(DataType::Int32, true))]
+fn test_array_sum_falls_back(#[case] element: DataType) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "xs",
+        DataType::new_list(element, true),
+        true,
+    )]);
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?;
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
 }
 
 #[test]
