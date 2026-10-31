@@ -83,6 +83,7 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::dynamic_filters::DynamicFilterConversions;
+use crate::persistent::dynamic_filters::ScannedFile;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
@@ -369,14 +370,18 @@ impl FileOpener for VortexOpener {
                     .into_iter()
                     .map(|idx| this_file_schema.field(idx).name().as_str())
                     .collect::<Vec<_>>();
+                let scanned = ScannedFile {
+                    path: &file.object_meta.location,
+                    schema: &this_file_schema,
+                    projected: &projected,
+                    file: &vxf,
+                };
                 for predicate in &dynamic_filters {
                     native_filters.extend(dynamic_filter_conversions.conjuncts(
                         predicate,
-                        &file.object_meta.location,
-                        &this_file_schema,
+                        &scanned,
                         |predicate| expr_adapter.rewrite(predicate),
                         &expr_converter,
-                        &projected,
                     )?);
                 }
             }
