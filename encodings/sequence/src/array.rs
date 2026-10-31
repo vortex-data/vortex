@@ -52,7 +52,6 @@ use vortex_session::registry::CachedId;
 use crate::compress::sequence_decompress;
 use crate::eval;
 use crate::eval::SequenceValue;
-use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
 pub type SequenceArray = Array<Sequence>;
@@ -423,14 +422,6 @@ impl VTable for Sequence {
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 impl OperationsVTable<Sequence> for Sequence {
@@ -588,6 +579,7 @@ mod tests {
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::serde::SerializeOptions;
@@ -713,7 +705,8 @@ mod tests {
         )?;
         let sliced = Sequence::try_new_typed(10i64, multiplier, Nullability::NonNullable, 4)?
             .into_array()
-            .slice(1..2)?;
+            .slice(1..2)?
+            .optimize(&SESSION)?;
         assert!(sliced.is::<Sequence>());
 
         for array in [typed.into_array(), untyped.into_array(), sliced] {

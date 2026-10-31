@@ -40,7 +40,6 @@ use vortex_session::registry::CachedId;
 use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::decimal::array::DecimalSlots;
-use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 /// A [`Decimal`]-encoded Vortex array.
@@ -215,14 +214,6 @@ impl VTable for Decimal {
             vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
         };
         builder.append_decimal_array(&array.into_owned(), ctx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

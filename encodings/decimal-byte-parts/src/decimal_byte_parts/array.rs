@@ -44,7 +44,6 @@ use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
 use super::decimal_byte_parts_v2_id;
-use super::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
@@ -278,14 +277,6 @@ impl VTable for DecimalByteParts {
         DecimalBytePartsSlots::slot_name(idx)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let mut array = require_child!(array, array.msp(), DecimalBytePartsSlots::MSP => Primitive);
         for idx in 0..array.lower_parts().len() {
@@ -445,7 +436,11 @@ mod tests {
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_scalar_at_decimal_parts() {

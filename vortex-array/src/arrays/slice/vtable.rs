@@ -34,11 +34,11 @@ use crate::array::with_empty_buffers;
 use crate::arrays::slice::SliceArraySlotsExt;
 use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::array::SliceSlots;
-use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::optimizer::ArrayOptimizer;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -150,23 +150,16 @@ impl VTable for Slice {
         vortex_bail!("Slice array is not serializable")
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.child(), SliceSlots::CHILD => AnyCanonical);
 
         debug_assert!(array.child().is_canonical());
         // TODO(ngates): we should inline canonical slice logic here.
         array
             .child()
-            .slice(array.range.clone())
+            .slice(array.range.clone())?
+            .optimize(ctx)
             .map(ExecutionResult::done)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 impl OperationsVTable<Slice> for Slice {

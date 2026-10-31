@@ -260,6 +260,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -509,7 +510,8 @@ mod tests {
             .collect();
         let mask = BoolArray::from_iter(mask_bits.iter().copied())
             .into_array()
-            .slice(offset..offset + len)?;
+            .slice(offset..offset + len)?
+            .optimize(&SESSION)?;
 
         let result = mask.zip(if_true, if_false)?.execute::<ArrayRef>(&mut ctx)?;
         assert!(result.is::<ListView>());

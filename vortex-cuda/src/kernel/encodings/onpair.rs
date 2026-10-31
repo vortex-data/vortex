@@ -672,6 +672,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
@@ -843,7 +844,7 @@ mod tests {
             Some(&b"after the window"[..]),
         ];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..4)?;
+        let sliced = onpair.slice(1..4)?.optimize(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -866,7 +867,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
         let values = vec![Some(&b"alpha"[..]), None, None, Some(&b"omega"[..])];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..3)?;
+        let sliced = onpair.slice(1..3)?.optimize(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -930,7 +931,9 @@ mod tests {
         )
         .into_array();
         let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, cuda_ctx.execution_ctx())?;
-        let sliced = onpair.slice(19_997..20_101)?;
+        let sliced = onpair
+            .slice(19_997..20_101)?
+            .optimize(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)

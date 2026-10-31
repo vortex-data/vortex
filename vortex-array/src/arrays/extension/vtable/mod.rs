@@ -22,7 +22,6 @@ use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
 use crate::array::with_empty_buffers;
 use crate::arrays::extension::array::ExtensionSlots;
-use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::arrays::extension::compute::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -203,13 +202,5 @@ impl VTable for Extension {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

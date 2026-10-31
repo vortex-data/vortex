@@ -43,6 +43,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::FilterArraySlotsExt;
     use crate::assert_arrays_eq;
+    use crate::optimizer::ArrayOptimizer;
 
     #[rstest]
     #[case(0..2, vec![Some(1), None], 4)]
@@ -62,13 +63,14 @@ mod tests {
             let _ = mask.indices();
         }
         let filtered = FilterArray::try_new(values, mask)?.into_array();
-        let sliced = filtered.slice(range)?;
+        let session = VortexSession::empty();
+        let sliced = filtered.slice(range)?.optimize(&session)?;
 
         assert_eq!(sliced.as_::<Filter>().child().len(), child_len);
         assert_arrays_eq!(
             sliced,
             PrimitiveArray::from_option_iter(expected),
-            &mut VortexSession::empty().create_execution_ctx()
+            &mut session.create_execution_ctx()
         );
         Ok(())
     }

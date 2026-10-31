@@ -25,6 +25,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
@@ -284,7 +285,7 @@ fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
     // Sliced array: `codes_offsets` is narrowed (first boundary > 0), so the
     // point lookup must resolve indices relative to the slice.
     let (start, end) = (700usize, 1300usize);
-    let sliced = arr.slice(start..end)?;
+    let sliced = arr.slice(start..end)?.optimize(&SESSION)?;
     assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
     for &j in &[0usize, 1, 300, end - start - 1] {
         let got = sliced.execute_scalar(j, &mut ctx)?;
@@ -549,7 +550,7 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
     // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
     // end=n), and a near-full window.
     for (start, end) in [(1234usize, 1240usize), (0, 7), (4993, n), (1, n - 1)] {
-        let sliced = arr.clone().slice(start..end)?;
+        let sliced = arr.clone().slice(start..end)?.optimize(&SESSION)?;
         assert_eq!(sliced.len(), end - start);
         assert!(
             sliced.is::<OnPair>(),

@@ -53,10 +53,10 @@
 //! ```ignore
 //! use vortex_array::test_harness::trace::trace_op;
 //!
-//! let traced = trace_op(|| filter_array.optimize())?;
+//! let traced = trace_op(|| filter_array.optimize(&session))?;
 //! assert!(traced.output.is::<Primitive>());
 //! insta::assert_snapshot!(traced.trace.to_string(), @r"
-//! optimize root=vortex.filter(i32, len=4) session=false
+//! optimize root=vortex.filter(i32, len=4)
 //!   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
 //!   done output=vortex.primitive(i32, len=4)
 //! ");
@@ -202,10 +202,10 @@ fn write_indent(f: &mut fmt::Formatter<'_>, depth: usize) -> fmt::Result {
 /// # Examples
 ///
 /// ```ignore
-/// let traced = trace_op(|| filter_array.optimize())?;
+/// let traced = trace_op(|| filter_array.optimize(&session))?;
 /// assert!(traced.output.is::<Primitive>());
 /// insta::assert_snapshot!(traced.trace.to_string(), @r"
-/// optimize root=vortex.filter(i32, len=4) session=false
+/// optimize root=vortex.filter(i32, len=4)
 ///   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
 ///   done output=vortex.primitive(i32, len=4)
 /// ");
@@ -282,14 +282,12 @@ fn attempts_enabled() -> bool {
 
 #[derive(Clone, Copy, Debug)]
 enum TraceSource {
-    Static,
     Session(usize),
 }
 
 impl Display for TraceSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TraceSource::Static => f.write_str("static"),
             TraceSource::Session(idx) => write!(f, "session[{idx}]"),
         }
     }
@@ -298,14 +296,12 @@ impl Display for TraceSource {
 #[derive(Clone, Copy, Debug)]
 enum AttemptOutcome {
     Declined,
-    NoMatch,
 }
 
 impl Display for AttemptOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AttemptOutcome::Declined => f.write_str("declined"),
-            AttemptOutcome::NoMatch => f.write_str("no-match"),
         }
     }
 }
@@ -355,10 +351,9 @@ impl Display for ArraySummary {
     }
 }
 
-pub(crate) fn record_optimize_start(root: &ArrayRef, session: bool) {
+pub(crate) fn record_optimize_start(root: &ArrayRef) {
     record(TraceEvent::OptimizeStart {
         root: ArraySummary::new(root),
-        session,
     });
 }
 
@@ -409,20 +404,6 @@ pub(crate) fn record_optimize_done(output: &ArrayRef, changed: bool) {
     });
 }
 
-pub(crate) fn record_optimize_recursive_start(root: &ArrayRef) {
-    record(TraceEvent::OptimizeRecursiveStart {
-        root: ArraySummary::new(root),
-    });
-}
-
-pub(crate) fn record_optimize_recursive_slot(slot_idx: usize, input: &ArrayRef, output: &ArrayRef) {
-    record(TraceEvent::OptimizeRecursiveSlot {
-        slot_idx,
-        input: ArraySummary::new(input),
-        output: ArraySummary::new(output),
-    });
-}
-
 pub(crate) fn record_reduce_applied(array: &ArrayRef, rule: &dyn Debug, output: &ArrayRef) {
     record(TraceEvent::ReduceApplied {
         array: ArraySummary::new(array),
@@ -447,6 +428,7 @@ pub(crate) fn record_session_parent_reduce_applied(
     child: &ArrayRef,
     slot_idx: usize,
     plugin_idx: usize,
+    kernel: &dyn Debug,
     output: &ArrayRef,
 ) {
     record_parent_reduce_applied(
@@ -454,7 +436,7 @@ pub(crate) fn record_session_parent_reduce_applied(
         child,
         slot_idx,
         TraceSource::Session(plugin_idx),
-        "reduce_parent_fn",
+        compact_label(kernel),
         output,
     );
 }
@@ -464,62 +446,14 @@ pub(crate) fn record_session_parent_reduce_declined(
     child: &ArrayRef,
     slot_idx: usize,
     plugin_idx: usize,
+    kernel: &dyn Debug,
 ) {
     record_parent_reduce_attempt(
         parent,
         child,
         slot_idx,
         TraceSource::Session(plugin_idx),
-        "reduce_parent_fn",
-        AttemptOutcome::Declined,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_no_match(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-) {
-    record_parent_reduce_attempt(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
-        AttemptOutcome::NoMatch,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_applied(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-    output: &ArrayRef,
-) {
-    record_parent_reduce_applied(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
-        output,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_declined(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-) {
-    record_parent_reduce_attempt(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
+        compact_label(kernel),
         AttemptOutcome::Declined,
     );
 }
@@ -877,7 +811,6 @@ impl TraceRecorder {
 enum TraceEvent {
     OptimizeStart {
         root: ArraySummary,
-        session: bool,
     },
     OptimizeLoopStart {
         array: ArraySummary,
@@ -886,14 +819,6 @@ enum TraceEvent {
     OptimizeDone {
         output: ArraySummary,
         changed: bool,
-    },
-    OptimizeRecursiveStart {
-        root: ArraySummary,
-    },
-    OptimizeRecursiveSlot {
-        slot_idx: usize,
-        input: ArraySummary,
-        output: ArraySummary,
     },
     ReduceAttempt {
         array: ArraySummary,
@@ -1065,12 +990,10 @@ impl TraceEvent {
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
-            TraceEvent::OptimizeRecursiveSlot { .. }
-            | TraceEvent::ExecuteUntilIteration { .. }
+            TraceEvent::ExecuteUntilIteration { .. }
             | TraceEvent::ExecuteUntilReturn { .. }
             | TraceEvent::SingleStepApplied { .. } => 1,
             TraceEvent::OptimizeLoopEnd
-            | TraceEvent::OptimizeRecursiveStart { .. }
             | TraceEvent::ExecuteUntilStart { .. }
             | TraceEvent::SingleStepStart { .. } => 0,
         }
@@ -1078,8 +1001,8 @@ impl TraceEvent {
 
     fn fmt_line(&self, f: &mut fmt::Formatter<'_>, resolution: TraceResolution) -> fmt::Result {
         match self {
-            TraceEvent::OptimizeStart { root, session } => {
-                write!(f, "optimize root={root} session={session}")
+            TraceEvent::OptimizeStart { root } => {
+                write!(f, "optimize root={root}")
             }
             TraceEvent::OptimizeLoopStart { array } => {
                 write!(f, "loop input={array}")
@@ -1089,14 +1012,6 @@ impl TraceEvent {
                 TraceResolution::Attempts => write!(f, "done output={output} changed={changed}"),
                 TraceResolution::ExecutedOnly => write!(f, "done output={output}"),
             },
-            TraceEvent::OptimizeRecursiveStart { root } => {
-                write!(f, "optimize_recursive root={root}")
-            }
-            TraceEvent::OptimizeRecursiveSlot {
-                slot_idx,
-                input,
-                output,
-            } => write!(f, "recursive slot={slot_idx} input={input} output={output}"),
             TraceEvent::ReduceAttempt {
                 array,
                 rule,
@@ -1215,9 +1130,9 @@ impl TraceEvent {
             } => match resolution {
                 TraceResolution::Attempts => write!(
                     f,
-                    "optimize_ctx input={input} output={output} changed={changed}"
+                    "optimize input={input} output={output} changed={changed}"
                 ),
-                TraceResolution::ExecutedOnly => write!(f, "optimize_ctx {input} -> {output}"),
+                TraceResolution::ExecutedOnly => write!(f, "optimize {input} -> {output}"),
             },
             TraceEvent::ExecuteEncoding { array } => {
                 write!(f, "execute encoding={array}")

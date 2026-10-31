@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFn;
@@ -16,27 +18,44 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
-use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
-pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DTPFilterPushDownRule),
-    ParentRuleSet::lift(&DTPComparisonPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimeParts)),
-]);
+/// Registers the parent-reduce rules for [`DateTimeParts`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), DateTimeParts, DTPFilterPushDownRule);
+    kernels.register_reduce_parent_rule(AnyScalarFn.id(), DateTimeParts, DTPComparisonPushDownRule);
+    kernels.register_reduce_parent_rule(Cast.id(), DateTimeParts, CastReduceAdaptor(DateTimeParts));
+    kernels.register_reduce_parent_rule(
+        Filter.id(),
+        DateTimeParts,
+        FilterReduceAdaptor(DateTimeParts),
+    );
+    kernels.register_reduce_parent_rule(
+        MaskFn.id(),
+        DateTimeParts,
+        MaskReduceAdaptor(DateTimeParts),
+    );
+    kernels.register_reduce_parent_rule(
+        Slice.id(),
+        DateTimeParts,
+        SliceReduceAdaptor(DateTimeParts),
+    );
+}
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
 /// but its less clear if that is beneficial.
@@ -143,9 +162,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
             }
         }
 
-        let result = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let result = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         Ok(Some(result))
     }
@@ -211,7 +228,11 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     const SECONDS_PER_DAY: i64 = 86400;
 
@@ -291,7 +312,7 @@ mod tests {
             .into_array();
 
         // Optimize should push down to days
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -325,7 +346,7 @@ mod tests {
         .into_array();
 
         // Optimize should push down to days
-        let optimized = between.optimize().unwrap();
+        let optimized = between.optimize(&SESSION).unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -363,7 +384,7 @@ mod tests {
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
         let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();
 
-        let optimized = comparison.optimize()?;
+        let optimized = comparison.optimize(&SESSION)?;
         assert_eq!(optimized.dtype(), comparison.dtype());
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -388,7 +409,7 @@ mod tests {
             .into_array();
 
         // Optimize should NOT push down (constant has non-zero seconds)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
 
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -424,7 +445,7 @@ mod tests {
             .into_array();
 
         // Should still compute correctly (just not optimized via pushdown)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
         // timestamps at 1am on days [0, 1, 2] <= day 1 midnight: [true, false, false]
         assert_arrays_eq!(
             optimized,

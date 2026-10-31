@@ -12,13 +12,18 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Pco;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
 fn probe_for<'a>(
@@ -47,7 +52,7 @@ fn random_access(
     };
     let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?.into_array();
     let range = if sliced { 777..3333 } else { 0..4096 };
-    let source = encoded.slice(range.clone())?;
+    let source = encoded.slice(range.clone())?.optimize(&SESSION)?;
     assert!(source.is::<Pco>());
     let input = input.slice(range)?;
     let indices = [0u32, 1, 127, 128, 512, 2048, 129, 2, 1024, 0];

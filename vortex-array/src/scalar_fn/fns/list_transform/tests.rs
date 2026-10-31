@@ -47,6 +47,7 @@ use crate::expr::lit;
 use crate::expr::proto::ExprSerializeProtoExt;
 use crate::expr::root;
 use crate::expr::var;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
@@ -593,7 +594,7 @@ fn an_infallible_transform_pushes_into_dictionary_values() -> VortexResult<()> {
     let dict = DictArray::try_new(buffer![0_u8, 1, 0, 1].into_array(), values)?.into_array();
     let expr = list_transform(root(), Lambda::new(["x"], eq(var("x"), lit(1_i32)))?);
 
-    let actual = dict.apply(&expr)?;
+    let actual = dict.apply(&expr)?.optimize(&SESSION)?;
     assert!(actual.is::<Dict>(), "{actual}");
     let expected = list_of(
         BoolArray::from_iter([true, false, false, true, false, false]).into_array(),

@@ -406,6 +406,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
@@ -522,7 +523,7 @@ mod tests {
             VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
         let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize(cuda_ctx.execution_ctx())?;
 
         let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
         assert_device_resident(&gpu_result);

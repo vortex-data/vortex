@@ -20,6 +20,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
@@ -188,6 +189,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 
 static PLUGIN_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
+    crate::initialize(&session);
     session.arrays().register(BitPackedPlugin);
     session
 });
@@ -224,7 +226,8 @@ fn serde_roundtrip(
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let array = BitPackedData::encode(&values, bit_width, &mut ctx)?
         .into_array()
-        .slice(range.clone())?;
+        .slice(range.clone())?
+        .optimize(&PLUGIN_SESSION)?;
     let view = array.as_::<BitPacked>();
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?

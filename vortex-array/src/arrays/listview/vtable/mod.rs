@@ -32,7 +32,6 @@ use crate::array::with_empty_buffers;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
 use crate::arrays::listview::ListViewSlots;
-use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -270,14 +269,6 @@ impl VTable for ListView {
                 builder.dtype()
             ),
         }
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

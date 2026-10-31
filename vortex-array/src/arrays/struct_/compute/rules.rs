@@ -3,11 +3,15 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::Dict;
+use crate::arrays::Slice;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduceAdaptor;
@@ -17,39 +21,45 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::struct_::compute::cast::struct_cast_fields;
 use crate::builtins::ArrayBuiltins;
-use crate::matcher::Matcher;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&StructGetItemRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
-]);
+/// Registers the parent-reduce rules for [`Struct`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast.id(), Struct, StructCastRule);
+    kernels.register_reduce_parent_rule(GetItem.id(), Struct, StructGetItemRule);
+    kernels.register_reduce_parent_rule(MaskFn.id(), Struct, MaskReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Slice.id(), Struct, SliceReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Dict.id(), Struct, TakeReduceAdaptor(Struct));
+}
 
-pub(crate) fn struct_cast_reduce_parent(
-    child: &ArrayRef,
-    parent: &ArrayRef,
-    _child_idx: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(array) = child.as_opt::<Struct>() else {
-        return Ok(None);
-    };
-    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
-        return Ok(None);
-    };
+/// Casts a struct by casting its fields, when the cast only changes what the validity can hold.
+#[derive(Debug)]
+struct StructCastRule;
 
-    if array.dtype() == parent.options {
-        return Ok(Some(array.array().clone()));
+impl ArrayParentReduceRule<Struct> for StructCastRule {
+    type Parent = ExactScalarFn<Cast>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Struct>,
+        parent: ScalarFnArrayView<'_, Cast>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.dtype() == parent.options {
+            return Ok(Some(array.array().clone()));
+        }
+
+        reduce_struct_cast(array, parent)
     }
-
-    reduce_struct_cast(array, parent)
 }
 
 fn reduce_struct_cast(
@@ -222,8 +232,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        // Without the session-registered rule the cast stays a scalar function.
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         let cast = source.cast(target).unwrap();
-        let optimized = cast.optimize().unwrap();
+        let optimized = cast.optimize(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 
@@ -248,10 +260,10 @@ mod tests {
         );
 
         let cast = source.cast(target).unwrap();
-        assert!(cast.optimize_ctx(&SESSION).unwrap().is::<Struct>());
+        assert!(cast.optimize(&SESSION).unwrap().is::<Struct>());
         let session = VortexSession::empty().with_some(KernelSession::empty());
 
-        let optimized = cast.optimize_ctx(&session).unwrap();
+        let optimized = cast.optimize(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 
@@ -273,7 +285,7 @@ mod tests {
         let result = source
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
-            .and_then(|arr| arr.optimize_ctx(&SESSION));
+            .and_then(|arr| arr.optimize(&SESSION));
 
         // Whether this errors or succeeds depends on execution, but the key invariant is that the
         // optimizer rule does not panic.
@@ -393,7 +405,7 @@ mod tests {
         let arr = source
             .into_array()
             .cast(target)
-            .and_then(|arr| arr.optimize_ctx(&SESSION));
+            .and_then(|arr| arr.optimize(&SESSION));
         assert!(arr.is_err());
     }
 }

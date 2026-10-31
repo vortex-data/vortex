@@ -55,7 +55,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::alp_rd::check_left_parts_codes;
-use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
 /// A [`ALPRD`]-encoded Vortex array.
@@ -334,14 +333,6 @@ impl VTable for ALPRD {
         };
 
         Ok(ExecutionResult::done(decoded_array.into_array()))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

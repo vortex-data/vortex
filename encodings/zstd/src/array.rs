@@ -310,14 +310,6 @@ impl VTable for Zstd {
             .into_array()
             .append_to_builder(builder, ctx)
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 fn unsliced_validity(array: ArrayView<'_, Zstd>) -> Validity {
@@ -1632,7 +1624,11 @@ mod tests {
     use super::zstd_value_offset;
     use crate::array::BinaryView;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Build a Zstd-style interleaved buffer: [u32-LE length][string bytes] repeated.
     fn make_interleaved(strings: &[&[u8]]) -> ByteBuffer {

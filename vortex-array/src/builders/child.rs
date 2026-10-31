@@ -12,6 +12,7 @@ use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 /// Accumulates the child of a nested [`ArrayBuilder`] without canonicalizing appended arrays.
@@ -70,10 +71,9 @@ impl ChildBuilder {
     /// append and the final [`finish`](Self::finish) walk. Nesting costs one level, not one per
     /// appended array.
     ///
-    /// Nothing is decoded here, so `_ctx` goes unused; it stays in the signature so that the
-    /// nested builders forwarding their [`ExecutionCtx`] here do not have to explain why they
-    /// don't.
-    pub fn append_array(&mut self, array: &ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    /// Nothing is decoded here. The array is optimized with the context's session first, so a
+    /// lazy wrapper such as a slice of the elements is kept as the encoding it reduces to.
+    pub fn append_array(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         vortex_ensure_eq!(
             array.dtype(),
             &self.dtype,
@@ -87,7 +87,8 @@ impl ChildBuilder {
         self.flush_pending();
         self.chunks_len += array.len();
 
-        self.chunks.push(array.clone());
+        let array = array.optimize(ctx)?;
+        self.chunks.push(array);
 
         Ok(())
     }

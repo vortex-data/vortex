@@ -176,6 +176,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -187,7 +188,11 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_take_null() -> VortexResult<()> {
@@ -287,7 +292,7 @@ mod tests {
         let array = fsst_compress(&input, &compressor, &mut ctx)?.into_array();
         let indices = buffer![0u64].into_array();
         for (range, gathers) in [(0..8, true), (4..16, false)] {
-            let sliced = array.slice(range.clone())?;
+            let sliced = array.slice(range.clone())?.optimize(&SESSION)?;
             assert_eq!(
                 FSST::take(sliced.as_::<FSST>(), &indices, &mut ctx)?.is_some(),
                 gathers

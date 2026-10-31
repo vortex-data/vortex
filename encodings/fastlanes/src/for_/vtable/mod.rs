@@ -44,7 +44,6 @@ use crate::for_::array::FoRSlots;
 use crate::for_::array::FoRSlotsView;
 use crate::for_::array::for_decompress::decompress;
 use crate::for_::array::num_chunks;
-use crate::for_::vtable::rules::PARENT_RULES;
 use crate::for_v2_id;
 
 mod kernels;
@@ -58,6 +57,7 @@ pub type FoRArray = Array<FoR>;
 
 pub(crate) fn initialize(session: &VortexSession) {
     kernels::initialize(session);
+    rules::register_parent_rules(session);
 }
 
 impl ArrayHash for FoRData {
@@ -145,14 +145,6 @@ impl VTable for FoR {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("FoR deserialization requires FoRPlugin")
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -73,6 +73,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::NativePType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -89,7 +90,10 @@ mod tests {
 
         let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
-        let sliced = patched_array.into_array().slice(1..10)?;
+        let sliced = patched_array
+            .into_array()
+            .slice(1..10)?
+            .optimize(&SESSION)?;
 
         insta::assert_snapshot!(
             sliced.display_tree_encodings_only(),

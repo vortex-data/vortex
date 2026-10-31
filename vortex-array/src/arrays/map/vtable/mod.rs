@@ -24,7 +24,6 @@ use crate::arrays::map::MapData;
 use crate::arrays::map::MapSlots;
 use crate::arrays::map::MapSlotsView;
 use crate::arrays::map::array::validate_entries;
-use crate::arrays::map::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -165,13 +164,5 @@ impl VTable for Map {
                 builder.dtype()
             ),
         }
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

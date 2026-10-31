@@ -12,11 +12,9 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::DictArray;
-use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBin;
-use crate::arrays::VarBinView;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
@@ -61,18 +59,19 @@ pub fn dict_encoder_in(
     constraints: &DictConstraints,
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
-    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<Primitive>() {
-        match_each_native_ptype!(pa.ptype(), |P| {
-            primitive_dict_builder::<P>(pa.dtype().nullability(), constraints, allocator)
-        })
-    } else if let Some(vbv) = array.as_opt::<VarBinView>() {
-        bytes_dict_builder(vbv.dtype().clone(), constraints, allocator)
-    } else if let Some(vb) = array.as_opt::<VarBin>() {
-        bytes_dict_builder(vb.dtype().clone(), constraints, allocator)
-    } else {
-        vortex_panic!("Can only encode primitive or varbin/view arrays")
-    };
-    dict_builder
+    // Choose by dtype: the encoders execute an input that is not already canonical, such as a
+    // lazy slice.
+    match array.dtype() {
+        DType::Primitive(ptype, nullability) => match_each_native_ptype!(*ptype, |P| {
+            primitive_dict_builder::<P>(*nullability, constraints, allocator)
+        }),
+        DType::Utf8(_) | DType::Binary(_) => {
+            bytes_dict_builder(array.dtype().clone(), constraints, allocator)
+        }
+        dtype => {
+            vortex_panic!("Can only dictionary encode primitive or binary arrays, got {dtype}")
+        }
+    }
 }
 
 /// Encode an array as a `DictArray` subject to the given constraints.

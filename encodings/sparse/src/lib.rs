@@ -62,7 +62,6 @@ use vortex_session::registry::CachedId;
 use crate::canonical::append_sparse_to_varbin;
 use crate::canonical::append_sparse_to_varbinview;
 use crate::canonical::execute_sparse;
-use crate::rules::RULES;
 
 mod canonical;
 mod compute;
@@ -120,6 +119,7 @@ pub fn initialize(session: &VortexSession) {
         Some(NanCount.id()),
         &compute::nan_count::SparseNanCountKernel,
     );
+    rules::register_parent_rules(session);
 }
 
 /// A [`Sparse`]-encoded Vortex array.
@@ -312,14 +312,6 @@ impl VTable for Sparse {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SparseSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

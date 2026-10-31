@@ -159,7 +159,11 @@ mod test {
     use crate::Sequence;
     use crate::SequenceArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::basic_sequence(Sequence::try_new_typed(

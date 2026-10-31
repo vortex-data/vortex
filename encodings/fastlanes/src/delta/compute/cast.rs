@@ -63,6 +63,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -129,7 +130,8 @@ mod tests {
 
         let casted = array
             .into_array()
-            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?;
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?
+            .optimize(&SESSION)?;
 
         assert_eq!(
             casted.dtype(),

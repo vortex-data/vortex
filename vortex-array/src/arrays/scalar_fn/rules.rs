@@ -3,8 +3,10 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -16,9 +18,9 @@ use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::fns::pack::Pack;
@@ -27,10 +29,12 @@ use crate::validity::Validity;
 pub(super) const RULES: ReduceRuleSet<ScalarFn> =
     ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ScalarFilterPushdownRule),
-    ParentRuleSet::lift(&ScalarFnSliceReduceRule),
-]);
+/// Registers the parent-reduce rules for [`ScalarFn`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_scalar_fn_reduce_parent_rule(Filter.id(), ScalarFilterPushdownRule);
+    kernels.register_scalar_fn_reduce_parent_rule(Slice.id(), ScalarFnSliceReduceRule);
+}
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]

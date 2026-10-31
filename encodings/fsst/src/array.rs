@@ -67,7 +67,6 @@ use crate::canonical::FSST_DECODE_SLACK;
 use crate::canonical::FsstDecodePlan;
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_bytes;
-use crate::rules::RULES;
 
 /// A [`FSST`]-encoded Vortex array.
 pub type FSSTArray = Array<FSST>;
@@ -367,14 +366,6 @@ impl VTable for FSST {
             )
         });
         Ok(())
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -1072,6 +1063,7 @@ mod test {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::vtable::VTable as _;
     use vortex_buffer::Buffer;
@@ -1090,7 +1082,11 @@ mod test {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn slice_reuses_initialized_compressor() -> VortexResult<()> {
@@ -1108,6 +1104,7 @@ mod test {
         let compressor_ptr = fsst_array.compressor() as *const Compressor;
         let sliced = fsst_array
             .slice(1..3)?
+            .optimize(&SESSION)?
             .try_downcast::<FSST>()
             .map_err(|_| vortex_err!("slice must return an FSST array"))?;
         let sliced_compressor_ptr = sliced.compressor() as *const Compressor;

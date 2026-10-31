@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
@@ -9,15 +10,14 @@ use crate::EqMode;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::Chunked;
-use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Filter;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::Slice;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
@@ -25,72 +25,32 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&DictionaryChunkedValuesPullUpRule),
-    ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
-    ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
-]);
-
-/// Pull a common dictionary values array above chunked dictionary codes.
-///
-/// Rewrites `Chunked<Dict<codes_i, values>>` into `Dict<Chunked<codes_i>, values>` only when
-/// every child dictionary shares the exact same values array allocation.
-#[derive(Debug)]
-struct DictionaryChunkedValuesPullUpRule;
-
-impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
-    type Parent = Chunked;
-
-    fn reduce_parent(
-        &self,
-        array: ArrayView<'_, Dict>,
-        parent: ArrayView<'_, Chunked>,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let values = array.values();
-        let codes_dtype = array.codes().dtype().clone();
-        let mut code_chunks = Vec::with_capacity(parent.nchunks());
-        let mut all_values_referenced = array.has_all_values_referenced();
-
-        for chunk in parent.iter_chunks() {
-            let Some(dict) = chunk.as_opt::<Dict>() else {
-                return Ok(None);
-            };
-            if dict.codes().dtype() != &codes_dtype {
-                return Ok(None);
-            }
-            if !ArrayRef::ptr_eq(dict.values(), values) {
-                return Ok(None);
-            }
-            all_values_referenced |= dict.has_all_values_referenced();
-            code_chunks.push(dict.codes().clone());
-        }
-
-        let codes = ChunkedArray::try_new(code_chunks, codes_dtype)?.into_array();
-        let dict = DictArray::try_new(codes, values.clone())?;
-        let dict = if all_values_referenced {
-            unsafe { dict.set_all_values_referenced(true) }
-        } else {
-            dict
-        };
-
-        Ok(Some(dict.into_array()))
-    }
+/// Registers the parent-reduce rules for [`Dict`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), Dict, FilterReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Cast.id(), Dict, CastReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Dict, MaskReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Like.id(), Dict, LikeReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn.id(),
+        Dict,
+        DictionaryScalarFnValuesPushDownRule,
+    );
+    kernels.register_reduce_parent_rule(AnyScalarFn.id(), Dict, DictionaryScalarFnCodesPullUpRule);
+    kernels.register_reduce_parent_rule(Slice.id(), Dict, SliceReduceAdaptor(Dict));
 }
 
 /// Push down a scalar function to run only over the values of a dictionary array.
@@ -174,9 +134,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             }
         }
 
-        let transformed_values = ScalarFnArray::try_new(scalar_fn.clone(), value_children)?
-            .into_array()
-            .optimize()?;
+        let transformed_values =
+            ScalarFnArray::try_new(scalar_fn.clone(), value_children)?.into_array();
 
         // A non-strict function reaches this point only when the codes are all valid, but their
         // dtype may still be nullable. Remove that declared nullability while rebuilding the
@@ -252,9 +211,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let new_values =
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();
@@ -304,7 +262,7 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize(&SESSION)?;
         let dict = optimized.as_::<Dict>();
         let codes = dict.codes().as_::<Chunked>();
 
@@ -331,7 +289,7 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values0.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize(&SESSION)?;
 
         assert!(optimized.is::<Chunked>());
         let mut ctx = SESSION.create_execution_ctx();
@@ -355,7 +313,7 @@ mod tests {
         }
         .into_array();
 
-        let result = Not::try_new(dict)?.into_array().optimize()?;
+        let result = Not::try_new(dict)?.into_array().optimize(&SESSION)?;
         let result = result.as_::<Dict>();
 
         assert!(result.has_all_values_referenced());
@@ -380,7 +338,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
-        let optimized = expr.optimize()?;
+        let optimized = expr.optimize(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }
@@ -397,7 +355,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
-        let optimized = expr.optimize()?;
+        let optimized = expr.optimize(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }

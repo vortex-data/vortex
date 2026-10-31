@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -102,10 +103,11 @@ impl Operator for PackSource {
                 .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
             len = len.min(front.len());
         }
+        let session = cx.session().clone();
         let mut arrays = Vec::with_capacity(self.states.len());
         for index in 0..self.states.len() {
             let mut inlet = cx.inlet(index);
-            arrays.push(take_rows(&mut inlet, len)?);
+            arrays.push(take_rows(&mut inlet, len, &session)?);
             self.observe(index, &inlet);
         }
         let validity = if self.nullable {
@@ -117,7 +119,9 @@ impl Operator for PackSource {
         } else {
             Validity::NonNullable
         };
-        let array = assemble(&self.fields, arrays, validity).into_array();
+        let array = assemble(&self.fields, arrays, validity)
+            .into_array()
+            .optimize(&session)?;
         Ok(Step::Final(array))
     }
 }

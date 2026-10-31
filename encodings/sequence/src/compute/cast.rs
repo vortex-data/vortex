@@ -54,6 +54,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
@@ -156,7 +157,8 @@ mod tests {
     fn test_cast_sequence_narrows_to_output_dtype() -> VortexResult<()> {
         let casted = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
             .into_array()
-            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?
+            .optimize(&SESSION)?;
 
         let sequence = casted
             .as_typed::<Sequence>()

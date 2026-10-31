@@ -46,6 +46,7 @@ mod slice;
 
 pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }
 
 /// Encoding of Vortex arrays with an ALP-RD [`RDEncoder`].

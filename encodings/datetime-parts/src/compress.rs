@@ -186,7 +186,11 @@ mod tests {
     use crate::TemporalParts;
     use crate::split_temporal;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(Validity::NonNullable)]

@@ -3,6 +3,8 @@
 
 //! Snapshot tests tracing how reductions and executions flow through run-end arrays.
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -25,6 +27,8 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 fn execution_ctx() -> ExecutionCtx {
     ExecutionCtx::new(VortexSession::empty().with::<ArraySession>())
 }
@@ -44,10 +48,10 @@ fn trace_compare_on_runend() -> VortexResult<()> {
     let rhs = ConstantArray::new(Scalar::from(2i32), runend.len()).into_array();
     let compared = Binary::try_new(runend, rhs, Operator::Eq)?.into_array();
 
-    let traced = trace_op(|| compared.optimize())?;
+    let traced = trace_op(|| compared.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.binary(bool, len=9) session=false
-      reduce_parent static:RunEndScalarFnRule slot=0 parent=vortex.binary(bool, len=9) child=vortex.runend(i32, len=9) -> vortex.runend(bool, len=9)
+    optimize root=vortex.binary(bool, len=9)
+      reduce_parent session[0]:RunEndScalarFnRule slot=0 parent=vortex.binary(bool, len=9) child=vortex.runend(i32, len=9) -> vortex.runend(bool, len=9)
       done output=vortex.runend(bool, len=9)
     ");
 

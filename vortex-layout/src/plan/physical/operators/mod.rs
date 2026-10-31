@@ -28,8 +28,10 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 pub(crate) use whole::*;
 
 use crate::plan::physical::operator::Cx;
@@ -40,7 +42,12 @@ pub(crate) const UNBOUNDED: usize = usize::MAX;
 
 /// Takes the first `len` rows of the inlet, across as many batches as hold them, slicing the last
 /// and leaving its rest in place. Rows spanning batches come back chunked, not copied.
-fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
+///
+/// The rest is optimized with `session` before it goes back into the inlet. A slice is lazy, so
+/// without this, each take would wrap the rest in one more slice, and every later take would
+/// optimize the full chain of slices again. The rows taken are optimized too, so the stages that
+/// read them, possibly through many parents, get an optimized array.
+fn take_rows(inlet: &mut Inlet<'_>, len: usize, session: &VortexSession) -> VortexResult<ArrayRef> {
     let mut pieces: SmallVec<[ArrayRef; 2]> = SmallVec::new();
     let mut left = len;
     while left > 0 {
@@ -51,8 +58,12 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
             left -= front.len();
             pieces.extend(inlet.take());
         } else {
-            let rest = front.slice(left..front.len())?;
-            pieces.push(std::mem::replace(front, rest).slice(0..left)?);
+            let rest = front.slice(left..front.len())?.optimize(session)?;
+            pieces.push(
+                std::mem::replace(front, rest)
+                    .slice(0..left)?
+                    .optimize(session)?,
+            );
             left = 0;
         }
     }
@@ -61,7 +72,9 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
     }
     let dtype = pieces[0].dtype().clone();
     // SAFETY: the pieces come from one inlet, whose batches share its sink's dtype.
-    Ok(unsafe { ChunkedArray::new_unchecked(pieces, dtype) }.into_array())
+    unsafe { ChunkedArray::new_unchecked(pieces, dtype) }
+        .into_array()
+        .optimize(session)
 }
 
 /// Joins arrays covering consecutive rows into one.

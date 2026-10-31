@@ -33,6 +33,10 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    rules::register_parent_rules(session);
+}
+
 pub trait SliceReduce: VTable {
     /// Slice an array with the provided range without reading buffers.
     ///

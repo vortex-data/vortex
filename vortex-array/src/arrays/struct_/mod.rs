@@ -16,6 +16,7 @@ pub use vtable::Struct;
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     compute::cast::initialize(session);
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
 
 #[cfg(test)]

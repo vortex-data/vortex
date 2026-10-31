@@ -64,7 +64,11 @@ mod tests {
     use crate::RDEncoder;
     use crate::RDEncoderExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_alprd_f32_to_f64() {

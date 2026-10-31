@@ -41,7 +41,6 @@ use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
-use crate::rules::RULES;
 use crate::zigzag_decode;
 
 /// A [`ZigZag`]-encoded Vortex array.
@@ -141,14 +140,6 @@ impl VTable for ZigZag {
         Ok(ExecutionResult::done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -288,6 +279,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -295,7 +287,11 @@ mod test {
     use super::*;
     use crate::zigzag_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
@@ -318,7 +314,7 @@ mod test {
             array.statistics().compute_is_constant(&mut ctx)
         );
 
-        let sliced = zigzag.slice(0..2)?;
+        let sliced = zigzag.slice(0..2)?.optimize(&SESSION)?;
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
             sliced.array().execute_scalar(sliced.len() - 1, &mut ctx,)?,

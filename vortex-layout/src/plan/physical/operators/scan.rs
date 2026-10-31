@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -42,19 +43,26 @@ fn decode(
 }
 
 /// Slices a whole decoded segment to `slice`, then keeps the rows `filter` selects.
+///
+/// The result is optimized with `session`, so the stages that read the batch see the encoding
+/// the slice and filter reduce to rather than lazy wrappers around the decoded array.
 fn select(
     array: ArrayRef,
     slice: Option<&Range<usize>>,
     filter: Option<&Mask>,
+    session: &VortexSession,
 ) -> VortexResult<ArrayRef> {
     let array = match slice {
         Some(slice) => array.slice(slice.clone())?,
         None => array,
     };
-    match filter {
-        Some(filter) => array.filter(filter.clone()),
-        None => Ok(array),
-    }
+
+    let array = match filter {
+        Some(filter) => array.filter(filter.clone())?,
+        None => array,
+    };
+
+    array.optimize(session)
 }
 
 /// Reads one segment, decodes it, and emits its rows of `slice`, filtered by `filter`.
@@ -112,6 +120,7 @@ impl Operator for ScanSource {
             array,
             self.slice.as_ref(),
             self.filter.as_ref(),
+            cx.session(),
         )?))
     }
 }

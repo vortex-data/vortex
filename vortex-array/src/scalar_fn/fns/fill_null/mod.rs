@@ -156,7 +156,7 @@ impl ScalarFnVTable for FillNull {
                 // kernels get a chance before we decode the input.
                 return FillNull::try_new(input, fill_value)?
                     .into_array()
-                    .optimize_ctx(ctx.session());
+                    .optimize(ctx);
             }
             let input = input.execute::<ArrayRef>(ctx)?;
             return Ok(FillNull::try_new(input, fill_value)?.into_array());

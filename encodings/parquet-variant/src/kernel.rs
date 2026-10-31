@@ -327,6 +327,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
@@ -994,7 +995,7 @@ mod tests {
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
+        let executed = array.optimize(&SESSION)?.execute::<ArrayRef>(&mut ctx)?;
         let executed_variant = executed.as_::<ParquetVariant>();
         let typed_value = executed_variant
             .typed_value()

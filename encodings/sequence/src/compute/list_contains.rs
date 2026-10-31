@@ -101,6 +101,7 @@ mod tests {
     use vortex_array::expr::list_contains_opts;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
     use vortex_error::VortexResult;
@@ -174,7 +175,7 @@ mod tests {
         );
         let array = Sequence::try_new_typed(1, 1, Nullability::NonNullable, 3)?.into_array();
 
-        let result = apply_list_contains(array, list_scalar, optimize)?;
+        let result = apply_list_contains(array, list_scalar, optimize)?.optimize(&SESSION)?;
 
         assert!(!result.is::<ScalarFn>());
         let expected = BoolArray::from_iter([true, false, true]);

@@ -101,6 +101,7 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -250,7 +251,7 @@ mod tests {
         );
         let mut ctx = SESSION.create_execution_ctx();
         let arr = onpair_compress(input.as_array(), DEFAULT_CONFIG, &mut ctx)?.into_array();
-        let sliced = arr.slice(1..4)?;
+        let sliced = arr.slice(1..4)?.optimize(&SESSION)?;
         assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
         let sliced = sliced
             .try_downcast::<OnPair>()

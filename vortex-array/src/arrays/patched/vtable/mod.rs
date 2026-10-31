@@ -40,7 +40,6 @@ use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
-use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -307,14 +306,6 @@ impl VTable for Patched {
 
         Ok(ExecutionResult::done(patched_values.into_array()))
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 /// Apply patches on top of the existing value types.
@@ -373,6 +364,7 @@ mod tests {
     use crate::arrays::patched::PatchedSlotsView;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity_in;
+    use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
@@ -595,7 +587,7 @@ mod tests {
     )]
     #[case::sliced({
         let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
-        arr.into_array().slice(2..1024).unwrap()
+        arr.into_array().slice(2..1024).unwrap().optimize(&SESSION).unwrap()
     }, (2..1024).map(|i| match i { 2 => 20u16, 3 => 30, _ => 0 }).collect::<Vec<_>>())]
     fn test_serde_roundtrip(#[case] array: crate::ArrayRef, #[case] expected: Vec<u16>) {
         let dtype = array.dtype().clone();

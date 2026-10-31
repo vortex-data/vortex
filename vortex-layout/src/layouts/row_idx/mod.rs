@@ -336,8 +336,9 @@ fn row_idx_array_future(
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     async move {
-        // The filter is lazy: trivial masks reduce to the sequence itself or an empty array, and
-        // value masks are left for the consumer to execute alongside the expression.
+        // The filter is lazy: when the consumer optimizes or executes it, trivial masks reduce to
+        // the sequence itself or an empty array, and value masks execute alongside the
+        // expression.
         idx_array(row_offset, &row_range)
             .into_array()
             .filter(mask.await?)?
@@ -364,6 +365,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -539,6 +541,8 @@ mod tests {
                 MaskFuture::ready(Mask::new_true(5)),
             )
             .await
+            .unwrap()
+            .optimize(&new_session())
             .unwrap();
 
             assert!(result.is::<Sequence>());
