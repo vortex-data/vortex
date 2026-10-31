@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod grouped;
-pub(crate) use grouped::CountGroupedKernel;
+pub(crate) use grouped::COUNT_GROUPED_KERNEL;
+pub(crate) use grouped::COUNT_RUN_GROUPED_KERNEL;
+use grouped::CountGroupedState;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -11,11 +13,14 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::GroupedState;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -68,6 +73,13 @@ impl AggregateFnVTable for Count {
         Ok(0)
     }
 
+    fn grouped_state(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Box<dyn GroupedState>> {
+        Ok(Box::new(CountGroupedState::default()))
+    }
+
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
@@ -86,6 +98,16 @@ impl AggregateFnVTable for Count {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         Ok(first + second)
+    }
+
+    fn partials_to_array(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: &[Self::Partial],
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            PrimitiveArray::from_iter(partials.iter().copied()).into_array(),
+        ))
     }
 
     fn to_scalar(
