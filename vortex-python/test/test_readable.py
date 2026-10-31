@@ -8,12 +8,14 @@ import pickle
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO, cast
 
 import numpy as np
 import pyarrow as pa
 import pytest
+from pyarrow.fs import LocalFileSystem
 from typing_extensions import Buffer
 from vortex.io import ReadAt, ReadBytesAt
 
@@ -37,7 +39,7 @@ def expected(table: pa.Table) -> pa.Table:
     return table.cast(pa.schema([("index", pa.int64()), ("string", pa.string_view())]))
 
 
-def read_all(source: ReadBytesAt | ReadAt | IO[bytes]) -> pa.Table:
+def read_all(source: ReadBytesAt | ReadAt | IO[bytes] | pa.NativeFile) -> pa.Table:
     return vx.open_readable(source, without_segment_cache=True).to_arrow().read_all()
 
 
@@ -79,6 +81,16 @@ def test_file_object(path: Path, expected: pa.Table) -> None:
 
 def test_bytes_io(path: Path, expected: pa.Table) -> None:
     assert read_all(io.BytesIO(path.read_bytes())).equals(expected)
+
+
+@pytest.mark.parametrize(
+    "open_file",
+    [pa.OSFile, pa.memory_map, LocalFileSystem().open_input_file],
+    ids=["os_file", "memory_map", "filesystem"],
+)
+def test_pyarrow_file(path: Path, expected: pa.Table, open_file: Callable[[str], pa.NativeFile]) -> None:
+    with open_file(str(path)) as f:
+        assert read_all(f).equals(expected)
 
 
 def test_reopen_with_footer(path: Path, expected: pa.Table) -> None:
