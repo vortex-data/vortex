@@ -10,6 +10,11 @@ on:
         required: true
         type: string
         description: "Named benchmark matrix to run"
+      benchmarks:
+        required: false
+        type: string
+        default: ""
+        description: "Comma-separated benchmark IDs to keep from the preset; empty runs all of it"
       machine_type:
         required: false
         type: string
@@ -37,10 +42,11 @@ jobs:
         shell: bash
         env:
           MATRIX_PRESET: ${{ inputs.matrix_preset }}
+          BENCHMARKS: ${{ inputs.benchmarks }}
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET")"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" --only "$BENCHMARKS")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:

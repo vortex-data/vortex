@@ -187,3 +187,40 @@ def test_matrix_command() -> None:
 
 def test_preset_names_are_stable() -> None:
     assert set(MATRIX_PRESETS) == set(EXPECTED_IDS)
+
+
+@pytest.mark.parametrize("preset", MATRIX_PRESETS)
+def test_only_selects_each_benchmark(preset: str) -> None:
+    entries = _entries(preset)
+    for entry in entries:
+        assert resolve_matrix(preset, [str(entry["id"])]) == [entry]
+
+
+def test_only_keeps_preset_order_and_ignores_empty_selection() -> None:
+    assert [entry["id"] for entry in resolve_matrix("pr-all", ["polarsignals", "tpch-nvme"])] == [
+        "tpch-nvme",
+        "polarsignals",
+    ]
+    assert resolve_matrix("pr-all", []) == _entries("pr-all")
+
+
+def test_only_rejects_ids_outside_preset() -> None:
+    with pytest.raises(ValueError, match=r"Benchmark IDs not in matrix preset 'pr': appian-nvme, nope\."):
+        _ = resolve_matrix("pr", ["polarsignals", "appian-nvme", "nope"])
+
+
+@pytest.mark.parametrize("only", ["polarsignals,tpch-nvme", " polarsignals  tpch-nvme ", "tpch-nvme, polarsignals"])
+def test_matrix_command_only(only: str) -> None:
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", only])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == resolve_matrix("pr-all", ["tpch-nvme", "polarsignals"])
+
+
+def test_matrix_command_only_edge_cases() -> None:
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", ""])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == _entries("pr-all")
+
+    result = runner.invoke(cli_module.app, ["matrix", "pr-all", "--only", "does-not-exist"])
+    assert result.exit_code == 1
+    assert "Benchmark IDs not in matrix preset" in result.stdout
