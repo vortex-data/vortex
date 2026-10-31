@@ -336,6 +336,43 @@ impl Scheme for ZeroBytesSamplingScheme {
     }
 }
 
+/// Samples to a finite ratio by keeping a single element.
+#[derive(Debug)]
+struct FiniteSamplingScheme;
+
+impl Scheme for FiniteSamplingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.finite_sampling"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        data.array().slice(0..1)
+    }
+}
+
 #[test]
 fn test_self_exclusion() {
     let c = compressor();
@@ -671,6 +708,27 @@ fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
     assert!(matches!(
         observed,
         Some(Some(EstimateScore::FiniteCompression(r))) if r == 3.0
+    ));
+    Ok(())
+}
+
+#[test]
+fn callbacks_observe_samples_registered_after_them() -> VortexResult<()> {
+    let _guard = OBSERVER_LOCK.lock();
+    *OBSERVED_THRESHOLD.lock() = None;
+
+    let compressor =
+        CascadingCompressor::new(vec![&ThresholdObservingScheme, &FiniteSamplingScheme]);
+    let schemes: [&'static dyn Scheme; 2] = [&ThresholdObservingScheme, &FiniteSamplingScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    let observed = *OBSERVED_THRESHOLD.lock();
+    assert!(matches!(
+        observed,
+        Some(Some(EstimateScore::FiniteCompression(_)))
     ));
     Ok(())
 }

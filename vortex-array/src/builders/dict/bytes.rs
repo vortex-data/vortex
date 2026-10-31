@@ -60,17 +60,17 @@ pub fn bytes_dict_builder(
     allocator: BufferAllocatorRef,
 ) -> Box<dyn DictEncoder> {
     match constraints.max_len as u64 {
-        max if max <= u8::MAX as u64 => Box::new(BytesDictBuilder::<u8>::new_in(
+        max if max <= u8::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u8>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u16::MAX as u64 => Box::new(BytesDictBuilder::<u16>::new_in(
+        max if max <= u16::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u16>::new_in(
             dtype,
             constraints,
             allocator,
         )),
-        max if max <= u32::MAX as u64 => Box::new(BytesDictBuilder::<u32>::new_in(
+        max if max <= u32::MAX as u64 + 1 => Box::new(BytesDictBuilder::<u32>::new_in(
             dtype,
             constraints,
             allocator,
@@ -363,6 +363,7 @@ mod test {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::ByteBuffer;
@@ -370,6 +371,7 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::BytesDictBuilder;
+    use super::bytes_dict_builder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -379,11 +381,13 @@ mod test {
     use crate::arrays::varbinview::BinaryView;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
+    use crate::builders::dict::DictConstraints;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::dict_encoder_in;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -508,6 +512,25 @@ mod test {
         assert_arrays_eq!(encoder.reset(), second, &mut ctx);
 
         Ok(())
+    }
+
+    #[rstest]
+    #[case(usize::from(u8::MAX) + 1, PType::U8)]
+    #[case(usize::from(u8::MAX) + 2, PType::U16)]
+    #[case(usize::from(u16::MAX) + 1, PType::U16)]
+    #[case(usize::from(u16::MAX) + 2, PType::U32)]
+    fn selects_narrowest_code_type(#[case] max_len: usize, #[case] expected: PType) {
+        let constraints = DictConstraints {
+            max_bytes: usize::MAX,
+            max_len,
+        };
+        let encoder = bytes_dict_builder(
+            DType::Utf8(Nullability::NonNullable),
+            &constraints,
+            BufferAllocatorRef::statically_allocated(),
+        );
+
+        assert_eq!(encoder.codes_ptype(), expected);
     }
 
     #[test]

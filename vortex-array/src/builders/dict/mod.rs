@@ -25,7 +25,9 @@ mod primitive;
 
 #[derive(Clone)]
 pub struct DictConstraints {
+    /// Limits the encoded storage for dictionary values.
     pub max_bytes: usize,
+    /// Limits the number of dictionary values.
     pub max_len: usize,
 }
 

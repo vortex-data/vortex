@@ -9,6 +9,9 @@ mod sample;
 mod select;
 mod structural;
 
+pub(crate) use sample::estimate_compression_ratio_with_sampling;
+pub(crate) use sample::sample_slices;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
