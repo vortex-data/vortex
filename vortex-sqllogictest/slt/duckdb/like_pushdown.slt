@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES ('a_c', 'a_c'), ('abc', 'b'), ('100%', '1%'), ('1000', '1%'),
+    ('page_view', 'p%'), ('pageXview', 'p%'), ('C:' || chr(92) || 'x', 'C:' || chr(92) || '_'), ('C:%', 'C:%'),
+    (NULL, NULL)) t(s, p))
+TO '${WORK_DIR}/like-pushdown.vortex';
+
+# contains, prefix and suffix match their argument literally
+query T
+SELECT s FROM '${WORK_DIR}/like-pushdown.vortex' WHERE contains(s, 'a_c');
+----
+a_c
+
+query T
+SELECT s FROM '${WORK_DIR}/like-pushdown.vortex' WHERE prefix(s, 'page_');
+----
+page_view
+
+query T
+SELECT s FROM '${WORK_DIR}/like-pushdown.vortex' WHERE s GLOB 'page_*';
+----
+page_view
+
+query T
+SELECT s FROM '${WORK_DIR}/like-pushdown.vortex' WHERE suffix(s, '0%');
+----
+100%
+
+query TT
+EXPLAIN (FORMAT json) SELECT s FROM '${WORK_DIR}/like-pushdown.vortex' WHERE prefix(s, 'page_');
+----
+<REGEX>:"Filters": "[^"]* like
+
+# A backslash in a LIKE pattern matches itself
+query T
+SELECT replace(s, chr(92), '/') FROM '${WORK_DIR}/like-pushdown.vortex' WHERE s LIKE 'C:' || chr(92) || '%';
+----
+C:/x
+
+query T
+SELECT replace(s, chr(92), '/') FROM '${WORK_DIR}/like-pushdown.vortex' WHERE s LIKE 'C:' || chr(92) || '_';
+----
+C:/x
+
+# A pattern that isn't a constant is evaluated by DuckDB
+query T
+SELECT replace(s, chr(92), '/') FROM '${WORK_DIR}/like-pushdown.vortex' WHERE s LIKE p ORDER BY s;
+----
+100%
+1000
+C:%
+C:/x
+a_c
+pageXview
+page_view
+
+query T
+SELECT replace(s, chr(92), '/') FROM '${WORK_DIR}/like-pushdown.vortex' WHERE s LIKE s ORDER BY s;
+----
+100%
+1000
+C:%
+C:/x
+a_c
+abc
+pageXview
+page_view
