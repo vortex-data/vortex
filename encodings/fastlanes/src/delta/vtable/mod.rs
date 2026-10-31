@@ -34,15 +34,14 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::BitPacked;
 use crate::DeltaData;
 use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
+use crate::delta::array::delta_decompress::PackedDeltas;
 use crate::delta::array::delta_decompress::delta_decompress;
-use crate::delta::array::delta_decompress::is_fusable;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
@@ -206,9 +205,9 @@ impl VTable for Delta {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
-        // Bit-packed deltas are unpacked and prefix-summed in one pass when their chunks line up
-        // with the delta chunks and they have no patches.
-        let fused = array.deltas().as_opt::<BitPacked>().is_some_and(is_fusable);
+        // Bit-packed deltas that start on a packed block are unpacked and prefix-summed in one
+        // pass, so they need not be decoded first.
+        let fused = PackedDeltas::try_new(array.deltas()).is_some();
         let array = if fused {
             array
         } else {
