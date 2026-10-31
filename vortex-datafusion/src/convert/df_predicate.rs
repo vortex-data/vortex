@@ -45,7 +45,6 @@ use vortex::scalar_fn::ScalarFnVTable;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::session::registry::CachedId;
 use vortex_arrow::ArrowSessionExt;
-use vortex_utils::aliases::hash_map::HashMap;
 
 /// A DataFusion predicate that Vortex cannot express, such as the hash table lookup in the
 /// dynamic filter of a hash join, evaluated by DataFusion on Arrow batches of the columns it reads.
@@ -175,6 +174,9 @@ impl ScalarFnVTable for DataFusionPredicate {
     }
 }
 
+/// The largest partition number that [`evaluate_routed`] looks up in a table.
+const MAX_ROUTES: usize = 1 << 16;
+
 /// Evaluates `case`, which routes each row to one boolean branch by the value of its base
 /// expression, in one pass over the rows.
 ///
@@ -191,17 +193,27 @@ fn evaluate_routed(case: &df_expr::CaseExpr, batch: &RecordBatch) -> DFResult<Ar
     let Some(base) = case.expr() else {
         return generic();
     };
-    let mut branches = HashMap::<u64, usize>::default();
+    // The WHEN values of a routed filter are the partition numbers, so the branch of each row is a
+    // lookup in a table indexed by its route.
+    let mut branches = Vec::<Option<usize>>::new();
     for (idx, (when, _)) in case.when_then_expr().iter().enumerate() {
-        match when
+        let value = match when
             .downcast_ref::<df_expr::Literal>()
             .map(|literal| literal.value())
         {
-            Some(ScalarValue::UInt64(Some(value))) => {
-                branches.entry(*value).or_insert(idx);
-            }
+            Some(ScalarValue::UInt64(Some(value))) => *value,
             _ => return generic(),
+        };
+        let Some(value) = usize::try_from(value)
+            .ok()
+            .filter(|value| *value < MAX_ROUTES)
+        else {
+            return generic();
+        };
+        if branches.len() <= value {
+            branches.resize(value + 1, None);
         }
+        branches[value].get_or_insert(idx);
     }
     let otherwise = match case.else_expr() {
         None => false,
@@ -218,13 +230,20 @@ fn evaluate_routed(case: &df_expr::CaseExpr, batch: &RecordBatch) -> DFResult<Ar
     let Some(routes) = routes.as_primitive_opt::<UInt64Type>() else {
         return generic();
     };
-    let mut rows = vec![Vec::<u32>::new(); case.when_then_expr().len()];
+    let expected_rows = batch.num_rows() / case.when_then_expr().len().max(1);
+    let mut rows = (0..case.when_then_expr().len())
+        .map(|_| Vec::<u32>::with_capacity(expected_rows))
+        .collect::<Vec<_>>();
     let mut result = BooleanBufferBuilder::new(batch.num_rows());
     result.append_n(batch.num_rows(), otherwise);
-    for (row, route) in routes.iter().enumerate() {
-        if let Some(branch) = route.and_then(|route| branches.get(&route)) {
-            rows[*branch]
-                .push(u32::try_from(row).map_err(|err| DataFusionError::External(Box::new(err)))?);
+    let row_count =
+        u32::try_from(batch.num_rows()).map_err(|err| DataFusionError::External(Box::new(err)))?;
+    for (row, route) in (0..row_count).zip(routes.iter()) {
+        let branch = route
+            .and_then(|route| usize::try_from(route).ok())
+            .and_then(|route| branches.get(route).copied().flatten());
+        if let Some(branch) = branch {
+            rows[branch].push(row);
         }
     }
     for ((_, then), rows) in case.when_then_expr().iter().zip(rows) {
