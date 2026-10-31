@@ -34,6 +34,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::BitPacked;
 use crate::DeltaData;
 use crate::FL_CHUNK_SIZE;
 use crate::delta::array::DeltaArrayExt;
@@ -41,6 +42,7 @@ use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::DeltaSlots;
 use crate::delta::array::DeltaSlotsView;
 use crate::delta::array::delta_decompress::delta_decompress;
+use crate::delta::array::delta_decompress::is_fusable;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
 
@@ -204,7 +206,14 @@ impl VTable for Delta {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
-        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+        // Bit-packed deltas are unpacked and prefix-summed in one pass when their chunks line up
+        // with the delta chunks and they have no patches.
+        let fused = array.deltas().as_opt::<BitPacked>().is_some_and(is_fusable);
+        let array = if fused {
+            array
+        } else {
+            require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive)
+        };
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))
