@@ -10,6 +10,7 @@
 //! cannot express are dropped, apart from the hash table lookup of a join, which DataFusion
 //! evaluates inside the scan.
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -40,6 +41,7 @@ use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::binary;
 use vortex::expr::dynamic_expression;
 use vortex::expr::get_item;
 use vortex::expr::lit;
@@ -153,7 +155,7 @@ impl DynamicFilterConversions {
             DynamicFilterTracking::classify(&filter.adapted),
             DynamicFilterTracking::AllComplete
         ) {
-            return Ok(vec![filter.dynamic_expression()]);
+            return Ok(filter.dynamic_expressions());
         }
 
         let (generation, conjuncts) = filter.current();
@@ -217,9 +219,9 @@ struct FileDynamicFilter {
     schema: SchemaRef,
     converter: Arc<dyn ExpressionConverter>,
     conversion: RwLock<Option<(u64, Conjuncts)>>,
-    /// The switched dynamic expression of the filter, built once so that every file shares its
-    /// switch.
-    dynamic: OnceLock<Expression>,
+    /// The switched dynamic expressions of the filter, built once so that every file shares their
+    /// switches.
+    dynamic: OnceLock<Vec<Expression>>,
 }
 
 impl FileDynamicFilter {
@@ -260,36 +262,61 @@ impl FileDynamicFilter {
         (generation, conjuncts)
     }
 
-    /// A switched dynamic expression over the columns of the filter that evaluates its current
-    /// value.
-    fn dynamic_expression(self: &Arc<Self>) -> Expression {
+    /// Switched dynamic expressions that evaluate the current value of the filter.
+    ///
+    /// For a filter over several columns, such as the threshold of a TopK over several sort keys,
+    /// `a < x OR (a = x AND b < y)`, there is first one expression for each column with the
+    /// bounds the filter implies on it, here `a <= x`. A scan prunes zones with these and
+    /// evaluates them cheaply, so the full filter only sees the rows they keep.
+    fn dynamic_expressions(self: &Arc<Self>) -> Vec<Expression> {
         self.dynamic
             .get_or_init(|| {
                 let columns = collect_columns(&self.adapted)
                     .into_iter()
                     .sorted_by_key(|column| column.index())
-                    .map(|column| column.name().to_string())
+                    .map(|column| FieldName::from(column.name()))
                     .collect::<Vec<_>>();
-                let inputs = columns
-                    .iter()
-                    .map(|column| get_item(column.as_str(), root()))
-                    .collect::<Vec<_>>();
-                let scope_projection = pack(
-                    columns.iter().enumerate().map(|(idx, column)| {
-                        (column.as_str(), get_item(input_field_name(idx), root()))
-                    }),
-                    Nullability::NonNullable,
-                );
-                let dynamic = dynamic_expression(
-                    Arc::new(DataFusionDynamicFilter {
-                        filter: Arc::clone(self),
-                        scope_projection,
-                    }),
-                    inputs,
-                );
-                switch(dynamic, DYNAMIC_MAX_KEPT_PERCENT)
+                let mut expressions = Vec::with_capacity(columns.len() + 1);
+                if columns.len() > 1 {
+                    for column in &columns {
+                        expressions.push(
+                            self.dynamic_expression(vec![column.clone()], Some(column.clone())),
+                        );
+                    }
+                }
+                expressions.push(self.dynamic_expression(columns, None));
+                expressions
             })
             .clone()
+    }
+
+    /// A switched dynamic expression over `columns` that evaluates the current value of the
+    /// filter, or only the bounds it implies on `bound_column`.
+    fn dynamic_expression(
+        self: &Arc<Self>,
+        columns: Vec<FieldName>,
+        bound_column: Option<FieldName>,
+    ) -> Expression {
+        let inputs = columns
+            .iter()
+            .map(|column| get_item(column.clone(), root()))
+            .collect::<Vec<_>>();
+        let scope_projection = pack(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(idx, column)| (column.clone(), get_item(input_field_name(idx), root()))),
+            Nullability::NonNullable,
+        );
+        let dynamic = dynamic_expression(
+            Arc::new(DataFusionDynamicFilter {
+                filter: Arc::clone(self),
+                scope_projection,
+                bound_column,
+            }),
+            inputs,
+        );
+        switch(dynamic, DYNAMIC_MAX_KEPT_PERCENT)
     }
 }
 
@@ -298,6 +325,8 @@ struct DataFusionDynamicFilter {
     filter: Arc<FileDynamicFilter>,
     /// The file columns of the filter, as a struct over the inputs of the dynamic expression.
     scope_projection: Expression,
+    /// The column whose bounds alone this source evaluates, if it does not evaluate the filter.
+    bound_column: Option<FieldName>,
 }
 
 impl fmt::Debug for DataFusionDynamicFilter {
@@ -308,6 +337,9 @@ impl fmt::Debug for DataFusionDynamicFilter {
 
 impl fmt::Display for DataFusionDynamicFilter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(column) = &self.bound_column {
+            write!(f, "bounds({column}) of ")?;
+        }
         fmt::Display::fmt(&self.filter.adapted, f)
     }
 }
@@ -319,11 +351,20 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
 
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
         let (_, conjuncts) = self.filter.current();
-        let predicate = and_collect(conjuncts.iter().map(|(conjunct, _)| conjunct.clone()))
-            .map_or_else(
-                || lit(true),
-                |predicate| replace(predicate, &root(), self.scope_projection.clone()),
-            );
+        let conjuncts = conjuncts.iter().map(|(conjunct, _)| conjunct);
+        let conjuncts = match &self.bound_column {
+            Some(column) => {
+                let column = get_item(column.clone(), root());
+                conjuncts
+                    .filter_map(|conjunct| implied_bound(conjunct, &column))
+                    .collect::<Vec<_>>()
+            }
+            None => conjuncts.cloned().collect(),
+        };
+        let predicate = and_collect(conjuncts).map_or_else(
+            || lit(true),
+            |predicate| replace(predicate, &root(), self.scope_projection.clone()),
+        );
         predicate
             .bind(scope)?
             .optimize_recursive()
@@ -520,6 +561,63 @@ fn holds_every_value(expr: &Expression, file: &VortexFile) -> bool {
     holds_every_value
 }
 
+/// A bound on `column` that `expr` implies, as a comparison of `column` with a literal.
+///
+/// Every row for which `expr` is true satisfies the bound. A disjunction implies the hull of the
+/// bounds of its sides, so `a < x OR (a = x AND b < y)` implies `a <= x`.
+fn implied_bound(expr: &Expression, column: &Expression) -> Option<Expression> {
+    let operator = *expr.as_opt::<Binary>()?;
+    match operator {
+        Operator::And => {
+            implied_bound(expr.child(0), column).or_else(|| implied_bound(expr.child(1), column))
+        }
+        Operator::Or => hull(
+            &implied_bound(expr.child(0), column)?,
+            &implied_bound(expr.child(1), column)?,
+        ),
+        Operator::Eq | Operator::Lt | Operator::Lte | Operator::Gt | Operator::Gte => {
+            let value = expr.child(1).as_opt::<Literal>()?;
+            (expr.child(0) == column && !value.is_null()).then(|| expr.clone())
+        }
+        _ => None,
+    }
+}
+
+/// The tightest comparison that both bounds imply, if they bound the same side of the column.
+fn hull(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
+    let (lhs_op, lhs_value) = (*lhs.as_::<Binary>(), lhs.child(1).as_::<Literal>());
+    let (rhs_op, rhs_value) = (*rhs.as_::<Binary>(), rhs.child(1).as_::<Literal>());
+
+    let is_upper = |op| matches!(op, Operator::Eq | Operator::Lt | Operator::Lte);
+    let is_lower = |op| matches!(op, Operator::Eq | Operator::Gt | Operator::Gte);
+    let inclusive = |op| matches!(op, Operator::Eq | Operator::Lte | Operator::Gte);
+
+    if lhs_op == Operator::Eq && rhs_op == Operator::Eq {
+        return (lhs_value == rhs_value).then(|| lhs.clone());
+    }
+    let (upper, ordering) = if is_upper(lhs_op) && is_upper(rhs_op) {
+        (true, lhs_value.partial_cmp(rhs_value)?)
+    } else if is_lower(lhs_op) && is_lower(rhs_op) {
+        (false, rhs_value.partial_cmp(lhs_value)?)
+    } else {
+        return None;
+    };
+
+    // The looser side wins; on equal values, the bound is inclusive if either side is.
+    let (value, inclusive) = match ordering {
+        Ordering::Greater => (lhs_value, inclusive(lhs_op)),
+        Ordering::Less => (rhs_value, inclusive(rhs_op)),
+        Ordering::Equal => (lhs_value, inclusive(lhs_op) || inclusive(rhs_op)),
+    };
+    let operator = match (upper, inclusive) {
+        (true, true) => Operator::Lte,
+        (true, false) => Operator::Lt,
+        (false, true) => Operator::Gte,
+        (false, false) => Operator::Gt,
+    };
+    Some(binary(operator, lhs.child(0).clone(), lit(value.clone())))
+}
+
 /// Whether `expr` compares an expression with a literal by order or equality.
 fn is_range_bound(expr: &Arc<dyn PhysicalExpr>) -> bool {
     expr.downcast_ref::<df_expr::BinaryExpr>()
@@ -563,11 +661,11 @@ fn partition_bounds(case: &df_expr::CaseExpr) -> Vec<Arc<dyn PhysicalExpr>> {
                     let (_, other_min, other_max) =
                         bounds.iter().find(|(other, ..)| other == &key)?;
                     let min = match other_min.partial_cmp(&min)? {
-                        std::cmp::Ordering::Less => other_min.clone(),
+                        Ordering::Less => other_min.clone(),
                         _ => min,
                     };
                     let max = match other_max.partial_cmp(&max)? {
-                        std::cmp::Ordering::Greater => other_max.clone(),
+                        Ordering::Greater => other_max.clone(),
                         _ => max,
                     };
                     Some((key, min, max))
@@ -755,6 +853,35 @@ mod tests {
                 .collect(),
             Some(df_expr::lit(default)),
         )
+    }
+
+    #[rstest]
+    #[case::topk_threshold(
+        vortex::expr::or(
+            lt(col("a"), lit(5)),
+            vortex::expr::and(eq(col("a"), lit(5)), lt(col("b"), lit("x")))
+        ),
+        Some(lt_eq(col("a"), lit(5)))
+    )]
+    #[case::looser_upper_bound(
+        vortex::expr::or(lt(col("a"), lit(5)), lt_eq(col("a"), lit(3))),
+        Some(lt(col("a"), lit(5)))
+    )]
+    #[case::lower_bounds(
+        vortex::expr::or(vortex::expr::gt(col("a"), lit(5)), gt_eq(col("a"), lit(7))),
+        Some(vortex::expr::gt(col("a"), lit(5)))
+    )]
+    #[case::conjunction(
+        vortex::expr::and(lt(col("b"), lit(1)), gt_eq(col("a"), lit(2))),
+        Some(gt_eq(col("a"), lit(2)))
+    )]
+    #[case::opposite_sides(
+        vortex::expr::or(lt(col("a"), lit(5)), vortex::expr::gt(col("a"), lit(9))),
+        None
+    )]
+    #[case::other_column(vortex::expr::or(lt(col("a"), lit(5)), lt(col("b"), lit(9))), None)]
+    fn implied_bounds(#[case] expr: Expression, #[case] expected: Option<Expression>) {
+        assert_eq!(implied_bound(&expr, &col("a")), expected);
     }
 
     #[test]
