@@ -5,8 +5,8 @@
 //!
 //! This measures the kernel directly rather than going through the lazy
 //! `ArrayRef::filter` (which only builds a `FilterArray` node and does not run
-//! the kernel). The hot work is a per-run popcount of the predicate mask, which
-//! now uses `BitBuffer::count_range` (SIMD) instead of a bit-by-bit walk.
+//! the kernel). The hot work is counting the predicate mask's set bits in each
+//! run, or, for sparse masks, finding the run of each set bit.
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_precision_loss)]
@@ -38,11 +38,13 @@ fn main() {
     // reads the CPU quota from the file system. Without this call, those system calls land in the
     // single measured iteration of the first benchmark under the CodSpeed simulation.
     let length = 4_096;
+    let mask = build_mask(length, 0.5);
     filter_run_end_primitive::<u32>(
         &build_run_ends(length, 16),
         0,
         length as u64,
-        &build_mask(length, 0.5),
+        &mask,
+        mask.true_count(),
         SESSION.create_execution_ctx().allocator(),
     )
     .expect("filter");
@@ -115,6 +117,16 @@ const FILTER_ARGS: &[FilterBenchArgs] = &[
         density: 0.5,
     },
     FilterBenchArgs {
+        length: 131_072,
+        run_length: 4,
+        density: 0.02,
+    },
+    FilterBenchArgs {
+        length: 131_072,
+        run_length: 16,
+        density: 0.02,
+    },
+    FilterBenchArgs {
         length: 65_536,
         run_length: 256,
         density: 0.5,
@@ -147,6 +159,7 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
     let run_ends = build_run_ends(args.length, args.run_length);
     let mask = build_mask(args.length, args.density);
     let length = args.length as u64;
+    let selected_rows = mask.true_count();
     bencher
         .with_inputs(|| {
             (
@@ -156,7 +169,14 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
             )
         })
         .bench_refs(|(run_ends, mask, ctx)| {
-            filter_run_end_primitive::<u32>(run_ends, 0, length, mask, ctx.allocator())
-                .expect("filter")
+            filter_run_end_primitive::<u32>(
+                run_ends,
+                0,
+                length,
+                mask,
+                selected_rows,
+                ctx.allocator(),
+            )
+            .expect("filter")
         });
 }
