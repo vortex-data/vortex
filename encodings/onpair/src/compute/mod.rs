@@ -7,3 +7,4 @@ mod compare;
 mod filter;
 mod slice;
 mod take;
+pub(crate) mod uncompressed_size_in_bytes;
