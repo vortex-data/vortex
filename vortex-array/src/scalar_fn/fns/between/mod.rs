@@ -19,8 +19,11 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
+use crate::arrays::Extension;
+use crate::arrays::ExtensionArray;
 use crate::arrays::Primitive;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
@@ -322,6 +325,17 @@ impl ScalarFnVTable for Between {
         let lower = args.get(1)?;
         let upper = args.get(2)?;
 
+        // An extension array counts as canonical over any storage, so its two compares would each
+        // decode the storage. Decode it once here.
+        if let Some(ext) = arr.as_opt::<Extension>()
+            && !ext.storage_array().is_canonical()
+        {
+            let storage = ext.storage_array().clone().execute::<Canonical>(ctx)?;
+            return ExtensionArray::new(ext.ext_dtype().clone(), storage.into_array())
+                .into_array()
+                .between(lower, upper, options.clone());
+        }
+
         // canonicalize the arr and we might be able to run a between kernels over that.
         if !arr.is_canonical() {
             return arr.execute::<Canonical>(ctx)?.into_array().between(
@@ -355,6 +369,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -367,6 +382,8 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::root;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::test_harness::to_int_indices;
@@ -383,6 +400,32 @@ mod tests {
     fn null_i32s(len: usize) -> ArrayRef {
         let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         ConstantArray::new(null, len).into_array()
+    }
+
+    /// The storage is a lazy dictionary, so the extension array is canonical over encoded data.
+    #[test]
+    fn extension_over_encoded_storage() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let storage = DictArray::try_new(
+            buffer![0u8, 1, 2, 1].into_array(),
+            buffer![10i32, 20, 30].into_array(),
+        )?
+        .into_array();
+        let date = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+        let dates = ExtensionArray::new(date.clone(), storage).into_array();
+        assert!(dates.is_canonical());
+
+        let bound = |days: i32| {
+            let storage = Scalar::primitive(days, Nullability::NonNullable);
+            ConstantArray::new(Scalar::extension_ref(date.clone(), storage), 4).into_array()
+        };
+        let result = dates.between(bound(15), bound(25), NON_STRICT)?;
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, false, true]),
+            ctx
+        );
+        Ok(())
     }
 
     #[test]
