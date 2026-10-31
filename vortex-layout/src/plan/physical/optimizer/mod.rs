@@ -29,7 +29,7 @@ use super::plans::ExpressionLegacyStatsRule;
 use super::plans::ExpressionPackRule;
 use super::plans::ExpressionTakeRule;
 use super::plans::ExpressionZonedRule;
-use super::plans::LegacyStatsRule;
+use super::plans::LegacyStatsDataRule;
 use super::plans::ZonedDataRule;
 use crate::plan::physical::plans::EvalEvalRule;
 use crate::plan::physical::plans::EvalPackRule;
@@ -37,8 +37,8 @@ use crate::plan::physical::plans::EvalPackRule;
 static EVAL_IDENTITY_RULE: PlanReduceRuleAdapter<Eval, EvalIdentityRule> =
     PlanReduceRuleAdapter::new(EvalIdentityRule);
 
-static LEGACY_STATS_RULE: PlanReduceRuleAdapter<LegacyStats, LegacyStatsRule> =
-    PlanReduceRuleAdapter::new(LegacyStatsRule);
+static LEGACY_STATS_DATA_RULE: PlanReduceRuleAdapter<LegacyStats, LegacyStatsDataRule> =
+    PlanReduceRuleAdapter::new(LegacyStatsDataRule);
 
 static ZONED_DATA_RULE: PlanReduceRuleAdapter<Zoned, ZonedDataRule> =
     PlanReduceRuleAdapter::new(ZonedDataRule);
@@ -46,7 +46,7 @@ static ZONED_DATA_RULE: PlanReduceRuleAdapter<Zoned, ZonedDataRule> =
 static PLAN_RULES: PlanRuleSet = PlanRuleSet::new(&[
     &EVAL_IDENTITY_RULE,
     &PlanReduceRuleAdapter::new(EvalPackRule),
-    &LEGACY_STATS_RULE,
+    &LEGACY_STATS_DATA_RULE,
     &ZONED_DATA_RULE,
 ]);
 

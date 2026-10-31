@@ -518,7 +518,10 @@ fn expanded_struct_root(
     bound_pack(fields.names().clone(), children)
 }
 
-fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> VortexResult<bool> {
+pub(super) fn is_identity_expression(
+    expression: &BoundExpression,
+    input_dtype: &DType,
+) -> VortexResult<bool> {
     if expression.is_root() {
         return Ok(expression.dtype() == input_dtype);
     }
