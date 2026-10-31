@@ -15,6 +15,7 @@ use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
@@ -32,6 +33,7 @@ use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
+use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
@@ -46,6 +48,7 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -209,6 +212,8 @@ pub struct VortexSource {
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
+    /// The Vortex expression of each dynamic filter of the predicate, keyed by the filter.
+    dynamic_filters: Arc<DashMap<DynamicFilterKey, Expression>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -245,6 +250,7 @@ impl VortexSource {
             scan_caches: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
+            dynamic_filters: Arc::new(DashMap::default()),
             expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -372,6 +378,7 @@ impl VortexSource {
             scan_caches: Arc::clone(&self.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
+            dynamic_filters: Arc::clone(&self.dynamic_filters),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
@@ -511,10 +518,19 @@ impl FileSource for VortexSource {
             .with_updated_node(Arc::new(source) as _));
         }
 
+        // A dynamic filter, such as the bound a top-K tightens while it runs, stays with the
+        // operator that produces it, which enforces it exactly. A V2 scan also evaluates it, from
+        // its current value, to prune and filter what that operator would discard.
+        let mut dynamic = Vec::new();
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
-                if self
+                if self.options.scan_v2
+                    && DynamicFilterTracking::classify(&expr).contains_dynamic_filter()
+                {
+                    dynamic.push(Arc::clone(&expr));
+                    Ok(PushedDownPredicate::unsupported(expr))
+                } else if self
                     .expression_converter
                     .try_convert(&expr, self.table_schema.table_schema())?
                     .is_some()
@@ -526,9 +542,10 @@ impl FileSource for VortexSource {
             })
             .collect::<DFResult<Vec<_>>>()?;
 
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
+        if dynamic.is_empty()
+            && supported_filters
+                .iter()
+                .all(|p| matches!(p.discriminant, PushedDown::No))
         {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; supported_filters.len()],
@@ -542,7 +559,8 @@ impl FileSource for VortexSource {
                 PushedDown::Yes => Some(&p.predicate),
                 PushedDown::No => None,
             })
-            .cloned();
+            .cloned()
+            .chain(dynamic);
 
         let predicate = match source.vortex_predicate {
             Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
@@ -605,6 +623,7 @@ mod tests {
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
@@ -620,7 +639,7 @@ mod tests {
             &self,
             expr: &PhysicalExprRef,
             schema: &Schema,
-        ) -> DFResult<Option<vortex::expr::Expression>> {
+        ) -> DFResult<Option<Expression>> {
             self.inner.try_convert(expr, schema)
         }
 
@@ -751,6 +770,66 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    /// A V1 scan leaves a dynamic filter to the operator that produces it.
+    #[test]
+    fn try_pushdown_filters_leaves_dynamic_filters_out_of_v1_scans() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema));
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("name", 0)) as Arc<dyn PhysicalExpr>],
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+        )) as Arc<dyn PhysicalExpr>;
+
+        let result = source.try_pushdown_filters(vec![dynamic], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert!(updated_source.vortex_predicate.is_none());
+        Ok(())
+    }
+
+    /// A dynamic filter stays with the operator that produces it, but a V2 scan also evaluates
+    /// its current value, alongside the filters pushed down exactly.
+    #[test]
+    fn try_pushdown_filters_scans_with_dynamic_filters() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema)).with_options(VortexTableOptions {
+            scan_v2: true,
+            ..Default::default()
+        });
+        let exact = octet_length_filter(&schema);
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("name", 0)) as Arc<dyn PhysicalExpr>],
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+        )) as Arc<dyn PhysicalExpr>;
+
+        let result = source.try_pushdown_filters(
+            vec![Arc::clone(&exact), Arc::clone(&dynamic)],
+            &ConfigOptions::new(),
+        )?;
+
+        assert!(matches!(
+            result.filters.as_slice(),
+            [PushedDown::Yes, PushedDown::No]
+        ));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert_eq!(
+            updated_source.vortex_predicate.as_ref(),
+            Some(&conjunction([exact, dynamic]))
+        );
         Ok(())
     }
 
