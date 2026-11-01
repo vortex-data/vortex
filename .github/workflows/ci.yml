@@ -338,7 +338,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -358,7 +358,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=rust-msrv', github.run_id)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-A warnings"
@@ -451,7 +451,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -612,7 +612,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -691,7 +691,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=c-cxx-generated', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -833,7 +833,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=amd64-ci-medium/tag=integration-smoke', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
