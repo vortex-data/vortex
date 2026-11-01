@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
@@ -92,6 +93,7 @@ public final class VortexOutputWriter extends OutputWriter {
     private BufferAllocator allocator;
     private VectorSchemaRoot vectorSchemaRoot;
     private final List<InternalRow> batchRows = new ArrayList<>();
+    private Exception writeFailure;
     private boolean closed = false;
 
     /**
@@ -165,6 +167,10 @@ public final class VortexOutputWriter extends OutputWriter {
      */
     @Override
     public void write(InternalRow row) {
+        if (writeFailure != null) {
+            throw new IllegalStateException(
+                    "VortexOutputWriter for " + filePath + " failed on an earlier write", writeFailure);
+        }
         // Add row to current batch
         batchRows.add(row.copy());
 
@@ -173,7 +179,11 @@ public final class VortexOutputWriter extends OutputWriter {
             try {
                 writeBatch();
             } catch (IOException e) {
+                writeFailure = e;
                 throw new UncheckedIOException("Failed to write a Vortex batch to " + filePath, e);
+            } catch (RuntimeException e) {
+                writeFailure = e;
+                throw e;
             }
         }
     }
@@ -326,23 +336,37 @@ public final class VortexOutputWriter extends OutputWriter {
         }
     }
 
+    /**
+     * Flushes the last batch and finalizes the file.
+     *
+     * <p>After a failed {@link #write}, the batch it left half-populated is dropped. Then, and in any task that has
+     * already failed, this releases everything and logs what fails instead of throwing, because Spark's abort closes a
+     * task's writers one after another and stops at the first that throws. The incomplete file is never committed,
+     * since the task has failed.
+     */
     @Override
     public void close() {
         if (closed) {
             return;
         }
         IOException failure = null;
-        try {
-            if (!batchRows.isEmpty()) {
+        if (writeFailure == null && !batchRows.isEmpty()) {
+            try {
                 writeBatch();
+            } catch (IOException e) {
+                failure = e;
+            } catch (RuntimeException e) {
+                failure = new IOException("Failed to write the last Vortex batch", e);
             }
-            if (vortexWriter != null) {
+        }
+        if (vortexWriter != null) {
+            try {
                 vortexWriter.finish();
+            } catch (IOException e) {
+                failure = addFailure(failure, e);
+            } finally {
+                vortexWriter = null;
             }
-        } catch (IOException e) {
-            failure = e;
-        } finally {
-            vortexWriter = null;
         }
 
         failure = closeArrowResources(failure);
@@ -357,6 +381,10 @@ public final class VortexOutputWriter extends OutputWriter {
         }
         session = null;
         closed = true;
+        if (failure != null && (writeFailure != null || taskFailed())) {
+            logger.warn("Failed to close the writer for {} in a failed task", filePath, failure);
+            return;
+        }
         if (failure != null) {
             throw new UncheckedIOException("Failed to close Vortex output " + filePath, failure);
         }
@@ -365,6 +393,17 @@ public final class VortexOutputWriter extends OutputWriter {
     @Override
     public String path() {
         return filePath;
+    }
+
+    /** Spark marks a task failed before its abort closes the task's writers. */
+    private static boolean taskFailed() {
+        TaskContext context = TaskContext.get();
+        return context != null && context.isFailed();
+    }
+
+    /** Package-private so tests can see what close leaves allocated. */
+    BufferAllocator allocator() {
+        return allocator;
     }
 
     private IOException closeArrowResources(IOException failure) {
