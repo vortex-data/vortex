@@ -450,6 +450,13 @@ jobs:
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
             --exclude gpu-scan-cli
 
+      # The test outputs fill the default disk, and the wheel build cannot reuse
+      # them: it uses other RUSTFLAGS and its own target directory.
+      - name: Delete the Rust test outputs
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        shell: cmd
+        run: if exist target\ci rmdir /s /q target\ci
+
       # Mirrors the wheel build in package.yml, which spells the Windows interpreter
       # `python` because maturin has no `python3.11` executable to resolve there.
       - name: Build wheel
