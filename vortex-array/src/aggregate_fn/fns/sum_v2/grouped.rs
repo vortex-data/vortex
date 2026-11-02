@@ -6,6 +6,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -40,6 +41,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Encoding-specific grouped [`SumV2`] kernel for primitive element arrays.
@@ -364,9 +366,9 @@ impl DynGroupedAggregateKernel for ChunkedGroupedSumV2EncodingKernel {
 }
 
 /// [`SumV2`] partials for groups whose parts are summed separately, such as a group spanning
-/// chunks. Merging adds a group's parts like
+/// chunks, or a sparse array's fill and patches. Merging adds a group's parts like
 /// [`AggregateFnVTable::merge_partials`](crate::aggregate_fn::AggregateFnVTable::merge_partials).
-struct SumV2GroupPartials {
+pub struct SumV2GroupPartials {
     sums: GroupSums,
     is_overflow: BitBufferMut,
     is_empty: BitBufferMut,
@@ -375,7 +377,10 @@ struct SumV2GroupPartials {
 enum GroupSums {
     Unsigned(BufferMut<u64>),
     Signed(BufferMut<i64>),
-    Float { sums: BufferMut<f64> },
+    Float {
+        sums: BufferMut<f64>,
+        skip_nans: bool,
+    },
 }
 
 impl SumV2GroupPartials {
@@ -391,6 +396,7 @@ impl SumV2GroupPartials {
             DType::Primitive(PType::I64, _) => GroupSums::Signed(BufferMut::zeroed(groups)),
             DType::Primitive(PType::F64, _) => GroupSums::Float {
                 sums: BufferMut::zeroed(groups),
+                skip_nans: options.skip_nans,
             },
             _ => return None,
         };
@@ -459,6 +465,72 @@ impl SumV2GroupPartials {
         Ok(())
     }
 
+    /// Add `counts[group]` copies of `value` to each group.
+    pub fn add_repeated(&mut self, value: &Scalar, counts: &[u64]) -> VortexResult<()> {
+        if value.is_null() {
+            return Ok(());
+        }
+        match &mut self.sums {
+            GroupSums::Unsigned(totals) => {
+                let value = match value.as_bool_opt() {
+                    Some(value) => u64::from(value.value().unwrap_or(false)),
+                    None => value
+                        .as_primitive()
+                        .as_::<u64>()
+                        .ok_or_else(|| vortex_err!("{value} is not a u64 sum"))?,
+                };
+                add_repeated(
+                    totals,
+                    &mut self.is_overflow,
+                    &mut self.is_empty,
+                    counts,
+                    |total, count| value.checked_mul(count)?.checked_add(total),
+                );
+            }
+            GroupSums::Signed(totals) => {
+                let value = value
+                    .as_primitive()
+                    .as_::<i64>()
+                    .ok_or_else(|| vortex_err!("{value} is not an i64 sum"))?;
+                add_repeated(
+                    totals,
+                    &mut self.is_overflow,
+                    &mut self.is_empty,
+                    counts,
+                    |total, count| {
+                        value
+                            .checked_mul(i64::try_from(count).ok()?)?
+                            .checked_add(total)
+                    },
+                );
+            }
+            GroupSums::Float {
+                sums: totals,
+                skip_nans,
+            } => {
+                let value = value
+                    .as_primitive()
+                    .as_::<f64>()
+                    .ok_or_else(|| vortex_err!("{value} is not an f64 sum"))?;
+                let skip = value.is_nan() && *skip_nans;
+                add_repeated(
+                    totals,
+                    &mut self.is_overflow,
+                    &mut self.is_empty,
+                    counts,
+                    |total, count| {
+                        Some(if skip {
+                            total
+                        } else {
+                            total + value * count as f64
+                        })
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// The partials of the groups, null where `group_validity` is.
     pub fn finish(self, group_validity: &Mask) -> ArrayRef {
         let sums = match self.sums {
@@ -503,6 +575,26 @@ fn merge_sums<T: Copy>(
             continue;
         }
         match add(totals[group], sums[part]) {
+            Some(total) => totals[group] = total,
+            None => total_overflow.set(group),
+        }
+        total_empty.unset(group);
+    }
+}
+
+/// Add each group's repeated value, `add(total, count)`, to the totals of groups with a count.
+fn add_repeated<T: Copy>(
+    totals: &mut [T],
+    total_overflow: &mut BitBufferMut,
+    total_empty: &mut BitBufferMut,
+    counts: &[u64],
+    add: impl Fn(T, u64) -> Option<T>,
+) {
+    for (group, &count) in counts.iter().enumerate() {
+        if count == 0 || total_overflow.value(group) {
+            continue;
+        }
+        match add(totals[group], count) {
             Some(total) => totals[group] = total,
             None => total_overflow.set(group),
         }

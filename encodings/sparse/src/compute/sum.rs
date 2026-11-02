@@ -5,11 +5,24 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::DynGroupedAccumulator;
+use vortex_array::aggregate_fn::GroupedAccumulator;
+use vortex_array::aggregate_fn::GroupedArray;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2GroupPartials;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
@@ -60,6 +73,73 @@ impl DynAggregateKernel for SparseSumKernel {
     }
 }
 
+/// Grouped [`SumV2`] kernel for sparse elements.
+///
+/// The patches in each group are summed as one group of the patch values, and the fill adds once
+/// for every element of the group no patch covers, so the sparse elements are never decoded.
+#[derive(Debug)]
+pub(crate) struct SparseGroupedSumV2Kernel;
+
+impl DynGroupedAggregateKernel for SparseGroupedSumV2Kernel {
+    fn grouped_aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        groups: &GroupedArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(options) = aggregate_fn.as_opt::<SumV2>() else {
+            return Ok(None);
+        };
+        let Some(sparse) = groups.elements().as_opt::<Sparse>() else {
+            return Ok(None);
+        };
+        let Some(mut partials) =
+            SumV2GroupPartials::new(options, groups.elements().dtype(), groups.len())
+        else {
+            return Ok(None);
+        };
+        let group_ranges = groups.group_ranges(ctx)?;
+        let group_validity = groups.group_validity(ctx)?;
+
+        let patches = sparse.patches();
+        let patch_offset = patches.offset() as u64;
+        let indices = patches
+            .indices()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.as_slice::<u64>();
+
+        let mut patch_starts = BufferMut::<u64>::with_capacity(group_ranges.len());
+        let mut patch_counts = BufferMut::<u64>::with_capacity(group_ranges.len());
+        let mut fill_counts = Vec::with_capacity(group_ranges.len());
+        for (offset, size) in group_ranges.iter() {
+            let start = offset as u64 + patch_offset;
+            let first = indices.partition_point(|&index| index < start);
+            let count = indices[first..].partition_point(|&index| index < start + size as u64);
+            patch_starts.push(first as u64);
+            patch_counts.push(count as u64);
+            fill_counts.push((size - count) as u64);
+        }
+
+        // SAFETY: each group's patches are a range of the patch values, one per group.
+        let patch_groups = unsafe {
+            ListViewArray::new_unchecked(
+                patches.values().clone(),
+                patch_starts.into_array(),
+                patch_counts.into_array(),
+                Validity::from_mask(group_validity.clone(), Nullability::Nullable),
+            )
+        };
+        let mut accumulator =
+            GroupedAccumulator::try_new(SumV2, *options, patches.values().dtype().clone())?;
+        accumulator.accumulate_list(&patch_groups.into_array(), ctx)?;
+        let groups_in_order: Vec<usize> = (0..group_ranges.len()).collect();
+        partials.merge(&groups_in_order, &accumulator.flush()?, ctx)?;
+        partials.add_repeated(sparse.fill_scalar(), &fill_counts)?;
+        Ok(Some(partials.finish(&group_validity)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -71,13 +151,19 @@ mod tests {
     use vortex_array::aggregate_fn::Accumulator;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::DynGroupedAccumulator;
+    use vortex_array::aggregate_fn::GroupedAccumulator;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
     use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
@@ -235,6 +321,85 @@ mod tests {
                 .typed_value::<f64>()
                 .is_some_and(f64::is_nan)
         );
+        Ok(())
+    }
+
+    fn sparse(
+        indices: ArrayRef,
+        values: ArrayRef,
+        len: usize,
+        fill: Scalar,
+    ) -> VortexResult<ArrayRef> {
+        Ok(Sparse::try_new(
+            indices,
+            values,
+            len,
+            fill,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array())
+    }
+
+    fn grouped_sum_v2(elements: &ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
+        let mut ctx = session.create_execution_ctx();
+        let len = u32::try_from(elements.len())?;
+        let groups = ListViewArray::try_new(
+            elements.clone(),
+            vortex_array::arrays::PrimitiveArray::from_iter([0u32, 0, 2, len - 1, 4, 1])
+                .into_array(),
+            vortex_array::arrays::PrimitiveArray::from_iter([len, 3, 5, 1, 0, len - 2])
+                .into_array(),
+            Validity::from_iter([true, true, true, true, true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+        let mut accumulator = GroupedAccumulator::try_new(
+            SumV2,
+            NumericalAggregateOpts::default(),
+            elements.dtype().clone(),
+        )?;
+        accumulator.accumulate_list(&groups, &mut ctx)?;
+        accumulator.finish()
+    }
+
+    /// Grouped `sum_v2` over sparse elements, summed from the fill and the patches of each group,
+    /// matches summing the decoded elements.
+    #[rstest]
+    #[case::zero_fill_null_patches(sparse(
+        buffer![1u32, 3, 4, 8].into_array(),
+        vortex_array::arrays::PrimitiveArray::from_option_iter([Some(2u64), None, Some(1), None]).into_array(),
+        10,
+        Scalar::from(Some(0u64)),
+    )?)]
+    #[case::true_fill(sparse(
+        buffer![0u16, 5, 6].into_array(),
+        BoolArray::from_iter([Some(false), None, Some(false)]).into_array(),
+        9,
+        Scalar::from(Some(true)),
+    )?)]
+    #[case::null_fill(sparse(
+        buffer![2u64, 7].into_array(),
+        vortex_array::arrays::PrimitiveArray::from_option_iter([Some(-3i32), Some(9)]).into_array(),
+        8,
+        Scalar::null_native::<i32>(),
+    )?)]
+    #[case::fill_overflows(sparse(
+        buffer![3u32].into_array(),
+        vortex_array::arrays::PrimitiveArray::from_option_iter([Some(1i64)]).into_array(),
+        8,
+        Scalar::from(Some(i64::MAX / 2)),
+    )?)]
+    #[case::sliced(sparse(
+        buffer![1u32, 3, 4, 8, 11].into_array(),
+        vortex_array::arrays::PrimitiveArray::from_option_iter([Some(2u64), None, Some(1), Some(7), Some(5)]).into_array(),
+        14,
+        Scalar::from(Some(4u64)),
+    )?
+    .slice(2..13)?)]
+    fn grouped_sum_matches_decoded(#[case] elements: ArrayRef) -> VortexResult<()> {
+        let result = grouped_sum_v2(&elements, &SESSION)?;
+        let expected = grouped_sum_v2(&elements, &CANONICAL_SESSION)?;
+        assert_arrays_eq!(&result, &expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 }
