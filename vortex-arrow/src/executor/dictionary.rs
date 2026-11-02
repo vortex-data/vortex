@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -9,7 +10,9 @@ use arrow_array::PrimitiveArray;
 use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
+use arrow_schema::ArrowError;
 use arrow_schema::DataType;
+use rustc_hash::FxBuildHasher;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -17,13 +20,27 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray as VortexPrimitiveArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::UnsignedPType;
+use vortex_array::match_each_native_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::matcher::Matcher;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::Entry;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrowExporter;
+use crate::dtype::ptype_from_arrow;
 use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
@@ -55,6 +72,13 @@ pub(super) fn to_arrow_dictionary(
         Err(array) => array,
     };
 
+    if let DType::Primitive(ptype, _) = array.dtype()
+        && ptype_from_arrow(values_type).ok() == Some(*ptype)
+    {
+        let array = array.execute::<VortexPrimitiveArray>(ctx)?;
+        return primitive_to_dict(array, codes_type, values_type, exporter, ctx);
+    }
+
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
     let array = execute_arrow_naive(array, Some(values_type), exporter, ctx)?;
@@ -63,6 +87,74 @@ pub(super) fn to_arrow_dictionary(
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
     )
     .map_err(VortexError::from)
+}
+
+/// Dictionary-encode a primitive array into the dictionary `arrow_cast` builds: values in order of
+/// first occurrence and null rows as null keys. Arrow's builder hashes with SipHash and looks up
+/// every new value twice, which dominated exporting columns that are stored without a dictionary.
+fn primitive_to_dict(
+    array: VortexPrimitiveArray,
+    codes_type: &DataType,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let codes_ptype = ptype_from_arrow(codes_type)?;
+    let max_code = codes_ptype.max_value_as_u64();
+    let dict = match_each_unsigned_integer_ptype!(codes_ptype.to_unsigned(), |C| {
+        match_each_native_ptype!(array.ptype(), |T| {
+            encode_primitive::<T, C>(&array, max_code, ctx)?
+        })
+    });
+    dict_to_dict(dict, codes_type, values_type, exporter, ctx)
+}
+
+fn encode_primitive<T: NativePType, C: UnsignedPType>(
+    array: &VortexPrimitiveArray,
+    max_code: u64,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DictArray>
+where
+    NativeValue<T>: Hash + Eq,
+{
+    let len = array.len();
+    let validity = array.validity()?;
+    // Sized for all-distinct input like Arrow's builder: growing the table rehashes every entry.
+    let mut lookup = HashMap::<NativeValue<T>, C, _>::with_capacity_and_hasher(len, FxBuildHasher);
+    let mut values = BufferMut::<T>::with_capacity(len);
+    let mut code = |value: T| -> VortexResult<C> {
+        match lookup.entry(NativeValue(value)) {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(entry) => {
+                if values.len() as u64 > max_code {
+                    return Err(ArrowError::DictionaryKeyOverflowError.into());
+                }
+                let code = C::from_usize(values.len()).vortex_expect("code fits the key type");
+                values.push(value);
+                Ok(*entry.insert(code))
+            }
+        }
+    };
+
+    let mut codes = BufferMut::<C>::with_capacity(len);
+    match validity.execute_mask(len, ctx)? {
+        Mask::AllTrue(_) => {
+            for &value in array.as_slice::<T>() {
+                codes.push(code(value)?);
+            }
+        }
+        Mask::AllFalse(_) => codes.push_n(C::default(), len),
+        Mask::Values(mask) => {
+            for (&value, valid) in array.as_slice::<T>().iter().zip(mask.bit_buffer().iter()) {
+                codes.push(if valid { code(value)? } else { C::default() });
+            }
+        }
+    }
+
+    let codes = VortexPrimitiveArray::new(codes.freeze(), validity);
+    let values = VortexPrimitiveArray::new(values.freeze(), Validity::NonNullable);
+    // SAFETY: every code indexes a value pushed above.
+    Ok(unsafe { DictArray::new_unchecked(codes.into_array(), values.into_array()) })
 }
 
 /// Convert a constant array to a dictionary with a single entry.
@@ -247,6 +339,42 @@ mod tests {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
         Ok(())
+    }
+
+    /// Primitive arrays stored without a dictionary build exactly the dictionary `arrow_cast` does.
+    #[rstest]
+    #[case::u64_with_nulls(
+        PrimitiveArray::from_option_iter([Some(7u64), None, Some(9), Some(7), None, Some(1)]).into_array(),
+        DataType::UInt32,
+        DataType::UInt64,
+    )]
+    #[case::signed_keys(buffer![-1i32, 5, -1, 5, 5, 2].into_array(), DataType::Int8, DataType::Int32)]
+    #[case::float_bits(
+        buffer![0.0f64, -0.0, f64::NAN, 0.0, f64::NAN].into_array(),
+        DataType::UInt16,
+        DataType::Float64,
+    )]
+    #[case::all_null(
+        PrimitiveArray::from_option_iter([None::<u32>, None]).into_array(),
+        DataType::UInt32,
+        DataType::UInt32,
+    )]
+    fn primitive_matches_arrow_cast(
+        #[case] array: vortex_array::ArrayRef,
+        #[case] codes_type: DataType,
+        #[case] values_type: DataType,
+    ) -> VortexResult<()> {
+        let target_type = dict_type(codes_type, values_type.clone());
+        let expected = arrow_cast::cast(&execute(array.clone(), &values_type)?, &target_type)?;
+        let actual = execute(array, &target_type)?;
+        assert_eq!(actual.as_ref(), expected.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn primitive_overflowing_key_type_errors() {
+        let array = PrimitiveArray::from_iter(0u32..300).into_array();
+        assert!(execute(array, &dict_type(DataType::UInt8, DataType::UInt32)).is_err());
     }
 
     #[test]
