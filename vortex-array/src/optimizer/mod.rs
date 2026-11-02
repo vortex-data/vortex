@@ -15,6 +15,15 @@
 //!   point used by execution.
 //! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
 //!   every descendant.
+//!
+//! Each array records whether [`ArrayOptimizer::optimize_recursive`] has optimized it and all of
+//! its descendants. A new array starts unoptimized, and the optimizer marks the arrays that
+//! [`ArrayOptimizer::optimize_recursive`] returns, so optimizing a marked array again returns it
+//! without trying any rule. The mark does not record the session: an array optimized with one
+//! session is not optimized again with a session that registers more kernels.
+
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
@@ -32,6 +41,39 @@ pub mod rules;
 /// Last zero-based fixpoint pass attempted before treating continued rewrites as an infinite loop.
 /// Increasing this value permits longer rewrite chains but delays detection of cyclic rules.
 const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
+
+/// Records whether the optimizer has already optimized an array node and all of its descendants.
+///
+/// A shared array never changes, so a node that the optimizer took to its fixpoint stays there.
+/// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
+/// state.
+#[derive(Debug, Default)]
+pub(crate) struct OptimizedState(AtomicBool);
+
+impl OptimizedState {
+    fn is_optimized(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    fn mark_optimized(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self.0.get_mut() = false;
+    }
+}
+
+/// Marks an array decoded from its serialized form as optimized.
+///
+/// Decoding calls this for each node it decodes, and it decodes the children of a node before the
+/// node. Thus every decoded node is marked, and the optimizer does not try reduce or
+/// parent-reduce rules on any of them. Only the nodes that an encoding's deserializer builds itself
+/// around its decoded children stay unmarked. Arrays are usually written as the compressor built
+/// them, so this skips rules on decoded arrays without the guarantee that none applies.
+pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
+    array.optimized_state().mark_optimized();
+}
 
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
@@ -59,10 +101,18 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self) -> VortexResult<ArrayRef> {
+        if self.optimized_state().is_optimized() {
+            return Ok(self.clone());
+        }
+
         Ok(optimize_owned(self.clone(), None)?.0)
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+        if self.optimized_state().is_optimized() {
+            return Ok(self.clone());
+        }
+
         Ok(optimize_owned(self.clone(), Some(session))?.0)
     }
 
@@ -173,6 +223,10 @@ fn try_optimize_recursive(
     current_array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<(ArrayRef, bool)> {
+    if current_array.optimized_state().is_optimized() {
+        return Ok((current_array, false));
+    }
+
     trace_op!(record_optimize_recursive_start(&current_array));
 
     let (mut current_array, mut any_optimizations) = optimize_owned(current_array, Some(session))?;
@@ -205,5 +259,64 @@ fn try_optimize_recursive(
         any_optimizations = true;
     }
 
+    // Every child is marked now, so the mark on this node covers its whole subtree.
+    current_array.optimized_state().mark_optimized();
     Ok((current_array, any_optimizations))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+    use vortex_session::VortexSession;
+
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::FilterArray;
+    use crate::arrays::Primitive;
+    use crate::arrays::SliceArray;
+    use crate::optimizer::ArrayOptimizer;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn optimize_recursive_marks_result_and_skips_it_after() -> VortexResult<()> {
+        let sliced = SliceArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 1..3)?.into_array();
+        assert!(!sliced.optimized_state().is_optimized());
+
+        let optimized = sliced.optimize_recursive(&SESSION)?;
+        assert!(optimized.is::<Primitive>());
+        assert!(optimized.optimized_state().is_optimized());
+        assert!(ArrayRef::ptr_eq(
+            &optimized.optimize_recursive(&SESSION)?,
+            &optimized
+        ));
+        assert!(ArrayRef::ptr_eq(
+            &optimized.optimize_ctx(&SESSION)?,
+            &optimized
+        ));
+
+        // A new array built over an optimized one starts unoptimized.
+        let resliced = SliceArray::try_new(optimized, 0..1)?.into_array();
+        assert!(!resliced.optimized_state().is_optimized());
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_recursive_marks_every_descendant() -> VortexResult<()> {
+        let sliced = SliceArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 1..4)?.into_array();
+        let filtered =
+            FilterArray::try_new(sliced, Mask::from_iter([true, false, true]))?.into_array();
+
+        let optimized = filtered.optimize_recursive(&SESSION)?;
+        assert!(
+            optimized
+                .depth_first_traversal()
+                .all(|node| node.optimized_state().is_optimized())
+        );
+        Ok(())
+    }
 }
