@@ -4,6 +4,7 @@
 use Sign::Negative;
 use num_traits::NumCast;
 use num_traits::ToPrimitive;
+use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -32,6 +33,7 @@ use vortex_error::VortexResult;
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::LOWER_PART_BITS;
+use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
@@ -52,15 +54,15 @@ impl CompareKernel for DecimalByteParts {
             .vortex_expect("checked for null in entry func");
 
         if lhs.lower_parts().is_empty() {
-            compare_narrow(lhs, rhs_decimal, operator, nullability).map(Some)
+            compare_constant_narrow(lhs, rhs_decimal, operator, nullability).map(Some)
         } else {
-            compare_wide(lhs, rhs_decimal, operator, nullability).map(Some)
+            compare_constant_wide(lhs, rhs_decimal, operator, nullability).map(Some)
         }
     }
 }
 
 /// Compares a decimal held entirely in the most significant part against the constant.
-fn compare_narrow(
+fn compare_constant_narrow(
     lhs: ArrayView<'_, DecimalByteParts>,
     rhs_decimal: DecimalValue,
     operator: CompareOperator,
@@ -74,7 +76,13 @@ fn compare_narrow(
             lhs.msp()
                 .binary(encoded_const.into_array(), Operator::from(operator))
         }
-        Err(sign) => constant_answer(lhs, unconvertible_value(sign, operator, nullability)),
+        Err(sign) => {
+            let answer = ConstantArray::new(
+                unconvertible_value(sign, operator, nullability),
+                lhs.len(),
+            );
+            with_validity(answer.into_array(), lhs.validity()?, nullability)
+        }
     }
 }
 
@@ -83,7 +91,7 @@ fn compare_narrow(
 /// The most significant part is the signed high word and the lower parts are unsigned words, so
 /// the value order is the lexicographic order of the parts: the first part that differs decides,
 /// and the last part carries the operator's strictness.
-fn compare_wide(
+fn compare_constant_wide(
     lhs: ArrayView<'_, DecimalByteParts>,
     rhs_decimal: DecimalValue,
     operator: CompareOperator,
@@ -100,14 +108,22 @@ fn compare_wide(
     let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
         Ok(split) => split,
         Err(sign) => {
-            return constant_answer(lhs, unconvertible_value(sign, operator, nullability));
+            let answer = ConstantArray::new(
+                unconvertible_value(sign, operator, nullability),
+                lhs.len(),
+            );
+            return with_validity(answer.into_array(), lhs.validity()?, nullability);
         }
     };
 
     let last = lower_parts.len() - 1;
     let mut answer = compare_lower_part(&lower_parts[last], split.words[last], operator)?;
-    for (part, word) in lower_parts[..last].iter().zip(&split.words).rev() {
-        answer = lexicographic_step(part, Scalar::from(*word), operator, answer)?;
+
+    for (part, word) in lower_parts.iter().zip(&split.words).take(last).rev() {
+        answer = match lower_part_constant(part, *word) {
+            Some(constant) => lexicographic_step(part, constant, operator, answer)?,
+            None => ConstantArray::new(below_word(operator), part.len()).into_array(),
+        };
     }
 
     let msp_scalar = Scalar::primitive(split.msp, nullability)
@@ -116,13 +132,7 @@ fn compare_wide(
 
     // Only the most significant part is nullable, so combining it with the lower parts under
     // Kleene logic can turn a null row into `false` or `true`. Restore the array's validity.
-    Ok(match lhs.validity()?.union_nullability(nullability) {
-        Validity::NonNullable | Validity::AllValid => answer,
-        Validity::AllInvalid => {
-            ConstantArray::new(Scalar::null(DType::Bool(nullability)), lhs.len()).into_array()
-        }
-        Validity::Array(validity) => answer.mask(validity)?,
-    })
+    with_validity(answer, lhs.validity()?, nullability)
 }
 
 /// Combines the comparison of one part with `rest`, the answer over the less significant parts.
@@ -152,34 +162,42 @@ fn lexicographic_step(
     }
 }
 
-/// Compares a non-nullable unsigned lower part against one word of the constant.
-///
-/// A part narrower than 64 bits cannot hold a word beyond its range, in which case every value
-/// in the part is below the word.
+/// Compares the least significant lower part against the last word of the constant.
 fn compare_lower_part(
     part: &ArrayRef,
     word: u64,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
-    match Scalar::from(word).cast(part.dtype()) {
-        Ok(constant) => part.binary(
+    match lower_part_constant(part, word) {
+        Some(constant) => part.binary(
             ConstantArray::new(constant, part.len()).into_array(),
             Operator::from(operator),
         ),
-        Err(_) => {
-            let below = matches!(
-                operator,
-                CompareOperator::Lt | CompareOperator::Lte | CompareOperator::NotEq
-            );
-            Ok(ConstantArray::new(below, part.len()).into_array())
-        }
+        None => Ok(ConstantArray::new(below_word(operator), part.len()).into_array()),
     }
+}
+
+/// Converts one word of the constant into the type of a lower part.
+///
+/// A part narrower than 64 bits cannot hold a word beyond its range. In that case, this returns
+/// `None` and every value in the part is below the word.
+fn lower_part_constant(part: &ArrayRef, word: u64) -> Option<Scalar> {
+    Scalar::from(word).cast(part.dtype()).ok()
+}
+
+/// The answer for a part whose every value is below the word of the constant. The less
+/// significant parts cannot change it.
+fn below_word(operator: CompareOperator) -> bool {
+    matches!(
+        operator,
+        CompareOperator::Lt | CompareOperator::Lte | CompareOperator::NotEq
+    )
 }
 
 /// The constant broken into the array's parts.
 struct SplitConstant {
     msp: i64,
-    words: Vec<u64>,
+    words: SmallVec<[u64; MAX_LOWER_PARTS]>,
 }
 
 /// Splits `constant` into a most significant part that fits `msp_ptype` and `lower_parts`
@@ -214,26 +232,20 @@ fn split_constant(
     Ok(SplitConstant { msp, words })
 }
 
-/// A constant answer for every row that still carries the array's validity.
-fn constant_answer(lhs: ArrayView<'_, DecimalByteParts>, value: Scalar) -> VortexResult<ArrayRef> {
-    let len = lhs.len();
-    Ok(
-        match lhs
-            .validity()?
-            .union_nullability(value.dtype().nullability())
-        {
-            Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(value, len).into_array()
-            }
-            Validity::AllInvalid => {
-                ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), len)
-                    .into_array()
-            }
-            Validity::Array(validity) => {
-                ConstantArray::new(value, len).into_array().mask(validity)?
-            }
-        },
-    )
+/// Applies the array's validity to a comparison answer.
+fn with_validity(
+    answer: ArrayRef,
+    validity: Validity,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
+    Ok(match validity.union_nullability(nullability) {
+        Validity::NonNullable | Validity::AllValid => answer,
+        Validity::AllInvalid => {
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), answer.len())
+                .into_array()
+        }
+        Validity::Array(validity) => answer.mask(validity)?,
+    })
 }
 
 // Used to represent the overflow direction when trying to
@@ -638,6 +650,54 @@ mod tests {
             &array,
             &baseline,
             constants.into_iter().map(DecimalValue::I128),
+        )
+    }
+
+    /// Middle lower parts can also be narrow. A word above a middle part's range decides the
+    /// answer before the less significant parts.
+    #[test]
+    fn narrow_middle_parts_match_decimal() -> VortexResult<()> {
+        let dtype = DecimalDType::new(76, 2);
+        let validity = Validity::from_iter([true, false, true, true]);
+        let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
+        let upper = buffer![5u8, 7, u8::MAX, 0].into_array();
+        let middle = buffer![9u16, u16::MAX, 0, 3].into_array();
+        let lower = buffer![2u64, u64::MAX, 4, 0].into_array();
+        let array =
+            DecimalByteParts::try_new_with_lower_parts(msp, vec![upper, middle, lower], dtype)?;
+
+        let parts = [
+            (1i128, 5u64, 9u64, 2u64),
+            (0, 7, u64::from(u16::MAX), u64::MAX),
+            (-1, u64::from(u8::MAX), 0, 4),
+            (3, 0, 3, 0),
+        ];
+        let value = |msp: i128, upper: u64, middle: u64, lower: u64| {
+            i256::from_parts(
+                (u128::from(middle) << 64) | u128::from(lower),
+                (msp << 64) | i128::from(upper),
+            )
+        };
+        let values: Vec<i256> = parts
+            .iter()
+            .map(|&(msp, upper, middle, lower)| value(msp, upper, middle, lower))
+            .collect();
+        let baseline = DecimalArray::new(Buffer::from(values.clone()), dtype, validity);
+
+        let mut constants = values;
+        constants.extend([
+            value(1, 300, 0, 0),
+            value(1, 5, 70_000, 0),
+            value(0, 7, 70_000, 0),
+            value(-1, 300, 0, 0),
+            value(3, 0, 70_000, 0),
+            value(1, 5, 9, 1),
+            value(1, 5, 9, 3),
+        ]);
+        assert_matches_decimal(
+            &array,
+            &baseline,
+            constants.into_iter().map(DecimalValue::I256),
         )
     }
 }

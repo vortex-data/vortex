@@ -11860,6 +11860,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "smallvec",
  "vortex-array",
  "vortex-bench-support",
  "vortex-buffer",
