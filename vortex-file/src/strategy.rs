@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -61,6 +62,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    allowed_encodings: Vec<(FieldPath, Vec<ArrayId>)>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -80,6 +82,7 @@ impl WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
+            allowed_encodings: Vec::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: session
@@ -116,6 +119,27 @@ impl WriteStrategyBuilder {
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
         self.field_writers.insert(field.into(), writer);
+        self
+    }
+
+    /// Allow the field at `field` to reach its layouts in the given encodings it arrives with.
+    ///
+    /// Repartitioning normally canonicalizes every chunk. For this field it keeps arrays of the
+    /// allowed encodings, so the layouts below can store them as they are. With [`Dict`], the
+    /// dictionary layout writes an Arrow-style dictionary column without decoding its rows, only
+    /// merging each chunk's values into its running dictionary, and a scan hands the dictionary
+    /// back instead of re-encoding the values. A dictionary input column keeps one dictionary: once
+    /// it is full, the rest of the column is written without one. A path into list elements takes
+    /// effect with the list layout, which writes the elements as columns of their own.
+    ///
+    /// [`Dict`]: vortex_array::arrays::Dict
+    pub fn with_allow_encodings(
+        mut self,
+        field: impl Into<FieldPath>,
+        encodings: impl IntoIterator<Item = ArrayId>,
+    ) -> Self {
+        self.allowed_encodings
+            .push((field.into(), encodings.into_iter().collect()));
         self
     }
 
@@ -227,18 +251,18 @@ impl WriteStrategyBuilder {
         let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
 
         // 2. calculate stats for each row group
-        let stats = ZonedStrategy::new(
+        let stats: Arc<dyn LayoutStrategy> = Arc::new(ZonedStrategy::new(
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: row_block_size,
                 ..Default::default()
             },
-        );
+        ));
 
         // 1. repartition each column to fixed row counts
         let repartition = RepartitionStrategy::new(
-            stats,
+            Arc::clone(&stats),
             RepartitionWriterOptions {
                 // No minimum block size in bytes
                 block_size_minimum: 0,
@@ -249,13 +273,36 @@ impl WriteStrategyBuilder {
             },
         );
 
+        // Fields with allowed encodings take the same steps, but repartitioning keeps the allowed
+        // encodings they arrive with, so the layouts below see them: `DictStrategy` writes a
+        // dictionary as a dictionary layout without decoding its rows.
+        let all_allowed: Vec<ArrayId> = self
+            .allowed_encodings
+            .iter()
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .collect();
+        let mut field_writers = self.field_writers;
+        for (field, ids) in self.allowed_encodings {
+            let writer = RepartitionStrategy::new(
+                Arc::clone(&stats),
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            )
+            .with_allowed_encodings(ids);
+            field_writers.insert(field, Arc::new(writer));
+        }
+
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
 
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                .with_field_writers(self.field_writers);
+                .with_field_writers(field_writers);
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.
@@ -269,15 +316,20 @@ impl WriteStrategyBuilder {
                             ..Default::default()
                         },
                     );
-                    Arc::new(RepartitionStrategy::new(
-                        zoned,
-                        RepartitionWriterOptions {
-                            block_size_minimum: 0,
-                            block_len_multiple: row_block_size.get(),
-                            block_size_target: None,
-                            canonicalize: false,
-                        },
-                    ))
+                    // Allowed encodings nested in the list's elements are kept until the elements
+                    // reach their own field writers.
+                    Arc::new(
+                        RepartitionStrategy::new(
+                            zoned,
+                            RepartitionWriterOptions {
+                                block_size_minimum: 0,
+                                block_len_multiple: row_block_size.get(),
+                                block_size_target: None,
+                                canonicalize: false,
+                            },
+                        )
+                        .with_allowed_encodings(all_allowed.iter().copied()),
+                    )
                 },
             );
         }

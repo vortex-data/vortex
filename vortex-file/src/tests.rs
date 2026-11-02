@@ -19,28 +19,33 @@ use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
@@ -2870,6 +2875,57 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
     );
 }
 
+/// Dictionary input that outgrows one dictionary keeps that dictionary and writes the rest of the
+/// column plain, instead of splitting it into more dictionaries.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn dictionary_input_keeps_one_dictionary() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Eight chunks of 10k distinct values: 80k in all, more than one dictionary holds.
+    let chunks = (0..8u64)
+        .map(|chunk| -> VortexResult<ArrayRef> {
+            let values = PrimitiveArray::from_iter(chunk * 10_000..(chunk + 1) * 10_000);
+            let dict = DictArray::try_new(
+                PrimitiveArray::from_iter(0..10_000u32).into_array(),
+                values.into_array(),
+            )?;
+            Ok(StructArray::from_fields(&[("v", dict.into_array())])?.into_array())
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let input = ChunkedArray::from_iter(chunks).into_array();
+
+    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
+        .with_allow_encodings(field_path!(v), [Dict.id()]);
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(strategy.build())
+        .write(&mut buf, input.to_array_stream())
+        .await?;
+    assert_eq!(dict_layout_count(summary.footer().layout().as_ref()), 1);
+
+    let result = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(&result, &input, &mut ctx);
+    Ok(())
+}
+
+/// The number of dict layouts in the layout tree.
+fn dict_layout_count(layout: &dyn DynLayout) -> usize {
+    usize::from(layout.encoding_id().as_ref() == "vortex.dict")
+        + layout
+            .children()
+            .unwrap()
+            .iter()
+            .map(|child| dict_layout_count(child.as_ref()))
+            .sum::<usize>()
+}
+
 /// Whether any node in the layout tree is a dict layout.
 fn layout_has_dict(layout: &dyn DynLayout) -> bool {
     layout.encoding_id().as_ref() == "vortex.dict"
@@ -3445,5 +3501,92 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .await?;
 
     assert_arrays_eq!(result, mk_struct(vec![big])?, &mut ctx);
+    Ok(())
+}
+
+/// Columns allowed to keep `Dict` with `with_allow_encodings`, including one inside a list's
+/// elements, are each written as one dict layout and read back as dictionaries. The values are
+/// all distinct, so the default path would not dictionary-encode them.
+#[rstest]
+#[case::default(false)]
+#[case::dict_fields(true)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn allowed_dicts_keep_their_dictionaries(#[case] dict_fields: bool) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let distinct = |len: u32, prefix: &str| -> VortexResult<ArrayRef> {
+        let values: Vec<String> = (0..len).map(|i| format!("{prefix}_{i:08}")).collect();
+        Ok(DictArray::try_new(
+            PrimitiveArray::from_iter(0..len).into_array(),
+            VarBinViewArray::from_iter_str(values).into_array(),
+        )?
+        .into_array())
+    };
+    let chunk = |prefix: &str| -> VortexResult<ArrayRef> {
+        let elements = StructArray::from_fields(&[("tag", distinct(400, prefix)?)])?.into_array();
+        let items = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter((0..=200u32).map(|i| i * 2)).into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+        Ok(
+            StructArray::from_fields(&[("name", distinct(200, prefix)?), ("items", items)])?
+                .into_array(),
+        )
+    };
+    let input = ChunkedArray::from_iter([chunk("a")?, chunk("b")?]).into_array();
+
+    let mut strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION);
+    if dict_fields {
+        strategy = strategy
+            .with_allow_encodings(field_path!(name), [Dict.id()])
+            .with_allow_encodings(
+                FieldPath::from_name("items")
+                    .push(Field::ElementType)
+                    .push("tag"),
+                [Dict.id()],
+            );
+    }
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(strategy.build())
+        .write(&mut buf, input.to_array_stream())
+        .await?;
+    let expected_dict_layouts = if dict_fields { 2 } else { 0 };
+    assert_eq!(
+        dict_layout_count(summary.footer().layout().as_ref()),
+        expected_dict_layouts
+    );
+
+    let result = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(&result, &input, &mut ctx);
+
+    let first = result
+        .as_opt::<Chunked>()
+        .map_or_else(|| result.clone(), |chunked| chunked.chunk(0).clone())
+        .execute::<StructArray>(&mut ctx)?;
+    let tree = result.display_tree();
+    assert_eq!(
+        first.unmasked_field_by_name("name")?.is::<Dict>(),
+        dict_fields,
+        "{tree}"
+    );
+    assert_eq!(
+        first
+            .unmasked_field_by_name("items")?
+            .depth_first_traversal()
+            .any(|array| array.is::<Dict>()),
+        dict_fields,
+        "{tree}"
+    );
     Ok(())
 }
