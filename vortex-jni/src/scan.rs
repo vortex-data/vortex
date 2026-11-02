@@ -16,12 +16,20 @@ use std::ops::Range;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::Array;
+use arrow_array::ArrayRef;
+use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use arrow_array::types::Decimal64Type;
 use arrow_schema::ArrowError;
+use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
+use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use futures::StreamExt;
 use jni::EnvUnowned;
 use jni::objects::JByteArray;
@@ -350,12 +358,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_rowCount(
 /// Ownership of `partition_ptr` is unconditionally transferred into this function — it
 /// is boxed up front so that any subsequent error still drops the partition.
 #[unsafe(no_mangle)]
+/// With `unscaled_small_decimals`, each top-level decimal column of at most 18 digits arrives as an
+/// `Int64` column of its unscaled values. Arrow Java has no 64-bit decimal, and widening every value
+/// to `Decimal128` costs more than decoding it.
 pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
     mut env: EnvUnowned,
     _class: JClass,
     session_ptr: jlong,
     partition_ptr: jlong,
     stream_addr: jlong,
+    unscaled_small_decimals: jboolean,
 ) {
     // Take ownership first, so the partition is dropped even if later validation throws.
     debug_assert!(partition_ptr != 0, "null partition pointer");
@@ -378,19 +390,37 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let dtype = array_stream.dtype().clone();
 
         let session = unsafe { session_ref(session_ptr) };
-        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
-        let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
+        let schema = session.arrow().to_arrow_schema(&dtype)?;
+        let unscaled = if unscaled_small_decimals {
+            small_decimal_columns(&schema)
+        } else {
+            Vec::new()
+        };
+        let target = Arc::new(Field::new_struct(
+            "",
+            export_fields(&schema, &unscaled, decimal64_field),
+            false,
+        ));
+        let schema = Arc::new(Schema::new_with_metadata(
+            export_fields(&schema, &unscaled, unscaled_field),
+            schema.metadata().clone(),
+        ));
+        let unscaled: Arc<[usize]> = Arc::from(unscaled);
 
         let handle = RUNTIME.handle();
+        let schema_for_batches = Arc::clone(&schema);
         let batches = array_stream
             .map(move |chunk| {
                 let session = session.clone();
                 let target = Arc::clone(&target);
+                let schema = Arc::clone(&schema_for_batches);
+                let unscaled = Arc::clone(&unscaled);
                 handle.spawn(async move {
                     let chunk = chunk?;
                     let mut ctx = session.create_execution_ctx();
                     let arrow = chunk.execute_arrow(Some(target.as_ref()), &mut ctx)?;
-                    rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
+                    let batch = RecordBatch::from(arrow.as_struct().clone());
+                    rebase_offsets(as_unscaled(batch, &unscaled, schema)?)
                 })
             })
             .buffered(lookahead);
@@ -411,6 +441,84 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         }
         Ok(())
     });
+}
+
+/// The indices of the top-level decimal columns of `schema` with at most 18 digits, whose unscaled
+/// values fit an `i64`.
+fn small_decimal_columns(schema: &Schema) -> Vec<usize> {
+    schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| {
+            matches!(field.data_type(), DataType::Decimal128(precision, _) if *precision <= 18)
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The fields of `schema`, with `convert` applied to each one at an index in `columns`.
+fn export_fields(schema: &Schema, columns: &[usize], convert: fn(&Field) -> Field) -> Fields {
+    schema
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            if columns.contains(&index) {
+                convert(field)
+            } else {
+                field.as_ref().clone()
+            }
+        })
+        .collect()
+}
+
+/// The `Decimal64` field the native export writes a small decimal column as.
+fn decimal64_field(field: &Field) -> Field {
+    match field.data_type() {
+        DataType::Decimal128(precision, scale) => field
+            .clone()
+            .with_data_type(DataType::Decimal64(*precision, *scale)),
+        _ => field.clone(),
+    }
+}
+
+/// The `Int64` field of the unscaled values of a small decimal column.
+fn unscaled_field(field: &Field) -> Field {
+    field.clone().with_data_type(DataType::Int64)
+}
+
+/// `batch` with each `Decimal64` column at an index in `columns` relabelled as the `Int64` column
+/// of its unscaled values, which shares its buffers.
+fn as_unscaled(
+    batch: RecordBatch,
+    columns: &[usize],
+    schema: SchemaRef,
+) -> VortexResult<RecordBatch> {
+    if columns.is_empty() {
+        return Ok(batch);
+    }
+
+    let arrays = batch
+        .columns()
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            if !columns.contains(&index) {
+                return Ok(Arc::clone(column));
+            }
+            let Some(decimals) = column.as_primitive_opt::<Decimal64Type>() else {
+                vortex_bail!("column {index} is not a Decimal64 array");
+            };
+            let unscaled: ArrayRef = Arc::new(Int64Array::new(
+                decimals.values().clone(),
+                decimals.nulls().cloned(),
+            ));
+            Ok(unscaled)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    Ok(RecordBatch::try_new(schema, arrays)?)
 }
 
 #[cfg(test)]

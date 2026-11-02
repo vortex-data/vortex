@@ -224,6 +224,33 @@ public final class Expression {
         return not(in(value, list));
     }
 
+    /**
+     * {@code lhs <op> value}, a comparison against the current contents of {@code value}, which a running scan reads
+     * every time it evaluates the comparison. Zone statistics prune against it as well, so tightening {@code value}
+     * while a scan runs skips more of what is left to read, as a pushed-down {@code ORDER BY ... LIMIT} does.
+     *
+     * @param op a comparison: {@link BinaryOp#EQ}, {@link BinaryOp#NOT_EQ}, {@link BinaryOp#GT}, {@link BinaryOp#GTE},
+     *     {@link BinaryOp#LT}, or {@link BinaryOp#LTE}
+     * @param defaultResult the result while {@code value} is unset
+     */
+    public static Expression dynamic(BinaryOp op, Expression lhs, DynamicValue value, boolean defaultResult) {
+        return new Expression(
+                NativeExpression.dynamic(op.code(), lhs.nativePointer(), value.nativePointer(), defaultResult));
+    }
+
+    /**
+     * The variant value at a path within each variant of {@code child}, or null where the path does not resolve. The
+     * result stays a variant, so a caller casts it by its own rules.
+     *
+     * <p>The path is given element by element: {@code fields[i]} names an object field, or is null for the array
+     * element at {@code indexes[i]}.
+     */
+    public static Expression variantGet(Expression child, String[] fields, long[] indexes) {
+        Preconditions.checkArgument(
+                fields.length == indexes.length, "variant path fields and indexes must have equal length");
+        return new Expression(NativeExpression.variantGet(child.nativePointer(), fields, indexes));
+    }
+
     public static Expression literal(boolean value) {
         return new Expression(NativeExpression.literalBool(value, false));
     }

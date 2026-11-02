@@ -20,7 +20,11 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.VortexIo
-import dev.vortex.spark.read.{VortexFooterReader, VortexScanBuilder}
+import dev.vortex.spark.read.{
+  VortexFooterReader,
+  VortexScanBuilder,
+  VortexScanBuilders
+}
 import dev.vortex.spark.write.{SparkToArrowSchema, VortexWrite}
 
 /** A Vortex table backed by Spark's file index and commit protocol. */
@@ -38,10 +42,9 @@ final class VortexTable(
   override def newScanBuilder(
       operationOptions: CaseInsensitiveStringMap
   ): VortexScanBuilder =
-    new VortexScanBuilder(
+    VortexScanBuilders.create(
       sparkSession,
       fileIndex,
-      schema,
       dataSchema,
       VortexOptions.of(mergeOptions(operationOptions).asCaseSensitiveMap)
     )
