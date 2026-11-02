@@ -42,114 +42,127 @@ The graph shows every change of the extension type work, grouped by phase, with 
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
-coordination. Each node is one change. Phase 3 lands as the four family PRs, and the other phases
-do not fix their PR split yet.
+coordination. Each node is one PR, and its ID is the ID of that PR in the PR plan of
+[#11114](https://github.com/vortex-data/vortex/issues/11114). Issue
+[#11115](https://github.com/vortex-data/vortex/issues/11115) tracks the claims (CL).
 
 ```mermaid
 flowchart TD
     subgraph PH0["Phase 0"]
-        H["Path-consistency helper<br/>#11013"]:::merged
+        PC["PC path-consistency helper<br/>#11013"]:::merged
         U5["U5 temporal dtype and value errors<br/>#11015"]:::merged
         U4["U4 + U8 nullability without revalidation, debug output<br/>#11012"]:::merged
         U3["U3 + U6 + U7 storage checks and read errors<br/>#11014"]:::merged
         U2["U2 matching dtypes for compares<br/>#11016"]:::merged
-        DF["DataFusion extension literals<br/>#11067"]:::merged
-        AX["Arrow export with metadata, from phase 7<br/>X24"]
+        DF["DF DataFusion extension literals<br/>#11067"]:::merged
+        AX["AX Arrow export with metadata, from phase 7<br/>X24"]
         U1["U1 no storage casts"]
-        TS["Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::open
-        SP1["Spatial validators and importers<br/>EXT-N2"]
-        SP2["Other importers fail on nested nulls<br/>X29"]
+        TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::open
+        SN1["SN1 spatial validators and importers<br/>EXT-N2"]
+        SN2["SN2 other importers fail on nested nulls<br/>X29"]
     end
-    H --> U2
+    PC --> U2
     U2 -->|"item 1, lands together"| DF
-    H --> U1
+    PC --> U1
     AX -.->|"item 2"| U1
 
     subgraph PH1["Phase 1"]
-        D1["Storage declaration<br/>storage_dtype, validate_metadata, facts in metadata"]
-        D2["Strict reads<br/>declared storage equals stored storage"]
-        D3["Claims, conformance harness, new_unchecked"]
+        SD["SD storage declaration<br/>storage_dtype, validate_metadata, facts in metadata"]
+        SR["SR strict reads<br/>declared storage equals stored storage"]
+        NU["NU new_unchecked, validate_array, conformance harness"]
+        CL["CL claims<br/>#11115"]
     end
-    U4 -->|"item 3"| D1
-    U5 --> D1
-    D1 --> D2
-    SP1 -.->|"item 6"| D2
-    D1 --> D3
+    U4 -->|"item 3"| SD
+    U5 --> SD
+    SD --> SR
+    SN1 -.->|"item 6"| SR
+    SD --> NU
+    SD --> CL
 
     subgraph PH2["Phase 2"]
-        E1["ExtensionUse, ResultMapping, Rewrap check"]
+        FD["FD ExtensionUse, ResultMapping, Rewrap guard"]
         U9["U9 wrap storage pushdown results"]
     end
-    D3 --> E1
-    E1 --> U9
+    CL --> FD
+    NU --> FD
+    FD --> U9
 
     subgraph PH3["Phase 3"]
-        T0["Typing check and generic storage rewrite"]
-        T1["Compare and between, with the DateTimeParts rule X32"]
-        T2["Aggregates, with the phase 4 writers and DuckDB pushdown"]
-        T3["Structural functions"]
-        T4["list_contains and the row encoding"]
+        TY["TY typing check and generic storage rewrite"]
+        TY1["TY1 compare and between, with the DateTimeParts rule X32"]
+        TY2["TY2 aggregates, with the phase 4 writers and DuckDB pushdown"]
+        TY3["TY3 structural functions"]
+        TY4["TY4 list_contains and the row encoding"]
     end
-    U9 --> T0
-    U1 --> T0
-    DF --> T0
-    T0 --> T1
-    T0 --> T2
-    T0 --> T3
-    T0 --> T4
-    TS -.-> T1
-    T2 -.->|"items 4 and 5"| PO["Any PartialOrd change for Scalar, XQ8"]
+    U9 --> TY
+    U1 --> TY
+    DF --> TY
+    TY --> TY1
+    TY --> TY2
+    TY --> TY3
+    TY --> TY4
+    TS -.-> TY1
+    TY2 -.->|"items 4 and 5"| PO["Any PartialOrd change for Scalar, XQ8"]
 
     subgraph PH4["Phase 4"]
-        S1["Readers ignore min and max without Ord"]
-        S2["Pruning through the claims"]
+        ST1["ST1 readers ignore min and max without Ord"]
+        ST2["ST2 pruning through the claims"]
     end
-    D3 --> S1
-    T2 --> S2
+    CL --> ST1
+    TY2 --> ST2
 
     subgraph PH5["Phase 5"]
-        R1["ExtVTable::rules over ReduceNode"]
-        R2["Exact unit casts and the named coarser-unit function"]
-        R3["Converter audit for literals and SQL casts"]
+        RU1["RU1 ExtVTable::rules over ReduceNode"]
+        RU2["RU2 exact unit casts and the named coarser-unit function"]
+        RU3["RU3 converter audit for literals and SQL casts"]
     end
-    T0 --> R1
-    R1 --> R2
-    R2 --> R3
+    TY --> RU1
+    RU1 --> RU2
+    RU2 --> RU3
 
     subgraph PH6["Phase 6"]
-        V1["Value check in try_new"]
-        V2["Strict read mode and value checks on import"]
+        VC1["VC1 value check in try_new"]
+        VC2["VC2 strict read mode and value checks on import"]
     end
-    U3 --> V1
-    D3 --> V1
-    V1 --> V2
+    U3 --> VC1
+    NU --> VC1
+    VC1 --> VC2
 
     subgraph PH7["Phase 7"]
-        B1["Converters for DuckDB, Python and JNI"]
-        B2["Engine pushdown through the claims"]
-        B3["Typed array view and developer guide"]
+        BD1["BD1 converters for DuckDB, Python and JNI"]
+        BD2["BD2 engine pushdown through the claims"]
+        BD3["BD3 typed array view and developer guide"]
     end
-    D3 --> B2
+    CL --> BD2
 
     subgraph LOW["Low priority"]
-        L1["Shared pushdown and lift rule<br/>#10748, X34"]
-        L2["DateTimeParts under the wrapper"]
+        LP1["LP1 lift structural encodings above the wrapper<br/>#10748, X5"]
+        LP2["LP2 shared pushdown through Masked and Sparse<br/>X34"]
+        LP3["LP3 DateTimeParts under the wrapper"]
+        LP4["LP4 registration without silent replacement<br/>EXT-R2"]
     end
-    C1["Constant fold of ext_storage<br/>#11056"]:::open -.-> L1
-    T1 -.->|"replaces the X32 rule"| L2
+    CF["Constant fold of ext_storage<br/>#11056"]:::open -.-> LP2
+    TY1 -.->|"replaces the X32 rule"| LP3
 
     subgraph OTHER["Open PRs to coordinate with"]
         AG["vortex-aggregates move<br/>#10769"]:::open
         BB["Spatial bounding boxes in file statistics<br/>#10837"]:::open
         BT["between pushdown for temporal types<br/>#10408"]:::open
         DI["Duration and Interval<br/>#10467, #10468"]:::open
+        CS["IsCompoundSorted<br/>#10661"]:::open
+        PT["Comparisons proven true from statistics<br/>#10686"]:::open
+        OS["optimize only with a session<br/>#10793"]:::open
     end
     AG -.- U9
-    BB -.- E1
-    BT -.- T1
+    AG -.- TY2
+    BB -.- FD
+    BT -.- TY1
     DI -.- U1
     DI -.- U2
-    DI -.- R2
+    DI -.- RU2
+    CS -.- TY2
+    PT -.- ST2
+    OS -.- RU1
 
     classDef merged fill:#d7f0dc,stroke:#2f7a45,color:#10261a
     classDef open fill:#fbefc7,stroke:#a87c0f,color:#2b2105
