@@ -22,16 +22,11 @@ use vortex::io::read_at2::ReadAt2IoService;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::std_file::FileReadAt;
-use vortex::io::uring::FileMode;
-use vortex::io::uring::SharedUringPool;
-use vortex::io::uring::UringFile;
-use vortex::io::uring::UringOptions;
 use vortex::io::uring::UringStats;
-use vortex::io::uring::UringWorkerPool;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex::utils::parallelism::get_available_parallelism;
+use vortex_bench::uring::LocalUring;
 use vortex_datafusion::reader::ScanDriver;
 use vortex_datafusion::reader::VortexReaderFactory;
 
@@ -65,92 +60,7 @@ fn factory_for_backend(
     if let Some(factory) = factory.as_ref() {
         return Ok(Some(Arc::clone(factory) as _));
     }
-    let workers = std::env::var("VORTEX_IO_WORKERS")
-        .ok()
-        .map(|value| value.parse())
-        .transpose()?
-        .unwrap_or_else(|| get_available_parallelism().unwrap_or(1));
-    let per_core_reactors = backend.starts_with("per-core-reactor-");
-    let (mode, rings, mapped) = match backend.strip_suffix("-unmerged").unwrap_or(backend) {
-        "per-core-buffered" => (FileMode::Buffered, None, false),
-        "per-core-direct" => (FileMode::Direct, None, false),
-        "per-core-reactor-buffered" => (FileMode::Buffered, Some(workers), false),
-        "per-core-reactor-direct" => (FileMode::Direct, Some(workers), false),
-        "per-core-reactor-mapped" => (FileMode::Buffered, Some(workers), true),
-        "shared-1-buffered" => (FileMode::Buffered, Some(1), false),
-        "shared-2-buffered" => (FileMode::Buffered, Some(2), false),
-        "shared-1-direct" => (FileMode::Direct, Some(1), false),
-        "shared-2-direct" => (FileMode::Direct, Some(2), false),
-        "per-core-mapped" => (FileMode::Buffered, None, true),
-        "shared-1-mapped" => (FileMode::Buffered, Some(1), true),
-        "shared-2-mapped" => (FileMode::Buffered, Some(2), true),
-        _ => anyhow::bail!("Unknown VORTEX_IO_BACKEND {backend}"),
-    };
-    let queue_depth = std::env::var("VORTEX_IO_QUEUE_DEPTH")
-        .ok()
-        .map(|value| value.parse())
-        .transpose()?
-        .unwrap_or(64);
-    let options = UringOptions {
-        queue_depth,
-        max_inflight_bytes: std::env::var("VORTEX_IO_MAX_INFLIGHT_BYTES")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?,
-        coalesce: !backend.ends_with("unmerged"),
-        max_coalescing_gap: std::env::var("VORTEX_IO_COALESCE_GAP")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?
-            .unwrap_or(0),
-        max_coalesced_bytes: std::env::var("VORTEX_IO_COALESCE_MAX_BYTES")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?
-            .unwrap_or(1 << 20),
-        preserve_queue_order: std::env::var("VORTEX_IO_COALESCE_FIFO")
-            .is_ok_and(|value| value == "1"),
-        coalesce_lookahead: std::env::var("VORTEX_IO_COALESCE_LOOKAHEAD")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?,
-        reuse_inflight: std::env::var("VORTEX_IO_REUSE_INFLIGHT").map_or_else(
-            |_| rings.is_some() && !backend.ends_with("unmerged"),
-            |value| value == "1",
-        ),
-        reuse_live_buffers: std::env::var("VORTEX_IO_REUSE_LIVE_BUFFERS")
-            .is_ok_and(|value| value == "1"),
-        reuse_across_workers: std::env::var("VORTEX_IO_REUSE_ACROSS_WORKERS")
-            .is_ok_and(|value| value == "1"),
-        check_resident_pages: std::env::var("VORTEX_IO_CHECK_RESIDENT_PAGES")
-            .is_ok_and(|value| value == "1"),
-        check_queued_resident_pages: std::env::var("VORTEX_IO_CHECK_QUEUED_RESIDENT_PAGES")
-            .is_ok_and(|value| value == "1"),
-        read_mapped_misses: std::env::var("VORTEX_IO_READ_MAPPED_MISSES")
-            .is_ok_and(|value| value == "1"),
-        force_async: std::env::var("VORTEX_IO_FORCE_ASYNC").is_ok_and(|value| value == "1"),
-        eager_kernel_worker: std::env::var("VORTEX_IO_EAGER_WORKER")
-            .is_ok_and(|value| value == "1"),
-        max_kernel_workers: std::env::var("VORTEX_IO_MAX_KERNEL_WORKERS")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?,
-        max_active_jobs: std::env::var("VORTEX_IO_ACTIVE_JOBS")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?
-            .unwrap_or(1),
-        max_control_jobs: std::env::var("VORTEX_IO_CONTROL_JOBS")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?
-            .unwrap_or(0),
-        control_workers: std::env::var("VORTEX_IO_CONTROL_WORKERS")
-            .ok()
-            .map(|value| value.parse())
-            .transpose()?
-            .unwrap_or(0),
-    };
+    let io = LocalUring::from_env(backend)?;
     let active_chunks = std::env::var("VORTEX_SCAN_V2_MAX_ACTIVE_CHUNKS")
         .ok()
         .map(|value| value.parse::<usize>())
@@ -158,56 +68,26 @@ fn factory_for_backend(
     if let Some(active_chunks) = active_chunks {
         anyhow::ensure!(active_chunks > 0, "Active scan chunks must be positive");
         anyhow::ensure!(
-            rings.is_some(),
+            io.workers().is_none(),
             "Native scan workers control their own admission"
         );
     }
-    let execution = match rings {
-        Some(rings) => Execution::Shared(
-            if per_core_reactors && std::env::var("VORTEX_IO_PIN_WORKERS").as_deref() != Ok("0") {
-                SharedUringPool::new_pinned(rings, options)?
-            } else {
-                SharedUringPool::new(rings, options)?
-            },
-        ),
-        None => Execution::PerCore(
-            if std::env::var("VORTEX_IO_PIN_WORKERS").as_deref() == Ok("0") {
-                UringWorkerPool::with_inherited_affinity(workers, options)?
-            } else {
-                UringWorkerPool::new(workers, options)?
-            },
-        ),
-    };
     let value = Arc::new(LocalUringFactory {
-        mode,
-        mapped,
-        mapped_random_access: std::env::var("VORTEX_IO_MAPPED_RANDOM_ACCESS")
-            .is_ok_and(|value| value == "1"),
-        execution,
+        io,
         chunk_admission: active_chunks.map(|limit| Arc::new(Semaphore::new(limit))),
         admit_after_io: std::env::var("VORTEX_SCAN_V2_ADMIT_AFTER_IO")
             .is_ok_and(|value| value == "1"),
         runtime: TokioRuntime::new(tokio::runtime::Handle::current()),
-        files: Mutex::default(),
     });
     *factory = Some(Arc::clone(&value));
     Ok(Some(value))
 }
 
 struct LocalUringFactory {
-    mode: FileMode,
-    mapped: bool,
-    mapped_random_access: bool,
-    execution: Execution,
+    io: LocalUring,
     chunk_admission: Option<Arc<Semaphore>>,
     admit_after_io: bool,
     runtime: TokioRuntime,
-    files: Mutex<HashMap<Path, UringFile>>,
-}
-
-enum Execution {
-    PerCore(UringWorkerPool),
-    Shared(SharedUringPool),
 }
 
 struct FutureReaderFactory {
@@ -271,19 +151,15 @@ impl VortexReaderFactory for FutureReaderFactory {
 
 impl fmt::Debug for LocalUringFactory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LocalUringFactory")
-            .field("mode", &self.mode)
-            .field("mapped", &self.mapped)
-            .field("mapped_random_access", &self.mapped_random_access)
-            .finish_non_exhaustive()
+        f.debug_struct("LocalUringFactory").finish_non_exhaustive()
     }
 }
 
 impl VortexReaderFactory for LocalUringFactory {
     fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
-        match &self.execution {
-            Execution::PerCore(workers) => driver.with_uring_workers(workers.clone()),
-            Execution::Shared(_) => match &self.chunk_admission {
+        match self.io.workers() {
+            Some(workers) => driver.with_uring_workers(workers.clone()),
+            None => match &self.chunk_admission {
                 Some(admission) => {
                     driver.with_chunk_admission(Arc::clone(admission), self.admit_after_io)
                 }
@@ -310,63 +186,29 @@ impl VortexReaderFactory for LocalUringFactory {
         _session: &VortexSession,
         scan: ScanBuilder,
     ) -> DFResult<ScanBuilder> {
-        let mut files = self.files.lock();
-        let native = if let Some(native) = files.get(file.path()) {
-            native.clone()
-        } else {
-            let path = LocalFileSystem::new().path_to_filesystem(file.path())?;
-            let native = if self.mapped {
-                // SAFETY: benchmark input files are immutable after ingestion. The factory is
-                // only used for reads, and generated result files use a separate directory.
-                unsafe {
-                    if self.mapped_random_access {
-                        UringFile::open_mapped_random_access(path)
-                    } else {
-                        UringFile::open_mapped(path)
-                    }
-                }
-            } else {
-                UringFile::open(path, self.mode)
-            }
+        let path = LocalFileSystem::new().path_to_filesystem(file.path())?;
+        let reader = self
+            .io
+            .reader(&path)
             .map_err(|error| exec_datafusion_err!("Opening native reader: {error}"))?;
-            files.insert(file.path().clone(), native.clone());
-            native
-        };
-        let reader = match &self.execution {
-            Execution::PerCore(_) => native.factory(),
-            Execution::Shared(reactors) => reactors.factory(native),
-        };
         Ok(scan.with_io_service(Arc::new(ReadAt2IoService::new(reader))))
     }
 }
 
 /// Counts submitted reads across all files of the process's native reader.
 pub fn snapshot() -> UringStats {
-    let mut result = UringStats::default();
-    if let Some(factory) = FACTORY.lock().as_ref() {
-        for file in factory.files.lock().values() {
-            let stats = file.stats();
-            result.logical_reads += stats.logical_reads;
-            result.logical_bytes += stats.logical_bytes;
-            result.physical_reads += stats.physical_reads;
-            result.physical_bytes += stats.physical_bytes;
-            result.resident_reads += stats.resident_reads;
-            result.resident_bytes += stats.resident_bytes;
-        }
-    }
-    result
+    FACTORY
+        .lock()
+        .as_ref()
+        .map_or_else(UringStats::default, |factory| factory.io.snapshot())
 }
 
 /// Releases reusable mappings before cold-cache eviction, preserving outstanding buffer owners.
 pub fn release_mappings() -> usize {
-    FACTORY.lock().as_ref().map_or(0, |factory| {
-        factory
-            .files
-            .lock()
-            .values()
-            .filter(|file| file.release_mapping())
-            .count()
-    })
+    FACTORY
+        .lock()
+        .as_ref()
+        .map_or(0, |factory| factory.io.release_mappings())
 }
 
 #[cfg(test)]

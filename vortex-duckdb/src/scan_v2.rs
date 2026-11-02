@@ -3,8 +3,8 @@
 
 //! Drives a V2 scan for DuckDB.
 //!
-//! A planner says what it needs: compute, or reads. This driver decides where each runs, and
-//! DuckDB's own threads run all of it. Each file is prepared once, and the thread that initializes
+//! A planner says what it needs: compute, or reads. DuckDB's own threads drive compute and wait
+//! for the selected I/O service to complete reads. Each file is prepared once, and the thread that initializes
 //! it cuts the scanned rows into parts on the file's layout splits, the units a V1 scan hands its
 //! threads, after pruning the scan as a whole when its filter is dynamic. A thread takes the next
 //! part and runs it on a run of its own, inline, waiting only for its reads: with a filter, the

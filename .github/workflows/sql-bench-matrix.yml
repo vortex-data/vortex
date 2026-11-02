@@ -74,7 +74,7 @@ jobs:
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
-          cargo build "${packages[@]}" --profile release_debug --features datafusion-bench/io-uring
+          cargo build "${packages[@]}" --profile release_debug --features datafusion-bench/io-uring,duckdb-bench/io-uring
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
