@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_pvalue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -38,7 +36,10 @@ impl CompareKernel for Sequence {
 
         let len = lhs.len();
         let bits = match operator {
+            // A sequence with a non-zero step holds each value at most once, so equality matches
+            // at most one row. Inequality is the negation of that answer.
             CompareOperator::Eq | CompareOperator::NotEq => {
+                // Fall back for non-integer constants.
                 let Some(intersection) =
                     find_intersection(lhs.base(), lhs.multiplier(), len, value)
                 else {
@@ -59,6 +60,8 @@ impl CompareKernel for Sequence {
             | CompareOperator::Lte
             | CompareOperator::Gt
             | CompareOperator::Gte => {
+                // A sequence is monotonic, so the rows that satisfy an ordering comparison are
+                // contiguous and touch one end of the array. See `ordered_run`.
                 let Some(run) = ordered_run(lhs.base(), lhs.multiplier(), len, value, operator)
                 else {
                     return Ok(None);
@@ -81,12 +84,14 @@ impl CompareKernel for Sequence {
     }
 }
 
+/// The intersection of a sequence with a value.
 pub(crate) enum Intersection {
     None,
     At(usize),
     All,
 }
 
+/// Finds where a sequence equals `value`, or returns `None` for non-integer inputs.
 pub(crate) fn find_intersection(
     base: PValue,
     multiplier: PValue,
@@ -98,6 +103,7 @@ pub(crate) fn find_intersection(
     }
     let (ascending, magnitude) = eval::step_parts(multiplier)?;
 
+    // Use the base's signedness to preserve values above `i64::MAX`.
     let (towards, offset) = if base.ptype().is_signed_int() {
         let base = base.cast::<i64>().vortex_expect("base fits its ptype");
         let Ok(value) = value.cast::<i64>() else {
@@ -139,29 +145,51 @@ enum TrueRun {
     Suffix(usize),
 }
 
-/// Solves `base + i * step OP value` for a monotonic integer sequence.
+/// Finds the rows of a monotonic integer sequence for which `value[i] OP constant` holds.
 ///
-/// Returns `None` for a non-integer step or constant. The arithmetic runs in `i128`, so every
-/// integer base, step, and constant is exact.
+/// Row `i` holds `base + i * step`. Instead of evaluating each row, the function counts how many
+/// rows come before `constant` in the direction of travel of the sequence. "Before" means smaller
+/// when the sequence ascends and larger when it descends.
+///
+/// Let `distance` be how far `constant` is from `base` in the direction of travel, and
+/// `magnitude` the absolute step. Row `i` is `i * magnitude` from `base`, so:
+///
+/// - Row `i` is strictly before `constant` when `i * magnitude < distance`. That is true for the
+///   first `ceil(distance / magnitude)` rows.
+/// - Row `i` is at or before `constant` when `i * magnitude <= distance`. That is true for the
+///   first `floor(distance / magnitude) + 1` rows.
+///
+/// Both counts are clamped to `0..=len`. A negative `distance` gives no rows, and a `distance`
+/// past the last row gives all rows.
+///
+/// For example, the sequence `2, 5, 8, 11` with constant `8` has `distance = 6` and
+/// `magnitude = 3`. Two rows are strictly before `8` and three rows are at or before it, so
+/// `< 8` holds on the prefix `0..2` and `> 8` holds on the suffix `3..4`.
+///
+/// Each operator then picks one of the two counts as the end of a prefix or the start of a
+/// suffix. The arithmetic runs in `i128`, so every integer base, step, and constant is exact.
+///
+/// Returns `None` for a non-integer step or constant.
 fn ordered_run(
     base: PValue,
     multiplier: PValue,
     len: usize,
-    value: PValue,
+    constant: PValue,
     operator: CompareOperator,
 ) -> Option<TrueRun> {
-    let base = integer_to_i128(base)?;
-    let step = integer_to_i128(multiplier)?;
-    let value = integer_to_i128(value)?;
+    let base = base.as_i128()?;
+    let step = multiplier.as_i128()?;
+    let constant = constant.as_i128()?;
 
     let clamp = |rows: i128| usize::try_from(rows.clamp(0, len as i128)).vortex_expect("clamped");
 
+    // All rows hold the same value, so the comparison is true for all rows or for none.
     if step == 0 {
         let holds = match operator {
-            CompareOperator::Lt => base < value,
-            CompareOperator::Lte => base <= value,
-            CompareOperator::Gt => base > value,
-            CompareOperator::Gte => base >= value,
+            CompareOperator::Lt => base < constant,
+            CompareOperator::Lte => base <= constant,
+            CompareOperator::Gt => base > constant,
+            CompareOperator::Gte => base >= constant,
             CompareOperator::Eq | CompareOperator::NotEq => {
                 unreachable!("equality is answered by find_intersection")
             }
@@ -169,46 +197,33 @@ fn ordered_run(
         return Some(TrueRun::Prefix(if holds { len } else { 0 }));
     }
 
-    // Count the rows whose value lies strictly before, and at or before, `value` along the
-    // direction of travel. The rows before `value` are a prefix when ascending and a suffix
-    // when descending.
-    let (distance, magnitude) = if step > 0 {
-        (value - base, step)
+    let ascending = step > 0;
+    let (distance, magnitude) = if ascending {
+        (constant - base, step)
     } else {
-        (base - value, -step)
+        (base - constant, -step)
     };
-    let strictly_before =
-        clamp(distance.div_euclid(magnitude) + i128::from(distance.rem_euclid(magnitude) != 0));
-    let at_or_before = clamp(distance.div_euclid(magnitude) + 1);
 
-    Some(match (step > 0, operator) {
-        (true, CompareOperator::Lt) => TrueRun::Prefix(strictly_before),
-        (true, CompareOperator::Lte) => TrueRun::Prefix(at_or_before),
-        (true, CompareOperator::Gt) => TrueRun::Suffix(at_or_before),
-        (true, CompareOperator::Gte) => TrueRun::Suffix(strictly_before),
-        (false, CompareOperator::Gt) => TrueRun::Prefix(strictly_before),
-        (false, CompareOperator::Gte) => TrueRun::Prefix(at_or_before),
-        (false, CompareOperator::Lt) => TrueRun::Suffix(at_or_before),
-        (false, CompareOperator::Lte) => TrueRun::Suffix(strictly_before),
+    // `magnitude` is positive, so `div_euclid` rounds down and a non-zero remainder rounds up.
+    let rows_strictly_before =
+        clamp(distance.div_euclid(magnitude) + i128::from(distance.rem_euclid(magnitude) != 0));
+    let rows_at_or_before = clamp(distance.div_euclid(magnitude) + 1);
+
+    // When ascending, the rows before `constant` are smaller than it. When descending, they are
+    // larger than it. The rows after are the complement, so they form the matching suffix.
+    Some(match (ascending, operator) {
+        (true, CompareOperator::Lt) => TrueRun::Prefix(rows_strictly_before),
+        (true, CompareOperator::Lte) => TrueRun::Prefix(rows_at_or_before),
+        (true, CompareOperator::Gt) => TrueRun::Suffix(rows_at_or_before),
+        (true, CompareOperator::Gte) => TrueRun::Suffix(rows_strictly_before),
+        (false, CompareOperator::Gt) => TrueRun::Prefix(rows_strictly_before),
+        (false, CompareOperator::Gte) => TrueRun::Prefix(rows_at_or_before),
+        (false, CompareOperator::Lt) => TrueRun::Suffix(rows_at_or_before),
+        (false, CompareOperator::Lte) => TrueRun::Suffix(rows_strictly_before),
         (_, CompareOperator::Eq | CompareOperator::NotEq) => {
             unreachable!("equality is answered by find_intersection")
         }
     })
-}
-
-fn integer_to_i128(value: PValue) -> Option<i128> {
-    match_each_pvalue!(
-        value,
-        uint: |v| {
-            let v: u64 = v.as_();
-            Some(i128::from(v))
-        },
-        int: |v| {
-            let v: i64 = v.as_();
-            Some(i128::from(v))
-        },
-        float: |_v| { None }
-    )
 }
 
 #[cfg(test)]
