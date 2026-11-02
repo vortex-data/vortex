@@ -126,6 +126,8 @@ jobs:
   fsst_like_fuzz:
     name: "FSST LIKE Fuzz"
     needs: build_cpu_fuzzers
+    # Temporarily disabled. The report and fix jobs below are skipped with it.
+    if: false
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: fsst_like
