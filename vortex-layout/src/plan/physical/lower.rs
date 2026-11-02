@@ -33,6 +33,7 @@ use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SharePlan;
 use crate::plan::physical::TakePlan;
 use crate::plan::physical::ZonedPlan;
 
@@ -126,15 +127,32 @@ fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
 fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
     // Dict serialization stores values before codes; the plan order is deliberately codes,
     // values because that is the optimizer-facing logical shape.
+    let dtype = layout.dtype().clone();
+    let row_count = layout.row_count();
+    let layout = layout.to_layout();
+    let children = PlanChildren::lazy(2, move |index| {
+        let (slot, name) = match index {
+            0 => (1, "codes"),
+            1 => (0, "values"),
+            _ => vortex_bail!("Dict plan has no child {index}"),
+        };
+        let child = layout
+            .slot(slot)?
+            .ok_or_else(|| vortex_err!("Dict layout {name} slot is absent"))?;
+        let child = lower(&child)?;
+        // The values sit under a share, so the filter evaluating a predicate over them and the
+        // projection taking from them decode them once between them. Struct values stay bare:
+        // field selections must push through their pack to avoid reading unused fields.
+        Ok(if index == 1 && !child.dtype().is_struct() {
+            SharePlan::new(child).into_plan()
+        } else {
+            child
+        })
+    });
     // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
-    // those slots to [codes, values] while preserving the derived output dtype and row domain.
-    Ok(unsafe {
-        TakePlan::from_children_unchecked(
-            layout.dtype().clone(),
-            layout.row_count(),
-            lazy_children(layout.to_layout(), vec![1, 0]),
-        )
-    })
+    // those slots to [codes, values], with the values under a share that keeps their dtype and
+    // row count, preserving the derived output dtype and row domain.
+    Ok(unsafe { TakePlan::from_children_unchecked(dtype, row_count, children) })
 }
 
 fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {

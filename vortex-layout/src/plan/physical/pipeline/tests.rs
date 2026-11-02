@@ -703,6 +703,58 @@ fn take_waits_for_whole_values_and_keeps_them(
     assert_view(&expected, &rows, &mask, fresh.arrays)
 }
 
+/// A predicate over a dictionary and the projection of the same dictionary share its values: once
+/// the predicate's scan has decoded them, the projection's scan reads only the codes.
+#[test]
+fn predicate_and_projection_share_dictionary_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let projection = lower(&layout)?;
+    let expression = gt(root(), lit("a"))
+        .bind(projection.dtype())?
+        .optimize_recursive()?;
+    let predicate = optimize(
+        EvalPlan::try_new(expression, projection.clone())?.into_plan(),
+        &SESSION,
+    )?;
+    assert!(predicate.is::<Take>());
+
+    let rows = 0..10;
+    let mask = Mask::new_true(10);
+    let cache = ValueCache::default();
+    let filtered = run_with_values(
+        &store,
+        &predicate,
+        rows.clone(),
+        mask.clone(),
+        cache.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&filtered.events), 2);
+    let expected = BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array();
+    assert_view(&expected, &rows, &mask, filtered.arrays)?;
+
+    let projected = run_with_values(
+        &store,
+        &projection,
+        rows.clone(),
+        mask.clone(),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(
+        reads(&projected.events),
+        1,
+        "the projection reuses the values the predicate decoded"
+    );
+    let expected =
+        VarBinViewArray::from_iter_str((0..ROWS).map(|row| ["a", "b", "c"][(row % 3) as usize]))
+            .into_array();
+    assert_view(&expected, &rows, &mask, projected.arrays)
+}
+
 #[rstest]
 #[case::utf8(DType::Utf8(true.into()))]
 #[case::binary(DType::Binary(true.into()))]
