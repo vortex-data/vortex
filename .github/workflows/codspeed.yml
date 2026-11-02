@@ -53,9 +53,10 @@ jobs:
     name: "Benchmark with Codspeed"
     timeout-minutes: 120
     # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU.
+    # Building every benchmark in one job, with full debug info, overflows the default disk.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/volume=200gb/tag=bench-codspeed', github.run_id)
           || 'ubuntu-latest' }}
     env:
       CODSPEED_PACKAGES: >-
