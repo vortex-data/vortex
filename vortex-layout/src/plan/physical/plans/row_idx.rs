@@ -121,6 +121,8 @@ pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
 /// row_idx as $ reads its child
 struct RowIdxRootRule;
 impl PartitionRule for RowIdxRootRule {
+    type Slot = FieldIndex;
+
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
         let slots = vec![CHILD_SLOT];
         let replacement = BoundExpression::new_root(node.dtype().clone());
@@ -131,6 +133,8 @@ impl PartitionRule for RowIdxRootRule {
 /// row_idx as a non-root reads nothing and generates a virtual output slot
 struct RowIdxFnRule;
 impl PartitionRule for RowIdxFnRule {
+    type Slot = FieldIndex;
+
     fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
         let slots = vec![ROW_IDX_SLOT];
         let replacement = BoundExpression::new_root(row_idx_dtype());

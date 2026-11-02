@@ -29,7 +29,20 @@ use crate::partition_session::PartitionSession;
 use crate::plan::physical::Pack;
 use crate::plan::physical::PlanVTable;
 
-pub(crate) const VALIDITY_SLOT: FieldIndex = FieldIndex::MAX;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Slot {
+    Field(FieldIndex),
+    Validity,
+}
+
+impl From<Slot> for FieldIndex {
+    fn from(slot: Slot) -> Self {
+        match slot {
+            Slot::Field(index) => index,
+            Slot::Validity => FieldIndex::MAX,
+        }
+    }
+}
 
 pub(crate) fn register_struct_partition_rules(session: &PartitionSession) {
     session.register_root_rule(Pack.id(), &StructRootRule);
@@ -91,37 +104,40 @@ fn select_fields(
     scope: &DType,
     fields: &StructFields,
     names: FieldNames,
-    slots: Vec<FieldIndex>,
-) -> VortexResult<NodeTouches> {
+    indices: Vec<FieldIndex>,
+) -> VortexResult<NodeTouches<Slot>> {
     vortex_ensure!(fields.nfields() > 0);
 
     if !scope.is_nullable() {
-        if let [index] = slots.as_slice() {
+        if let [index] = indices.as_slice() {
             let field = BoundExpression::new_root(field_dtype(fields, *index)?);
             let packed = pack([(names[0].clone(), field)], Nullability::NonNullable);
             return Ok(NodeTouches {
-                slots,
+                slots: vec![Slot::Field(*index)],
                 replacement: packed,
             });
         }
-        if slots.is_empty() {
+        if indices.is_empty() {
             let replacement = pack(
                 Vec::<(FieldName, BoundExpression)>::new(),
                 Nullability::NonNullable,
             );
-            return Ok(NodeTouches { slots, replacement });
+            return Ok(NodeTouches {
+                slots: vec![],
+                replacement,
+            });
         }
     }
 
-    let mut out_slots = Vec::with_capacity(slots.len() + 1);
-    let mut out_dtypes = Vec::with_capacity(slots.len() + 1);
+    let mut out_slots = Vec::with_capacity(indices.len() + 1);
+    let mut out_dtypes = Vec::with_capacity(indices.len() + 1);
     if scope.is_nullable() {
-        out_slots.push(VALIDITY_SLOT);
+        out_slots.push(Slot::Validity);
         out_dtypes.push(validity_dtype());
     }
-    for slot in slots {
-        out_slots.push(slot);
-        out_dtypes.push(field_dtype(fields, slot)?);
+    for index in indices {
+        out_slots.push(Slot::Field(index));
+        out_dtypes.push(field_dtype(fields, index)?);
     }
     let replacement = packed_replacement(names, &out_dtypes, scope.is_nullable());
     Ok(NodeTouches {
@@ -133,7 +149,9 @@ fn select_fields(
 /// Struct { ... } as $ is select(... + optional validity)
 struct StructRootRule;
 impl PartitionRule for StructRootRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+    type Slot = Slot;
+
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Slot>>> {
         let scope = node.dtype();
         let fields = struct_fields(scope)?;
         select_fields(
@@ -149,7 +167,9 @@ impl PartitionRule for StructRootRule {
 /// $.x is replaced with $ (non-nullable) or mask($.x, $.validity)
 struct StructGetItemRule;
 impl PartitionRule for StructGetItemRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+    type Slot = Slot;
+
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Slot>>> {
         let Some(scope) = parent_of_root_scope(node) else {
             return Ok(None);
         };
@@ -161,7 +181,7 @@ impl PartitionRule for StructGetItemRule {
         let dtype = field_dtype(fields, index)?;
         if !scope.is_nullable() {
             return Ok(Some(NodeTouches {
-                slots: vec![index],
+                slots: vec![Slot::Field(index)],
                 replacement: BoundExpression::new_root(dtype),
             }));
         }
@@ -169,7 +189,7 @@ impl PartitionRule for StructGetItemRule {
         let scope = replacement_scope(&[validity_dtype(), dtype]);
         let replacement = mask(slot_read(&scope, 1), slot_read(&scope, 0));
         Ok(Some(NodeTouches {
-            slots: vec![VALIDITY_SLOT, index],
+            slots: vec![Slot::Validity, Slot::Field(index)],
             replacement,
         }))
     }
@@ -178,7 +198,9 @@ impl PartitionRule for StructGetItemRule {
 /// select(..., $) is replaced with select(... + validity, $)
 struct StructSelectRule;
 impl PartitionRule for StructSelectRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+    type Slot = Slot;
+
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Slot>>> {
         let Some(scope) = parent_of_root_scope(node) else {
             return Ok(None);
         };
@@ -202,13 +224,15 @@ struct StructNullCheckRule {
 }
 /// is_null($) / is_not_null($) is replaced with lit() or $.validity
 impl PartitionRule for StructNullCheckRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+    type Slot = Slot;
+
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Slot>>> {
         let Some(scope) = parent_of_root_scope(node) else {
             return Ok(None);
         };
         Ok(Some(if scope.is_nullable() {
             let read = BoundExpression::new_root(validity_dtype());
-            let slots = vec![VALIDITY_SLOT];
+            let slots = vec![Slot::Validity];
             let replacement = if self.negated { not(read) } else { read };
             NodeTouches { slots, replacement }
         } else {
