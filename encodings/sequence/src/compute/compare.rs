@@ -147,29 +147,12 @@ enum TrueRun {
 
 /// Finds the rows of a monotonic integer sequence for which `value[i] OP constant` holds.
 ///
-/// Row `i` holds `base + i * step`. Instead of evaluating each row, the function counts how many
-/// rows come before `constant` in the direction of travel of the sequence. "Before" means smaller
-/// when the sequence ascends and larger when it descends.
+/// Counts the rows that come before `constant` in the direction of the sequence. Each operator
+/// uses that count as the end of a prefix or the start of a suffix. For example, `2, 5, 8, 11`
+/// has two rows before `8`, so `< 8` holds on rows `0..2`.
 ///
-/// Let `distance` be how far `constant` is from `base` in the direction of travel, and
-/// `magnitude` the absolute step. Row `i` is `i * magnitude` from `base`, so:
-///
-/// - Row `i` is strictly before `constant` when `i * magnitude < distance`. That is true for the
-///   first `ceil(distance / magnitude)` rows.
-/// - Row `i` is at or before `constant` when `i * magnitude <= distance`. That is true for the
-///   first `floor(distance / magnitude) + 1` rows.
-///
-/// Both counts are clamped to `0..=len`. A negative `distance` gives no rows, and a `distance`
-/// past the last row gives all rows.
-///
-/// For example, the sequence `2, 5, 8, 11` with constant `8` has `distance = 6` and
-/// `magnitude = 3`. Two rows are strictly before `8` and three rows are at or before it, so
-/// `< 8` holds on the prefix `0..2` and `> 8` holds on the suffix `3..4`.
-///
-/// Each operator then picks one of the two counts as the end of a prefix or the start of a
-/// suffix. The arithmetic runs in `i128`, so every integer base, step, and constant is exact.
-///
-/// Returns `None` for a non-integer step or constant.
+/// The arithmetic runs in `i128`, so it is exact for all integer inputs. Returns `None` for a
+/// non-integer step or constant.
 fn ordered_run(
     base: PValue,
     multiplier: PValue,
