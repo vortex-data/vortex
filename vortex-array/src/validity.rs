@@ -24,9 +24,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -309,11 +311,31 @@ impl Validity {
             | (Validity::AllValid, Validity::NonNullable)
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
-            (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
-                Binary::try_new(lhs, rhs, Operator::And)?
-                    .into_array()
-                    .optimize()?,
-            ),
+            (Validity::Array(lhs), Validity::Array(rhs)) => {
+                // Both sides already hold their bits in host memory, e.g. a validity masked by a
+                // demand: a word-wise AND costs less than evaluating a lazy conjunction wherever it
+                // is read. Bits on a device stay lazy, so they are not copied to the host here.
+                if let (Some(lhs_bits), Some(rhs_bits)) =
+                    (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
+                    && !lhs_bits.dtype().is_nullable()
+                    && !rhs_bits.dtype().is_nullable()
+                    && lhs.is_host()
+                    && rhs.is_host()
+                {
+                    return Ok(Validity::Array(
+                        BoolArray::new(
+                            &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
+                            Validity::NonNullable,
+                        )
+                        .into_array(),
+                    ));
+                }
+                Validity::Array(
+                    Binary::try_new(lhs, rhs, Operator::And)?
+                        .into_array()
+                        .optimize()?,
+                )
+            }
         })
     }
 
@@ -628,18 +650,36 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Bool;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Two validities that already hold their bits are conjoined at once, into bits.
+    #[test]
+    fn and_of_two_bool_validities_is_their_word_wise_and() -> VortexResult<()> {
+        let lhs = Validity::Array(BoolArray::from_iter([true, true, false, true]).into_array());
+        let rhs = Validity::Array(BoolArray::from_iter([true, false, false, true]).into_array());
+
+        let and = lhs.and(rhs)?;
+
+        assert!(matches!(&and, Validity::Array(array) if array.is::<Bool>()));
+        assert_eq!(
+            and.execute_mask(4, &mut SESSION.create_execution_ctx())?,
+            Mask::from_iter([true, false, false, true])
+        );
+        Ok(())
+    }
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
@@ -826,7 +866,7 @@ mod tests {
         #[case] lhs: Validity,
         #[case] rhs: Validity,
         #[case] expected: bool,
-    ) -> vortex_error::VortexResult<()> {
+    ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())

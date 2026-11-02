@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
+use vortex_compute::lane_kernels::IndexedFoldExt;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -79,25 +79,17 @@ pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Optio
         "valid_range requires one validity bit per value"
     );
 
+    let min_max = |(min, max): (T, T), v: T| (min.min(v), max.max(v));
     match validity {
-        Mask::AllTrue(_) => compute_min_max(values.iter()),
+        Mask::AllTrue(_) => values
+            .first()
+            .map(|&first| values.iter().copied().fold((first, first), min_max)),
         Mask::AllFalse(_) => None,
-        Mask::Values(validity) => compute_min_max(
-            values
-                .iter()
-                .zip(validity.bit_buffer().iter())
-                .filter_map(|(value, valid)| valid.then_some(value)),
-        ),
-    }
-}
-
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<(T, T)>
-where
-    T: NativeDecimalType,
-{
-    match iter.minmax_by(|a, b| a.cmp(b)) {
-        itertools::MinMaxResult::NoElements => None,
-        itertools::MinMaxResult::OneElement(&value) => Some((value, value)),
-        itertools::MinMaxResult::MinMax(&min, &max) => Some((min, max)),
+        // Null lanes read as a valid value, which leaves both extrema unchanged, so the reduction
+        // needs no branch per lane.
+        Mask::Values(validity) => validity.bit_buffer().set_indices().next().map(|first| {
+            let first = values[first];
+            values.fold_masked(validity.bit_buffer(), first, (first, first), min_max)
+        }),
     }
 }

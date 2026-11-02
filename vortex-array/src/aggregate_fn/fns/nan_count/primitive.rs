@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_compute::lane_kernels::IndexedFoldExt;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -27,12 +28,10 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
     match validity {
         Mask::AllTrue(_) => values.iter().filter(|v| v.is_nan()).count(),
         Mask::AllFalse(_) => 0,
-        Mask::Values(v) => values
-            .iter()
-            .zip(v.bit_buffer().iter())
-            .filter_map(|(v, m)| m.then_some(v))
-            .filter(|v| v.is_nan())
-            .count(),
+        // Null lanes read as zero, which is not NaN.
+        Mask::Values(v) => values.fold_masked(v.bit_buffer(), T::zero(), 0, |count, v| {
+            count + usize::from(v.is_nan())
+        }),
     }
 }
 
