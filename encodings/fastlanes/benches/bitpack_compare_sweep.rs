@@ -3,6 +3,7 @@
 
 //! Sweeps the public `BitPackedArray` compare-against-constant path (`array.binary(rhs, op)`) over
 //! every integer type and every valid bit width, so a kernel change shows up as a CodSpeed diff.
+//! CodSpeed runs a sample of the widths (see [`CODSPEED_WIDTHS`]); local runs cover all of them.
 //!
 //! The array holds in-range values (no patches, no out-of-range fast path), so each iteration runs
 //! the full unpack + per-element compare kernel that backs `<BitPacked as CompareKernel>`.
@@ -59,6 +60,26 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// Number of elements per benchmarked array
 const LEN: usize = if cfg!(codspeed) { 8 * 1024 } else { 64 * 1024 };
+
+/// Bit widths that CodSpeed measures, each type taking those below its native width. They sit
+/// just off the powers of two, plus width 1, so that each type includes its widest valid width.
+/// Signed and unsigned types of one width share their fused kernels, and the FastLanes unpack
+/// code for every width comes from one generator, so this sample stands in for the full sweep.
+const CODSPEED_WIDTHS: &[usize] = &[1, 3, 5, 7, 9, 15, 17, 31, 33, 63];
+
+/// The bit widths to benchmark for a type of `native_bits` bits. Bit-packing requires the target
+/// width to be strictly narrower than the type, so valid widths are `1..native_bits`.
+fn widths(native_bits: usize) -> Vec<usize> {
+    if cfg!(codspeed) {
+        CODSPEED_WIDTHS
+            .iter()
+            .copied()
+            .filter(|&width| width < native_bits)
+            .collect()
+    } else {
+        (1..native_bits).collect()
+    }
+}
 
 /// Operator under test. `Lt` exercises the full unpack + per-element comparison path.
 const OP: Operator = Operator::Lt;
@@ -128,14 +149,13 @@ fn setup<T: BenchInt>(width: usize) -> (ArrayRef, ArrayRef, ExecutionCtx) {
     (array, rhs, ctx)
 }
 
-/// Generate a compare benchmark over every valid bit width for one type. Valid widths are
-/// `1..native_bits` - bit-packing requires the target width to be strictly narrower than the type.
+/// Generate a compare benchmark over the bit widths from [`widths`] for one type.
 macro_rules! bench_type {
     ($modname:ident, $T:ty, $native_bits:expr) => {
         mod $modname {
             use super::*;
 
-            #[divan::bench(args = 1..$native_bits)]
+            #[divan::bench(args = widths($native_bits))]
             fn compare(bencher: Bencher, width: usize) {
                 let (array, rhs, mut ctx) = setup::<$T>(width);
                 bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
