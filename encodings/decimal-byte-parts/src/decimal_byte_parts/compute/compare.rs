@@ -77,10 +77,8 @@ fn compare_constant_narrow(
                 .binary(encoded_const.into_array(), Operator::from(operator))
         }
         Err(sign) => {
-            let answer = ConstantArray::new(
-                unconvertible_value(sign, operator, nullability),
-                lhs.len(),
-            );
+            let answer =
+                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len());
             with_validity(answer.into_array(), lhs.validity()?, nullability)
         }
     }
@@ -108,10 +106,8 @@ fn compare_constant_wide(
     let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
         Ok(split) => split,
         Err(sign) => {
-            let answer = ConstantArray::new(
-                unconvertible_value(sign, operator, nullability),
-                lhs.len(),
-            );
+            let answer =
+                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len());
             return with_validity(answer.into_array(), lhs.validity()?, nullability);
         }
     };
@@ -240,10 +236,11 @@ fn with_validity(
 ) -> VortexResult<ArrayRef> {
     Ok(match validity.union_nullability(nullability) {
         Validity::NonNullable | Validity::AllValid => answer,
-        Validity::AllInvalid => {
-            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), answer.len())
-                .into_array()
-        }
+        Validity::AllInvalid => ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            answer.len(),
+        )
+        .into_array(),
         Validity::Array(validity) => answer.mask(validity)?,
     })
 }
