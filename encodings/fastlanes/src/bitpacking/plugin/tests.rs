@@ -21,6 +21,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
@@ -225,7 +226,8 @@ fn serde_roundtrip(
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     let array = BitPackedData::encode(&values, bit_width, &mut ctx)?
         .into_array()
-        .slice(range.clone())?;
+        .slice(range.clone())?
+        .optimize_ctx(&PLUGIN_SESSION)?;
     let view = array.as_::<BitPacked>();
     let serialization = PLUGIN_SESSION
         .array_serialize(&array)?
@@ -451,6 +453,8 @@ fn serde_roundtrip_sliced_chunked_patches(
     } else {
         sliced
     };
+    // The slice kernel slices the patches lazily, and only optimized arrays serialize.
+    let sliced = sliced.optimize_ctx(&PLUGIN_SESSION)?;
     let read = roundtrip(&sliced)?;
     assert_eq!(read.as_::<BitPacked>().bit_widths().is_global(), !blocked);
     let expected = values.into_array().slice(start..4096)?;

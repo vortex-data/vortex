@@ -48,7 +48,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -227,6 +226,9 @@ impl ArrayRef {
     }
 
     /// Performs a constant-time slice of the array.
+    ///
+    /// The result is a lazy [`SliceArray`] unless the slice is empty or covers the whole array;
+    /// optimizing it with a session pushes the slice into the child where a rule allows.
     pub fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         let len = self.len();
         let start = range.start;
@@ -245,40 +247,33 @@ impl ArrayRef {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::try_new(self.clone(), range)?
-            .into_array()
-            .optimize()?;
+        let sliced = SliceArray::try_new(self.clone(), range)?.into_array();
 
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
+        // Propagate some stats from the original array to the sliced array. Optimizing the slice
+        // carries them over to the array it reduces to.
+        self.statistics().with_iter(|iter| {
+            sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                matches!(
+                    stat,
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                ) && value
+                    .as_ref()
+                    .as_exact()
+                    .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
+            }));
+        });
 
         Ok(sliced)
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.clone(), mask)?
-            .into_array()
-            .optimize()
+        Ok(FilterArray::try_new(self.clone(), mask)?.into_array())
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.clone())?
-            .into_array()
-            .optimize()
+        Ok(DictArray::try_new(indices, self.clone())?.into_array())
     }
 
     /// Execute the array to extract a scalar at the given index.

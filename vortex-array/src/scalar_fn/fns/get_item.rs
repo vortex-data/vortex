@@ -426,9 +426,11 @@ mod tests {
             validity,
         )?
         .into_array();
-        let expected = array.get_item("a")?;
+        let expected = array.get_item("a")?.optimize_ctx(&SESSION)?;
         let selected = ScalarFnArray::try_new(Select.bind(selection), [array])?.into_array();
-        let item = GetItem::try_new(selected, "a")?.into_array().optimize()?;
+        let item = GetItem::try_new(selected, "a")?
+            .into_array()
+            .optimize_ctx(&SESSION)?;
 
         assert_eq!(item.encoding_id(), expected.encoding_id());
         assert_eq!(item.dtype(), expected.dtype());
@@ -474,7 +476,8 @@ mod tests {
         };
         let item = ConstantArray::new(scalar, len)
             .into_array()
-            .apply(&get_item("a", root()))?;
+            .apply(&get_item("a", root()))?
+            .optimize_ctx(&SESSION)?;
         let expected = if null {
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         } else {
@@ -494,7 +497,7 @@ mod tests {
             .into_array()
             .filter(Mask::from_iter([true, false, true]))?;
 
-        let item = filtered.get_item("a")?;
+        let item = filtered.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Filter>());
         assert!(!item.is::<ScalarFn>());
@@ -510,7 +513,7 @@ mod tests {
     fn get_item_pushes_through_slice() -> VortexResult<()> {
         let sliced = test_array().into_array().slice(1..3)?;
 
-        let item = sliced.get_item("a")?;
+        let item = sliced.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Primitive>());
         assert!(!item.is::<Slice>());
@@ -527,9 +530,10 @@ mod tests {
     fn get_item_pushes_through_masked() -> VortexResult<()> {
         let masked = test_array()
             .into_array()
-            .mask(Validity::from_iter([true, false, true]).to_array(3))?;
+            .mask(Validity::from_iter([true, false, true]).to_array(3))?
+            .optimize_ctx(&SESSION)?;
 
-        let item = masked.get_item("a")?;
+        let item = masked.get_item("a")?.optimize_ctx(&SESSION)?;
 
         assert!(item.is::<Primitive>());
         assert_eq!(

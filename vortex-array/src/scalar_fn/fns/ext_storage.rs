@@ -130,6 +130,7 @@ mod tests {
     use crate::expr::select;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -204,7 +205,8 @@ mod tests {
         let scalar = Scalar::extension_ref(ext_dtype(Nullability::Nullable), storage.clone());
         let result = ConstantArray::new(scalar, len)
             .into_array()
-            .apply(&ext_storage(root()))?;
+            .apply(&ext_storage(root()))?
+            .optimize_ctx(&SESSION)?;
 
         assert_eq!(result.as_::<Constant>().scalar(), &storage);
         assert_eq!(result.len(), len);
@@ -232,7 +234,7 @@ mod tests {
             ext_storage(get_item("measurement", select(["measurement"], root()))),
         );
 
-        let result = array.apply(&expr)?;
+        let result = array.apply(&expr)?.optimize_ctx(&SESSION)?;
 
         assert_eq!(result.as_::<Constant>().scalar(), &Scalar::from(42i32));
         assert_eq!(result.len(), 3);

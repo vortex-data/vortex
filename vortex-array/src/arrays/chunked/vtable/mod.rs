@@ -36,6 +36,7 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 mod canonical;
 mod operations;
 mod plugin;
@@ -159,7 +160,8 @@ impl VTable for Chunked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         for chunk in array.iter_chunks() {
-            chunk.append_to_builder(builder, ctx)?;
+            // A chunk can be lazy, such as a slice, so append through the encoding it reduces to.
+            chunk.optimize_ctx(ctx)?.append_to_builder(builder, ctx)?;
         }
         Ok(())
     }

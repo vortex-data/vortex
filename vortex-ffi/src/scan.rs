@@ -448,6 +448,7 @@ mod tests {
     use std::ptr;
     use std::sync::LazyLock;
 
+    use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -462,9 +463,12 @@ mod tests {
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
+    use crate::array::vx_array_get_field;
     use crate::data_source::vx_data_source_free;
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
+    use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::expression::vx_binary_operator;
     use crate::expression::vx_expression_binary;
     use crate::expression::vx_expression_free;
@@ -486,6 +490,9 @@ mod tests {
     use crate::scan::vx_scan_selection_include;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::sink::vx_array_sink_close;
+    use crate::sink::vx_array_sink_open_file;
+    use crate::sink::vx_array_sink_push;
     use crate::string::vx_view;
     use crate::tests::SAMPLE_ROWS;
     use crate::tests::assert_no_error;
@@ -577,6 +584,62 @@ mod tests {
         let (array, struct_array) = scan(&raw const opts);
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
+    }
+
+    /// C callers read fields with `vx_array_get_field`, which needs a struct rather than the
+    /// lazy pack expression a layout reader builds for the projection.
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_scan_returns_struct() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let strings = VarBinViewArray::from_iter_nullable_str([Some("inlined"), Some("y")]);
+        let struct_array = StructArray::try_new(
+            ["s"].into(),
+            vec![strings.clone().into_array()],
+            strings.len(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        unsafe {
+            let session = vx_session_new();
+            let file = NamedTempFile::new().unwrap();
+            let path = vx_view::from_str(file.path().to_str().unwrap());
+            let dtype = vx_dtype::new(struct_array.dtype().clone());
+            let mut error = ptr::null_mut();
+            let sink = vx_array_sink_open_file(session, path, dtype, &raw mut error);
+            assert_no_error(error);
+            let input = vx_array::new(struct_array.into_array());
+            vx_array_sink_push(sink, input, &raw mut error);
+            assert_no_error(error);
+            vx_array_sink_close(sink, &raw mut error);
+            assert_no_error(error);
+            vx_array_free(input);
+            vx_dtype_free(dtype);
+
+            let ds_options = vx_data_source_options {
+                paths: &raw const path,
+                paths_len: 1,
+            };
+            let ds = vx_data_source_new(session, &raw const ds_options, &raw mut error);
+            assert_no_error(error);
+            let scan = vx_data_source_scan(ds, ptr::null(), ptr::null_mut(), &raw mut error);
+            assert_no_error(error);
+            let partition = vx_scan_next_partition(scan, &raw mut error);
+            assert_no_error(error);
+            let array = vx_partition_next(partition, &raw mut error);
+            assert_no_error(error);
+
+            let field = vx_array_get_field(array, 0, &raw mut error);
+            assert_no_error(error);
+            assert_arrays_eq!(vx_array::as_ref(field), strings, &mut ctx);
+
+            vx_array_free(field);
+            vx_array_free(array);
+            vx_partition_free(partition);
+            vx_scan_free(scan);
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
     }
 
     #[test]

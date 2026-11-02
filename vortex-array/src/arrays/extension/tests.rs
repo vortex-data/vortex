@@ -129,7 +129,7 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
     assert_non_zero_error(array.execute_scalar(0, &mut ctx), "0");
     assert_non_zero_error(array.repeated_probe().execute_scalar(0, &mut ctx), "0");
 
-    let optimized = array.optimize()?;
+    let optimized = array.optimize_ctx(&SESSION)?;
     assert!(optimized.is::<Extension>());
     assert_arrays_eq!(optimized.apply(&ext_storage(root()))?, storage, &mut ctx);
     assert_arrays_eq!(
@@ -147,7 +147,8 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
 fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> VortexResult<()> {
     let ext_dtype = NonZero::dtype(PType::I64, Nullability::Nullable)?;
     let scalar = Scalar::try_extension_ref(ext_dtype.clone(), storage.clone())?;
-    let array = NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize()?;
+    let array =
+        NonZero::array(ConstantArray::new(storage, 2).into_array())?.optimize_ctx(&SESSION)?;
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(scalar.dtype(), &DType::Extension(ext_dtype));
