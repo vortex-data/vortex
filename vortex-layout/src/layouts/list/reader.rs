@@ -616,8 +616,6 @@ fn apply_lengths_validity(
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -647,7 +645,7 @@ mod tests {
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::scan::split_by::SplitBy;
-    use crate::segments::SegmentFuture;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1139,18 +1137,6 @@ mod tests {
         ))
     }
 
-    struct CountingSegmentSource {
-        inner: Arc<dyn SegmentSource>,
-        request_count: Arc<AtomicUsize>,
-    }
-
-    impl SegmentSource for CountingSegmentSource {
-        fn request(&self, id: crate::segments::SegmentId) -> SegmentFuture {
-            self.request_count.fetch_add(1, Ordering::Relaxed);
-            self.inner.request(id)
-        }
-    }
-
     /// The chunked-elements strategy must actually produce a chunked `elements` layout, otherwise
     /// the reader would silently take the whole-chunk path and the bounded read would be untested.
     #[tokio::test]
@@ -1175,12 +1161,8 @@ mod tests {
         let ctx = LayoutReaderContext::new();
         let (segments, layout, session) =
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
-        let request_count = Arc::new(AtomicUsize::new(0));
-        let source = Arc::new(CountingSegmentSource {
-            inner: segments,
-            request_count: Arc::clone(&request_count),
-        });
-        let reader = layout.new_reader("".into(), source, &session, &ctx)?;
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader("".into(), Arc::clone(&source) as _, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, false, false, false]);
         let expr = root().bind(reader.dtype())?;
@@ -1191,7 +1173,7 @@ mod tests {
         let expected = list.filter(mask)?;
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
-        assert_eq!(request_count.load(Ordering::Relaxed), 2);
+        assert_eq!(source.requests(), 2);
         Ok(())
     }
 

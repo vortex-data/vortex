@@ -77,6 +77,14 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::combined::PairOptions;
+    use crate::aggregate_fn::fns::count::Count;
+    use crate::aggregate_fn::fns::first::First;
+    use crate::aggregate_fn::fns::is_constant::IsConstant;
+    use crate::aggregate_fn::fns::is_sorted::IsSorted;
+    use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::last::Last;
+    use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
@@ -205,13 +213,58 @@ mod tests {
     /// The `skip_nans` option must survive a protobuf serialize/deserialize round-trip for the
     /// numeric aggregates, including the non-default NaN-including configuration.
     #[rstest]
-    #[case(NumericalAggregateOpts::skip_nans())]
-    #[case(NumericalAggregateOpts::include_nans())]
-    fn numeric_aggregate_options_round_trip(
-        #[case] options: NumericalAggregateOpts,
+    #[case(Sum.bind(NumericalAggregateOpts::skip_nans()))]
+    #[case(Sum.bind(NumericalAggregateOpts::include_nans()))]
+    #[case(Count.bind(NumericalAggregateOpts::skip_nans()))]
+    #[case(Count.bind(NumericalAggregateOpts::include_nans()))]
+    fn numeric_aggregate_options_round_trip(#[case] agg_fn: AggregateFnRef) -> VortexResult<()> {
+        assert_round_trip(agg_fn)
+    }
+
+    #[rstest]
+    #[case(First.bind(EmptyOptions))]
+    #[case(Last.bind(EmptyOptions))]
+    #[case(IsConstant.bind(EmptyOptions))]
+    #[case(IsSorted.bind(IsSortedOptions { strict: false }))]
+    #[case(IsSorted.bind(IsSortedOptions { strict: true }))]
+    fn aggregate_options_round_trip(#[case] agg_fn: AggregateFnRef) -> VortexResult<()> {
+        assert_round_trip(agg_fn)
+    }
+
+    #[rstest]
+    fn mean_options_round_trip(
+        #[values(false, true)] sum_skip_nans: bool,
+        #[values(false, true)] count_skip_nans: bool,
     ) -> VortexResult<()> {
+        assert_round_trip(Mean::combined().bind(PairOptions(
+            NumericalAggregateOpts {
+                skip_nans: sum_skip_nans,
+            },
+            NumericalAggregateOpts {
+                skip_nans: count_skip_nans,
+            },
+        )))
+    }
+
+    #[rstest]
+    #[case(IsSorted.id(), vec![])]
+    #[case(IsSorted.id(), vec![2])]
+    #[case(IsSorted.id(), vec![0, 1])]
+    #[case(Mean::combined().id(), vec![])]
+    #[case(Mean::combined().id(), vec![0])]
+    #[case(Mean::combined().id(), vec![2, 0])]
+    #[case(Mean::combined().id(), vec![0, 2])]
+    #[case(Mean::combined().id(), vec![0, 1, 0])]
+    fn invalid_aggregate_options(#[case] id: AggregateFnId, #[case] metadata: Vec<u8>) {
+        let proto = pb::AggregateFn {
+            id: id.to_string(),
+            metadata: Some(metadata),
+        };
+        assert!(AggregateFnRef::from_proto(&proto, &VortexSession::empty()).is_err());
+    }
+
+    fn assert_round_trip(agg_fn: AggregateFnRef) -> VortexResult<()> {
         let session = VortexSession::empty();
-        let agg_fn = Sum.bind(options);
 
         let proto = agg_fn.serialize_proto()?;
         let buf = proto.encode_to_vec();

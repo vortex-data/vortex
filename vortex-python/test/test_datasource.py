@@ -17,6 +17,7 @@ from ray.data import read_datasource
 from typing_extensions import override
 
 import vortex as vx
+import vortex.expr as ve
 from vortex.ray.datasource import VortexDatasource, partition
 
 from .test_file import record
@@ -35,6 +36,16 @@ def ray_init() -> Iterator[None]:
     _ = ray.init()
     yield None
     ray.shutdown()
+
+
+def test_vortex_datasource_count_and_schema_follow_the_scan(ray_init, tmpdir_factory) -> None:
+    folder = tmpdir_factory.mktemp("data")
+    vx.io.write(vx.array([record(x) for x in range(10)]), str(folder / "01.vortex"))
+
+    ds = read_datasource(VortexDatasource(url=str(folder), columns=["index"], filter=ve.column("index") < 3))
+
+    assert ds.count() == 3
+    assert ds.schema().names == ["index"]
 
 
 def test_partition() -> None:

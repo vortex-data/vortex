@@ -30,6 +30,7 @@ import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -167,6 +168,18 @@ public final class JNIWriterTest {
                         Field.notNullable("name", new ArrowType.Utf8View()),
                         Field.notNullable("age", new ArrowType.Int(32, true)))),
                 source.arrowSchema(allocator));
+    }
+
+    @Test
+    public void testCreateWriterReleasesSchemaExport() throws IOException {
+        String writePath = tempDir.resolve("test_schema_release.vortex").toUri().toString();
+        Session session = Session.create();
+        try (BufferAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                    .build()) {
+                assertEquals(0, allocator.getAllocatedMemory());
+            }
+        }
     }
 
     @Test

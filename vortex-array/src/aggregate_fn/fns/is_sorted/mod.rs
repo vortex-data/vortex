@@ -14,6 +14,7 @@ use std::fmt::Formatter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
@@ -252,8 +253,20 @@ impl AggregateFnVTable for IsSorted {
         *ID
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("IsSorted is not yet serializable");
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![u8::from(options.strict)]))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        match metadata {
+            [0] => Ok(IsSortedOptions { strict: false }),
+            [1] => Ok(IsSortedOptions { strict: true }),
+            _ => vortex_bail!("Invalid IsSorted options: expected a single boolean byte"),
+        }
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

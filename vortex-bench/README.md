@@ -39,6 +39,21 @@ cargo instruments -p vortex-bench --bin query_bench --template Time --profile be
 There is a data directory at `vortex/vortex-bench/data` where parquet and vortex files used for the benchmark runs
 can be found.
 
+## Parquet compression
+
+All benchmark Parquet files use zstd level 3. Set the level explicitly, because the defaults of
+the common writers are different:
+
+- parquet-rs: `ZstdLevel::default()` is level 1, not level 3. Use
+  `Compression::ZSTD(ZstdLevel::try_new(3)?)`, or `parquet_writer_properties()` from
+  `src/utils/parquet.rs`.
+- DuckDB: `COPY` writes Snappy by default. Use
+  `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`.
+- `tpchgen-cli`: writes Snappy by default. Use `parquet --compression='ZSTD(3)'`.
+
+Benchmarks that compare Parquet codecs on purpose, such as the compress-bench `--gpu-parquet-codec`
+option, are exempt.
+
 ## Memory allocators
 
 If you don't want to use the default system allocator, there are `"jemalloc"` and `"mimalloc"` features available that

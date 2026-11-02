@@ -626,6 +626,7 @@ mod tests {
     use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
+    use vortex_array::expr::mask;
     use vortex_array::expr::not;
     use vortex_array::expr::or;
     use vortex_array::expr::pack;
@@ -648,6 +649,7 @@ mod tests {
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -828,6 +830,142 @@ mod tests {
         .unwrap();
 
         (segments, layout)
+    }
+
+    /// Writes `{id, s: {a, b, c}}`, where the struct `s` is null in row 0.
+    #[fixture]
+    fn table_with_null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+        let s = StructArray::try_from_iter_with_validity(
+            [
+                ("a", buffer![7, 2, 3].into_array()),
+                ("b", buffer![4, 5, 6].into_array()),
+                ("c", buffer![8, 9, 10].into_array()),
+            ],
+            Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+        )
+        .unwrap();
+        let table = StructArray::try_from_iter([
+            ("id", buffer![0, 1, 2].into_array()),
+            ("s", s.into_array()),
+        ])
+        .unwrap();
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments2,
+                    table.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        (segments, layout)
+    }
+
+    /// Projecting a nullable struct reads only the fields it keeps, plus the struct validity.
+    #[rstest]
+    #[case::select_one_field(select(["b"], root()), 2)]
+    #[case::whole_struct(root(), 4)]
+    fn test_nullable_struct_projection_request_count(
+        #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] expr: Expression,
+        #[case] expected_requests: usize,
+    ) -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &SESSION,
+            &Default::default(),
+        )?;
+        let expr = expr.bind(reader.dtype())?;
+        let project = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
+        let result = block_on(move |_| project)?;
+
+        assert_eq!(source.requests(), expected_requests);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = result.execute::<StructArray>(&mut ctx)?;
+        assert_eq!(
+            result.validity()?.execute_mask(3, &mut ctx)?,
+            Mask::from_iter([false, true, true])
+        );
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("b")?,
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Projecting a pruned nullable struct column, with `select` or a masked `pack`, reads only
+    /// the fields it keeps, plus the struct validity.
+    #[rstest]
+    #[case::select(
+        select(["b"], get_item("s", root())),
+        PrimitiveArray::from_iter([4i32, 5, 6]).into_array(),
+    )]
+    // Reading `b` through the nullable `s` also nulls it where `s` is null.
+    #[case::masked_pack(
+        mask(
+            pack([("b", get_item("b", get_item("s", root())))], Nullability::NonNullable),
+            is_not_null(get_item("s", root())),
+        ),
+        PrimitiveArray::from_option_iter([None, Some(5i32), Some(6)]).into_array(),
+    )]
+    fn test_pruned_nullable_struct_column_reads_only_kept_fields(
+        #[from(table_with_null_struct_layout)] (segments, layout): (
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+        #[case] s_projection: Expression,
+        #[case] expected_b: ArrayRef,
+    ) -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &SESSION,
+            &Default::default(),
+        )?;
+        let expr = pack(
+            [("id", get_item("id", root())), ("s", s_projection)],
+            Nullability::NonNullable,
+        )
+        .bind(reader.dtype())?;
+        let project = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
+        let result = block_on(move |_| project)?;
+
+        // `id`, `s.b` and the validity of `s`; `s.a` and `s.c` are never requested.
+        assert_eq!(source.requests(), 3);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = result.execute::<StructArray>(&mut ctx)?;
+        assert_arrays_eq!(
+            result.unmasked_field_by_name("id")?,
+            PrimitiveArray::from_iter([0i32, 1, 2]),
+            &mut ctx
+        );
+        let s = result
+            .unmasked_field_by_name("s")?
+            .clone()
+            .execute::<StructArray>(&mut ctx)?;
+        assert_eq!(s.names().as_ref(), ["b"].map(FieldName::from));
+        assert_eq!(
+            s.validity()?.execute_mask(3, &mut ctx)?,
+            Mask::from_iter([false, true, true])
+        );
+        assert_arrays_eq!(s.unmasked_field_by_name("b")?, expected_b, &mut ctx);
+        Ok(())
     }
 
     #[rstest]
