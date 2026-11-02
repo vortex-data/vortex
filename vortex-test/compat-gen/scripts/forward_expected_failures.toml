@@ -1,0 +1,209 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Documented forward-compatibility failures, read by `compat.py forward`.
+#
+# Each entry tolerates the failures of `fixtures` written under `editions` and read with a released
+# reader from `min_version` to `max_version` (inclusive), when the error contains `error`. Any other
+# failure fails the check. So does a file an entry covers that reads correctly: once a failure is
+# fixed, narrow or remove its entry. Each entry covers exactly the observed failures.
+#
+# Regenerate the observations with
+#   uv run compat.py forward --expected-failures /dev/null --results failures.json
+
+[[expected_failure]]
+id = "sequence-full-i8-range-error"
+reason = """The writer emits a vortex.sequence array of i8 spanning the full range (-128..127, 256 values).
+Readers from 0.61.0 to 0.85.0 convert the length 256 into i8 to check the final value and reject
+the array. 0.86.1 and later accept it. Diagnosed: encodings/sequence/src/array.rs now checks the
+step count (len - 1) instead."""
+error = "final value not expressible"
+min_version = "0.61.0"
+max_version = "0.85.0"
+editions = [
+    "core2025.06.0",
+    "core2025.10.0",
+    "core2026.08.0",
+    "core2026.08.1",
+    "core2026.08.2",
+    "core2026.08.3",
+]
+fixtures = ["decimal_byte_parts_narrow_msp.vortex"]
+
+[[expected_failure]]
+id = "sequence-full-i8-range-panic"
+reason = """The same full-range i8 vortex.sequence array as sequence-full-i8-range-error. Readers from
+0.42.0 to 0.60.0 panic (`must fit`) instead of returning an error."""
+error = "must fit"
+min_version = "0.42.0"
+max_version = "0.60.0"
+editions = ["core2025.06.0", "core2025.10.0"]
+fixtures = ["decimal_byte_parts_narrow_msp.vortex"]
+
+[[expected_failure]]
+id = "struct-layout-validity-child"
+reason = """The struct layout writes a validity child for a nullable struct (slot 0, vortex-layout
+src/layouts/struct_/mod.rs). Readers up to 0.54.0 expect one child per field."""
+error = "Struct layout has 3 children, but dtype has 2 fields"
+min_version = "0.36.0"
+max_version = "0.54.0"
+editions = ["core2025.05.0", "core2025.06.0", "core2025.10.0"]
+fixtures = ["struct_nested.vortex"]
+
+[[expected_failure]]
+id = "stats-unsigned-int64value"
+reason = """Releases 0.59.2 to 0.59.4 reject an unsigned integer value serialized as Int64Value, which the
+writer emits for unsigned columns. Earlier and later releases accept it. Not yet diagnosed which
+serialized value (statistics, zone maps, or encoding metadata) carries it."""
+error = "expected signed integer ptype for Int64Value"
+min_version = "0.59.2"
+max_version = "0.59.4"
+editions = ["core2025.06.0", "core2025.10.0"]
+fixtures = [
+    "bitpacked.vortex",
+    "chunked.vortex",
+    "clickbench_hits_5k.vortex",
+    "datetimeparts.vortex",
+    "pco.vortex",
+    "rle.vortex",
+    "runend.vortex",
+    "sequence.vortex",
+    "sparse.vortex",
+    "struct_nested.vortex",
+    "tpch_lineitem.vortex",
+    "tpch_orders.vortex",
+    "zigzag.vortex",
+    "zstd.vortex",
+]
+
+[[expected_failure]]
+id = "pco-missing-from-wheel"
+reason = """The 0.40.0 and 0.41.2 Python wheels do not register vortex.pco, although core2025.06.0 includes
+it from 0.40.0. Every file fails because the writer uses pco somewhere in each. This may be a
+wheel packaging gap rather than a format incompatibility."""
+error = "Array encoding vortex.pco not found"
+min_version = "0.40.0"
+max_version = "0.41.2"
+editions = ["core2025.06.0"]
+fixtures = [
+    "alp.vortex",
+    "alprd.vortex",
+    "bitpacked.vortex",
+    "booleans.vortex",
+    "bytebool.vortex",
+    "chunked.vortex",
+    "clickbench_hits_5k.vortex",
+    "constant.vortex",
+    "datetime.vortex",
+    "decimal.vortex",
+    "decimal_byte_parts.vortex",
+    "decimal_byte_parts_narrow_msp.vortex",
+    "decimal_canonical_widths.vortex",
+    "decimal_gap_values.vortex",
+    "decimal_high_scale.vortex",
+    "decimal_narrow_storage.vortex",
+    "decimal_null_slots.vortex",
+    "decimal_wide_storage.vortex",
+    "for.vortex",
+    "list.vortex",
+    "null.vortex",
+    "pco.vortex",
+    "primitives.vortex",
+    "rle.vortex",
+    "runend.vortex",
+    "sequence.vortex",
+    "struct_nested.vortex",
+    "tpch_lineitem.vortex",
+    "tpch_orders.vortex",
+    "varbin.vortex",
+    "varbinview.vortex",
+    "zigzag.vortex",
+    "zstd.vortex",
+]
+
+[[expected_failure]]
+id = "extra-buffer"
+reason = """Readers up to 0.58.0 reject a string or list array with one more buffer than they expect. Not
+yet diagnosed which encoding the writer emits differently."""
+error = "Expected 2 buffers, got 3"
+min_version = "0.36.0"
+max_version = "0.58.0"
+editions = ["core2025.05.0", "core2025.06.0", "core2025.10.0"]
+fixtures = [
+    "clickbench_hits_5k.vortex",
+    "dict.vortex",
+    "fsst.vortex",
+    "list.vortex",
+    "listview.vortex",
+    "struct_nested.vortex",
+    "tpch_lineitem.vortex",
+    "tpch_orders.vortex",
+    "varbin.vortex",
+    "varbinview.vortex",
+]
+
+[[expected_failure]]
+id = "bool-into-ptype"
+reason = """Readers up to 0.53.0 fail with `Cannot convert DType bool into PType` on numeric and dataset
+fixtures. Not yet diagnosed; likely a boolean value in statistics or zone maps that old readers
+decode as a primitive."""
+error = "Cannot convert DType bool into PType"
+min_version = "0.36.0"
+max_version = "0.53.0"
+editions = ["core2025.05.0", "core2025.06.0"]
+fixtures = [
+    "alp.vortex",
+    "clickbench_hits_5k.vortex",
+    "pco.vortex",
+    "primitives.vortex",
+    "tpch_lineitem.vortex",
+    "tpch_orders.vortex",
+]
+
+[[expected_failure]]
+id = "extra-child"
+reason = """Readers up to 0.53.0 reject an array with four children in temporal and decimal fixtures. Not
+yet diagnosed which encoding the writer emits differently."""
+error = "Expected 2 or 3 children, got 4"
+min_version = "0.36.0"
+max_version = "0.53.0"
+editions = ["core2025.05.0", "core2025.06.0"]
+fixtures = ["datetime.vortex", "decimal.vortex", "decimal_null_slots.vortex"]
+
+[[expected_failure]]
+id = "constant-timestamp-canonicalize"
+reason = """Readers up to 0.46.1 fail to canonicalize a constant timestamp column. Not yet diagnosed."""
+error = "Failed to canonicalize field"
+min_version = "0.36.0"
+max_version = "0.46.1"
+editions = ["core2025.05.0", "core2025.06.0"]
+fixtures = ["constant.vortex"]
+
+[[expected_failure]]
+id = "decimal-precision-over-38"
+reason = """Readers up to 0.39.0 export decimals with precision 39 and 40 as Arrow decimal128, whose maximum
+precision is 38. Possibly an Arrow export limit of those readers rather than a format
+incompatibility."""
+error = "Decimal precision out of range"
+min_version = "0.36.0"
+max_version = "0.39.0"
+editions = ["core2025.05.0"]
+fixtures = ["decimal_canonical_widths.vortex", "decimal_narrow_storage.vortex"]
+
+[[expected_failure]]
+id = "decimal-primitive-parts"
+reason = """0.36.0 cannot read decimal_byte_parts arrays whose most significant part is narrower than it
+supports. Not yet diagnosed. decimal_null_slots and tpch_lineitem also hit other entries' errors;
+which error a run reports depends on which column the reader decodes first."""
+error = "cannot represent a decimal"
+min_version = "0.36.0"
+max_version = "0.36.0"
+editions = ["core2025.05.0"]
+fixtures = [
+    "decimal_byte_parts.vortex",
+    "decimal_byte_parts_narrow_msp.vortex",
+    "decimal_gap_values.vortex",
+    "decimal_high_scale.vortex",
+    "decimal_null_slots.vortex",
+    "tpch_lineitem.vortex",
+]

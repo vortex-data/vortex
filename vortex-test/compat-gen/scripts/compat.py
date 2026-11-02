@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -761,6 +762,34 @@ FORWARD_READER = Path(__file__).resolve().with_name("forward_reader.py")
 FORWARD_EXTRA_DEPS = ["pyarrow", "typing_extensions", "substrait<0.24"]
 
 
+FORWARD_EXPECTED_FAILURES = Path(__file__).resolve().with_name("forward_expected_failures.toml")
+
+
+def _load_expected_failures(path: Path) -> list[dict]:
+    """Load and validate the documented forward-compatibility failures."""
+    entries = tomllib.loads(path.read_text()).get("expected_failure", [])
+    required = {"id", "reason", "error", "min_version", "max_version", "editions", "fixtures"}
+    ids: set[str] = set()
+    for entry in entries:
+        missing = required - entry.keys()
+        if missing:
+            raise ValueError(f"{path.name}: entry {entry.get('id', '?')} is missing {', '.join(sorted(missing))}")
+        if entry["id"] in ids:
+            raise ValueError(f"{path.name}: duplicate id {entry['id']}")
+        ids.add(entry["id"])
+    return entries
+
+
+def _version_in(version: str, entry: dict) -> bool:
+    key = _version_sort_key(version)
+    return _version_sort_key(entry["min_version"]) <= key <= _version_sort_key(entry["max_version"])
+
+
+def _covers(entry: dict, version: str, edition: str, name: str) -> bool:
+    """Whether `entry` documents a failure of `edition/name` read with `version`."""
+    return edition in entry["editions"] and name in entry["fixtures"] and _version_in(version, entry)
+
+
 def _released_versions() -> list[str]:
     """Return every final (non-pre-release, non-yanked) release of the Python package."""
     with urlopen(PYPI_JSON_URL, timeout=30) as resp:
@@ -852,6 +881,7 @@ def cmd_forward(args: argparse.Namespace) -> None:
 
 
 def _check_forward(fixtures_dir: Path, args: argparse.Namespace) -> None:
+    expected = _load_expected_failures(Path(args.expected_failures))
     manifest = json.loads((fixtures_dir / "forward.json").read_text())
     editions = manifest["editions"]
     if args.editions:
@@ -922,28 +952,73 @@ def _check_forward(fixtures_dir: Path, args: argparse.Namespace) -> None:
             status = "FAILED" if result["failed"] else "ok"
             _info(f"  v{version}: {len(result['passed'])} passed, {len(result['failed'])} failed {status}")
 
+    if args.results:
+        all_failures = [
+            {"version": version, **failure} for version, result in results.items() for failure in result["failed"]
+        ]
+        all_failures.sort(key=lambda f: (_version_sort_key(f["version"]), f["edition"], f["name"]))
+        Path(args.results).write_text(json.dumps(all_failures, indent=2) + "\n")
+        _info(f"wrote {len(all_failures)} failure(s) to {args.results}")
+
+    # A failure is expected when an entry documents it: same edition, fixture and release range,
+    # and the documented error text appears in the actual error.
+    matched: dict[str, int] = {entry["id"]: 0 for entry in expected}
+    expected_count = 0
     _info("\nresults by edition:")
     for edition in editions:
         name = edition["edition"]
         bad_versions = []
+        expected_versions = set()
         checked = 0
         for version, covered in plan:
             if name not in covered:
                 continue
             checked += 1
-            edition_failures = [f for f in results[version]["failed"] if f["edition"] == name]
-            if edition_failures:
-                bad_versions.append(version)
-                failures.extend((version, f) for f in edition_failures)
+            for failure in (f for f in results[version]["failed"] if f["edition"] == name):
+                entry = next(
+                    (
+                        e
+                        for e in expected
+                        if _covers(e, version, name, failure["name"]) and e["error"] in failure["error"]
+                    ),
+                    None,
+                )
+                if entry is None:
+                    failures.append((version, failure))
+                    if version not in bad_versions:
+                        bad_versions.append(version)
+                else:
+                    matched[entry["id"]] += 1
+                    expected_count += 1
+                    expected_versions.add(version)
+        suffix = f", expected failures on {len(expected_versions)}" if expected_versions else ""
         if bad_versions:
-            _info(f"  {name}: FAILED on {len(bad_versions)}/{checked} release(s): {', '.join(bad_versions)}")
+            _info(f"  {name}: FAILED on {len(bad_versions)}/{checked} release(s): {', '.join(bad_versions)}{suffix}")
         else:
-            _info(f"  {name}: ok on {checked} release(s)")
+            _info(f"  {name}: ok on {checked} release(s){suffix}")
 
+    # A documented failure that now passes means the entry no longer describes reality: the
+    # failure was fixed, so the entry must be narrowed or removed.
+    unexpected_passes = [
+        (version, entry["id"], f"{p['edition']}/{p['name']}")
+        for version, result in sorted(results.items(), key=lambda vr: _version_sort_key(vr[0]))
+        for p in result["passed"]
+        for entry in expected
+        if _covers(entry, version, p["edition"], p["name"])
+    ]
+
+    used = sum(1 for n in matched.values() if n)
+    _info(f"\n{expected_count} expected failure(s) from {used} of {len(expected)} documented entries")
+    if unexpected_passes:
+        _info(f"\n{len(unexpected_passes)} documented failure(s) now pass; narrow or remove their entries in")
+        _info(f"{args.expected_failures}:")
+        for version, entry_id, file in unexpected_passes:
+            _info(f"  v{version} {file} ({entry_id})")
     if failures:
         _report_forward_failures(failures)
+    if failures or unexpected_passes:
         sys.exit(1)
-    _info("\nall files are readable by every release their edition covers.")
+    _info("\nall files are readable by every release their edition covers, except documented failures.")
 
 
 def _report_forward_failures(failures: list[tuple[str, dict]]) -> None:
@@ -1263,6 +1338,12 @@ def main() -> None:
         "--dir",
         help="Use an existing `vortex-compat generate-forward` output instead of generating one",
     )
+    p.add_argument(
+        "--expected-failures",
+        default=str(FORWARD_EXPECTED_FAILURES),
+        help="TOML file documenting known failures (default: %(default)s). Pass an empty file to see every failure.",
+    )
+    p.add_argument("--results", help="Write every read failure, expected or not, to this JSON file")
     p.add_argument("--jobs", type=int, default=4, help="Releases to read with concurrently (default: %(default)s)")
     p.add_argument(
         "--python",

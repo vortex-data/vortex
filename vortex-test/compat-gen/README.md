@@ -163,7 +163,7 @@ With `--version`: print that version's `manifest.json`.
 Walk all versions in order and verify no fixtures were removed between
 consecutive versions (additive-only property).
 
-### `forward [--mode <MODE>|--versions <CSV>] [--editions <CSV>] [--exclude <CSV>] [--dir <DIR>]`
+### `forward [--mode <MODE>|--versions <CSV>] [--editions <CSV>] [--exclude <CSV>] [--dir <DIR>] [--expected-failures <TOML>] [--results <JSON>]`
 
 1. Run `vortex-compat generate-forward` into a temp dir (or use `--dir`)
 2. List the final releases of the `vortex-data` Python package on PyPI
@@ -172,14 +172,30 @@ consecutive versions (additive-only property).
    `scripts/forward_reader.py` in an isolated `uv` environment with that
    release's published wheel, so no old code is compiled.
 4. Report results per edition, and exit 1 if any file fails to read or differs
-   from its expected values. An edition the current writer cannot write any
-   fixture with also fails: its forward guarantee cannot be tested.
+   from its expected values, unless the failure is documented as expected.
+   An edition the current writer cannot write any fixture with also fails: its
+   forward guarantee cannot be tested.
 
 The reader uses `vortex.open(path).to_arrow()`, which every release since
 0.36.0 provides. It compares the result with the expected Arrow IPC file by
 value, so an older reader may export an equivalent Arrow type, such as `string`
 for `string_view`. NaN equals NaN, and `0.0` differs from `-0.0`. Temporal
 columns are compared through their integer storage.
+
+Known failures are documented in `scripts/forward_expected_failures.toml`, each
+with the editions, fixtures, release range, and error text it covers, and the
+reason. A failure an entry documents passes the check; any other failure fails
+it. A covered file that reads correctly also fails the check, so an entry must
+be narrowed or removed as soon as its failure is fixed. To see every failure,
+and to refresh the entries, run:
+
+```bash
+uv run scripts/compat.py forward --expected-failures /dev/null --results failures.json
+```
+
+A file with several incompatibilities can report a different one from run to
+run, depending on which column the reader decodes first. Such a file is listed
+under every entry whose error it shows.
 
 `--mode all` (the default) reads with every release from each edition's
 `min_library_version` up to the latest release. `--mode last` reads only with
