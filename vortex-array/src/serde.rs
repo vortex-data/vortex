@@ -818,7 +818,11 @@ mod tests {
             old_primitive_id()
         }
 
-        fn serialized_ids(&self) -> Vec<ArrayId> {
+        fn read_ids(&self) -> Vec<ArrayId> {
+            vec![old_primitive_id(), new_primitive_id()]
+        }
+
+        fn write_ids(&self) -> Vec<ArrayId> {
             vec![old_primitive_id(), new_primitive_id()]
         }
 
@@ -883,8 +887,12 @@ mod tests {
             VersionedPrimitivePlugin.id()
         }
 
-        fn serialized_ids(&self) -> Vec<ArrayId> {
-            VersionedPrimitivePlugin.serialized_ids()
+        fn read_ids(&self) -> Vec<ArrayId> {
+            VersionedPrimitivePlugin.read_ids()
+        }
+
+        fn write_ids(&self) -> Vec<ArrayId> {
+            VersionedPrimitivePlugin.write_ids()
         }
 
         fn serialize(

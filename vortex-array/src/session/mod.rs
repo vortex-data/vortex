@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Session registries for array readers and writers.
+//!
+//! Writers are keyed by in-memory encoding IDs, while readers are keyed by wire IDs. Keeping the
+//! registries separate lets a writer reuse another encoding's wire form without replacing its
+//! reader.
+
 use std::any::Any;
 use std::sync::Arc;
 
@@ -62,14 +68,14 @@ impl ArraySession {
         &self.registry
     }
 
-    /// Register an in-memory array plugin and all of its recognized serialized IDs.
+    /// Register an in-memory array writer and its declared wire readers.
     ///
     /// This replaces any serializer with the same in-memory ID and any deserializer registered
-    /// under one of [`ArrayPlugin::serialized_ids`].
+    /// under one of [`ArrayPlugin::read_ids`].
     pub fn register<P: ArrayPlugin>(&self, plugin: P) {
         let plugin = Arc::new(plugin) as ArrayPluginRef;
         self.serializers.insert(plugin.id(), Arc::clone(&plugin));
-        for serialized_id in plugin.serialized_ids() {
+        for serialized_id in plugin.read_ids() {
             self.registry.insert(serialized_id, Arc::clone(&plugin));
         }
     }
@@ -144,9 +150,7 @@ pub trait ArraySessionExt: SessionExt {
             return Ok(None);
         };
         vortex_ensure!(
-            plugin
-                .serialized_ids()
-                .contains(&serialization.serialized_id),
+            plugin.write_ids().contains(&serialization.serialized_id),
             "array serializer {} produced undeclared serialized ID {}",
             array.encoding_id(),
             serialization.serialized_id,
@@ -158,27 +162,4 @@ pub trait ArraySessionExt: SessionExt {
 impl<S: SessionExt> ArraySessionExt for S {}
 
 #[cfg(test)]
-mod tests {
-    use vortex_session::VortexSession;
-
-    use crate::ArrayVTable;
-    use crate::arrays::Bool;
-    use crate::session::ArraySession;
-    use crate::session::ArraySessionExt;
-
-    #[test]
-    fn array_session_default_registers_encodings() {
-        let session = VortexSession::empty().with::<ArraySession>();
-
-        assert!(session.arrays().registry().contains_key(&Bool.id()));
-        assert!(session.arrays().serializer(&Bool.id()).is_some());
-    }
-
-    #[test]
-    fn empty_array_session_registers_no_encodings() {
-        let session = VortexSession::empty().with_some(ArraySession::empty());
-
-        assert!(!session.arrays().registry().contains_key(&Bool.id()));
-        assert!(session.arrays().serializer(&Bool.id()).is_none());
-    }
-}
+mod tests;
