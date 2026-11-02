@@ -179,13 +179,10 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        if let Some(cached) = ctx.cached_canonical(&self) {
-            return Ok(cached);
-        }
-        let root_key = ctx.canonical_cache_key(&self);
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
+        let mut canonical_cache = CanonicalCache::default();
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
         let kernels = execute_parent_kernels.as_ref();
         let max_iterations = max_iterations();
@@ -219,12 +216,13 @@ impl ArrayRef {
                             "root activation should not retain a builder"
                         );
                         trace_op!(record_execute_until_return(&current_array));
-                        ctx.cache_canonical(root_key, &current_array);
                         return Ok(current_array);
                     }
                     Some(mut frame) => {
                         let _slot_idx = frame.slot_idx;
-                        ctx.cache_canonical(frame.cache_key.take(), &current_array);
+                        if let Some(key) = frame.cache_key.take() {
+                            canonical_cache.insert(key, &current_array);
+                        }
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
                         trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
                         continue;
@@ -300,12 +298,7 @@ impl ArrayRef {
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
                     trace_op!(record_execute_slot(i, &parent, &child));
-                    let cached = ctx.cached_canonical(&child);
-                    let cache_key = if cached.is_none() {
-                        ctx.canonical_cache_key(&child)
-                    } else {
-                        None
-                    };
+                    let (child, cache_key) = canonical_cache.lookup(child);
                     stack.push(StackFrame {
                         parent_array: parent,
                         parent_builder: current_builder.take(),
@@ -315,7 +308,7 @@ impl ArrayRef {
                         original_len: child.len(),
                         cache_key,
                     });
-                    current_array = cached.unwrap_or(child);
+                    current_array = child;
                     current_builder = None;
                 }
                 ExecutionStep::AppendChild(i) => {
@@ -378,51 +371,99 @@ struct StackFrame {
     cache_key: Option<ArrayRef>,
 }
 
-/// The upper bound on the arrays one context's canonical cache holds.
+/// The upper bound on the arrays one `execute_until` call's canonical cache holds.
 const CANONICAL_CACHE_CAPACITY: usize = 64;
 
-/// Canonical forms of shared arrays, keyed by array identity.
+/// The canonical forms of shared slot children within one `execute_until` call.
 ///
-/// A key is held alive by its entry, so its allocation cannot be reused by a different array
-/// while the entry exists.
-#[derive(Debug, Clone, Default)]
+/// Iteratively executed parents, such as the scalar functions of one expression tree, can
+/// share a child: the conjuncts of a filter unit all read the same column. Each parent asks for
+/// that child in its own slot, so without the cache the child is decoded once per parent.
+///
+/// Entries are keyed by array identity. Only shared children are cached, since a uniquely
+/// owned child can never be requested again, and a key is held alive by its entry so its
+/// allocation cannot be reused by a different array while the call runs.
+#[derive(Default)]
 struct CanonicalCache {
     entries: Vec<(ArrayRef, ArrayRef)>,
-    stats: CanonicalCacheStats,
 }
 
 impl CanonicalCache {
-    fn get(&mut self, array: &ArrayRef) -> Option<ArrayRef> {
-        let canonical = self
+    /// Returns the canonical form cached for `child` if there is one, else `child` with the
+    /// key to cache its canonical form under once it is executed.
+    fn lookup(&mut self, child: ArrayRef) -> (ArrayRef, Option<ArrayRef>) {
+        if !child.is_shared() || AnyCanonical::matches(&child) {
+            return (child, None);
+        }
+        if let Some((_, canonical)) = self
             .entries
             .iter()
-            .find(|(key, _)| ArrayRef::ptr_eq(key, array))
-            .map(|(_, canonical)| canonical.clone())?;
-        self.stats.hits += 1;
-        self.stats.saved_bytes += canonical.nbytes();
-        Some(canonical)
+            .find(|(key, _)| ArrayRef::ptr_eq(key, &child))
+        {
+            #[cfg(any(test, feature = "_test-harness"))]
+            canonical_cache_stats::record_hit(canonical);
+            return (canonical.clone(), None);
+        }
+        let key = (self.entries.len() < CANONICAL_CACHE_CAPACITY).then(|| child.clone());
+        (child, key)
     }
 
-    fn insert(&mut self, key: ArrayRef, canonical: ArrayRef) {
-        if self.entries.len() >= CANONICAL_CACHE_CAPACITY
-            || self.entries.iter().any(|(k, _)| ArrayRef::ptr_eq(k, &key))
-        {
-            return;
+    /// Caches `executed` as the canonical form of `key`, unless execution stopped short of
+    /// canonical.
+    fn insert(&mut self, key: ArrayRef, executed: &ArrayRef) {
+        if AnyCanonical::matches(executed) {
+            #[cfg(any(test, feature = "_test-harness"))]
+            canonical_cache_stats::record_insert();
+            self.entries.push((key, executed.clone()));
         }
-        self.stats.inserts += 1;
-        self.entries.push((key, canonical));
     }
 }
 
-/// Hit statistics of an [`ExecutionCtx`]'s canonical cache.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CanonicalCacheStats {
-    /// Executions answered from the cache instead of executing the array again.
-    pub hits: u64,
-    /// Canonical forms stored.
-    pub inserts: u64,
-    /// The canonical bytes the hits served, i.e. the output their executions would have built.
-    pub saved_bytes: u64,
+/// Per-thread counters of the `execute_until` canonical cache, for tests.
+#[cfg(any(test, feature = "_test-harness"))]
+pub(crate) mod canonical_cache_stats {
+    use std::cell::Cell;
+
+    use crate::ArrayRef;
+
+    /// Canonical cache activity on the current thread since it started.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct CanonicalCacheStats {
+        /// Slot children answered from the cache instead of being executed again.
+        pub hits: u64,
+        /// Canonical forms stored.
+        pub inserts: u64,
+        /// The canonical bytes the hits reused, i.e. the output their executions would build.
+        pub saved_bytes: u64,
+    }
+
+    thread_local! {
+        static STATS: Cell<CanonicalCacheStats> = const {
+            Cell::new(CanonicalCacheStats { hits: 0, inserts: 0, saved_bytes: 0 })
+        };
+    }
+
+    /// The canonical cache activity on the current thread so far.
+    pub fn current() -> CanonicalCacheStats {
+        STATS.with(Cell::get)
+    }
+
+    pub(super) fn record_hit(canonical: &ArrayRef) {
+        STATS.with(|stats| {
+            let mut current = stats.get();
+            current.hits += 1;
+            current.saved_bytes += canonical.nbytes();
+            stats.set(current);
+        });
+    }
+
+    pub(super) fn record_insert() {
+        STATS.with(|stats| {
+            let mut current = stats.get();
+            current.inserts += 1;
+            stats.set(current);
+        });
+    }
 }
 
 /// Execution context for batch CPU compute.
@@ -434,8 +475,6 @@ pub struct ExecutionCtx {
     execute_parent_kernels: Arc<ParentExecutionKernels>,
     // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
     aggregate_kernels: OnceLock<AggregateKernels>,
-    /// Canonical forms of shared arrays executed by this context, when enabled.
-    canonical_cache: Option<CanonicalCache>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -455,7 +494,6 @@ impl ExecutionCtx {
             allocator: OnceLock::new(),
             execute_parent_kernels,
             aggregate_kernels: OnceLock::new(),
-            canonical_cache: None,
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -483,50 +521,6 @@ impl ExecutionCtx {
     pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
         self.aggregate_kernels
             .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
-    }
-
-    /// Memoize the canonical form of every shared array this context executes to canonical.
-    ///
-    /// Several expressions over the same input, such as the conjuncts of one filter unit over
-    /// one column, each execute that input. Without the cache each one decodes it again; with
-    /// it, later executions of the same array (by identity) reuse the first one's canonical
-    /// form. Only arrays referenced from elsewhere are cached, since a uniquely owned array can
-    /// never be executed again. Entries live as long as the context, so enable it only on
-    /// short-lived contexts, such as one filter evaluation over one batch.
-    pub fn with_canonical_cache(mut self) -> Self {
-        self.canonical_cache
-            .get_or_insert_with(CanonicalCache::default);
-        self
-    }
-
-    /// Hit statistics of the canonical cache, or `None` when it is not enabled.
-    pub fn canonical_cache_stats(&self) -> Option<CanonicalCacheStats> {
-        self.canonical_cache.as_ref().map(|cache| cache.stats)
-    }
-
-    /// The cached canonical form of `array`, counting the hit.
-    fn cached_canonical(&mut self, array: &ArrayRef) -> Option<ArrayRef> {
-        let cache = self.canonical_cache.as_mut()?;
-        if !array.is_shared() {
-            return None;
-        }
-        cache.get(array)
-    }
-
-    /// The key to cache `array`'s canonical form under once it is executed, if it is cacheable.
-    fn canonical_cache_key(&self, array: &ArrayRef) -> Option<ArrayRef> {
-        (self.canonical_cache.is_some() && array.is_shared() && !AnyCanonical::matches(array))
-            .then(|| array.clone())
-    }
-
-    /// Cache `canonical` as the canonical form of `key`; anything not canonical is ignored.
-    fn cache_canonical(&mut self, key: Option<ArrayRef>, canonical: &ArrayRef) {
-        if let Some(key) = key
-            && let Some(cache) = self.canonical_cache.as_mut()
-            && AnyCanonical::matches(canonical)
-        {
-            cache.insert(key, canonical.clone());
-        }
     }
 
     /// Set the allocator for this execution context.
@@ -1127,12 +1121,14 @@ mod tests {
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
+    use crate::builtins::ArrayBuiltins;
     use crate::memory::BufferAllocatorRef;
     use crate::memory::MemorySession;
     use crate::memory::MemorySessionExt;
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::optimizer::kernels::KernelSession;
     use crate::optimizer::kernels::execute_parent_key;
+    use crate::scalar_fn::fns::operators::Operator;
 
     assert_impl_all!(ExecutionCtx: Send, Sync);
 
@@ -1226,96 +1222,77 @@ mod tests {
         assert!(ctx.allocator().ptr_eq(&second));
     }
 
-    fn dict_array() -> VortexResult<ArrayRef> {
-        Ok(crate::arrays::DictArray::try_new(
-            vortex_buffer::buffer![0u32, 1, 0, 1].into_array(),
-            vortex_buffer::buffer![10i32, 20].into_array(),
-        )?
-        .into_array())
+    /// A comparison, which is not canonical until executed.
+    fn comparison() -> VortexResult<ArrayRef> {
+        vortex_buffer::buffer![1i32, 2, 3].into_array().binary(
+            vortex_buffer::buffer![2i32, 2, 2].into_array(),
+            Operator::Gt,
+        )
+    }
+
+    /// `child OR NOT child`: an expression tree whose two branches share `child`.
+    fn shared_child_tree(child: &ArrayRef) -> VortexResult<ArrayRef> {
+        child.clone().binary(child.clone().not()?, Operator::Or)
+    }
+
+    fn cache_activity<T>(
+        f: impl FnOnce() -> VortexResult<T>,
+    ) -> VortexResult<(T, canonical_cache_stats::CanonicalCacheStats)> {
+        let before = canonical_cache_stats::current();
+        let result = f()?;
+        let after = canonical_cache_stats::current();
+        Ok((
+            result,
+            canonical_cache_stats::CanonicalCacheStats {
+                hits: after.hits - before.hits,
+                inserts: after.inserts - before.inserts,
+                saved_bytes: after.saved_bytes - before.saved_bytes,
+            },
+        ))
     }
 
     #[test]
-    fn canonical_cache_is_disabled_by_default() -> VortexResult<()> {
+    fn canonical_cache_reuses_shared_child_within_one_execution() -> VortexResult<()> {
         let mut ctx = VortexSession::empty().create_execution_ctx();
-        dict_array()?.execute::<crate::Canonical>(&mut ctx)?;
-        assert_eq!(ctx.canonical_cache_stats(), None);
-        Ok(())
-    }
+        let child = comparison()?;
+        let tree = shared_child_tree(&child)?;
 
-    #[test]
-    fn canonical_cache_reuses_shared_array() -> VortexResult<()> {
-        let mut ctx = VortexSession::empty()
-            .create_execution_ctx()
-            .with_canonical_cache();
-        let array = dict_array()?;
-
-        let first = array.clone().execute_until::<AnyCanonical>(&mut ctx)?;
-        // The cache entry still references `array`, so it stays shared once moved here.
-        let second = array.execute_until::<AnyCanonical>(&mut ctx)?;
-
-        assert!(ArrayRef::ptr_eq(&first, &second));
-        let expected = vortex_buffer::buffer![10i32, 20, 10, 20].into_array();
-        crate::assert_arrays_eq!(second, expected, &mut ctx);
-        assert_eq!(
-            ctx.canonical_cache_stats(),
-            Some(CanonicalCacheStats {
-                hits: 1,
-                inserts: 1,
-                saved_bytes: first.nbytes(),
-            })
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn canonical_cache_reuses_shared_slot_children() -> VortexResult<()> {
-        let mut ctx = VortexSession::empty()
-            .create_execution_ctx()
-            .with_canonical_cache();
-        // Two dicts share non-canonical codes, which each executes in a slot.
-        let codes = crate::arrays::DictArray::try_new(
-            vortex_buffer::buffer![0u8, 1, 1, 0].into_array(),
-            vortex_buffer::buffer![1u32, 0].into_array(),
-        )?
-        .into_array();
-        let first = crate::arrays::DictArray::try_new(
-            codes.clone(),
-            vortex_buffer::buffer![10i32, 20].into_array(),
-        )?
-        .into_array()
-        .execute_until::<AnyCanonical>(&mut ctx)?;
-        let second = crate::arrays::DictArray::try_new(
-            codes,
-            vortex_buffer::buffer![30i32, 40].into_array(),
-        )?
-        .into_array()
-        .execute_until::<AnyCanonical>(&mut ctx)?;
+        let (result, stats) = cache_activity(|| tree.execute_until::<AnyCanonical>(&mut ctx))?;
 
         crate::assert_arrays_eq!(
-            first,
-            vortex_buffer::buffer![20i32, 10, 10, 20].into_array(),
+            result,
+            BoolArray::from_iter([true, true, true]).into_array(),
             &mut ctx
         );
-        crate::assert_arrays_eq!(
-            second,
-            vortex_buffer::buffer![40i32, 30, 30, 40].into_array(),
-            &mut ctx
-        );
-        let stats = ctx.canonical_cache_stats().vortex_expect("cache enabled");
+        assert_eq!(stats.inserts, 1);
         assert_eq!(stats.hits, 1);
         Ok(())
     }
 
     #[test]
-    fn canonical_cache_skips_unique_arrays() -> VortexResult<()> {
-        let mut ctx = VortexSession::empty()
-            .create_execution_ctx()
-            .with_canonical_cache();
-        dict_array()?.execute_until::<AnyCanonical>(&mut ctx)?;
-        assert_eq!(
-            ctx.canonical_cache_stats(),
-            Some(CanonicalCacheStats::default())
-        );
+    fn canonical_cache_does_not_outlive_its_execution() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let child = comparison()?;
+
+        let (_, stats) = cache_activity(|| {
+            shared_child_tree(&child)?.execute_until::<AnyCanonical>(&mut ctx)?;
+            shared_child_tree(&child)?.execute_until::<AnyCanonical>(&mut ctx)
+        })?;
+
+        // Each execution computes the shared child once and reuses it once; nothing carries
+        // over from the first execution to the second.
+        assert_eq!(stats.inserts, 2);
+        assert_eq!(stats.hits, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_cache_skips_unique_children() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        // Built in its own statement, so no temporary keeps the comparison alive.
+        let tree = comparison()?.not()?;
+        let (_, stats) = cache_activity(|| tree.execute_until::<AnyCanonical>(&mut ctx))?;
+        assert_eq!(stats, canonical_cache_stats::CanonicalCacheStats::default());
         Ok(())
     }
 }

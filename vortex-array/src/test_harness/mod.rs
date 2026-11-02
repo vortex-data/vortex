@@ -20,6 +20,9 @@ mod execution_paths;
 pub use execution_paths::ExpectedOutcome;
 pub use execution_paths::assert_execution_paths;
 
+pub use crate::executor::canonical_cache_stats::CanonicalCacheStats;
+pub use crate::executor::canonical_cache_stats::current as canonical_cache_stats;
+
 #[cfg(not(codspeed))]
 pub mod trace;
 

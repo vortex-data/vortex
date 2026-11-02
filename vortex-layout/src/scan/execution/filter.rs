@@ -195,8 +195,7 @@ pub(super) fn hint(
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
 pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
-    // A unit's conjuncts can read one column several times; decode it once.
-    let mut ctx = session.create_execution_ctx().with_canonical_cache();
+    let mut ctx = session.create_execution_ctx();
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
 }
 
