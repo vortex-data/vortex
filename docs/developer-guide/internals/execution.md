@@ -439,19 +439,14 @@ fails with an error.
 
 `ScalarFnVTable::execute` is the older API. It runs the function over its inputs and executes
 any input it cannot use inline. `execute_step` replaces it. Until every function is migrated,
-both methods exist, and each has a default defined in terms of the other:
+`execute` stays a required method, and `execute_step` defaults to calling it and returning its
+result as `done`.
 
-| The function implements | `execute_step` | `execute` |
-|-------------------------|----------------|-----------|
-| `execute` only (not migrated) | Default: calls `execute` and returns its result as `done` | The function's own |
-| `execute_step` only (migrated) | The function's own | Default: calls `execute_step`; on an input request, executes that input one step and returns the function lazily over it as a new `ScalarFnArray` |
-
-A function must implement at least one of the two. The defaults call each other, so a function
-that implements neither recurses until the stack overflows.
-
-The iterative executor only calls `execute_step`. `execute` is still reached through
-`ScalarFnRef::execute`, for example by `scalar_at` on a `ScalarFnArray`, which is why migrated
-functions rely on its default rather than an error.
+Vortex only calls `execute` through that default. The iterative executor calls `execute_step`,
+and `ScalarFnRef::execute`, used for example by `scalar_at` on a `ScalarFnArray`, is also
+defined in terms of `execute_step`: on an input request it executes that input one step and
+returns the function lazily over it as a new `ScalarFnArray`. So once a function implements
+`execute_step`, its `execute` is never called.
 
 To migrate a function:
 
@@ -460,7 +455,7 @@ To migrate a function:
    `child.execute::<ArrayRef>(ctx)?` followed by a retry), return
    `execute_input::<M>(i)` with the matcher the function needs, such as `AnyColumnar` or
    `AnyCanonical`.
-3. Delete `execute`.
+3. Replace the body of `execute` with `vortex_panic!`, as `Not` does.
 
 Once every function is migrated, `execute` will be removed from the trait and `execute_step`
 will become required.

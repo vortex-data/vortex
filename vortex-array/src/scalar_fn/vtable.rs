@@ -181,9 +181,11 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Execute the expression over the input arguments.
     ///
-    /// Superseded by [`execute_step`](Self::execute_step): new functions should implement that
-    /// and keep this default, which is defined in terms of it. The two defaults call each other,
-    /// so every function must override at least one of them.
+    /// Superseded by [`execute_step`](Self::execute_step). Vortex only calls this method through
+    /// the default `execute_step`, so a function that implements `execute_step` never has
+    /// `execute` called and should implement it with [`vortex_panic!`].
+    ///
+    /// [`vortex_panic!`]: vortex_error::vortex_panic
     ///
     /// Implementations are encouraged to check their inputs for constant arrays to perform
     /// more optimized execution.
@@ -199,23 +201,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        match self.execute_step(options, args, ctx)?.into_step() {
-            ScalarFnExecutionStep::Done(result) => Ok(result),
-            ScalarFnExecutionStep::ExecuteInput(idx, _) => {
-                let mut inputs = (0..args.num_inputs())
-                    .map(|i| args.get(i))
-                    .collect::<VortexResult<Vec<_>>>()?;
-                inputs[idx] = inputs[idx].clone().execute::<ArrayRef>(ctx)?;
-                Ok(ScalarFnArray::try_new_with_len(
-                    self.bind(options.clone()),
-                    inputs,
-                    args.row_count(),
-                )?
-                .into_array())
-            }
-        }
-    }
+    ) -> VortexResult<ArrayRef>;
 
     /// Perform a single step of execution over the input arguments.
     ///
@@ -229,8 +215,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// progress and fails.
     ///
     /// The default delegates to [`execute`](Self::execute), for functions that have not been
-    /// migrated yet. A function that overrides `execute_step` does not need to implement
-    /// [`execute`](Self::execute), whose default is defined in terms of this method.
+    /// migrated yet. [`ScalarFnRef::execute`] is defined in terms of this method, so once a
+    /// function overrides it, its [`execute`](Self::execute) is never called.
     fn execute_step(
         &self,
         options: &Self::Options,

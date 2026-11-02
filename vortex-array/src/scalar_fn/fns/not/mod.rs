@@ -6,6 +6,7 @@ mod kernel;
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -84,6 +85,15 @@ impl ScalarFnVTable for Not {
             );
         }
         Ok(child_dtype.clone())
+    }
+
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_panic!("Not implements execute_step, so execute is never called")
     }
 
     fn execute_step(

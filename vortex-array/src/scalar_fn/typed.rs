@@ -23,6 +23,8 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
@@ -167,9 +169,21 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
     }
 
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let result = V::execute(&self.vtable, &self.options, args, ctx)?;
-        self.check_result(args, &result)?;
-        Ok(result)
+        match self.execute_step(args, ctx)?.into_step() {
+            ScalarFnExecutionStep::Done(result) => Ok(result),
+            // Take one executor step on the requested input and return this function lazily
+            // over it, leaving the rest of the work to whoever executes the result.
+            ScalarFnExecutionStep::ExecuteInput(idx, _) => {
+                let mut inputs = (0..args.num_inputs())
+                    .map(|i| args.get(i))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                inputs[idx] = inputs[idx].clone().execute::<ArrayRef>(ctx)?;
+                let scalar_fn =
+                    TypedScalarFnInstance::new(self.vtable.clone(), self.options.clone()).erased();
+                Ok(ScalarFnArray::try_new_with_len(scalar_fn, inputs, args.row_count())?
+                    .into_array())
+            }
+        }
     }
 
     fn execute_step(
