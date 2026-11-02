@@ -40,8 +40,10 @@ use crate::executor::ExecutionResult;
 use crate::matcher::Matcher;
 use crate::scalar_fn;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
@@ -174,10 +176,18 @@ impl VTable for ScalarFn {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let args = VecExecutionArgs::new(array.children(), array.len());
-        array
-            .scalar_fn()
-            .execute(&args, ctx)
-            .map(ExecutionResult::done)
+        match array.scalar_fn().execute_step(&args, ctx)?.into_step() {
+            ScalarFnExecutionStep::Done(result) => Ok(ExecutionResult::done(result)),
+            ScalarFnExecutionStep::ExecuteInput(idx, done) => {
+                // Requesting an input that already matches would loop without progress.
+                vortex_ensure!(
+                    !done(&args.get(idx)?),
+                    "Scalar function {} requested execution of input {idx}, which is already done",
+                    array.scalar_fn().id(),
+                );
+                Ok(ExecutionResult::execute_slot_until(array, idx, done))
+            }
+        }
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

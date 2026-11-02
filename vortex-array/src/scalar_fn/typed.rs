@@ -19,6 +19,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -31,6 +32,8 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
+use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -67,6 +70,40 @@ impl<V: ScalarFnVTable> TypedScalarFnInstance<V> {
     pub fn erased(self) -> ScalarFnRef {
         ScalarFnRef(Arc::new(self))
     }
+
+    #[cfg(debug_assertions)]
+    fn expected_dtype(&self, args: &dyn ExecutionArgs) -> VortexResult<DType> {
+        let args_dtypes: Vec<DType> = (0..args.num_inputs())
+            .map(|i| args.get(i).map(|a| a.dtype().clone()))
+            .collect::<VortexResult<_>>()?;
+        V::return_dtype(&self.vtable, &self.options, &args_dtypes)
+    }
+
+    fn check_result(
+        &self,
+        args: &dyn ExecutionArgs,
+        result: &ArrayRef,
+        #[cfg(debug_assertions)] expected_dtype: &DType,
+    ) -> VortexResult<()> {
+        assert_eq!(
+            result.len(),
+            args.row_count(),
+            "Expression execution {} returned vector of length {}, but expected {}",
+            self.vtable.id(),
+            result.len(),
+            args.row_count(),
+        );
+
+        #[cfg(debug_assertions)]
+        vortex_error::vortex_ensure_eq!(
+            result.dtype(),
+            expected_dtype,
+            "Expression execution {} returned vector of invalid dtype",
+            self.vtable.id(),
+        );
+
+        Ok(())
+    }
 }
 
 /// An object-safe, sealed trait for bound scalar function dispatch.
@@ -80,6 +117,11 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+    fn execute_step(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
     fn bind_options(&self, arg_types: &[DType]) -> VortexResult<Option<ScalarFnRef>>;
     fn reduce_expression<'a>(
@@ -133,36 +175,40 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
     }
 
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let expected_row_count = args.row_count();
         #[cfg(debug_assertions)]
-        let expected_dtype = {
-            let args_dtypes: Vec<DType> = (0..args.num_inputs())
-                .map(|i| args.get(i).map(|a| a.dtype().clone()))
-                .collect::<VortexResult<_>>()?;
-            V::return_dtype(&self.vtable, &self.options, &args_dtypes)
-        }?;
-
+        let expected_dtype = self.expected_dtype(args)?;
         let result = V::execute(&self.vtable, &self.options, args, ctx)?;
+        self.check_result(
+            args,
+            &result,
+            #[cfg(debug_assertions)]
+            &expected_dtype,
+        )?;
+        Ok(result)
+    }
 
-        assert_eq!(
-            result.len(),
-            expected_row_count,
-            "Expression execution {} returned vector of length {}, but expected {}",
-            self.vtable.id(),
-            result.len(),
-            expected_row_count,
-        );
-
+    fn execute_step(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
         #[cfg(debug_assertions)]
-        {
-            vortex_error::vortex_ensure_eq!(
-                result.dtype(),
+        let expected_dtype = self.expected_dtype(args)?;
+        let result = V::execute_step(&self.vtable, &self.options, args, ctx)?;
+        match result.step() {
+            ScalarFnExecutionStep::Done(array) => self.check_result(
+                args,
+                array,
+                #[cfg(debug_assertions)]
                 &expected_dtype,
-                "Expression execution {} returned vector of invalid dtype",
+            )?,
+            ScalarFnExecutionStep::ExecuteInput(idx, _) => vortex_ensure!(
+                *idx < args.num_inputs(),
+                "Scalar function {} requested input {idx}, but has {} inputs",
                 self.vtable.id(),
-            );
+                args.num_inputs(),
+            ),
         }
-
         Ok(result)
     }
 
