@@ -34,7 +34,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedSlots;
-use crate::arrays::chunked::compute::rules::PARENT_RULES;
+use crate::arrays::chunked::compute::rules::RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -283,15 +283,7 @@ impl VTable for Chunked {
             0 if matches!(array.dtype(), DType::Variant(_)) => None,
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunk(0).clone()),
-            _ => None,
+            _ => return RULES.evaluate(array),
         })
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

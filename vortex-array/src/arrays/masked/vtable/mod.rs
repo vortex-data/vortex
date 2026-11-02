@@ -35,7 +35,6 @@ use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::MaskedSlots;
-use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -197,13 +196,6 @@ impl VTable for Masked {
         ))
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         MaskedSlots::NAMES[idx].to_string()
     }

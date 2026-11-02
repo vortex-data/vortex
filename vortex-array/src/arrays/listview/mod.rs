@@ -17,6 +17,7 @@ pub use vtable::ListView;
 
 pub(crate) fn initialize(session: &VortexSession) {
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
 
 mod conversion;

@@ -227,7 +227,11 @@ mod tests {
     use super::assemble_decimal;
     use crate::decimal_byte_parts::split_decimal;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::empty_non_nullable(0, Validity::NonNullable)]

@@ -40,7 +40,6 @@ use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
 use crate::arrays::patched::PatchedSlotsView;
-use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -306,14 +305,6 @@ impl VTable for Patched {
         });
 
         Ok(ExecutionResult::done(patched_values.into_array()))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

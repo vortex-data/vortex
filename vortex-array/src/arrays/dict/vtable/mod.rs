@@ -42,7 +42,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::compute::rules::RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
@@ -292,14 +291,6 @@ impl VTable for Dict {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

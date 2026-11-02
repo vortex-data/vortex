@@ -271,14 +271,6 @@ impl VTable for Pco {
                 .into_array(),
         ))
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
@@ -805,7 +797,11 @@ mod tests {
     use super::VALUES_PER_CHUNK;
     use crate::Pco;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_slice_nullable() {

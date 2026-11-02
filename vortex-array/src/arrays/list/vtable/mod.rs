@@ -31,7 +31,6 @@ use crate::array::with_empty_buffers;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::ListSlots;
-use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -103,14 +102,6 @@ impl VTable for List {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn serialize(

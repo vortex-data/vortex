@@ -60,7 +60,6 @@ use crate::canonical::OnPairDecodePlan;
 use crate::canonical::canonicalize_onpair;
 use crate::canonical::onpair_decode_bytes;
 use crate::decode::collect_widened;
-use crate::rules::RULES;
 
 /// An [`OnPair`]-encoded Vortex array.
 pub type OnPairArray = Array<OnPair>;
@@ -673,14 +672,6 @@ impl VTable for OnPair {
             )
         });
         Ok(())
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

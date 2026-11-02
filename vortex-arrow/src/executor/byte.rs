@@ -207,7 +207,12 @@ mod tests {
 
     use crate::ArrowSessionExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        vortex_fsst::initialize(&session);
+        vortex_onpair::initialize(&session);
+        session
+    });
 
     #[rstest]
     fn compressed_strings_append_directly_to_offset_output(

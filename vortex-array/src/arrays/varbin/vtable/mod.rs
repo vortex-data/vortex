@@ -47,7 +47,6 @@ use canonical::varbin_to_canonical;
 use vortex_session::VortexSession;
 
 use crate::EqMode;
-use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
@@ -218,14 +217,6 @@ impl VTable for VarBin {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn append_to_builder(

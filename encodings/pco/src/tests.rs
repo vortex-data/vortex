@@ -16,7 +16,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
@@ -32,7 +31,7 @@ use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    crate::initialize(&session);
     session
 });
 

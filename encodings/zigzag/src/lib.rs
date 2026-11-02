@@ -17,4 +17,5 @@ mod slice;
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(ZigZag);
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }
