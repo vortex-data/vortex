@@ -10,18 +10,30 @@ use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray as VortexPrimitiveArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::matcher::Matcher;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::AllOr;
 
 use crate::ArrowExporter;
 use crate::executor::execute_arrow_naive;
@@ -37,6 +49,17 @@ impl Matcher for ArrowDictExportable {
     }
 }
 
+/// Matches [`ArrowDictExportable`] encodings and chunked arrays, whose chunks may each be one.
+struct ArrowDictExportableOrChunked;
+
+impl Matcher for ArrowDictExportableOrChunked {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (ArrowDictExportable::matches(array) || array.is::<Chunked>()).then_some(array)
+    }
+}
+
 pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
@@ -44,6 +67,16 @@ pub(super) fn to_arrow_dictionary(
     exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    let array = array.execute_until::<ArrowDictExportableOrChunked>(ctx)?;
+    let array = match array.try_downcast::<Chunked>() {
+        Ok(chunked) => {
+            if let Some(dict) = chunked_to_dict(&chunked, codes_type, values_type, exporter, ctx)? {
+                return Ok(dict);
+            }
+            chunked.into_array()
+        }
+        Err(array) => array,
+    };
     let array = array.execute_until::<ArrowDictExportable>(ctx)?;
 
     let array = match array.try_downcast::<Dict>() {
@@ -63,6 +96,100 @@ pub(super) fn to_arrow_dictionary(
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
     )
     .map_err(VortexError::from)
+}
+
+/// Joins the dictionaries of a chunked array into one Arrow dictionary without hashing.
+///
+/// The chunks' values are appended and each chunk's codes are shifted past the values before
+/// it; a constant chunk contributes one value. Values are not deduplicated, which Arrow
+/// dictionaries permit. Returns `None` unless every chunk executes to a dictionary or a
+/// constant and the joined values fit in `codes_type`.
+fn chunked_to_dict(
+    chunked: &ChunkedArray,
+    codes_type: &DataType,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>> {
+    let dtype = chunked.dtype().clone();
+    let mut codes = BufferMut::<u64>::with_capacity(chunked.len());
+    let mut validity = BitBufferMut::with_capacity(chunked.len());
+    let mut values = Vec::with_capacity(chunked.nchunks());
+    let mut offset = 0u64;
+
+    for chunk in chunked.non_empty_chunks() {
+        let chunk = chunk.clone().execute_until::<ArrowDictExportable>(ctx)?;
+        let chunk_values = match chunk.try_downcast::<Dict>() {
+            Ok(dict) => {
+                let chunk_codes = dict.codes().clone().execute::<VortexPrimitiveArray>(ctx)?;
+                let mask = chunk_codes
+                    .as_ref()
+                    .validity()?
+                    .execute_mask(chunk_codes.len(), ctx)?;
+                // Null codes may hold any value, so they point at the first joined value.
+                match_each_integer_ptype!(chunk_codes.ptype(), |P| {
+                    let chunk_codes = chunk_codes.as_slice::<P>();
+                    match mask.bit_buffer() {
+                        AllOr::All => codes.extend(
+                            chunk_codes
+                                .iter()
+                                .map(|&code| AsPrimitive::<u64>::as_(code) + offset),
+                        ),
+                        AllOr::None => codes.push_n(0, chunk_codes.len()),
+                        AllOr::Some(bits) => codes.extend(chunk_codes.iter().zip(bits.iter()).map(
+                            |(&code, valid)| {
+                                if valid {
+                                    AsPrimitive::<u64>::as_(code) + offset
+                                } else {
+                                    0
+                                }
+                            },
+                        )),
+                    }
+                });
+                validity.append_buffer(&mask.into_bit_buffer());
+                dict.values().cast(dtype.clone())?
+            }
+            Err(chunk) => {
+                let Ok(constant) = chunk.try_downcast::<Constant>() else {
+                    return Ok(None);
+                };
+                codes.push_n(offset, constant.len());
+                validity.append_n(!constant.scalar().is_null(), constant.len());
+                ConstantArray::new(constant.scalar().clone(), 1).into_array()
+            }
+        };
+        offset += chunk_values.len() as u64;
+        values.push(chunk_values);
+    }
+
+    if offset == 0 || offset - 1 > max_code(codes_type)? {
+        return Ok(None);
+    }
+
+    let codes = VortexPrimitiveArray::new(
+        codes.freeze(),
+        Validity::from_bit_buffer(validity.freeze(), Nullability::Nullable),
+    );
+    let codes = execute_arrow_naive(codes.into_array(), Some(codes_type), exporter, ctx)?;
+    let values = ChunkedArray::try_new(values, dtype)?.into_array();
+    let values = execute_arrow_naive(values, Some(values_type), exporter, ctx)?;
+    make_dict_array(codes_type, codes, values).map(Some)
+}
+
+/// The largest code an Arrow dictionary with `codes_type` keys can hold.
+fn max_code(codes_type: &DataType) -> VortexResult<u64> {
+    Ok(match codes_type {
+        DataType::Int8 => i8::MAX as u64,
+        DataType::Int16 => i16::MAX as u64,
+        DataType::Int32 => i32::MAX as u64,
+        DataType::Int64 => i64::MAX as u64,
+        DataType::UInt8 => u8::MAX as u64,
+        DataType::UInt16 => u16::MAX as u64,
+        DataType::UInt32 => u32::MAX as u64,
+        DataType::UInt64 => u64::MAX,
+        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+    })
 }
 
 /// Convert a constant array to a dictionary with a single entry.
@@ -161,6 +288,7 @@ mod tests {
 
     use arrow_array::DictionaryArray as ArrowDictArray;
     use arrow_array::StringArray;
+    use arrow_array::cast::AsArray;
     use arrow_array::types::UInt8Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
@@ -168,6 +296,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
@@ -246,6 +375,40 @@ mod tests {
     ) -> VortexResult<()> {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_dicts_join_without_hashing() -> VortexResult<()> {
+        let dict = |codes: PrimitiveArray, values: [&str; 2]| -> VortexResult<_> {
+            let values = values.into_iter().map(Some).collect::<VarBinViewArray>();
+            Ok(DictArray::try_new(codes.into_array(), values.into_array())?.into_array())
+        };
+        let chunks = vec![
+            dict(PrimitiveArray::from_iter([0u8, 1, 0]), ["a", "b"])?,
+            ConstantArray::new(Scalar::null(DType::Utf8(Nullable)), 2).into_array(),
+            dict(
+                PrimitiveArray::from_option_iter([Some(1u8), None]),
+                ["c", "a"],
+            )?,
+        ];
+        let chunked = ChunkedArray::try_new(chunks, DType::Utf8(Nullable))?.into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt32, DataType::Utf8))?;
+
+        // Two values per dictionary plus one for the constant: appended, not deduplicated.
+        assert_eq!(actual.as_any_dictionary().values().len(), 5);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        let expected = StringArray::from(vec![
+            Some("a"),
+            Some("b"),
+            Some("a"),
+            None,
+            None,
+            Some("a"),
+            None,
+        ]);
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
     }
 
