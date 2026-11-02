@@ -327,6 +327,10 @@ First compare one binary, then repeat with independent builds using `--allow-reb
 temporary variant with 20% additional measured work to confirm that regressions remain visible.
 A failing case stays excluded until a demonstrated fix passes these checks.
 
+For rebuilds at different paths, pass the absolute `--binary` path as a standalone command argument.
+`--allow-rebuilds` ignores only that executable argument and the binary hash. Wrapper options and
+benchmark arguments, including sampling and timer options, must still match exactly.
+
 Fixed sampling also matters when one binary is repeatable on most runs. With 1000 samples per
 process, `filter_avx2[80]` varied by 9.36% across 30 processes on three `c7i.metal-24xl` hosts.
 Setting `sample_size=64` reduced that spread to 1.45% with the same executable. Across independent

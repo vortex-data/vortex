@@ -40,17 +40,29 @@ def read_measurements(directory: Path, pattern: str, field: str, scale: float) -
     return measurements
 
 
+def comparison_command(report: dict[str, Any], allow_rebuilds: bool) -> list[str | None]:
+    """Ignore only the declared executable's first occurrence when comparing rebuilt binaries."""
+    command: list[str | None] = list(report["command"])
+    if allow_rebuilds:
+        for index, argument in enumerate(command):
+            if argument == report["binary"]:
+                command[index] = None
+                break
+    return command
+
+
 def summarize(
     reports: list[dict[str, Any]], minimum_runs: int, minimum_hosts: int, allow_rebuilds: bool
 ) -> dict[str, Any]:
     if not reports or any(not report["runs"] for report in reports):
         raise ValueError("reports contain no measurements")
     first = reports[0]
+    first_command = comparison_command(first, allow_rebuilds)
     for report in reports:
         for key in ("instrument", "value_field", "scale", "environment"):
             if report[key] != first[key]:
                 raise ValueError(f"reports use different {key}")
-        if not allow_rebuilds and report["command"] != first["command"]:
+        if comparison_command(report, allow_rebuilds) != first_command:
             raise ValueError("command changed between reports")
         if not allow_rebuilds and report["binary_sha256"] != first["binary_sha256"]:
             raise ValueError("binary identity changed, use --allow-rebuilds for a build comparison")
@@ -169,7 +181,9 @@ def main() -> None:
     check.add_argument("reports", nargs="+", type=Path)
     check.add_argument("--minimum-runs", type=positive_int, default=30)
     check.add_argument("--minimum-hosts", type=positive_int, default=3)
-    check.add_argument("--allow-rebuilds", action="store_true")
+    check.add_argument(
+        "--allow-rebuilds", action="store_true", help="allow different binary hashes and declared executable paths"
+    )
     args = parser.parse_args()
     try:
         if args.action == "collect":

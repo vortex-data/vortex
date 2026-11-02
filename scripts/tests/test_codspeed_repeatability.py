@@ -22,7 +22,8 @@ spec.loader.exec_module(repeatability)
 def report(host: str, values: list[float], binary: str = "same") -> dict[str, Any]:
     return {
         "host": host,
-        "command": ["benchmark", "--bench"],
+        "binary": "/build/benchmark",
+        "command": ["/build/benchmark", "--bench"],
         "environment": {},
         "instrument": "walltime",
         "value_field": "stats.min_ns",
@@ -54,6 +55,50 @@ def test_requires_explicit_build_comparison():
     with pytest.raises(ValueError, match="identity"):
         repeatability.summarize(reports, 2, 2, False)
     assert repeatability.summarize(reports, 2, 2, True)["passes"]
+
+
+@pytest.mark.parametrize("wrapper", [[], ["bash", "scripts/bench-taskset.sh"]])
+def test_rebuild_comparison_allows_only_the_executable_path_to_change(wrapper):
+    first = report("first", [1.0])
+    second = report("second", [1.0], "rebuilt")
+    second["binary"] = "/rebuilt/benchmark"
+    for entry in (first, second):
+        entry["command"] = [*wrapper, entry["binary"], "--bench", "--sample-size", "16"]
+    assert repeatability.summarize([first, second], 2, 2, True)["passes"]
+
+
+@pytest.mark.parametrize("wrapper", [[], ["bash", "scripts/bench-taskset.sh"]])
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        (["--sample-size", "1"], ["--sample-size", "64"]),
+        (["--sample-count", "100"], ["--sample-count", "1000"]),
+        (["--timer", "os"], ["--timer", "tsc"]),
+        (["filter_a"], ["filter_b"]),
+    ],
+)
+def test_rebuild_comparison_rejects_changed_benchmark_arguments(wrapper, before, after):
+    first = report("first", [1.0])
+    second = report("second", [1.0], "rebuilt")
+    second["binary"] = "/rebuilt/benchmark"
+    first["command"] = [*wrapper, first["binary"], "--bench", *before]
+    second["command"] = [*wrapper, second["binary"], "--bench", *after]
+    with pytest.raises(ValueError, match="command"):
+        repeatability.summarize([first, second], 2, 2, True)
+
+
+def test_rebuild_comparison_preserves_wrapper_options_and_other_binary_path_arguments():
+    first = report("first", [1.0])
+    second = report("second", [1.0], "rebuilt")
+    second["binary"] = "/rebuilt/benchmark"
+    first["command"] = ["taskset", "-c", "2", first["binary"], "--bench"]
+    second["command"] = ["taskset", "-c", "3", second["binary"], "--bench"]
+    with pytest.raises(ValueError, match="command"):
+        repeatability.summarize([first, second], 2, 2, True)
+    for entry in (first, second):
+        entry["command"] = [entry["binary"], "--input", entry["binary"]]
+    with pytest.raises(ValueError, match="command"):
+        repeatability.summarize([first, second], 2, 2, True)
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf")])
