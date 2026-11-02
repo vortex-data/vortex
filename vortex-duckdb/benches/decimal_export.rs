@@ -29,6 +29,7 @@ use vortex::dtype::NativePType;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_duckdb::_benchmarking::ArrayExporter;
 use vortex_duckdb::_benchmarking::ConversionCache;
 use vortex_duckdb::duckdb::DataChunk;
@@ -154,6 +155,7 @@ fn decimal_export(bencher: Bencher, case: Case) {
         .vortex_expect("DuckDB supports the precision of every case");
     let array = StructArray::from_fields(&[("value", case.column())])
         .vortex_expect("build the exported struct");
+    mark_optimized(array.as_array(), &SESSION).vortex_expect("mark the benchmark input");
     let cache = ConversionCache::default();
 
     bencher

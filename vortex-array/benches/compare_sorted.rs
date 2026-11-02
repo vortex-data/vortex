@@ -23,6 +23,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -45,6 +46,9 @@ const LEN: u32 = 4_096;
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: Operator) {
     let rhs = ConstantArray::new(constant, lhs.len()).into_array();
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     bencher
         .counter(ItemsCount::new(lhs.len()))
         .with_inputs(|| (&lhs, &rhs, SESSION.create_execution_ctx()))

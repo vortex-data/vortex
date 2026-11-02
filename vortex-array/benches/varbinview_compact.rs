@@ -17,6 +17,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -67,6 +68,7 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     let array = taken
         .execute::<VarBinViewArray>(&mut ctx)
         .vortex_expect("operation should succeed in benchmark");
+    mark_optimized(array.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -88,6 +90,7 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
     let array = sliced
         .execute::<VarBinViewArray>(&mut ctx)
         .vortex_expect("operation should succeed in benchmark");
+    mark_optimized(array.as_array(), &SESSION).vortex_expect("optimize the benchmark input");
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))

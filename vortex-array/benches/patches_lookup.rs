@@ -17,6 +17,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -118,6 +119,11 @@ fn queries_full_range() -> Vec<usize> {
 }
 
 fn bench_search_index(bencher: Bencher, patches: Patches, queries: Vec<usize>) {
+    mark_optimized(patches.indices(), &SESSION).unwrap();
+    if let Some(chunk_offsets) = patches.chunk_offsets() {
+        mark_optimized(chunk_offsets, &SESSION).unwrap();
+    }
+
     bencher
         .with_inputs(|| (&patches, &queries, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, queries, ctx)| {

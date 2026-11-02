@@ -39,6 +39,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -88,6 +89,7 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let delta = make_delta_array::<T>(len);
+        mark_optimized(delta.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/delta/{type_name}"), len_str),

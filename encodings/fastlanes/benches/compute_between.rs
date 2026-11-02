@@ -21,6 +21,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_session::VortexSession;
@@ -47,9 +48,12 @@ fn generate_primitive_array<T: NativePType + NumCast>(
     rng: &mut StdRng,
     len: usize,
 ) -> PrimitiveArray {
-    (0..len)
+    let array = (0..len)
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
-        .collect::<PrimitiveArray>()
+        .collect::<PrimitiveArray>();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
+    array
 }
 
 fn generate_bit_pack_primitive_array<T: NativePType + NumCast>(
@@ -60,9 +64,12 @@ fn generate_bit_pack_primitive_array<T: NativePType + NumCast>(
         .map(|_| T::from_usize(rng.random_range(0..10_000)).vortex_expect(""))
         .collect::<PrimitiveArray>();
 
-    bitpack_to_best_bit_width(&a, &mut SESSION.create_execution_ctx())
+    let array = bitpack_to_best_bit_width(&a, &mut SESSION.create_execution_ctx())
         .vortex_expect("")
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
@@ -85,7 +92,10 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     let bp = bitpack_to_best_bit_width(&encoded, &mut ctx)
         .vortex_expect("")
         .into_array();
-    ALP::new(bp, alp.exponents(), None).into_array()
+    let array = ALP::new(bp, alp.exponents(), None).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 const BENCH_ARGS: &[usize] = if cfg!(codspeed) {
