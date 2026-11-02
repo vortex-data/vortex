@@ -782,3 +782,15 @@ fn test_f16_nans_equal() {
     let nan3 = f16::from_f16(nan1).unwrap();
     assert_eq!(nan1.to_bits(), nan3.to_bits(),);
 }
+
+#[rstest]
+#[case(PValue::U8(u8::MAX), Some(255))]
+#[case(PValue::U64(u64::MAX), Some(i128::from(u64::MAX)))]
+#[case(PValue::I8(i8::MIN), Some(-128))]
+#[case(PValue::I64(i64::MIN), Some(i128::from(i64::MIN)))]
+#[case(PValue::F16(f16::ONE), None)]
+#[case(PValue::F32(1.0), None)]
+#[case(PValue::F64(1.0), None)]
+fn test_as_i128(#[case] value: PValue, #[case] expected: Option<i128>) {
+    assert_eq!(value.as_i128(), expected);
+}

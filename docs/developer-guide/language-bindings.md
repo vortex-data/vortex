@@ -67,14 +67,13 @@ layout plugins, and extension DTypes.
 
 ## Per-Language Status
 
-| Language      | Current Tier | Target Tier | Technology | Notes                                         |
-|---------------|--------------|-------------|------------|-----------------------------------------------|
-| Rust          | 3            | 3           | Native     | Future: stable plugin API via C ABI           |
-| Python        | ~2           | 3           | PyO3       | Already has native expressions + array access |
-| C             | ~1           | 2           | cbindgen   | Foundation ABI for all non-Rust bindings      |
-| C++           | ~1           | 2           | cxx -> C   | Migrate from cxx to wrap C API                |
-| Java (JNI)    | ~1           | 1           | JNI        | Broad JDK compatibility, Arrow-based          |
-| Java (Panama) | —            | 2           | Panama FFI | Direct C ABI access, requires JDK 22+         |
+| Language      | Current Tier | Technology |
+|---------------|--------------|------------|
+| Rust          | 3            | Native     |
+| Python        | ~2           | PyO3       |
+| C             | ~1           | cbindgen   |
+| C++           | ~1           | C API      |
+| Java (JNI)    | ~1           | JNI        |
 
 ### Rust
 
@@ -96,21 +95,8 @@ evolves with the project and should be statically linked. In the future, a subse
 be flagged as stable for use via dynamic linking. The target is Tier 2, which requires array tree
 inspection, compute execution, and stabilized error handling and memory ownership conventions.
 
-### C++
-
-C++ bindings currently use [cxx](https://cxx.rs) for Rust interop. The plan is to migrate to
-wrapping the C API directly, providing RAII wrappers and CMake integration. Target is Tier 2.
-
 ### Java (JNI)
 
 Java JNI bindings provide Tier ~1 capabilities today (Arrow I/O and basic scan). JNI will remain
 at Tier 1 for broad JDK compatibility. This is the current integration point for Spark and Trino
 connectors.
-
-### Java (Panama)
-
-A new binding layer using Java's Foreign Function & Memory API (Panama) to call the C API
-directly. Panama enables native array access without JNI overhead, targeting Tier 2. Requires
-JDK 22+. Trino already supports JDK 22 and can adopt Panama immediately. Spark targets older LTS
-releases and will not support Panama for some time, so the JNI path remains essential for Spark
-integration.

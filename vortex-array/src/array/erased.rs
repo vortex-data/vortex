@@ -49,6 +49,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::stats::StatsSetRef;
@@ -93,10 +94,21 @@ impl ArrayRef {
     }
 
     /// Returns a mutable reference to the inner if this is the sole owner.
+    ///
+    /// The caller may change the array, so it is no longer known to be optimized.
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
-        Arc::get_mut(&mut self.0)
+        let inner = Arc::get_mut(&mut self.0)?;
+        *inner.optimized.0.get_mut() = false;
+        Some(inner)
+    }
+
+    /// Returns the record of whether the optimizer has already taken this array to its fixpoint.
+    ///
+    /// Only the optimizer can read or set the record.
+    pub(crate) fn optimized_state(&self) -> &OptimizedState {
+        &self.0.optimized
     }
 
     /// Returns the Arc::as_ptr().addr() of the underlying array.
@@ -537,7 +549,7 @@ impl ArrayRef {
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
-        if let Some(inner) = Arc::get_mut(&mut self.0) {
+        if let Some(inner) = self.inner_mut() {
             let child = inner.slots[slot_idx]
                 .take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
@@ -572,7 +584,7 @@ impl ArrayRef {
         slot_idx: usize,
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        if let Some(inner) = Arc::get_mut(&mut self.0) {
+        if let Some(inner) = self.inner_mut() {
             inner.slots[slot_idx] = Some(replacement);
             return Ok(self);
         }

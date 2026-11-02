@@ -37,7 +37,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -98,20 +98,21 @@ jobs:
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting and ingestion
+      - name: Pytest - measurement_id, benchmark reporting, ingestion and CodSpeed shards
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
             --with tabulate --with xxhash \
             pytest scripts/tests/test_measurement_id.py \
-              scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py
+              scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
+              scripts/tests/test_codspeed_shards.py
 
   python-test:
     name: "Python (test)"
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -154,72 +155,6 @@ jobs:
         run: |
           uv run --all-packages make check
         working-directory: docs/
-
-  python-windows:
-    name: "Python (windows-x64)"
-    if: github.event.pull_request.draft != true
-    timeout-minutes: 60
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
-          || 'windows-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Setup (Windows)
-        run: |
-          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
-        with:
-          python-version: "3.11"
-
-      # Mirrors the wheel build in package.yml, which spells the Windows interpreter
-      # `python` because maturin has no `python3.11` executable to resolve there.
-      - name: Build wheel
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b  # v1
-        with:
-          command: build
-          maturin-version: 1.15.0
-          target: x86_64-pc-windows-msvc
-          args: >
-            --profile ci
-            --manifest-path vortex-python/Cargo.toml
-            --out dist
-            --interpreter python
-        env:
-          # Keep this constant to avoid pyo3 invalidating itself
-          PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
-          # Also applies to host proc-macro links when Cargo receives an explicit target.
-          LINK: /Brepro
-
-      # rust-test-windows excludes vortex-python, so this is the only check that the
-      # win_amd64 wheel imports and can round-trip a file. Runs outside the checkout so
-      # the repo-root `vortex/` crate directory cannot shadow the installed package.
-      - name: Import and round-trip the wheel
-        shell: bash
-        run: |
-          python -m pip install dist/*.whl
-          cd "$RUNNER_TEMP"
-          python - <<'PY'
-          import pyarrow as pa
-
-          import vortex as vx
-
-          table = pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]})
-          vx.io.write(table, "smoke.vortex")
-          # Vortex reads utf8 back as string_view, so compare column-wise rather than by table.
-          round_tripped = vx.open("smoke.vortex").to_arrow().read_all()
-          assert round_tripped.column_names == table.column_names
-          assert round_tripped.column("a").to_pylist() == [1, 2, 3]
-          assert round_tripped.column("b").to_pylist() == ["x", "y", "z"]
-          print("vortex", vx.__version__, "round-tripped a file on Windows")
-          PY
 
   python-cuda-test:
     name: "Python CUDA (test)"
@@ -264,7 +199,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -293,7 +228,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -338,7 +273,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -358,7 +293,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-A warnings"
@@ -382,7 +317,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -451,7 +386,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -468,17 +403,13 @@ jobs:
         run: |
           cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
 
-  rust-test-windows:
-    name: "Rust tests (windows-x64)"
-    env:
-      # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
-      # duckdb_static.lib is built with /MT and thus requires crt-static
-      RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
-      # link.exe spends ~1.5 min on the test binaries after compilation finishes.
-      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
+  # One job for all Windows checks: a Windows instance takes 85-105s to boot, and
+  # the pool keeps only one instance hot.
+  windows:
+    name: "Windows (x64)"
     needs: duckdb-mirror
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
-    timeout-minutes: 30
+    timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
@@ -490,14 +421,25 @@ jobs:
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Setup (Windows)
-        run: |
-          echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
+          - name: Setup (Windows)
+            run: |
+              echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
+      - parallel:
+          - uses: ./.github/actions/setup-prebuild
+            with:
+              enable-sccache: "true"
+          - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
+            with:
+              python-version: "3.11"
 
       - name: Rust Tests (Windows)
+        id: tests
+        env:
+          # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
+          # duckdb_static.lib is built with /MT and thus requires crt-static
+          RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
+          # link.exe spends ~1.5 min on the test binaries after compilation finishes.
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast `
             --exclude vortex-bench `
@@ -509,6 +451,59 @@ jobs:
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
             --exclude gpu-scan-cli
 
+      # The test outputs fill the default disk, and the wheel build cannot reuse
+      # them: it uses other RUSTFLAGS and its own target directory.
+      - name: Delete the Rust test outputs
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        shell: cmd
+        run: if exist target\ci rmdir /s /q target\ci
+
+      # Mirrors the wheel build in package.yml, which spells the Windows interpreter
+      # `python` because maturin has no `python3.11` executable to resolve there.
+      - name: Build wheel
+        id: wheel
+        # Build the wheel also when a Rust test fails, but not when the setup failed.
+        if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b  # v1
+        with:
+          command: build
+          maturin-version: 1.15.0
+          target: x86_64-pc-windows-msvc
+          args: >
+            --profile ci
+            --manifest-path vortex-python/Cargo.toml
+            --out dist
+            --interpreter python
+        env:
+          # Keep this constant to avoid pyo3 invalidating itself
+          PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
+          # Also applies to host proc-macro links when Cargo receives an explicit target.
+          LINK: /Brepro
+
+      # The Rust tests exclude vortex-python, so this is the only check that the
+      # win_amd64 wheel imports and can round-trip a file. Runs outside the checkout so
+      # the repo-root `vortex/` crate directory cannot shadow the installed package.
+      - name: Import and round-trip the wheel
+        if: ${{ !cancelled() && steps.wheel.outcome == 'success' }}
+        shell: bash
+        run: |
+          python -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import pyarrow as pa
+
+          import vortex as vx
+
+          table = pa.table({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+          vx.io.write(table, "smoke.vortex")
+          # Vortex reads utf8 back as string_view, so compare column-wise rather than by table.
+          round_tripped = vx.open("smoke.vortex").to_arrow().read_all()
+          assert round_tripped.column_names == table.column_names
+          assert round_tripped.column("a").to_pylist() == [1, 2, 3]
+          assert round_tripped.column("b").to_pylist() == ["x", "y", "z"]
+          print("vortex", vx.__version__, "round-tripped a file on Windows")
+          PY
+
       - name: sccache stats
         if: always() && github.repository == 'vortex-data/vortex'
         run: sccache --show-stats
@@ -518,8 +513,8 @@ jobs:
         uses: ./.github/actions/alert-incident-io
         with:
           api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
-          alert-title: "Rust tests (windows-x64) failed on develop"
-          deduplication-key: ci-rust-test-windows-x64-failure
+          alert-title: "Windows (x64) failed on develop"
+          deduplication-key: ci-windows-x64-failure
 
   rust-test-linux-arm64:
     name: "Rust tests (linux-arm64)"
@@ -528,7 +523,7 @@ jobs:
       github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -572,17 +567,17 @@ jobs:
           - name: avx2
             runner: amd64-ci-medium
             family: c6a.2xlarge
-            image: ubuntu24-full-x64-pre-v2
+            image: ubuntu26-full-x64-pre-v2
             expect: "sse2,popcnt,bmi1,bmi2,avx,avx2"
           - name: avx512
             runner: amd64-ci-medium
             family: c6i.2xlarge
-            image: ubuntu24-full-x64-pre-v2
+            image: ubuntu26-full-x64-pre-v2
             expect: "sse2,popcnt,bmi1,bmi2,avx,avx2,avx512f,avx512bw,avx512vbmi2,avx512vpopcntdq"
           - name: sve
             runner: arm64-medium
             family: c8g.2xlarge
-            image: ubuntu24-full-arm64-pre-v2
+            image: ubuntu26-full-arm64-pre-v2
             expect: "neon,sve,sve2,sve2-bitperm"
     runs-on: >-
       runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
@@ -612,7 +607,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -662,7 +657,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -691,7 +686,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -833,7 +828,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:

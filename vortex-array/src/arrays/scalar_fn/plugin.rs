@@ -62,6 +62,14 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         self.0.id()
     }
 
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
+
     fn serialize(
         &self,
         array: &ArrayRef,

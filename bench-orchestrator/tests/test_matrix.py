@@ -38,7 +38,7 @@ COMPACT_IDS = tuple(
 )
 PR_FULL_IDS = (*REGULAR_IDS[:-1], "job-nvme", "vortex-queries")
 EXPECTED_IDS = {
-    "develop": REGULAR_IDS,
+    "develop": PR_FULL_IDS,
     "pr": tuple(
         benchmark_id
         for benchmark_id in REGULAR_IDS

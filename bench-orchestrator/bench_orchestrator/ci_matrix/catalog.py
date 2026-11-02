@@ -295,7 +295,10 @@ BENCHMARKS = (
         benchmark=Benchmark.JOB,
         name="JOB on NVME",
         # DuckDB only: DataFusion spends minutes per pass on the 17x queries' join orders.
-        runs={"pr-full": JOB_DUCKDB},
+        runs={
+            "pr-full": JOB_DUCKDB,
+            "develop": JOB_DUCKDB,
+        },
     ),
     BenchmarkCase(
         id="vortex-queries",

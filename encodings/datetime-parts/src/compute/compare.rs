@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compares encoded timestamp parts with timestamp constants.
+//!
+//! The kernel splits a timestamp constant into days, seconds, and subseconds, then compares the
+//! encoded children without decoding the column. The result retains the timestamp array's validity.
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -18,6 +23,7 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
 use crate::array::DateTimeParts;
@@ -31,6 +37,13 @@ impl CompareKernel for DateTimeParts {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        vortex_ensure!(
+            lhs.dtype().eq_ignore_nullability(rhs.dtype()),
+            "Comparison requires equal dtypes ignoring nullability, got {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        );
+
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -295,7 +308,7 @@ fn compare_dtp(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -716,6 +729,37 @@ mod test {
                 .map(|(i, value)| (i != 3).then_some(value)),
         );
         assert_matches_temporal(nullable, unit, values)
+    }
+
+    #[rstest]
+    #[case::storage(Scalar::from(1500i64))]
+    #[case::different_unit(Scalar::extension::<Timestamp>(
+        TimestampOptions { unit: TimeUnit::Nanoseconds, tz: None },
+        Scalar::from(1_500_000_000i64),
+    ))]
+    fn test_comparison_rejects_mismatched_constant_dtype(
+        #[case] scalar: Scalar,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let temporal = TemporalArray::new_timestamp(
+            buffer![1600i64, 1400].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let array = DateTimeParts::try_from_temporal(temporal, &mut ctx)?;
+        let rhs = ConstantArray::new(scalar, array.len()).into_array();
+
+        assert!(
+            <DateTimeParts as CompareKernel>::compare(
+                array.as_view(),
+                &rhs,
+                CompareOperator::Lt,
+                &mut ctx,
+            )
+            .is_err()
+        );
+
+        Ok(())
     }
 
     #[test]

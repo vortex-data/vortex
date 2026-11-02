@@ -16,6 +16,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
@@ -30,6 +31,7 @@ import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -167,6 +169,18 @@ public final class JNIWriterTest {
                         Field.notNullable("name", new ArrowType.Utf8View()),
                         Field.notNullable("age", new ArrowType.Int(32, true)))),
                 source.arrowSchema(allocator));
+    }
+
+    @Test
+    public void testCreateWriterReleasesSchemaExport() throws IOException {
+        String writePath = tempDir.resolve("test_schema_release.vortex").toUri().toString();
+        Session session = Session.create();
+        try (BufferAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                    .build()) {
+                assertEquals(0, allocator.getAllocatedMemory());
+            }
+        }
     }
 
     @Test
@@ -350,6 +364,42 @@ public final class JNIWriterTest {
     }
 
     /** Write a single three-row batch of {@link #personSchema()} data. */
+    /**
+     * Editions before the aggregates, such as {@code core2025.10.0}, do not permit {@code vortex.min}. The writer then
+     * writes only the legacy file statistics, and these must still have the min, max and null count.
+     */
+    @Test
+    public void testLegacyEditionWritesLegacyStatistics() throws IOException {
+        Path outputPath = tempDir.resolve("legacy_stats.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+
+        Session session = Session.create();
+        session.enableEdition("core2025.10.0");
+
+        VortexWriteSummary summary;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build()) {
+            writePeopleBatch(writer, allocator);
+            summary = writer.finish();
+        }
+
+        assertEquals(3L, summary.rowCount());
+        assertEquals(2, summary.columnStatistics().size());
+
+        // The string column has the bounded min and max, which fill the legacy min and max.
+        assertEquals(0L, summary.columnStatistics().get(0).nullValueCount().orElseThrow());
+        assertEquals("Alice", summary.columnStatistics().get(0).lowerBound().orElseThrow());
+        assertEquals("Carol", summary.columnStatistics().get(0).upperBound().orElseThrow());
+
+        assertEquals(0L, summary.columnStatistics().get(1).nullValueCount().orElseThrow());
+        assertEquals(25, summary.columnStatistics().get(1).lowerBound().orElseThrow());
+        assertEquals(40, summary.columnStatistics().get(1).upperBound().orElseThrow());
+
+        DataSource ds = DataSource.open(session, writePath);
+        assertEquals(new DataSource.RowCount.Exact(3L), ds.rowCount());
+    }
+
     private static void writePeopleBatch(VortexWriter writer, BufferAllocator allocator) throws IOException {
         try (VectorSchemaRoot root = VectorSchemaRoot.create(personSchema(), allocator)) {
             VarCharVector nameVec = (VarCharVector) root.getVector("name");
@@ -412,6 +462,40 @@ public final class JNIWriterTest {
         }
 
         assertTrue(NativeFiles.readMetadata(session, writePath, new HashMap<>()).isEmpty());
+    }
+
+    @Test
+    public void testFileStatisticsMatchWriteSummary() throws IOException {
+        Path outputPath = tempDir.resolve("test_statistics.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build()) {
+            writePeopleBatch(writer, allocator);
+            summary = writer.finish();
+        }
+
+        List<VortexColumnStatistics> statistics = NativeFiles.readStatistics(session, writePath, new HashMap<>());
+        assertEquals(2, statistics.size());
+
+        VortexColumnStatistics name = statistics.get(0);
+        assertEquals(0, name.columnIndex());
+        assertEquals(summary.columnStatistics().get(0).compressedSize(), name.compressedSize());
+        assertEquals(3L, name.valueCount());
+        assertEquals(0L, name.nullValueCount().orElseThrow());
+        assertTrue(name.nanValueCount().isEmpty());
+        assertEquals("Alice", name.lowerBound().orElseThrow());
+        assertEquals("Carol", name.upperBound().orElseThrow());
+
+        VortexColumnStatistics age = statistics.get(1);
+        assertEquals(1, age.columnIndex());
+        assertEquals(summary.columnStatistics().get(1).compressedSize(), age.compressedSize());
+        assertEquals(3L, age.valueCount());
+        assertEquals(25, age.lowerBound().orElseThrow());
+        assertEquals(40, age.upperBound().orElseThrow());
     }
 
     @Test

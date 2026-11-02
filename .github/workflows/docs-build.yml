@@ -49,7 +49,7 @@ jobs:
           mkdir -p docs/_static/vortex-jni
           mkdir -p docs/_static/vortex-spark
           cp -r java/vortex-jni/build/docs/javadoc/* docs/_static/vortex-jni/
-          cp -r java/vortex-spark/build/vortex-spark_2.13/docs/javadoc/* docs/_static/vortex-spark/
+          cp -r java/vortex-spark/v4.0/build/vortex-spark-4.0_2.13/docs/javadoc/* docs/_static/vortex-spark/
           # JDK 17's javadoc stylesheet imports a font file that JDK 17 never
           # generates, so every page requested a missing file. The pages fall
           # back to the system fonts named in the stylesheet either way.

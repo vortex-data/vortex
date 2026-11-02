@@ -7,6 +7,7 @@ mod compare;
 mod filter;
 mod mask;
 pub(crate) mod nan_count;
+mod predicate;
 mod slice;
 mod take;
 
