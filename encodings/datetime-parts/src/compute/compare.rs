@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compares encoded timestamp parts with timestamp constants.
+//!
+//! The kernel splits a timestamp constant into days, seconds, and subseconds, then compares the
+//! encoded children without decoding the column. The result retains the timestamp array's validity.
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;

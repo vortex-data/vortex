@@ -10,6 +10,10 @@
 //!
 //! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
 //! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//!
+//! Binary scalar functions can execute through encoding-specific kernels before reaching the native
+//! dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
+//! lets an encoding compare values without first converting them to canonical arrays.
 
 use std::cmp::Ordering;
 
@@ -73,7 +77,10 @@ pub trait CompareKernel: VTable {
 /// this adaptor extracts the comparison operator and other operand, normalizes operand order
 /// (swapping the operator if the encoded array is on the RHS), and delegates to the kernel.
 #[derive(Default, Debug)]
-pub struct CompareExecuteAdaptor<V>(pub V);
+pub struct CompareExecuteAdaptor<V>(
+    /// The encoding whose comparison kernel handles the normalized operands.
+    pub V,
+);
 
 impl<V> ExecuteParentKernel<V> for CompareExecuteAdaptor<V>
 where
@@ -175,6 +182,8 @@ pub(crate) fn execute_compare(
 }
 
 /// Dispatches operands with matching logical dtypes to their native comparison kernel.
+///
+/// Extension operands are unwrapped before dispatch to the storage kernel.
 fn compare_arrays(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -213,6 +222,9 @@ fn compare_arrays(
 }
 
 /// Returns the storage of an extension array or constant.
+///
+/// Extension constants retain their constant encoding. Other extension arrays execute to their
+/// canonical representation so that the caller can access their storage.
 fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     if let Some(constant) = array.as_opt::<Constant>() {
         return Ok(ConstantArray::new(
