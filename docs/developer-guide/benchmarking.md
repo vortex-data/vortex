@@ -216,10 +216,6 @@ added or removed, investigate shared allocator state. Neither pattern proves the
 Simulation avoids clock noise, but changes in allocation or runtime polling can still change the
 instruction trace on unchanged code.
 
-If the trace shows one-time allocator initialization, perform an untimed execution during setup to
-prime that state. Keep the operation's own allocations in the measured closure. Removing them can
-hide a real cost instead of fixing the benchmark.
-
 Repeat the same executable in fresh processes on matching hardware to check measurement noise, then
 compare independent builds to check sensitivity to code placement. Keep commands, sampling settings,
 and environment fixed. One repeatable executable does not establish that unrelated source changes

@@ -147,7 +147,7 @@ impl Display for Case {
     }
 }
 
-// Chunk and index counts are sized to keep CodSpeed simulation under 1ms per case.
+// Chunk and index counts cover routing costs while keeping each iteration below 1 ms.
 fn cases() -> Vec<Case> {
     let mut cases = Vec::new();
 
@@ -347,21 +347,12 @@ fn take_indices(case: Case) -> ArrayRef {
     }
 }
 
-#[divan::bench(args = cases())]
+// Materialization can grow mimalloc's page map through system calls. Measure its full cost.
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = cases(), sample_size = 16)]
 fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);
     let indices = take_indices(case);
-
-    // Prime mimalloc's page-map metadata before the single measured simulation iteration.
-    // Otherwise a fresh allocator page can add mmap and prctl calls on unchanged code.
-    #[cfg(codspeed)]
-    drop(
-        values
-            .take(indices.clone())
-            .unwrap()
-            .execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx())
-            .unwrap(),
-    );
 
     bencher
         .counter(ItemsCount::new(case.indices))
