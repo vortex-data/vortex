@@ -14,6 +14,7 @@ use crate::scalar::DecimalScalar;
 use crate::scalar::DecimalValue;
 use crate::scalar::ExtScalar;
 use crate::scalar::ListScalar;
+use crate::scalar::ListValue;
 use crate::scalar::MapScalar;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
@@ -259,8 +260,16 @@ impl ScalarValue {
         }
     }
 
+    /// Returns the list value, panicking if the value is not a [`List`](ScalarValue::List).
+    pub fn as_list(&self) -> &ListValue {
+        match self {
+            ScalarValue::List(list) => list,
+            _ => vortex_panic!("ScalarValue is not a List"),
+        }
+    }
+
     /// Returns the tuple elements, panicking if the value is not a [`Tuple`](ScalarValue::Tuple).
-    pub fn as_list(&self) -> &[Option<ScalarValue>] {
+    pub fn as_tuple(&self) -> &[Option<ScalarValue>] {
         match self {
             ScalarValue::Tuple(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a Tuple"),
@@ -309,8 +318,16 @@ impl ScalarValue {
         }
     }
 
+    /// Returns the list value, panicking if the value is not a [`List`](ScalarValue::List).
+    pub fn into_list(self) -> ListValue {
+        match self {
+            ScalarValue::List(list) => list,
+            _ => vortex_panic!("ScalarValue is not a List"),
+        }
+    }
+
     /// Returns the tuple elements, panicking if the value is not a [`Tuple`](ScalarValue::Tuple).
-    pub fn into_list(self) -> Vec<Option<ScalarValue>> {
+    pub fn into_tuple(self) -> Vec<Option<ScalarValue>> {
         match self {
             ScalarValue::Tuple(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a Tuple"),

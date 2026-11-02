@@ -11,6 +11,7 @@ use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
+use crate::scalar::list_value::retype_list_values;
 
 impl Scalar {
     /// Cast this scalar to another data type.
@@ -28,8 +29,14 @@ impl Scalar {
         // Check for solely nullability casting.
         if self.dtype().eq_ignore_nullability(target_dtype) {
             // Cast from non-nullable to nullable or vice versa.
-            // The `try_new` will handle nullability checks.
-            return Scalar::try_new(target_dtype.clone(), self.value().cloned());
+            // The `try_new` will handle nullability checks. A list's elements array carries its
+            // element dtype, so lists whose element nullability changes are rebuilt.
+            let value = self
+                .value()
+                .cloned()
+                .map(|value| retype_list_values(target_dtype, value))
+                .transpose()?;
+            return Scalar::try_new(target_dtype.clone(), value);
         }
 
         if let (Some(source), Some(target)) = (self.dtype().as_map_opt(), target_dtype.as_map_opt())

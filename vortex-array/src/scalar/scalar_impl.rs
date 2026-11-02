@@ -18,6 +18,7 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::half::f16;
 use crate::scalar::PValue;
+use crate::scalar::list_value::normalize_list_values;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -75,8 +76,11 @@ impl Scalar {
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     #[inline]
-    pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
+    pub fn try_new(dtype: DType, mut value: Option<ScalarValue>) -> VortexResult<Self> {
         if Self::is_compatible(&dtype, value.as_ref()) {
+            if let Some(value) = value.as_mut() {
+                normalize_list_values(&dtype, value);
+            }
             return Ok(Self { dtype, value });
         }
 
@@ -110,7 +114,7 @@ impl Scalar {
     ///
     /// The caller must ensure that the given [`DType`] and [`ScalarValue`] are compatible per the
     /// rules defined in [`Self::validate`].
-    pub unsafe fn new_unchecked(dtype: DType, value: Option<ScalarValue>) -> Self {
+    pub unsafe fn new_unchecked(dtype: DType, mut value: Option<ScalarValue>) -> Self {
         #[cfg(debug_assertions)]
         {
             use vortex_error::VortexExpect;
@@ -119,6 +123,9 @@ impl Scalar {
                 .vortex_expect("Scalar::new_unchecked called with incompatible dtype and value");
         }
 
+        if let Some(value) = value.as_mut() {
+            normalize_list_values(&dtype, value);
+        }
         Self { dtype, value }
     }
 
@@ -330,8 +337,12 @@ impl Scalar {
                 .map_or_else(|| 0, |value| value.as_binary().len()),
             DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
-                .elements()
-                .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
+                .list_value()
+                .map(|list| {
+                    (0..list.len())
+                        .map(|index| list.scalar_at(index).approx_nbytes())
+                        .sum::<usize>()
+                })
                 .unwrap_or_default(),
             DType::Map(..) => self
                 .as_map()
@@ -453,6 +464,12 @@ fn partial_cmp_non_null_scalar_values(
         (ScalarValue::Tuple(lhs), ScalarValue::Tuple(rhs)) => {
             partial_cmp_tuple_values(dtype, lhs, rhs)
         }
+        (ScalarValue::List(lhs), ScalarValue::List(rhs)) => {
+            let element_dtype = list_element_dtype(dtype)?;
+            lhs.partial_cmp_with(rhs, |lhs, rhs| {
+                partial_cmp_scalar_values(element_dtype, lhs, rhs)
+            })
+        }
         (ScalarValue::Union(lhs), ScalarValue::Union(rhs)) => {
             if lhs.type_id() != rhs.type_id() {
                 return None;
@@ -469,6 +486,17 @@ fn partial_cmp_non_null_scalar_values(
         // Variant values can have a different dtype in each row, so it doesn't make sense to
         // compare them.
         (ScalarValue::Variant(_), ScalarValue::Variant(_)) => None,
+        _ => None,
+    }
+}
+
+/// The element dtype of a list or fixed-size list dtype, looking through extensions.
+fn list_element_dtype(dtype: &DType) -> Option<&DType> {
+    match dtype {
+        DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
+            Some(element_dtype)
+        }
+        DType::Extension(ext_dtype) => list_element_dtype(ext_dtype.storage_dtype()),
         _ => None,
     }
 }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -22,14 +20,6 @@ impl OperationsVTable<ListView> for ListView {
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
         let list = array.list_elements_at(index, ctx)?;
-        let children: Vec<Scalar> = (0..list.len())
-            .map(|i| list.execute_scalar(i, ctx))
-            .collect::<VortexResult<_>>()?;
-
-        Ok(Scalar::list(
-            Arc::new(list.dtype().clone()),
-            children,
-            array.dtype().nullability(),
-        ))
+        Scalar::list_from_array(list, array.dtype().nullability(), ctx)
     }
 }

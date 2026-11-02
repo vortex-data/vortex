@@ -21,6 +21,7 @@ mod constructor;
 mod convert;
 mod display;
 mod downcast;
+mod list_value;
 mod proto;
 mod scalar_impl;
 mod scalar_value;
@@ -28,6 +29,8 @@ mod truncation;
 mod typed_view;
 mod validate;
 
+pub use list_value::ListValue;
+pub(crate) use list_value::element_ctx;
 pub use scalar_value::*;
 pub use truncation::*;
 pub use typed_view::*;

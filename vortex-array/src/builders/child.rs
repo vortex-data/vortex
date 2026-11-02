@@ -12,7 +12,9 @@ use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::scalar::ListValue;
 use crate::scalar::Scalar;
+use crate::scalar::element_ctx;
 
 /// Accumulates the child of a nested [`ArrayBuilder`] without canonicalizing appended arrays.
 ///
@@ -90,6 +92,19 @@ impl ChildBuilder {
         self.chunks.push(array.clone());
 
         Ok(())
+    }
+
+    /// Appends the elements of a list scalar to the child, copying them into the pending builder.
+    ///
+    /// A list scalar's elements are recursively canonical, so the copy is a bulk write of their
+    /// buffers. Copying keeps the child contiguous where a chunk per list would fragment it.
+    pub fn append_list_value(&mut self, list: &ListValue) -> VortexResult<()> {
+        if list.is_empty() {
+            return Ok(());
+        }
+        let mut ctx = element_ctx();
+        list.elements()
+            .append_to_builder(self.pending.as_mut(), &mut ctx)
     }
 
     /// Appends a single [`Scalar`] to the child.

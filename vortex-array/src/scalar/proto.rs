@@ -25,6 +25,7 @@ use crate::proto::scalar::ListValue;
 use crate::proto::scalar::UnionValue as PbUnionValue;
 use crate::proto::scalar::scalar_value::Kind;
 use crate::scalar::DecimalValue;
+use crate::scalar::ListValue as ScalarListValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -109,6 +110,15 @@ impl From<&ScalarValue> for pb::ScalarValue {
                 for elem in v.iter() {
                     values.push(ScalarValue::to_proto(elem.as_ref()));
                 }
+                pb::ScalarValue {
+                    kind: Some(Kind::ListValue(ListValue { values })),
+                }
+            }
+            ScalarValue::List(list) => {
+                let values = list
+                    .values()
+                    .map(|elem| ScalarValue::to_proto(elem.as_ref()))
+                    .collect();
                 pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
                 }
@@ -441,18 +451,28 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
     }
 }
 
-/// Deserialize a [`ScalarValue::Tuple`] from a protobuf `ListValue`.
+/// Deserialize a [`ScalarValue::List`] or [`ScalarValue::Tuple`] from a protobuf `ListValue`.
 fn list_from_proto(
     v: &ListValue,
     dtype: &DType,
     session: &VortexSession,
 ) -> VortexResult<ScalarValue> {
     let values = match dtype {
-        DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => v
-            .values
-            .iter()
-            .map(|elem| ScalarValue::from_proto(elem, element_dtype.as_ref(), session))
-            .collect::<VortexResult<Vec<_>>>()?,
+        DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
+            let values = v
+                .values
+                .iter()
+                .map(|elem| {
+                    let value = ScalarValue::from_proto(elem, element_dtype.as_ref(), session)?;
+                    Scalar::validate(element_dtype, value.as_ref())?;
+                    Ok(value)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(ScalarValue::List(ScalarListValue::from_values(
+                element_dtype,
+                values,
+            )));
+        }
         DType::Struct(fields, _) => {
             vortex_ensure_eq!(
                 v.values.len(),

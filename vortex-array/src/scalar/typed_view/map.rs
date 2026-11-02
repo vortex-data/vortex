@@ -72,7 +72,7 @@ impl<'a> MapScalar<'a> {
 
         Ok(Self {
             dtype,
-            entries: value.map(ScalarValue::as_list),
+            entries: value.map(ScalarValue::as_tuple),
         })
     }
 
@@ -110,7 +110,7 @@ impl<'a> MapScalar<'a> {
 
     /// Returns the entry at `index`, or `None` when the map is null or the index is out of bounds.
     pub fn entry(&self, index: usize) -> Option<(Scalar, Scalar)> {
-        let values = self.entries?.get(index)?.as_ref()?.as_list();
+        let values = self.entries?.get(index)?.as_ref()?.as_tuple();
         Some(self.entry_scalars(values))
     }
 
@@ -121,7 +121,7 @@ impl<'a> MapScalar<'a> {
                 entry
                     .as_ref()
                     .vortex_expect("map entry is non-null")
-                    .as_list(),
+                    .as_tuple(),
             )
         })
     }
@@ -172,7 +172,7 @@ impl<'a> MapScalar<'a> {
                     entry
                         .as_ref()
                         .vortex_expect("map entry is non-null")
-                        .as_list(),
+                        .as_tuple(),
                 );
                 Ok(Some(ScalarValue::Tuple(vec![
                     key.cast(&target_key)?.into_value(),

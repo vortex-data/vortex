@@ -191,7 +191,7 @@ impl FixedSizeListBuilder {
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let Some(elements) = value.elements() else {
+        let Some(elements) = value.list_value() else {
             // If `elements` is `None`, then the `value` is a null value.
             self.append_null();
             return Ok(());
@@ -206,11 +206,7 @@ impl FixedSizeListBuilder {
             );
         }
 
-        for scalar in elements {
-            // TODO(connor): This is slow, we should be able to append multiple values at once, or
-            // the list scalar should hold an Array
-            self.elements_builder.append_scalar(&scalar)?;
-        }
+        self.elements_builder.append_list_value(elements)?;
         self.nulls.append_non_null();
 
         Ok(())

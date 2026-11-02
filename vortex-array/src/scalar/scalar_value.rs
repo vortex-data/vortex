@@ -14,6 +14,7 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
+use crate::scalar::ListValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::UnionValue;
@@ -34,9 +35,14 @@ pub enum ScalarValue {
     Utf8(BufferString),
     /// A binary (byte array) value.
     Binary(ByteBuffer),
+    /// The elements of a list or fixed-size list, held as one recursively canonical array.
+    List(ListValue),
     /// A tuple of potentially null scalar values.
     ///
-    /// Used as the underlying representation for list, fixed-size list, map, and struct scalars.
+    /// Used as the underlying representation for map and struct scalars.
+    ///
+    /// A list or fixed-size list scalar built from a `Tuple` is converted to [`ScalarValue::List`]
+    /// when the scalar is constructed.
     Tuple(Vec<Option<ScalarValue>>),
     /// A present union value carrying its selected type ID and raw child value.
     Union(UnionValue),
@@ -60,13 +66,13 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::Tuple(vec![]),
+            DType::List(edt, _) => Self::List(ListValue::from_values(edt, std::iter::empty())),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size)
                     .map(|_| Self::try_zero_value(edt).map(Some))
                     .collect::<Option<Vec<_>>>()?;
-                Self::Tuple(elements)
+                Self::List(ListValue::from_values(edt, elements))
             }
             DType::Struct(fields, _) => {
                 let field_values = fields
@@ -112,13 +118,13 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::Tuple(vec![]),
+            DType::List(edt, _) => Self::List(ListValue::from_values(edt, std::iter::empty())),
             DType::Map(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size)
                     .map(|_| Self::try_default_value(edt))
                     .collect::<Option<Vec<_>>>()?;
-                Self::Tuple(elements)
+                Self::List(ListValue::from_values(edt, elements))
             }
             DType::Struct(fields, _) => {
                 let field_values = fields
@@ -178,6 +184,19 @@ impl Display for ScalarValue {
                 } else {
                     write!(f, "{}", to_hex(b))
                 }
+            }
+            ScalarValue::List(list) => {
+                write!(f, "[")?;
+                for (i, element) in list.values().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match element {
+                        None => write!(f, "null")?,
+                        Some(e) => write!(f, "{}", e)?,
+                    }
+                }
+                write!(f, "]")
             }
             ScalarValue::Tuple(elements) => {
                 write!(f, "[")?;

@@ -40,7 +40,6 @@ use crate::builders::ListViewBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
-use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::OffsetBuilderPType;
@@ -319,19 +318,14 @@ fn append_repeated_list_run<O: OffsetBuilderPType, S: OffsetBuilderPType>(
         return Ok(());
     }
 
-    let Some(elements) = scalar.elements() else {
+    let Some(elements) = scalar.elements_array() else {
         // A null run stores no elements at all.
         builder.append_nulls(n);
         return Ok(());
     };
 
-    let mut elements_builder =
-        builder_with_capacity_in(scalar.element_dtype(), elements.len(), ctx.allocator());
-    for element in &elements {
-        elements_builder.append_scalar(element)?;
-    }
-
-    builder.append_array_as_repeated_list(&elements_builder.finish(), n, ctx)
+    // The list scalar already holds its elements as an array.
+    builder.append_array_as_repeated_list(elements, n, ctx)
 }
 
 /// Appends the constant fixed-size-list `array` as its list's elements tiled `n` times.
@@ -354,22 +348,20 @@ fn append_constant_fixed_size_list_run(
     }
 
     let scalar = array.scalar().as_list();
-    let Some(elements) = scalar.elements() else {
+    let Some(elements) = scalar.list_value() else {
         // A null run stores no elements of its own, only the placeholders the builder writes.
         builder.append_nulls(n);
         return Ok(());
     };
 
-    let tile = match elements.iter().all_equal_value() {
-        Ok(uniform) => ConstantArray::new(uniform.clone(), elements.len()).into_array(),
-        Err(_) => {
-            let mut tile_builder =
-                builder_with_capacity_in(builder.element_dtype(), elements.len(), ctx.allocator());
-            for element in &elements {
-                tile_builder.append_scalar(element)?;
-            }
-            tile_builder.finish()
+    let tile = match elements.values().all_equal_value() {
+        Ok(uniform) => {
+            // SAFETY: the value was read from an array of the list's element dtype.
+            let uniform = unsafe { Scalar::new_unchecked(scalar.element_dtype().clone(), uniform) };
+            ConstantArray::new(uniform, elements.len()).into_array()
         }
+        // The list scalar already holds its elements as an array.
+        Err(_) => elements.elements().clone(),
     };
 
     builder.append_array_as_repeated_list(&tile, n, ctx)

@@ -14,6 +14,7 @@ use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayHaystack;
@@ -22,8 +23,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
@@ -63,12 +62,12 @@ struct ElementSet {
 
 impl ElementSet {
     fn try_new(list: &Scalar, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // The canonical form of a constant list holds its elements once, whatever its length.
-        let elements = ConstantArray::new(list.clone(), 1)
-            .into_array()
-            .execute::<ListViewArray>(ctx)?
-            .elements()
-            .clone();
+        // A list scalar holds its elements as an array.
+        let elements = list
+            .as_list()
+            .elements_array()
+            .cloned()
+            .ok_or_else(|| vortex_err!("A prepared set needs a non-null list"))?;
         let haystack = ArrayHaystack::try_new(&elements, ctx)?;
 
         Ok(Self { elements, haystack })
@@ -101,10 +100,10 @@ impl PreparedSetData {
                 "A prepared set needs a list, got {}",
                 list.dtype()
             );
-            let Some(elements) = list.as_list().element_values() else {
+            let Some(elements) = list.as_list().list_value() else {
                 vortex_bail!("A prepared set needs a non-null list");
             };
-            (elements.iter().any(Option::is_none), elements.is_empty())
+            (elements.has_null_element(), elements.is_empty())
         };
 
         Ok(Self(Arc::new(SharedSet {

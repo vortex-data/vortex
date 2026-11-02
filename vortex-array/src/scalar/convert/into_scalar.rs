@@ -14,6 +14,7 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDType;
 use crate::dtype::Nullability;
 use crate::scalar::DecimalValue;
+use crate::scalar::ListValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -86,11 +87,10 @@ where
     Scalar: From<T>,
 {
     fn from(vec: Vec<T>) -> Self {
-        ScalarValue::Tuple(
-            vec.into_iter()
-                .map(|elem| Scalar::from(elem).into_value())
-                .collect(),
-        )
+        ScalarValue::List(ListValue::from_values(
+            &T::dtype(),
+            vec.into_iter().map(|elem| Scalar::from(elem).into_value()),
+        ))
     }
 }
 

@@ -121,7 +121,7 @@ impl<'a> StructScalar<'a> {
 
         Ok(Self {
             dtype,
-            fields: value.map(|value| value.as_list()),
+            fields: value.map(|value| value.as_tuple()),
         })
     }
 

@@ -264,11 +264,11 @@ impl ScalarFnVTable for ListContains {
         if !matches!(list.dtype(), DType::List(..)) {
             return Ok(ReduceNodeValidity::Irreducible);
         }
-        let Some(elements) = list.as_list().element_values() else {
+        let Some(elements) = list.as_list().list_value() else {
             return Ok(ReduceNodeValidity::Reduced(node.new_constant(false.into())));
         };
 
-        if options.sql_null_semantics && elements.iter().any(Option::is_none) {
+        if options.sql_null_semantics && elements.has_null_element() {
             return Ok(ReduceNodeValidity::Irreducible);
         }
         if elements.is_empty() && !options.sql_null_semantics {
@@ -309,7 +309,7 @@ fn compute_contains_scalar(
 
     let list_scalar = list.as_list();
     let elements = list_scalar
-        .elements()
+        .list_value()
         .ok_or_else(|| vortex_err!("Expected non-null list"))?;
 
     if needle.is_null() {
@@ -320,8 +320,15 @@ fn compute_contains_scalar(
         });
     }
 
-    let contains = elements.iter().any(|elem| elem == needle);
-    if !contains && options.sql_null_semantics && elements.iter().any(Scalar::is_null) {
+    // Values compare without a scalar per element. The dtypes match up to nullability, which
+    // scalar equality ignores too.
+    let contains = list_scalar
+        .element_dtype()
+        .eq_ignore_nullability(needle.dtype())
+        && elements
+            .values()
+            .any(|elem| elem.as_ref() == needle.value());
+    if !contains && options.sql_null_semantics && elements.has_null_element() {
         return Ok(Scalar::null(DType::Bool(nullability)));
     }
     Ok(Scalar::bool(contains, nullability))

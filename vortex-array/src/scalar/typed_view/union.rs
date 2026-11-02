@@ -36,6 +36,11 @@ pub struct UnionValue {
 }
 
 impl UnionValue {
+    /// Mutable access to the selected child's value, used to normalize nested list values.
+    pub(crate) fn child_value_mut(&mut self) -> Option<&mut ScalarValue> {
+        self.value.as_deref_mut()
+    }
+
     pub(crate) fn new(type_id: u8, value: Option<ScalarValue>) -> Self {
         Self {
             type_id,

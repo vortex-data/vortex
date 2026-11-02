@@ -9,13 +9,15 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::scalar::ListValue;
+use crate::scalar::list_value::is_flat;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -37,16 +39,14 @@ pub struct ListScalar<'a> {
     /// every time we want to access this.
     element_dtype: &'a Arc<DType>,
     /// The elements of the list. `None` if the entire list is null.
-    /// Each element is `Option<ScalarValue>` where `None` represents a null element within the
-    /// list.
-    elements: Option<&'a [Option<ScalarValue>]>,
+    list: Option<&'a ListValue>,
 }
 
 impl Display for ListScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.elements {
+        match self.list {
             None => write!(f, "null"),
-            Some(elems) => {
+            Some(list) => {
                 let type_str: &dyn Display = if let DType::FixedSizeList(_, size, _) = self.dtype {
                     &format!("fixed_size<{size}>")
                 } else {
@@ -56,11 +56,7 @@ impl Display for ListScalar<'_> {
                 write!(
                     f,
                     "{type_str}[{}]",
-                    elems
-                        .iter()
-                        .map(|e| Scalar::try_new(self.element_dtype().clone(), e.clone())
-                            .vortex_expect("`ListScalar` is already a valid `Scalar`"))
-                        .format(", ")
+                    (0..list.len()).map(|i| list.scalar_at(i)).format(", ")
                 )
             }
         }
@@ -69,7 +65,11 @@ impl Display for ListScalar<'_> {
 
 impl PartialEq for ListScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.elements() == other.elements()
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self
+                .element_dtype
+                .eq_ignore_nullability(other.element_dtype)
+            && self.list == other.list
     }
 }
 
@@ -84,14 +84,23 @@ impl PartialOrd for ListScalar<'_> {
         {
             return None;
         }
-        self.elements().partial_cmp(&other.elements())
+        match (self.list, other.list) {
+            (None, None) => Some(std::cmp::Ordering::Equal),
+            (None, Some(_)) => Some(std::cmp::Ordering::Less),
+            (Some(_), None) => Some(std::cmp::Ordering::Greater),
+            (Some(lhs), Some(rhs)) => lhs.partial_cmp_with(rhs, |lhs, rhs| {
+                let lhs = Scalar::try_new(DType::clone(self.element_dtype), lhs.cloned()).ok()?;
+                let rhs = Scalar::try_new(DType::clone(other.element_dtype), rhs.cloned()).ok()?;
+                lhs.partial_cmp(&rhs)
+            }),
+        }
     }
 }
 
 impl Hash for ListScalar<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.dtype.hash_ignore_nullability(state);
-        self.elements().hash(state);
+        self.list.hash(state);
     }
 }
 
@@ -109,7 +118,7 @@ impl<'a> ListScalar<'a> {
         Ok(Self {
             dtype,
             element_dtype,
-            elements: value.map(|v| v.as_list()),
+            list: value.map(|v| v.as_list()),
         })
     }
 
@@ -124,22 +133,19 @@ impl<'a> ListScalar<'a> {
     /// Returns 0 if the list is null.
     #[inline]
     pub fn len(&self) -> usize {
-        self.elements.as_ref().map(|e| e.len()).unwrap_or(0)
+        self.list.map(ListValue::len).unwrap_or(0)
     }
 
     /// Returns true if the list has no elements or is null.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        match self.elements.as_ref() {
-            None => true,
-            Some(l) => l.is_empty(),
-        }
+        self.list.is_none_or(ListValue::is_empty)
     }
 
     /// Returns true if the list is null.
     #[inline]
     pub fn is_null(&self) -> bool {
-        self.elements.is_none()
+        self.list.is_none()
     }
 
     /// Returns the data type of the list's elements.
@@ -154,33 +160,32 @@ impl<'a> ListScalar<'a> {
     ///
     /// Returns None if the list is null or the index is out of bounds.
     pub fn element(&self, idx: usize) -> Option<Scalar> {
-        self.elements.and_then(|l| l.get(idx)).map(|value| {
-            // SAFETY: `ListScalar` is already a valid `Scalar`.
-            unsafe { Scalar::new_unchecked(self.element_dtype().clone(), value.clone()) }
-        })
+        self.list
+            .filter(|list| idx < list.len())
+            .map(|list| list.scalar_at(idx))
     }
 
-    /// Returns the values of the list's elements, `None` for a null element, without building a
-    /// scalar for each.
+    /// Returns the list's value, holding its elements as an array, or `None` if the list is null.
+    #[inline]
+    pub fn list_value(&self) -> Option<&'a ListValue> {
+        self.list
+    }
+
+    /// Returns the list's elements as an array of the element dtype, or `None` if the list is
+    /// null.
     ///
-    /// Returns None if the list is null.
-    pub(crate) fn element_values(&self) -> Option<&'a [Option<ScalarValue>]> {
-        self.elements
+    /// This costs no copy: a list scalar holds its elements as an array.
+    #[inline]
+    pub fn elements_array(&self) -> Option<&'a ArrayRef> {
+        self.list.map(ListValue::elements)
     }
 
     /// Returns all elements in the list as a vector of scalars.
     ///
     /// Returns None if the list is null.
     pub fn elements(&self) -> Option<Vec<Scalar>> {
-        self.elements.map(|elems| {
-            elems
-                .iter()
-                .map(|e| {
-                    // SAFETY: `ListScalar` is already a valid `Scalar`.
-                    unsafe { Scalar::new_unchecked(self.element_dtype().clone(), e.clone()) }
-                })
-                .collect_vec()
-        })
+        self.list
+            .map(|list| (0..list.len()).map(|i| list.scalar_at(i)).collect_vec())
     }
 
     /// Casts the list to the target [`DType`].
@@ -213,20 +218,43 @@ impl<'a> ListScalar<'a> {
             )
         }
 
+        let list = self
+            .list
+            .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?;
+
+        // Casting between list kinds with the same element dtype keeps the elements as they are.
+        if list.element_dtype() == target_element_dtype {
+            return Scalar::try_new(dtype.clone(), Some(ScalarValue::List(list.clone())));
+        }
+
+        // A change of a flat element dtype's nullability alone keeps every value, so only nulls
+        // need checking.
+        if is_flat(target_element_dtype)
+            && list.element_dtype().eq_ignore_nullability(target_element_dtype)
+        {
+            if !target_element_dtype.is_nullable() && list.has_null_element() {
+                vortex_bail!(
+                    "Cannot cast list with null elements to non-nullable elements {target_element_dtype}"
+                );
+            }
+            return Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::List(ListValue::from_values(
+                    target_element_dtype,
+                    list.values(),
+                ))),
+            );
+        }
+
+        let elements = (0..list.len())
+            .map(|i| list.scalar_at(i).cast(target_element_dtype))
+            .collect::<VortexResult<Vec<Scalar>>>()?;
         Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::Tuple(
-                self.elements
-                    .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?
-                    .iter()
-                    .map(|element| {
-                        // Recursively cast the elements of the list.
-                        Scalar::try_new(DType::clone(self.element_dtype), element.clone())?
-                            .cast(target_element_dtype)
-                            .map(|x| x.into_value())
-                    })
-                    .collect::<VortexResult<Vec<Option<ScalarValue>>>>()?,
-            )),
+            Some(ScalarValue::List(ListValue::from_scalars(
+                target_element_dtype,
+                &elements,
+            ))),
         )
     }
 }

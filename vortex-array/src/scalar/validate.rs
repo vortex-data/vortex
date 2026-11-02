@@ -17,8 +17,10 @@ use vortex_error::vortex_err;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::dtype::UnionVariants;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::list_value::normalize_list_values;
 
 impl Scalar {
     /// Validate that the given [`ScalarValue`] is compatible with the given [`DType`].
@@ -61,6 +63,12 @@ impl Scalar {
             (DType::Decimal(dec_dtype, _), ScalarValue::Decimal(dvalue)) => {
                 dvalue.fits_in_precision(*dec_dtype)
             }
+            (DType::List(elem_dtype, _), ScalarValue::List(list)) => {
+                list.element_dtype() == elem_dtype.as_ref()
+            }
+            (DType::FixedSizeList(elem_dtype, size, _), ScalarValue::List(list)) => {
+                list.len() == *size as usize && list.element_dtype() == elem_dtype.as_ref()
+            }
             (DType::List(elem_dtype, _), ScalarValue::Tuple(elements)) => elements
                 .iter()
                 .all(|element| Self::is_compatible(elem_dtype, element.as_ref())),
@@ -102,7 +110,7 @@ impl Scalar {
             }
             (DType::Extension(ext_dtype), value) => {
                 Self::is_compatible(ext_dtype.storage_dtype(), Some(value))
-                    && ext_dtype.validate_storage_value(value).is_ok()
+                    && Self::validate_extension_storage(ext_dtype, value).is_ok()
             }
             _ => false,
         }
@@ -178,8 +186,16 @@ impl Scalar {
                 );
             }
             DType::List(elem_dtype, _) => {
+                if let ScalarValue::List(list) = value {
+                    vortex_ensure!(
+                        list.element_dtype() == elem_dtype.as_ref(),
+                        "list dtype with elements {elem_dtype} got elements of {}",
+                        list.element_dtype(),
+                    );
+                    return Ok(());
+                }
                 let ScalarValue::Tuple(elements) = value else {
-                    vortex_bail!("list dtype expected Tuple value, got {value}");
+                    vortex_bail!("list dtype expected List or Tuple value, got {value}");
                 };
 
                 for (i, element) in elements.iter().enumerate() {
@@ -188,8 +204,21 @@ impl Scalar {
                 }
             }
             DType::FixedSizeList(elem_dtype, size, _) => {
+                if let ScalarValue::List(list) = value {
+                    vortex_ensure!(
+                        list.element_dtype() == elem_dtype.as_ref(),
+                        "fixed-size list dtype with elements {elem_dtype} got elements of {}",
+                        list.element_dtype(),
+                    );
+                    vortex_ensure_eq!(
+                        list.len(),
+                        *size as usize,
+                        "fixed-size list scalar has the wrong number of elements",
+                    );
+                    return Ok(());
+                }
                 let ScalarValue::Tuple(elements) = value else {
-                    vortex_bail!("fixed-size list dtype expected Tuple value, got {value}",);
+                    vortex_bail!("fixed-size list dtype expected List or Tuple value, got {value}",);
                 };
 
                 let len = elements.len();
@@ -239,11 +268,25 @@ impl Scalar {
             DType::Extension(ext_dtype) => {
                 Self::validate_detailed(ext_dtype.storage_dtype(), Some(value))?;
 
-                ext_dtype.validate_storage_value(value)?;
+                Self::validate_extension_storage(ext_dtype, value)?;
             }
         }
 
         Ok(())
+    }
+
+    /// Runs the extension's own validation of a storage value that already matches the storage
+    /// dtype.
+    ///
+    /// Extensions read their storage values in the normalized form, so a list given as a legacy
+    /// [`ScalarValue::Tuple`] is normalized before the extension sees it.
+    fn validate_extension_storage(ext_dtype: &ExtDTypeRef, value: &ScalarValue) -> VortexResult<()> {
+        if matches!(value, ScalarValue::Tuple(_)) {
+            let mut normalized = value.clone();
+            normalize_list_values(ext_dtype.storage_dtype(), &mut normalized);
+            return ext_dtype.validate_storage_value(&normalized);
+        }
+        ext_dtype.validate_storage_value(value)
     }
 
     /// Validates map entries and adds their positions to storage validation errors.

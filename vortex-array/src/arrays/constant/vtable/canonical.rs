@@ -7,12 +7,10 @@ use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -35,9 +33,6 @@ use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
-use crate::builders::ArrayBuilder;
-use crate::builders::VarBinViewBuilder;
-use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value;
@@ -46,8 +41,8 @@ use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
+use crate::scalar::ListValue;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
@@ -142,11 +137,7 @@ pub(crate) fn constant_canonicalize(
                 ctx.allocator(),
             ))
         }
-        DType::List(..) => Canonical::List(constant_canonical_list_array(
-            scalar,
-            array.len(),
-            ctx.allocator(),
-        )),
+        DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
         DType::Map(map_dtype, nullability) => {
             let entries_scalar = Scalar::try_new(
                 DType::List(Arc::new(map_dtype.entries_dtype()), *nullability),
@@ -154,19 +145,18 @@ pub(crate) fn constant_canonicalize(
             )?;
             Canonical::Map(MapArray::try_new(
                 map_dtype.clone(),
-                constant_canonical_list_array(&entries_scalar, array.len(), ctx.allocator()),
+                constant_canonical_list_array(&entries_scalar, array.len()),
             )?)
         }
         DType::FixedSizeList(element_dtype, list_size, _) => {
             let value = scalar.as_list();
 
             Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
-                value.elements(),
+                value.list_value(),
                 element_dtype,
                 *list_size,
                 value.dtype().nullability(),
                 array.len(),
-                ctx.allocator(),
             ))
         }
         DType::Struct(struct_dtype, _) => {
@@ -271,16 +261,12 @@ fn constant_canonical_byte_view(
 ///
 /// We basically just project the list scalar value into list view components. If the caller wants
 /// a fully decompressed and non-overlapping array, they can rebuild the array.
-fn constant_canonical_list_array(
-    scalar: &Scalar,
-    len: usize,
-    allocator: &BufferAllocatorRef,
-) -> ListViewArray {
+fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
     let list = scalar.as_list();
 
     // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
-    let elements = list_scalar_elements(&list, allocator);
+    let elements = list_scalar_elements(&list);
 
     let validity = if scalar.dtype().is_nullable() {
         if list.is_null() {
@@ -312,131 +298,23 @@ fn constant_canonical_list_array(
 }
 
 /// The elements of a list scalar as an array, one row per element; empty for a null list.
-fn list_scalar_elements(list: &ListScalar, allocator: &BufferAllocatorRef) -> ArrayRef {
-    let element_dtype = list.element_dtype();
-    let Some(elements) = list.element_values() else {
-        return Canonical::empty(element_dtype).into_array();
-    };
-    flat_elements(element_dtype, elements, allocator)
-}
-
-/// The array of `elements`, the values of a list of `element_dtype`.
 ///
-/// Flat elements are written straight from their values, since a scalar per element costs more
-/// than a probe over the result does. Nested elements go through the canonical builder.
-fn flat_elements(
-    element_dtype: &DType,
-    elements: &[Option<ScalarValue>],
-    allocator: &BufferAllocatorRef,
-) -> ArrayRef {
-    match element_dtype {
-        DType::Null => NullArray::new(elements.len()).into_array(),
-        DType::Bool(nullability) => {
-            let bits = BitBuffer::from_iter(elements.iter().map(|element| match element {
-                Some(ScalarValue::Bool(value)) => *value,
-                Some(_) => vortex_panic!("bool list holds a non-bool element"),
-                None => false,
-            }));
-            BoolArray::new(bits, element_validity(elements, *nullability)).into_array()
-        }
-        DType::Primitive(ptype, nullability) => match_each_native_ptype!(ptype, |T| {
-            let mut buffer = BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());
-            buffer.extend(elements.iter().map(|element| {
-                match element {
-                    Some(ScalarValue::Primitive(value)) => value
-                        .cast::<T>()
-                        .vortex_expect("list element of the list's element ptype"),
-                    Some(_) => vortex_panic!("primitive list holds a non-primitive element"),
-                    None => T::default(),
-                }
-            }));
-            PrimitiveArray::new(buffer.freeze(), element_validity(elements, *nullability))
-                .into_array()
-        }),
-        DType::Decimal(decimal, nullability) => {
-            let values_type = decimal.canonical_values_type();
-            match_each_decimal_value_type!(values_type, |T| {
-                let mut buffer =
-                    BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());
-                buffer.extend(elements.iter().map(|element| {
-                    match element {
-                        Some(ScalarValue::Decimal(value)) => value
-                            .cast::<T>()
-                            .vortex_expect("list element fits the list's decimal type"),
-                        Some(_) => vortex_panic!("decimal list holds a non-decimal element"),
-                        None => T::default(),
-                    }
-                }));
-                DecimalArray::new(
-                    buffer.freeze(),
-                    *decimal,
-                    element_validity(elements, *nullability),
-                )
-                .into_array()
-            })
-        }
-        DType::Utf8(_) | DType::Binary(_) => {
-            let mut builder = VarBinViewBuilder::with_capacity_in(
-                element_dtype.clone(),
-                elements.len(),
-                allocator.clone(),
-            );
-            for element in elements {
-                match element {
-                    None => builder.append_null(),
-                    Some(ScalarValue::Utf8(value)) => builder.append_value(value.as_bytes()),
-                    Some(ScalarValue::Binary(value)) => builder.append_value(value.as_slice()),
-                    Some(_) => vortex_panic!("byte list holds a non-byte element"),
-                }
-            }
-            builder.finish()
-        }
-        // An extension value is its storage value.
-        DType::Extension(ext_dtype) => ExtensionArray::new(
-            ext_dtype.clone(),
-            flat_elements(ext_dtype.storage_dtype(), elements, allocator),
-        )
-        .into_array(),
-        _ => {
-            let mut builder = builder_with_capacity_in(element_dtype, elements.len(), allocator);
-            for element in elements {
-                match element {
-                    Some(element) => {
-                        builder
-                            .append_scalar(&unsafe {
-                                Scalar::new_unchecked(element_dtype.clone(), Some(element.clone()))
-                            })
-                            .vortex_expect("list element scalar was invalid");
-                    }
-                    None => {
-                        builder.append_null();
-                    }
-                }
-            }
-            builder.finish()
-        }
-    }
-}
-
-/// The validity of a list's elements, a null element being a `None` value.
-fn element_validity(elements: &[Option<ScalarValue>], nullability: Nullability) -> Validity {
-    match nullability {
-        Nullability::NonNullable => Validity::NonNullable,
-        Nullability::Nullable if elements.iter().all(Option::is_some) => Validity::AllValid,
-        Nullability::Nullable => {
-            Validity::from(BitBuffer::from_iter(elements.iter().map(Option::is_some)))
-        }
+/// A list scalar already holds its elements as a canonical array, so this is a reference count
+/// increment.
+fn list_scalar_elements(list: &ListScalar) -> ArrayRef {
+    match list.elements_array() {
+        Some(elements) => elements.clone(),
+        None => Canonical::empty(list.element_dtype()).into_array(),
     }
 }
 
 /// Creates a [`FixedSizeListArray`] whose every row holds the same list.
 fn constant_canonical_fixed_size_list_array(
-    values: Option<Vec<Scalar>>,
+    values: Option<&ListValue>,
     element_dtype: &DType,
     list_size: u32,
     list_nullability: Nullability,
     len: usize,
-    allocator: &BufferAllocatorRef,
 ) -> FixedSizeListArray {
     let elements_len = list_size as usize * len;
 
@@ -447,7 +325,7 @@ fn constant_canonical_fixed_size_list_array(
             Validity::AllInvalid,
         ),
         Some(values) => (
-            tile_fixed_size_list_elements(&values, element_dtype, len, elements_len, allocator),
+            tile_fixed_size_list_elements(values, element_dtype, len, elements_len),
             Validity::from(list_nullability),
         ),
     };
@@ -463,28 +341,25 @@ fn constant_canonical_fixed_size_list_array(
 /// list view's can. Uniform elements stay a [`ConstantArray`] covering the whole run; otherwise the
 /// row materializes once and the run chunks that single copy.
 fn tile_fixed_size_list_elements(
-    values: &[Scalar],
+    values: &ListValue,
     element_dtype: &DType,
     len: usize,
     elements_len: usize,
-    allocator: &BufferAllocatorRef,
 ) -> ArrayRef {
     // An empty run, or a degenerate `list_size == 0`.
     if elements_len == 0 {
         return Canonical::empty(element_dtype).into_array();
     }
 
-    match values.iter().all_equal_value() {
-        Ok(uniform) => ConstantArray::new(uniform.clone(), elements_len).into_array(),
+    match values.values().all_equal_value() {
+        Ok(uniform) => {
+            // SAFETY: the value was read from an array of `element_dtype`.
+            let uniform = unsafe { Scalar::new_unchecked(element_dtype.clone(), uniform) };
+            ConstantArray::new(uniform, elements_len).into_array()
+        }
         Err(_) => {
-            let mut elements_builder =
-                builder_with_capacity_in(element_dtype, values.len(), allocator);
-            for value in values {
-                elements_builder
-                    .append_scalar(value)
-                    .vortex_expect("fixed-size-list element scalar was invalid");
-            }
-            let tile = elements_builder.finish();
+            // The list scalar already holds one row's elements as an array.
+            let tile = values.elements().clone();
 
             if len == 1 {
                 return tile;

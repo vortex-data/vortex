@@ -20,16 +20,7 @@ impl OperationsVTable<FixedSizeList> for FixedSizeList {
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
         let list = array.fixed_size_list_elements_at(index)?;
-        let children_elements: Vec<Scalar> = (0..list.len())
-            .map(|i| list.execute_scalar(i, ctx))
-            .collect::<VortexResult<_>>()?;
-
-        debug_assert_eq!(children_elements.len(), array.list_size() as usize);
-
-        Ok(Scalar::fixed_size_list(
-            list.dtype().clone(),
-            children_elements,
-            array.dtype().nullability(),
-        ))
+        debug_assert_eq!(list.len(), array.list_size() as usize);
+        Scalar::fixed_size_list_from_array(list, array.dtype().nullability(), ctx)
     }
 }

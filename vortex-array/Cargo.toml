@@ -192,6 +192,10 @@ name = "scalar_construction"
 harness = false
 
 [[bench]]
+name = "scalar_list_conversion"
+harness = false
+
+[[bench]]
 name = "patches_lookup"
 harness = false
 

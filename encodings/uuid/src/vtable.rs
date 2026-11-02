@@ -89,14 +89,20 @@ impl ExtVTable for Uuid {
         );
 
         let mut bytes = [0u8; UUID_BYTE_LEN];
-        for (i, elem) in elements.iter().enumerate() {
-            let Some(scalar_value) = elem else {
-                vortex_bail!("UUID byte at index {i} must not be null");
-            };
-            let PValue::U8(b) = scalar_value.as_primitive() else {
-                vortex_bail!("UUID byte at index {i} must be U8");
-            };
-            bytes[i] = *b;
+        match elements.as_slice::<u8>() {
+            // The common case: the bytes are one non-null `u8` buffer.
+            Some(slice) => bytes.copy_from_slice(slice),
+            None => {
+                for (i, elem) in elements.values().enumerate() {
+                    let Some(scalar_value) = elem else {
+                        vortex_bail!("UUID byte at index {i} must not be null");
+                    };
+                    let PValue::U8(b) = scalar_value.as_primitive() else {
+                        vortex_bail!("UUID byte at index {i} must be U8");
+                    };
+                    bytes[i] = *b;
+                }
+            }
         }
 
         let parsed = uuid::Uuid::from_bytes(bytes);

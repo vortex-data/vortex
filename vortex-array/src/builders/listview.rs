@@ -200,7 +200,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// This method extends the value builder with the provided values and records
     /// the offset and size of the new list.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let Some(elements) = value.elements() else {
+        let Some(elements) = value.list_value() else {
             // If `elements` is `None`, then the `value` is a null value.
             vortex_ensure!(
                 self.dtype.is_nullable(),
@@ -220,9 +220,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             "appending this list would cause an offset overflow"
         );
 
-        for scalar in elements {
-            self.elements_builder.append_scalar(&scalar)?;
-        }
+        self.elements_builder.append_list_value(elements)?;
         self.nulls.append_non_null();
 
         self.offsets_builder.append_value(

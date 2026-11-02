@@ -151,7 +151,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
 
     /// Appends a list `value` to the builder.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        match value.elements() {
+        match value.list_value() {
             None => {
                 if self.dtype.nullability() == NonNullable {
                     vortex_bail!("Cannot append null value to non-nullable list");
@@ -159,11 +159,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
                 self.append_null();
             }
             Some(elements) => {
-                for scalar in elements {
-                    // TODO(connor): This is slow, we should be able to append multiple values at
-                    // once, or the list scalar should hold an Array
-                    self.elements_builder.append_scalar(&scalar)?;
-                }
+                self.elements_builder.append_list_value(elements)?;
 
                 self.nulls.append_non_null();
                 self.offsets_builder.append_value(
