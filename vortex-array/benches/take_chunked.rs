@@ -352,6 +352,17 @@ fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);
     let indices = take_indices(case);
 
+    // Prime mimalloc's page-map metadata before the single measured simulation iteration.
+    // Otherwise a fresh allocator page can add mmap and prctl calls on unchanged code.
+    #[cfg(codspeed)]
+    drop(
+        values
+            .take(indices.clone())
+            .unwrap()
+            .execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx())
+            .unwrap(),
+    );
+
     bencher
         .counter(ItemsCount::new(case.indices))
         .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
