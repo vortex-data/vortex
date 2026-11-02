@@ -100,7 +100,7 @@ impl ArrayRef {
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         let inner = Arc::get_mut(&mut self.0)?;
-        inner.optimized.clear();
+        *inner.optimized.0.get_mut() = false;
         Some(inner)
     }
 

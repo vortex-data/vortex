@@ -48,7 +48,7 @@ const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 /// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
 /// state.
 #[derive(Debug, Default)]
-pub(crate) struct OptimizedState(AtomicBool);
+pub(crate) struct OptimizedState(pub(crate) AtomicBool);
 
 impl OptimizedState {
     fn is_optimized(&self) -> bool {
@@ -57,10 +57,6 @@ impl OptimizedState {
 
     fn mark_optimized(&self) {
         self.0.store(true, Ordering::Relaxed);
-    }
-
-    pub(crate) fn clear(&mut self) {
-        *self.0.get_mut() = false;
     }
 }
 
