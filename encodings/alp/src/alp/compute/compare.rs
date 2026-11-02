@@ -23,6 +23,8 @@ use crate::ALPArraySlotsExt;
 use crate::ALPFloat;
 use crate::alp::compute::predicate::apply_patch_predicate;
 use crate::alp::compute::predicate::constant_predicate;
+use crate::alp::compute::predicate::encode_strictly_above;
+use crate::alp::compute::predicate::encode_strictly_below;
 use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALP {
@@ -81,7 +83,7 @@ where
                 if is_finite {
                     compare_encoded(
                         alp,
-                        F::encode_above(value, exponents),
+                        encode_strictly_above(value, exponents),
                         Operator::Gte,
                         nullability,
                     )?
@@ -93,7 +95,7 @@ where
                 if is_finite {
                     compare_encoded(
                         alp,
-                        F::encode_below(value, exponents),
+                        encode_strictly_below(value, exponents),
                         Operator::Lte,
                         nullability,
                     )?
@@ -107,7 +109,7 @@ where
     let Some(patches) = alp.patches() else {
         return Ok(encoded);
     };
-    let predicate = compare_predicate::<F>(operator);
+    let predicate = operator.to_predicate::<F>();
     apply_patch_predicate(encoded, &patches, |patch| predicate(patch, value), ctx)
 }
 
@@ -121,18 +123,6 @@ fn compare_encoded<I: NativePType + Into<PValue>>(
         ConstantArray::new(Scalar::primitive(encoded, nullability), alp.len()).into_array(),
         operator,
     )
-}
-
-/// The total-order comparison the primitive kernel applies to decoded floats.
-fn compare_predicate<F: NativePType>(operator: CompareOperator) -> fn(F, F) -> bool {
-    match operator {
-        CompareOperator::Eq => F::is_eq,
-        CompareOperator::NotEq => |lhs, rhs| !lhs.is_eq(rhs),
-        CompareOperator::Lt => F::is_lt,
-        CompareOperator::Lte => F::is_le,
-        CompareOperator::Gt => F::is_gt,
-        CompareOperator::Gte => F::is_ge,
-    }
 }
 
 #[cfg(test)]
@@ -349,6 +339,18 @@ mod tests {
         ]);
         let encoded = alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx())?;
         assert!(encoded.patches().is_some());
+
+        assert_matches_primitive(&encoded, &array, constant.into())
+    }
+
+    #[rstest]
+    #[case::positive_zero(0.0f32)]
+    #[case::negative_zero(-0.0f32)]
+    #[case::positive_subnormal(f32::from_bits(1))]
+    #[case::negative_subnormal(-f32::from_bits(1))]
+    fn compare_near_zero(#[case] constant: f32) -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter([0.0f32, 1.5, -1.5, 1.234, 0.0, -2.5]);
+        let encoded = alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx())?;
 
         assert_matches_primitive(&encoded, &array, constant.into())
     }

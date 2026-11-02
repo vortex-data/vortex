@@ -7,6 +7,8 @@
 //! ALP could not encode, whose exact float values live in the patches.
 
 use num_traits::AsPrimitive;
+use num_traits::One;
+use num_traits::Saturating;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -26,6 +28,8 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPFloat;
+use crate::Exponents;
 
 /// A predicate that has the same answer for every row while keeping the array's validity.
 pub(super) fn constant_predicate(
@@ -45,6 +49,38 @@ pub(super) fn constant_predicate(
             BoolArray::new(BitBuffer::full(value, len), validity).into_array()
         }
     })
+}
+
+/// Returns the largest encoded integer that decodes strictly below `value`.
+///
+/// `value` must be finite and must not round-trip through `exponents`. Rounding down is not
+/// sufficient by itself: `floor(-0.0)` encodes to `0`, which decodes to `+0.0`, and in total
+/// order `+0.0` is above `-0.0`.
+pub(super) fn encode_strictly_below<F: ALPFloat + NativePType>(
+    value: F,
+    exponents: Exponents,
+) -> F::ALPInt {
+    let below = F::encode_below(value, exponents);
+    if NativePType::is_lt(F::decode_single(below, exponents), value) {
+        below
+    } else {
+        below.saturating_sub(F::ALPInt::one())
+    }
+}
+
+/// Returns the smallest encoded integer that decodes strictly above `value`.
+///
+/// `value` must be finite and must not round-trip through `exponents`.
+pub(super) fn encode_strictly_above<F: ALPFloat + NativePType>(
+    value: F,
+    exponents: Exponents,
+) -> F::ALPInt {
+    let above = F::encode_above(value, exponents);
+    if NativePType::is_gt(F::decode_single(above, exponents), value) {
+        above
+    } else {
+        above.saturating_add(F::ALPInt::one())
+    }
 }
 
 /// Re-evaluates `predicate` on each patched row of `result`, a boolean answer computed from the

@@ -28,6 +28,8 @@ use crate::alp::array::ALPArrayExt;
 use crate::alp::array::ALPArraySlotsExt;
 use crate::alp::compute::predicate::apply_patch_predicate;
 use crate::alp::compute::predicate::constant_predicate;
+use crate::alp::compute::predicate::encode_strictly_above;
+use crate::alp::compute::predicate::encode_strictly_below;
 use crate::match_each_alp_float_ptype;
 
 /// Rewrites a between over a patch-free array into a between over its encoded integers.
@@ -85,8 +87,8 @@ impl BetweenKernel for ALP {
             let lower = F::try_from(lower)?;
             let upper = F::try_from(upper)?;
             let encoded = between_impl::<F>(array, lower, upper, nullability, options)?;
-            let lower_fn = bound_predicate::<F>(options.lower_strict);
-            let upper_fn = bound_predicate::<F>(options.upper_strict);
+            let lower_fn = options.lower_strict.to_predicate::<F>();
+            let upper_fn = options.upper_strict.to_predicate::<F>();
             apply_patch_predicate(
                 encoded,
                 &patches,
@@ -95,14 +97,6 @@ impl BetweenKernel for ALP {
             )
         })
         .map(Some)
-    }
-}
-
-/// The total-order bound check the primitive kernel applies to decoded floats.
-fn bound_predicate<F: NativePType>(strict: StrictComparison) -> fn(F, F) -> bool {
-    match strict {
-        StrictComparison::Strict => F::is_lt,
-        StrictComparison::NonStrict => F::is_le,
     }
 }
 
@@ -162,7 +156,12 @@ fn encode_lower_bound<T: ALPFloat + NativePType>(
     Some(
         T::encode_single(lower, exponents)
             .map(|x| (x, strict))
-            .unwrap_or_else(|| (T::encode_below(lower, exponents), StrictComparison::Strict)),
+            .unwrap_or_else(|| {
+                (
+                    encode_strictly_below(lower, exponents),
+                    StrictComparison::Strict,
+                )
+            }),
     )
 }
 
@@ -179,7 +178,12 @@ fn encode_upper_bound<T: ALPFloat + NativePType>(
     Some(
         T::encode_single(upper, exponents)
             .map(|x| (x, strict))
-            .unwrap_or_else(|| (T::encode_above(upper, exponents), StrictComparison::Strict)),
+            .unwrap_or_else(|| {
+                (
+                    encode_strictly_above(upper, exponents),
+                    StrictComparison::Strict,
+                )
+            }),
     )
 }
 
@@ -316,6 +320,28 @@ mod tests {
         assert_between(&encoded, 0.0, f32::from_bits(0xffffff5e), &options, false);
         assert_between(&encoded, 0.0, f32::INFINITY, &options, true);
         assert_between(&encoded, 0.0, f32::NEG_INFINITY, &options, false);
+    }
+
+    #[rstest]
+    #[case::negative_zero_lower(-0.0f32, 1.0f32, true)]
+    #[case::negative_zero_upper(-1.0f32, -0.0f32, false)]
+    #[case::subnormal_lower(f32::from_bits(1), 1.0f32, false)]
+    #[case::subnormal_upper(-1.0f32, -f32::from_bits(1), false)]
+    fn bounds_near_zero_use_total_order(
+        #[case] lower: f32,
+        #[case] upper: f32,
+        #[case] expected: bool,
+    ) {
+        let array = PrimitiveArray::from_iter([0.0f32; 10]);
+        let encoded =
+            alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
+        assert!(encoded.patches().is_none());
+
+        let options = BetweenOptions {
+            lower_strict: StrictComparison::NonStrict,
+            upper_strict: StrictComparison::NonStrict,
+        };
+        assert_between(&encoded, lower, upper, &options, expected);
     }
 
     #[test]
