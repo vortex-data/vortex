@@ -26,6 +26,7 @@ use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -41,8 +42,6 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::expr::ext_storage;
 use crate::expr::root;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -229,19 +228,13 @@ fn test_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_cached_nan_extrema_return_extension_validation_errors() -> VortexResult<()> {
-    let storage = PrimitiveArray::from_option_iter([Some(f64::NAN), Some(1.0)]).into_array();
-    let array = NonZero::array(storage)?;
-    array
-        .statistics()
-        .set(Stat::NaNCount, Precision::Exact(1u64.into()));
-    let mut ctx = SESSION.create_execution_ctx();
+#[rstest]
+fn test_nan_scalar_returns_extension_validation_errors(
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let dtype = DType::Extension(NonZero::dtype(PType::F64, nullability)?);
 
-    assert_non_zero_error(
-        min_max(&array, &mut ctx, NumericalAggregateOpts::include_nans()),
-        "NaN",
-    );
+    assert_non_zero_error(nan_scalar(&dtype), "NaN");
 
     Ok(())
 }
