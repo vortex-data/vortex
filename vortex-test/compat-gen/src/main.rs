@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use clap::Subcommand;
 use vortex_compat::check;
+use vortex_compat::forward;
 use vortex_compat::generate;
 use vortex_error::VortexResult;
 
@@ -89,6 +90,23 @@ enum Commands {
         #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
         exclude: Vec<String>,
     },
+
+    /// Generate forward-compatibility files: every fixture written once per frozen core edition.
+    ///
+    /// Each edition is the only enabled core edition while its files are written with the
+    /// default write strategy. Writes `<edition>/<fixture>.vortex` files, the expected values as
+    /// `expected/<fixture>.arrow` Arrow IPC files, and a forward.json manifest that records each
+    /// edition's min_library_version. The compat.py `forward` command reads these files with
+    /// every released reader each edition covers.
+    GenerateForward {
+        /// Output directory for the edition directories, expected values, and forward.json.
+        #[arg(long, value_name = "DIR")]
+        output: PathBuf,
+
+        /// Fixture name substrings to exclude (comma-separated, e.g. "clickbench,tpch").
+        #[arg(long, value_delimiter = ',', value_name = "PATTERNS")]
+        exclude: Vec<String>,
+    },
 }
 
 fn main() -> VortexResult<()> {
@@ -97,5 +115,8 @@ fn main() -> VortexResult<()> {
     match cli.command {
         Commands::Generate { output, exclude } => generate::generate(&output, &exclude),
         Commands::Check { dir, mode, exclude } => check::check(&dir, mode, &exclude),
+        Commands::GenerateForward { output, exclude } => {
+            forward::generate_forward(&output, &exclude)
+        }
     }
 }

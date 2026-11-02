@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!--SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# Vortex Backward-Compatibility Testing
+# Vortex Backward- and Forward-Compatibility Testing
 
 ## The Problem
 
@@ -250,6 +250,33 @@ Validates the current code against previously published fixtures. Runs weekly
 |------|----------|
 | `last` (default) | Compare against the most recent published release only |
 | `all` | Compare against all previously published versions (pre-release check) |
+
+## Forward Compatibility
+
+Backward compatibility covers old files and new readers. Editions add a
+promise in the other direction: a file written with only a frozen edition's
+members enabled is readable by every release from that edition's
+`min_library_version` on. `compat.py forward` tests that promise with the
+current writer.
+
+- **Write:** `vortex-compat generate-forward` writes every fixture once per
+  frozen `core` edition, with that edition as the only enabled `core` edition
+  and the default write strategy.
+- **Read:** each final release of the `vortex-data` Python package since the
+  oldest `min_library_version` reads the files of the editions it covers. The
+  releases come from their published wheels, built from the same source as
+  each release's Rust crates, so checking dozens of releases needs no
+  compilation.
+- **Oracle:** each fixture's `build()`, exported once as an Arrow IPC file by
+  the current code and compared in Arrow space. Old readers do not share the
+  Rust API, so Arrow is the common ground.
+
+Nothing is published: the files are written fresh by the code under test,
+and the old readers are fetched from PyPI on demand.
+
+**Does not catch:** readers that are not Python wheels (an old Rust crate built
+with different features), predicate pushdown and projection (each file is read
+in full), and releases that were never published to PyPI.
 
 ## Known Limitations
 

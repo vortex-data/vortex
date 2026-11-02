@@ -11650,6 +11650,7 @@ name = "vortex-compat"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-ipc 59.3.2",
  "arrow-select 59.3.2",
  "base16ct",
  "bytes",

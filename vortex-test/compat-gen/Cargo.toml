@@ -1,7 +1,7 @@
 [package]
 name = "vortex-compat"
 authors = { workspace = true }
-description = "Backward-compatibility fixture generation and checking for Vortex"
+description = "Backward- and forward-compatibility fixture generation and checking for Vortex"
 edition = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
@@ -30,6 +30,7 @@ vortex-session = { workspace = true }
 
 # TPC-H generation
 arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 

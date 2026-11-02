@@ -6,7 +6,7 @@
 # ///
 
 """
-Vortex backward-compatibility orchestrator.
+Vortex backward- and forward-compatibility orchestrator.
 
 Manages fixture versions in S3 (or local directories) by calling the thin
 `vortex-compat` Rust binary for generation and checking.  The Rust binary
@@ -22,6 +22,9 @@ Quick start:
 
     # Check all published versions against current code
     uv run compat.py check
+
+    # Check that released readers can read files the current writer produces
+    uv run compat.py forward
 """
 
 from __future__ import annotations
@@ -85,6 +88,10 @@ examples:
   uv run compat.py check
   uv run compat.py check --mode last
   uv run compat.py check --versions 0.62.0,0.63.0
+
+  # Read files written by the current writer with old releases, per edition
+  uv run compat.py forward
+  uv run compat.py forward --mode last
 
   # Inspect store contents
   uv run compat.py list
@@ -740,6 +747,181 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Forward compatibility
+# ---------------------------------------------------------------------------
+
+
+PYPI_PACKAGE = "vortex-data"
+PYPI_JSON_URL = f"https://pypi.org/pypi/{PYPI_PACKAGE}/json"
+FORWARD_READER = Path(__file__).resolve().with_name("forward_reader.py")
+# Packages added to every reader environment. Some old wheels import typing_extensions without
+# declaring it.
+FORWARD_EXTRA_DEPS = ["pyarrow", "typing_extensions"]
+# substrait 0.24 moved the generated protobuf modules that old wheels import.
+FORWARD_CONSTRAINTS = ["substrait<0.24"]
+
+
+def _released_versions() -> list[str]:
+    """Return every final (non-pre-release, non-yanked) release of the Python package."""
+    with urlopen(PYPI_JSON_URL, timeout=30) as resp:
+        releases = json.load(resp)["releases"]
+    versions = [
+        version
+        for version, files in releases.items()
+        if re.fullmatch(r"\d+\.\d+\.\d+", version) and any(not f.get("yanked") for f in files)
+    ]
+    versions.sort(key=_version_sort_key)
+    return versions
+
+
+def _run_forward_reader(
+    version: str,
+    editions: list[str],
+    fixtures_dir: Path,
+    python: str,
+    constraints: Path,
+) -> dict:
+    """Read the files of `editions` with the released `version`, in an isolated environment."""
+    cmd = ["uv", "run", "--quiet", "--isolated", "--no-project", "--python", python]
+    cmd += ["--with", f"{PYPI_PACKAGE}=={version}"]
+    for dep in FORWARD_EXTRA_DEPS:
+        cmd += ["--with", dep]
+    cmd += ["python", "-I", str(FORWARD_READER), "--dir", str(fixtures_dir)]
+    cmd += ["--editions", ",".join(editions), "--version", version]
+
+    env = {**os.environ, "UV_CONSTRAINT": str(constraints)}
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        stderr = result.stderr.strip().splitlines()
+        detail = "\n".join(stderr[-20:]) or f"exit code {result.returncode}"
+        return {
+            "version": version,
+            "passed": [],
+            "failed": [{"edition": e, "name": "(reader)", "error": detail} for e in editions],
+        }
+
+
+def cmd_forward(args: argparse.Namespace) -> None:
+    """Write files with the current writer per frozen edition, then read them with old releases."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        if args.dir:
+            fixtures_dir = Path(args.dir)
+        else:
+            fixtures_dir = Path(tmpdir) / "forward"
+            _info("generating forward-compatibility fixtures...")
+            _run_rust_generate_forward(fixtures_dir, exclude=args.exclude, profile=args.profile)
+        _check_forward(fixtures_dir, args, Path(tmpdir))
+
+
+def _check_forward(fixtures_dir: Path, args: argparse.Namespace, tmpdir: Path) -> None:
+    manifest = json.loads((fixtures_dir / "forward.json").read_text())
+    editions = manifest["editions"]
+    if args.editions:
+        wanted = {e.strip() for e in args.editions.split(",")}
+        unknown = wanted - {e["edition"] for e in editions}
+        if unknown:
+            _info(f"error: unknown or unfrozen editions: {', '.join(sorted(unknown))}")
+            sys.exit(1)
+        editions = [e for e in editions if e["edition"] in wanted]
+
+    # A frozen edition the current writer cannot write anything with has no forward guarantee to
+    # test; that is a failure in its own right, not a reason to skip it.
+    failures: list[tuple[str, dict]] = []
+    for edition in editions:
+        unwritable = ", ".join(f["name"] for f in edition["unwritable"])
+        if not edition["written"]:
+            errors = sorted({f["error"] for f in edition["unwritable"]})
+            _info(f"{edition['edition']}: FAILED, the current writer cannot write any fixture: {'; '.join(errors)}")
+            failures.append(("(writer)", {"edition": edition["edition"], "name": "(all)", "error": errors[0]}))
+            continue
+        suffix = f" (not representable: {unwritable})" if unwritable else ""
+        _info(
+            f"{edition['edition']}: {len(edition['written'])} files, "
+            f"readable from v{edition['min_library_version']}{suffix}"
+        )
+    editions = [e for e in editions if e["written"]]
+
+    if args.versions:
+        versions = [v.strip() for v in args.versions.split(",")]
+    else:
+        versions = _released_versions()
+        oldest = min((_version_sort_key(e["min_library_version"]) for e in editions), default=None)
+        versions = [v for v in versions if oldest is not None and _version_sort_key(v) >= oldest]
+        if args.mode == "last":
+            # The first and the latest release each edition covers.
+            ends = {e["min_library_version"] for e in editions}
+            if versions:
+                ends.add(versions[-1])
+            versions = [v for v in versions if v in ends]
+
+    # Each release reads every edition whose min_library_version it has reached.
+    plan: list[tuple[str, list[str]]] = []
+    for version in versions:
+        covered = [
+            e["edition"] for e in editions if _version_sort_key(version) >= _version_sort_key(e["min_library_version"])
+        ]
+        if covered:
+            plan.append((version, covered))
+        else:
+            _info(f"skipping v{version}: older than every edition's min_library_version")
+
+    if not plan:
+        _info("no released versions to check")
+        _report_forward_failures(failures)
+        sys.exit(1)
+
+    constraints = tmpdir / "forward-constraints.txt"
+    constraints.write_text("\n".join(FORWARD_CONSTRAINTS) + "\n")
+
+    _info(f"\nreading with {len(plan)} release(s) of {PYPI_PACKAGE}, {args.jobs} at a time...")
+    results: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = {
+            pool.submit(_run_forward_reader, version, covered, fixtures_dir, args.python, constraints): version
+            for version, covered in plan
+        }
+        for future in as_completed(futures):
+            result = future.result()
+            version = futures[future]
+            results[version] = result
+            status = "FAILED" if result["failed"] else "ok"
+            _info(f"  v{version}: {len(result['passed'])} passed, {len(result['failed'])} failed {status}")
+
+    _info("\nresults by edition:")
+    for edition in editions:
+        name = edition["edition"]
+        bad_versions = []
+        checked = 0
+        for version, covered in plan:
+            if name not in covered:
+                continue
+            checked += 1
+            edition_failures = [f for f in results[version]["failed"] if f["edition"] == name]
+            if edition_failures:
+                bad_versions.append(version)
+                failures.extend((version, f) for f in edition_failures)
+        if bad_versions:
+            _info(f"  {name}: FAILED on {len(bad_versions)}/{checked} release(s): {', '.join(bad_versions)}")
+        else:
+            _info(f"  {name}: ok on {checked} release(s)")
+
+    if failures:
+        _report_forward_failures(failures)
+        sys.exit(1)
+    _info("\nall files are readable by every release their edition covers.")
+
+
+def _report_forward_failures(failures: list[tuple[str, dict]]) -> None:
+    """Print `(version, failure)` pairs; the version is `(writer)` for write failures."""
+    _info(f"\n{len(failures)} failure(s):")
+    for version, f in sorted(failures, key=lambda vf: (_version_sort_key(vf[0]), vf[1]["edition"])):
+        where = version if version.startswith("(") else f"v{version}"
+        _info(f"  {where} {f['edition']}/{f['name']}: {f['error']}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -831,6 +1013,15 @@ def _run_rust_generate(output: Path, profile: str = "release") -> None:
     _run_cmd([bin_path, "generate", "--output", str(output)], check=True)
 
 
+def _run_rust_generate_forward(output: Path, exclude: str | None = None, profile: str = "release") -> None:
+    """Run `vortex-compat generate-forward --output <dir>`."""
+    bin_path = _build_compat_bin(profile)
+    cmd = [bin_path, "generate-forward", "--output", str(output)]
+    if exclude:
+        cmd += ["--exclude", exclude]
+    _run_cmd(cmd, check=True)
+
+
 def _run_rust_check(dir: Path, mode: str = "superset", profile: str = "release") -> dict:
     """Run `vortex-compat check --dir <dir> --mode <mode>` and parse JSON stdout."""
     bin_path = _build_compat_bin(profile)
@@ -890,7 +1081,7 @@ def _info(msg: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="compat.py",
-        description="Vortex backward-compatibility fixture orchestrator",
+        description="Vortex backward- and forward-compatibility fixture orchestrator",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1004,6 +1195,48 @@ def main() -> None:
         "Mutually exclusive with --versions.",
     )
 
+    # -- forward --
+    p = sub.add_parser(
+        "forward",
+        help="Check that old releases read files the current writer produces per edition",
+        description=(
+            "Write every fixture with the current writer once per frozen core edition,\n"
+            "enabling only that edition, then read each file with every released\n"
+            f"{PYPI_PACKAGE} wheel from the edition's min_library_version on. Each\n"
+            "release runs in an isolated uv environment, so no old code is compiled."
+        ),
+        epilog=(
+            "examples:\n"
+            "  uv run compat.py forward\n"
+            "  uv run compat.py forward --mode last\n"
+            "  uv run compat.py forward --editions core2025.05.0 --versions 0.36.0,0.90.0\n"
+            "  uv run compat.py forward --exclude clickbench --jobs 8\n"
+            "  uv run compat.py forward --dir /tmp/forward  # reuse generate-forward output"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--mode",
+        choices=["all", "last"],
+        default="all",
+        help="Which releases read the files: 'all' (default) from each edition's min_library_version "
+        "on, or 'last': only each edition's min_library_version and the latest release. "
+        "Ignored with --versions.",
+    )
+    p.add_argument("--versions", help="Comma-separated releases to read with, instead of --mode")
+    p.add_argument("--editions", help="Comma-separated frozen editions to check (default: all)")
+    p.add_argument("--exclude", help="Comma-separated fixture name substrings to exclude")
+    p.add_argument(
+        "--dir",
+        help="Use an existing `vortex-compat generate-forward` output instead of generating one",
+    )
+    p.add_argument("--jobs", type=int, default=4, help="Releases to read with concurrently (default: %(default)s)")
+    p.add_argument(
+        "--python",
+        default="3.12",
+        help="Python version for the reader environments (default: %(default)s)",
+    )
+
     # -- list --
     p = sub.add_parser(
         "list",
@@ -1059,6 +1292,7 @@ def main() -> None:
         "generate": cmd_generate,
         "publish": cmd_publish,
         "check": cmd_check,
+        "forward": cmd_forward,
         "list": cmd_list,
         "verify": cmd_verify,
         "validate-manifest": cmd_validate_manifest,

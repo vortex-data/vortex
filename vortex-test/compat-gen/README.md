@@ -1,8 +1,12 @@
 # vortex-compat
 
-Backward-compatibility testing for the Vortex file format. Ensures the
-current reader can always decode `.vortex` files written by any older
-released version.
+Compatibility testing for the Vortex file format:
+
+- **Backward compatibility:** the current reader can always decode `.vortex`
+  files written by any older released version.
+- **Forward compatibility:** a file the current writer produces under a frozen
+  edition is readable by every release from that edition's
+  `min_library_version` on. See the `generate-forward` and `forward` commands below.
 
 See [DESIGN.md](DESIGN.md) for full architecture and design rationale.
 
@@ -23,6 +27,10 @@ python scripts/compat.py check
 
 # Publish from a historical tag via git worktree
 python scripts/compat.py publish --git-ref v0.62.0
+
+# Read files the current writer produces, per frozen edition, with every
+# released reader that edition covers (no S3, no credentials)
+uv run scripts/compat.py forward
 
 # Local-only workflow (no S3)
 python scripts/compat.py publish --store /tmp/compat-store
@@ -98,6 +106,31 @@ Check modes:
 Use `superset` when checking old versions (they may be missing newly-added
 fixtures). Use `exact` for the current version.
 
+### `generate-forward --output <DIR> [--exclude <CSV>]`
+
+Writes every fixture once per frozen `core` edition. While an edition's files
+are written, it is the only enabled `core` edition and the writer uses its
+default strategy, so the files hold what a real writer emits: compressed
+encodings, layouts, zone maps, and file statistics. Each fixture's `build()`
+is canonicalized first, so the writer chooses every encoding itself.
+
+Output:
+```
+<DIR>/
+├── forward.json
+├── expected/primitives.arrow      # expected values, Arrow IPC
+├── core2026.08.0/primitives.vortex
+└── ...
+```
+
+`forward.json` lists the fixtures, and for each edition its
+`min_library_version`, the fixtures it wrote, and the fixtures it could not
+write, with the writer's error. An edition may be unable to represent a fixture,
+for example a dtype that joined a later edition. The command fails if a fixture
+that one edition wrote is unwritable in a later edition, or if the newest frozen
+edition cannot write a fixture. Every written file is read back with the current
+reader and compared with `build()`.
+
 ## Python Orchestrator: `compat.py`
 
 ### `publish [--git-ref <REF>] [--store <SPEC>] [--dry-run] [--exclude <CSV>]`
@@ -129,6 +162,33 @@ With `--version`: print that version's `manifest.json`.
 
 Walk all versions in order and verify no fixtures were removed between
 consecutive versions (additive-only property).
+
+### `forward [--mode <MODE>|--versions <CSV>] [--editions <CSV>] [--exclude <CSV>] [--dir <DIR>]`
+
+1. Run `vortex-compat generate-forward` into a temp dir (or use `--dir`)
+2. List the final releases of the `vortex-data` Python package on PyPI
+3. For each release, read the files of every edition whose
+   `min_library_version` it has reached. Each release runs
+   `scripts/forward_reader.py` in an isolated `uv` environment with that
+   release's published wheel, so no old code is compiled.
+4. Report results per edition, and exit 1 if any file fails to read or differs
+   from its expected values. An edition the current writer cannot write any
+   fixture with also fails: its forward guarantee cannot be tested.
+
+The reader uses `vortex.open(path).to_arrow()`, which every release since
+0.36.0 provides. It compares the result with the expected Arrow IPC file by
+value, so an older reader may export an equivalent Arrow type, such as `string`
+for `string_view`. NaN equals NaN, and `0.0` differs from `-0.0`. Temporal
+columns are compared through their integer storage.
+
+`--mode all` (the default) reads with every release from each edition's
+`min_library_version` up to the latest release. `--mode last` reads only with
+each edition's `min_library_version` and the latest release. `--jobs` sets how
+many releases read concurrently, and `--python` sets the reader environments'
+Python version (default 3.12).
+
+Some old wheels declare their dependencies loosely. Every reader environment
+therefore adds `typing_extensions` and constrains `substrait<0.24`.
 
 ### Store abstraction
 

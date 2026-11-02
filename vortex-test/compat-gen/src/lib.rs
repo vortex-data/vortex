@@ -4,5 +4,6 @@
 pub mod adapter;
 pub mod check;
 pub mod fixtures;
+pub mod forward;
 pub mod generate;
 pub mod manifest;

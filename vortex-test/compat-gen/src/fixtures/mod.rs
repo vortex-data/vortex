@@ -3,6 +3,9 @@
 
 mod arrays;
 
+pub use arrays::dataset_fixtures;
+pub use arrays::synthetic_fixtures;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -234,10 +237,10 @@ pub fn check_expected_encodings(
 /// All registered fixtures.
 pub fn all_fixtures() -> Vec<Box<dyn Fixture>> {
     let mut out: Vec<Box<dyn Fixture>> = Vec::new();
-    for f in arrays::synthetic_fixtures() {
+    for f in synthetic_fixtures() {
         out.push(Box::new(FlatLayoutAdapter(f)));
     }
-    for f in arrays::dataset_fixtures() {
+    for f in dataset_fixtures() {
         out.extend(DatasetFixtureAdapter::pair(f));
     }
     out
