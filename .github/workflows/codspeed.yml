@@ -228,11 +228,7 @@ jobs:
                   echo "Python extension build failed; nothing to run." >&2
                   exit 1
                 fi
-                cd vortex-python
-                # Reactor polling varies inside these scalar scans under simulation.
-                uv run --all-packages --no-sync pytest benchmark/ --codspeed \
-                  --deselect 'vortex-python/benchmark/test_scalar_at.py::test_scan_scalar_at[int]' \
-                  --deselect 'vortex-python/benchmark/test_scalar_at.py::test_repeated_scan_scalar_at[int]'
+                cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
               token: ${{ secrets.CODSPEED_TOKEN }}
               mode: "simulation"
               # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
@@ -301,7 +297,7 @@ jobs:
               for package in meta["packages"]
               for target in package["targets"]
               if "bench" in target["kind"]
-              and "cpu_features]" in pathlib.Path(target["src_path"]).read_text()
+              and "#[vortex_bench_support::cpu_features" in pathlib.Path(target["src_path"]).read_text()
           )
           if not tagged:
               raise SystemExit("no benchmark carries `#[cpu_features]`; this job has nothing to measure")
@@ -380,15 +376,7 @@ jobs:
           # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
         with:
-          # Divan filters use tree paths (including separate argument components), not result URIs.
-          # These cases vary between processes on unchanged code. Keep them available locally.
-          run: >-
-            bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
-            --skip 'bitpacking_take::neon::threshold_neon::(64|80)$'
-            --skip 'bitpacking_filter::neon::filter_neon::(64|80)$'
-            --skip 'binary_ops::neon::mul_u64_nonnull_neon$'
-            --skip 'row_fn_utf8_input::(avx2::starts_with_avx2|avx512::starts_with_avx512)::(8|64)::VarBin$'
-            --skip 'row_fn_utf8_input::neon::starts_with_neon::64::VarBin$'
+          run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "walltime"
 

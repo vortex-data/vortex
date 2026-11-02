@@ -84,7 +84,8 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
 }
 
 // Batch short iterations to reduce variation in the fastest walltime sample.
-#[vortex_bench_support::cpu_features]
+// The NEON cases still vary on unchanged code, so keep those measurements local.
+#[vortex_bench_support::cpu_features(exclude = ["neon"])]
 #[divan::bench(args = [64, 80], sample_size = 16)]
 fn threshold(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, indices) = threshold_fixture(selected_per_chunk);

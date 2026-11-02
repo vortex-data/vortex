@@ -198,8 +198,10 @@ implementations available for local comparisons, gated with `#[cfg(not(codspeed)
 unexplained changes in their automatic results do not identify a change in maintained Vortex code.
 
 Use `#[cfg(not(codspeed))]` for a Rust benchmark that cannot produce useful CodSpeed measurements.
-When only one argument or CPU variant is unreliable, exclude that case and keep the others. Record
-the reason beside the exclusion and keep the supporting measurements in the PR.
+For a tagged benchmark, `#[vortex_bench_support::cpu_features(exclude = ["neon"])]` skips the named
+walltime leg while keeping the other legs and local runs. When only one input case is unreliable,
+filter the benchmark's argument list instead. Record the reason beside the exclusion and keep the
+supporting measurements in the PR. Keep CI commands independent of individual benchmark names.
 
 ### Investigate reports on unchanged code
 
@@ -213,6 +215,10 @@ as an operation becoming slower. If several later benchmarks shift after an earl
 added or removed, investigate shared allocator state. Neither pattern proves the cause on its own.
 Simulation avoids clock noise, but changes in allocation or runtime polling can still change the
 instruction trace on unchanged code.
+
+If the trace shows one-time allocator initialization, perform an untimed execution during setup to
+prime that state. Keep the operation's own allocations in the measured closure. Removing them can
+hide a real cost instead of fixing the benchmark.
 
 Repeat the same executable in fresh processes on matching hardware to check measurement noise, then
 compare independent builds to check sensitivity to code placement. Keep commands, sampling settings,
