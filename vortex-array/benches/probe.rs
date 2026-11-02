@@ -13,10 +13,8 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -93,9 +91,7 @@ const ARRAYS: &[&str] = &[
     "dict",
     "struct",
     "bool",
-    "constant",
     "decimal",
-    "null",
     "varbinview",
 ];
 
@@ -107,13 +103,11 @@ fn array(name: &str) -> ArrayRef {
         "bool" => {
             BoolArray::from_iter((0..LEN).map(|i| (i % 7 != 0).then_some(i % 2 == 0))).into_array()
         }
-        "constant" => ConstantArray::new(42i64, LEN).into_array(),
         "decimal" => DecimalArray::from_iter(
             (0..LEN).map(|index| index as i128),
             DecimalDType::new(18, 2),
         )
         .into_array(),
-        "null" => NullArray::new(LEN).into_array(),
         "varbinview" => VarBinViewArray::from_iter(
             [
                 Some("short"),
