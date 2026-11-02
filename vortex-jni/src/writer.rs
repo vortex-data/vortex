@@ -25,7 +25,6 @@ use jni::Env;
 use jni::EnvUnowned;
 use jni::objects::JClass;
 use jni::objects::JObject;
-use jni::objects::JObjectArray;
 use jni::objects::JString;
 use jni::objects::JValue;
 use jni::sys::JNI_FALSE;
@@ -373,7 +372,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatchBuffers(
     _class: JClass,
     writer_ptr: jlong,
     arrow_array_addr: jlong,
-    buffers: JObjectArray,
+    buffers: JObject,
 ) -> jboolean {
     if writer_ptr <= 0 {
         return JNI_FALSE;

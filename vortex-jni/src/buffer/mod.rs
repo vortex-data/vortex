@@ -14,30 +14,35 @@ use arrow_buffer::Buffer;
 use arrow_buffer::NullBuffer;
 use arrow_data::ArrayData;
 use jni::Env;
+use jni::JValue;
 use jni::JavaVM;
+use jni::objects::JLongArray;
 use jni::objects::JObject;
-use jni::objects::JObjectArray;
 use jni::refs::Global;
-use jni::refs::IntoAuto;
 use vortex::error::vortex_err;
 
 use crate::errors::JNIError;
 use crate::io::with_jvm;
 
-struct JavaBuffer {
+struct JavaBuffers {
     vm: JavaVM,
     object: Global<JObject<'static>>,
+}
+
+struct JavaBuffer {
+    batch: Arc<JavaBuffers>,
+    index: i32,
     capacity: usize,
 }
 
 impl Drop for JavaBuffer {
     fn drop(&mut self) {
-        if let Err(error) = with_jvm(&self.vm, |env| {
+        if let Err(error) = with_jvm(&self.batch.vm, |env| {
             env.call_method(
-                &self.object,
+                &self.batch.object,
                 jni::jni_str!("release"),
-                jni::jni_sig!("()V"),
-                &[],
+                jni::jni_sig!("(I)V"),
+                &[JValue::Int(self.index)],
             )?;
             Ok(())
         }) {
@@ -67,33 +72,50 @@ pub(crate) fn import_buffers(
     env: &mut Env,
     data: ArrayData,
     exported_addresses: &BTreeSet<usize>,
-    buffers: JObjectArray,
+    buffers: JObject,
 ) -> Result<ArrayData, JNIError> {
+    let addresses = env
+        .call_method(&buffers, jni::jni_str!("addresses"), jni::jni_sig!("()[J"), &[])?
+        .l()?;
+    let addresses = env.cast_local::<JLongArray>(addresses)?;
+    let capacities = env
+        .call_method(&buffers, jni::jni_str!("capacities"), jni::jni_sig!("()[J"), &[])?
+        .l()?;
+    let capacities = env.cast_local::<JLongArray>(capacities)?;
+    let count = addresses.len(env)?;
+    if capacities.len(env)? != count {
+        return Err(
+            vortex_err!("Java buffer addresses and capacities must have equal length").into(),
+        );
+    }
+    let mut address_values = vec![0; count];
+    let mut capacity_values = vec![0; count];
+    addresses.get_region(env, 0, &mut address_values)?;
+    capacities.get_region(env, 0, &mut capacity_values)?;
+    let metadata = address_values
+        .into_iter()
+        .zip(capacity_values)
+        .enumerate()
+        .map(|(index, (address, capacity))| {
+            Ok::<_, JNIError>((
+                i32::try_from(index).map_err(|_| vortex_err!("invalid Java buffer index"))?,
+                usize::try_from(address).map_err(|_| vortex_err!("invalid Java buffer address"))?,
+                usize::try_from(capacity).map_err(|_| vortex_err!("invalid Java buffer capacity"))?,
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let batch = Arc::new(JavaBuffers {
+        vm: env.get_java_vm()?,
+        object: env.new_global_ref(&buffers)?,
+    });
+    env.call_method(&buffers, jni::jni_str!("retain"), jni::jni_sig!("()V"), &[])?;
+    // Every retained entry gets a Rust owner before any further fallible work. They share
+    // only the metadata reference; each drop releases its own Java allocation immediately.
     let mut owners = BTreeMap::new();
-    for index in 0..buffers.len(env)? {
-        // Wide schemas can contain thousands of buffers; do not accumulate JNI local references.
-        let object = buffers.get_element(env, index)?.auto();
-        let address = env
-            .call_method(&object, jni::jni_str!("address"), jni::jni_sig!("()J"), &[])?
-            .j()?;
-        let address =
-            usize::try_from(address).map_err(|_| vortex_err!("invalid Java buffer address"))?;
-        let capacity = env
-            .call_method(
-                &object,
-                jni::jni_str!("capacity"),
-                jni::jni_sig!("()J"),
-                &[],
-            )?
-            .j()?;
-        let capacity =
-            usize::try_from(capacity).map_err(|_| vortex_err!("invalid Java buffer capacity"))?;
-        let global = env.new_global_ref(&object)?;
-        let vm = env.get_java_vm()?;
-        env.call_method(&object, jni::jni_str!("retain"), jni::jni_sig!("()V"), &[])?;
+    for (index, address, capacity) in metadata {
         let owner = Arc::new(JavaBuffer {
-            vm,
-            object: global,
+            batch: Arc::clone(&batch),
+            index,
             capacity,
         });
         // Multiple slices can start at the same address. Keep the largest available extent.

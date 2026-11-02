@@ -47,9 +47,9 @@ public final class NativeWriter {
 
     /**
      * Import a Java batch with independently retained buffer allocations. The exported array must match the schema
-     * passed to {@link #create}; the caller must serialize writes and close.
+     * passed to {@link #create}; the caller must serialize writes and close. Buffer metadata is single-use.
      */
-    public static native boolean writeBatchBuffers(long writerPointer, long arrowArrayAddress, NativeBuffer[] buffers);
+    public static native boolean writeBatchBuffers(long writerPointer, long arrowArrayAddress, NativeBuffers buffers);
 
     /** Number of bytes successfully written to the underlying sink so far. */
     public static native long bytesWritten(long writerPointer);

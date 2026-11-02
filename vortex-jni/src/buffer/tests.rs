@@ -88,9 +88,9 @@ fn test_release_from_native_thread() -> VortexResult<()> {
     let Some(vm) = test_vm() else {
         return Ok(());
     };
-    // Semaphore.release() has the same JNI signature as NativeBuffer.release(), and
-    // its permit count lets us observe exactly how often the drop callback ran.
-    let (owner, semaphore, weak) = with_jvm(vm, |env| {
+    // Semaphore.release(int) matches NativeBuffers.release(int), so permits record the
+    // released indices even while another allocation keeps the batch metadata alive.
+    let (first, second, semaphore, weak) = with_jvm(vm, |env| {
         let object = env.new_object(
             jni::jni_str!("java/util/concurrent/Semaphore"),
             jni::jni_sig!("(I)V"),
@@ -101,17 +101,26 @@ fn test_release_from_native_thread() -> VortexResult<()> {
             jni::jni_sig!("(Ljava/lang/Object;)V"),
             &[jni::JValue::Object(&object)],
         )?;
+        let batch = Arc::new(JavaBuffers {
+            vm: vm.clone(),
+            object: env.new_global_ref(&object)?,
+        });
         Ok((
             JavaBuffer {
-                vm: vm.clone(),
-                object: env.new_global_ref(&object)?,
+                batch: Arc::clone(&batch),
+                index: 2,
+                capacity: 0,
+            },
+            JavaBuffer {
+                batch,
+                index: 3,
                 capacity: 0,
             },
             env.new_global_ref(&object)?,
             env.new_global_ref(&weak)?,
         ))
     })?;
-    std::thread::spawn(move || drop(owner))
+    std::thread::spawn(move || drop(first))
         .join()
         .map_err(|_| vortex_err!("release thread panicked"))?;
     let permits = with_jvm(vm, |env| {
@@ -124,7 +133,21 @@ fn test_release_from_native_thread() -> VortexResult<()> {
             )?
             .i()?)
     })?;
-    assert_eq!(permits, 1);
+    assert_eq!(permits, 2);
+    std::thread::spawn(move || drop(second))
+        .join()
+        .map_err(|_| vortex_err!("release thread panicked"))?;
+    let permits = with_jvm(vm, |env| {
+        Ok(env
+            .call_method(
+                &semaphore,
+                jni::jni_str!("availablePermits"),
+                jni::jni_sig!("()I"),
+                &[],
+            )?
+            .i()?)
+    })?;
+    assert_eq!(permits, 5);
     drop(semaphore);
     assert_weak_ref_clears(vm, &weak)
 }

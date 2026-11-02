@@ -105,7 +105,7 @@ public final class IndependentBuffersTest {
     }
 
     @Test
-    public void failedImportReleasesPartialRetains() throws Exception {
+    public void failedImportReleasesRetains() throws Exception {
         Schema schema = schema();
         try (BufferAllocator allocator = new RootAllocator();
                 BufferAllocator batches = allocator.newChildAllocator("batch", 0, Long.MAX_VALUE);
@@ -122,11 +122,13 @@ public final class IndependentBuffersTest {
                     Map.of());
             try {
                 Data.exportVectorSchemaRoot(allocator, root, null, array);
-                NativeBuffer[] owners = NativeBuffer.collect(root);
-                assertThrows(
+                // Omit the struct validity buffer while retaining its child's allocations.
+                NativeBuffers owners = NativeBuffers.collect(VectorSchemaRoot.of(
+                        ((StructVector) root.getVector(0)).getChild("value")));
+                RuntimeException error = assertThrows(
                         RuntimeException.class,
-                        () -> NativeWriter.writeBatchBuffers(
-                                writer, array.memoryAddress(), new NativeBuffer[] {owners[0]}));
+                        () -> NativeWriter.writeBatchBuffers(writer, array.memoryAddress(), owners));
+                assertTrue(error.getMessage().contains("no Java owner covering its range"), error.toString());
                 root.clear();
                 assertEquals(0, batches.getAllocatedMemory());
             } finally {

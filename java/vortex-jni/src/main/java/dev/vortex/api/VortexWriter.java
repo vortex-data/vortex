@@ -6,7 +6,7 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeWritable;
-import dev.vortex.jni.NativeBuffer;
+import dev.vortex.jni.NativeBuffers;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
 import java.util.HashMap;
@@ -204,7 +204,7 @@ public final class VortexWriter implements AutoCloseable {
         try (ArrowArray array = ArrowArray.allocateNew(allocator)) {
             try {
                 Data.exportVectorSchemaRoot(allocator, root, null, array);
-                if (!NativeWriter.writeBatchBuffers(pointer, array.memoryAddress(), NativeBuffer.collect(root))) {
+                if (!NativeWriter.writeBatchBuffers(pointer, array.memoryAddress(), NativeBuffers.collect(root))) {
                     throw new IOException("failed to write batch");
                 }
             } finally {
