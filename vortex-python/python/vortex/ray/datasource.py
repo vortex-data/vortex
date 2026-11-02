@@ -130,7 +130,8 @@ def _read_task(
     schema = schemas[0]
     assert all(s == schema for s in schemas[1:])
 
-    num_rows = sum(len(f) for f in files)
+    num_rows = None if filter is not None else sum(len(f) for f in files)
+    output_schema = files[0].to_arrow(columns, limit=0).schema
 
     metadata = BlockMetadata(
         num_rows=num_rows,
@@ -152,4 +153,4 @@ def _read_task(
                 #
                 yield rb.to_pandas()
 
-    return ReadTask(read, metadata, schema)
+    return ReadTask(read, metadata, output_schema)
