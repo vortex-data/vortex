@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::c_uint;
 use std::mem::ManuallyDrop;
 use std::ops::Range;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use vortex_cuda_driver::CudaEvent;
 use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DriverError;
 use vortex_cuda_driver::memory;
+use vortex_cuda_driver::sys::CU_MEMHOSTALLOC_WRITECOMBINED;
 use vortex_cuda_driver::sys::CUevent_flags;
 
 use crate::CudaDeviceBuffer;
@@ -41,7 +43,8 @@ unsafe impl Send for PinnedByteBuffer {}
 unsafe impl Sync for PinnedByteBuffer {}
 
 impl PinnedByteBuffer {
-    /// Allocate a pinned host buffer with a given capacity and logical length.
+    /// Allocate a pinned host buffer with a given capacity, logical length and `cuMemHostAlloc`
+    /// flags.
     ///
     /// # Safety
     /// The returned buffer's contents are uninitialized. The caller must initialize before read.
@@ -49,6 +52,7 @@ impl PinnedByteBuffer {
         ctx: &Arc<CudaContext>,
         capacity: usize,
         logical_len: usize,
+        host_alloc_flags: c_uint,
     ) -> VortexResult<Self> {
         vortex_ensure!(
             capacity < isize::MAX as usize,
@@ -64,8 +68,7 @@ impl PinnedByteBuffer {
         // Bind explicitly rather than relying on event creation to bind this worker thread.
         ctx.bind_to_thread()
             .map_err(|e| vortex_err!("failed to bind pinned host buffer context: {e}"))?;
-        // Keep file-I/O staging cacheable: write-combined pinned memory makes CPU reads expensive.
-        let ptr = unsafe { memory::malloc_host(capacity, 0) }
+        let ptr = unsafe { memory::malloc_host(capacity, host_alloc_flags) }
             .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
             .cast::<u8>();
         vortex_ensure!(!ptr.is_null(), "CUDA returned a null pinned host buffer");
@@ -108,9 +111,15 @@ impl Drop for PinnedByteBuffer {
 ///
 /// Requested sizes are rounded up to the next power of two so that buffers are reusable across
 /// similar-but-not-identical request sizes.
+///
+/// Buffers are write-combined by default: staging is filled by the CPU and only read by DMA, and
+/// write-combined memory bypasses the CPU caches, so DMA reads need no cache snooping. CPU reads
+/// from write-combined memory are very slow, so pools whose buffers the host reads should use
+/// [`Self::cacheable`].
 pub struct PinnedByteBufferPool {
     ctx: Arc<CudaContext>,
     max_keep_per_size: usize,
+    host_alloc_flags: c_uint,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
     /// Buffers whose last transfer may still read them, reclaimed once its event fires.
     inflight: Mutex<Vec<PinnedByteBuffer>>,
@@ -140,6 +149,7 @@ impl PinnedByteBufferPool {
         Self {
             ctx,
             max_keep_per_size: max_keep_per_size.max(1),
+            host_alloc_flags: CU_MEMHOSTALLOC_WRITECOMBINED,
             buckets: Mutex::new(HashMap::new()),
             inflight: Mutex::new(Vec::new()),
             hits: AtomicU64::new(0),
@@ -147,6 +157,15 @@ impl PinnedByteBufferPool {
             allocs: AtomicU64::new(0),
             puts: AtomicU64::new(0),
         }
+    }
+
+    /// Allocate cacheable rather than write-combined buffers, for staging the host also reads.
+    ///
+    /// Call it when building the pool: buffers it already holds keep the flags they were allocated
+    /// with.
+    pub fn cacheable(mut self) -> Self {
+        self.host_alloc_flags = 0;
+        self
     }
 
     /// Try to get a pooled pinned buffer without performing expensive allocation.
@@ -179,7 +198,12 @@ impl PinnedByteBufferPool {
         self.allocs.fetch_add(1, Ordering::Relaxed);
         // SAFETY: Callers initialize the staging buffer before submitting a transfer.
         let inner = unsafe {
-            PinnedByteBuffer::uninit_with_capacity(&self.ctx, self.size_class_len(len), len)?
+            PinnedByteBuffer::uninit_with_capacity(
+                &self.ctx,
+                self.size_class_len(len),
+                len,
+                self.host_alloc_flags,
+            )?
         };
         Ok(PooledPinnedBuffer::new(inner, Arc::clone(self)))
     }
@@ -421,10 +445,16 @@ mod tests {
         #[case] expected_error: &str,
     ) -> VortexResult<()> {
         let (pool, _stream) = setup()?;
-        let error =
-            unsafe { PinnedByteBuffer::uninit_with_capacity(&pool.ctx, capacity, logical_len) }
-                .err()
-                .vortex_expect("invalid allocation must fail");
+        let error = unsafe {
+            PinnedByteBuffer::uninit_with_capacity(
+                &pool.ctx,
+                capacity,
+                logical_len,
+                pool.host_alloc_flags,
+            )
+        }
+        .err()
+        .vortex_expect("invalid allocation must fail");
         assert!(error.to_string().contains(expected_error), "{error}");
         Ok(())
     }
