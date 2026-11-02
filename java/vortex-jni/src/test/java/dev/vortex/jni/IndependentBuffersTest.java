@@ -123,8 +123,8 @@ public final class IndependentBuffersTest {
             try {
                 Data.exportVectorSchemaRoot(allocator, root, null, array);
                 // Omit the struct validity buffer while retaining its child's allocations.
-                NativeBuffers owners = NativeBuffers.collect(VectorSchemaRoot.of(
-                        ((StructVector) root.getVector(0)).getChild("value")));
+                NativeBuffers owners = NativeBuffers.collect(
+                        VectorSchemaRoot.of(((StructVector) root.getVector(0)).getChild("value")));
                 RuntimeException error = assertThrows(
                         RuntimeException.class,
                         () -> NativeWriter.writeBatchBuffers(writer, array.memoryAddress(), owners));
