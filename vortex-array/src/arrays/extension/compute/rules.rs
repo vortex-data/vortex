@@ -42,7 +42,9 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
             return Ok(None);
         };
 
-        Ok(Some(ConstantArray::new(ext_scalar, array.len()).into_array()))
+        Ok(Some(
+            ConstantArray::new(ext_scalar, array.len()).into_array(),
+        ))
     }
 }
 

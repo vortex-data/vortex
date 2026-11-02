@@ -352,10 +352,7 @@ mod tests {
             .fields_iter()
             .vortex_expect("non null")
             .collect::<Vec<_>>();
-        assert_eq!(
-            fields[0].as_primitive().pvalue().unwrap(),
-            PValue::U32(123)
-        );
+        assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(123));
         assert_eq!(
             fields[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
