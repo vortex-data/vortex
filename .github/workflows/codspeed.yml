@@ -47,45 +47,26 @@ jobs:
               # Only this workflow defines the CUDA benchmark jobs.
               - ".github/workflows/codspeed.yml"
 
-  bench-codspeed:
+  # CodSpeed rejects an upload with too many benchmarks, so the simulation benchmarks run in
+  # shards of at most 800. The planner reads only Cargo.toml files and the committed benchmark
+  # counts, so this job needs no Rust toolchain and takes seconds.
+  plan-codspeed:
+    name: "Plan Codspeed shards"
     if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - id: plan
+        run: python3 scripts/codspeed_shards.py plan >> "$GITHUB_OUTPUT"
+
+  bench-codspeed:
+    needs: [plan-codspeed]
     strategy:
-      matrix:
-        include:
-          # CodSpeed rejects an upload with too many benchmarks and recommends fewer than 1,000
-          # per shard. The groups below hold roughly 420, 840 and 710 benchmarks; rebalance
-          # them as benchmarks are added. `array-groups` picks vortex-array targets by name in
-          # the "Select benchmarks" step, and other packages contribute all their targets.
-          #
-          # CodSpeed only compares a benchmark against a base measured with the same
-          # `exclude-allocations` setting, so a benchmark must not move between a shard that
-          # excludes allocations and one that does not.
-          - shard: 1
-            name: "Array selection & dictionaries"
-            packages: "vortex-array"
-            array-groups: "selection dictionary"
-            features: "vortex-array/_test-harness"
-            # Exclude deferred allocator cleanup, which dominates these benchmarks.
-            exclude-allocations: true
-          - shard: 2
-            name: "Array compute, builders & views; core & encodings"
-            packages: >-
-              vortex-array vortex-buffer vortex-mask vortex-compute vortex-file vortex-alp
-              vortex-datetime-parts
-            array-groups: "compute builders"
-            features: "vortex-array/_test-harness"
-            # Allocation-focused benchmarks in this shard still measure allocator time.
-            exclude-allocations: false
-          - shard: 3
-            name: "Main library, layout, FastLanes, strings, tensor & spatial"
-            packages: >-
-              vortex vortex-compressor vortex-row vortex-elias-fano vortex-pco vortex-sparse
-              vortex-layout vortex-decimal-byte-parts vortex-fastlanes vortex-fsst vortex-tensor
-              vortex-spatial
-            array-groups: ""
-            features: "vortex-fastlanes/_test-harness,vortex-fsst/_test-harness,vortex-spatial/_test-harness"
-            exclude-allocations: false
-    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.name }})"
+      matrix: ${{ fromJSON(needs.plan-codspeed.outputs.matrix) }}
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.benchmarks }} benchmarks)"
     timeout-minutes: 60
     # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU.
     runs-on: >-
@@ -106,42 +87,6 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
-      - name: Select benchmarks
-        id: select
-        env:
-          PACKAGES: ${{ matrix.packages }}
-          ARRAY_GROUPS: ${{ matrix.array-groups }}
-        run: |
-          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os, subprocess
-
-          groups = {
-              "dictionary": ("dict_", "chunked_dict_", "patches_"),
-              "selection": ("take_", "filter_", "piecewise_sequence_"),
-              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum", "widen"),
-          }
-          packages = set(os.environ["PACKAGES"].split())
-          array_groups = set(os.environ["ARRAY_GROUPS"].split())
-          meta = json.loads(subprocess.check_output(
-              ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"]))
-          benches = set()
-          for package in meta["packages"]:
-              if package["name"] not in packages:
-                  continue
-              for target in package["targets"]:
-                  if "bench" not in target["kind"]:
-                      continue
-                  name = target["name"]
-                  if package["name"] == "vortex-array":
-                      # Unclassified and newly added targets stay covered by the builders group.
-                      group = next((g for g, prefixes in groups.items() if name.startswith(prefixes)), "builders")
-                      if group not in array_groups:
-                          continue
-                  benches.add(name)
-          if not benches:
-              raise SystemExit("shard has no benchmark targets")
-          print("benches=" + " ".join(f"--bench {name}" for name in sorted(benches)))
-          EOF
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
@@ -149,7 +94,7 @@ jobs:
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
-        run: cargo codspeed build --locked --features "${{ matrix.features }}" $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.select.outputs.benches }} --profile bench
+        run: cargo codspeed build --locked ${{ matrix.build-args }} --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
