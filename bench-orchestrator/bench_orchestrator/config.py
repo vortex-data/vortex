@@ -92,8 +92,8 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 }
 
 
-# Benchmarks whose Vortex scans still run on the V1 scan. Every other benchmark uses the
-# planner-driven V2 scan, which is also the benchmark binaries' default.
+# Benchmarks whose Vortex scans still run on the V1 scan. The orchestrator runs every other
+# benchmark on the planner-driven V2 scan, overriding the benchmark binaries' V1 default.
 BENCHMARK_SCAN_V1: frozenset[Benchmark] = frozenset(
     {
         Benchmark.POLARSIGNALS,

@@ -103,8 +103,8 @@ struct Args {
     )]
     reuse: bool,
 
-    /// Use the planner-driven V2 Vortex scan. Pass `--scan-v2 false` to use the V1 scan.
-    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    /// Use the planner-driven V2 Vortex scan.
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     scan_v2: bool,
 }
 
