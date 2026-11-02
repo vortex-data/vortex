@@ -211,7 +211,15 @@ public final class VortexOutputWriter extends OutputWriter {
         try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
                 ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
             Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
-            vortexWriter.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+
+            try {
+                vortexWriter.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
+            } finally {
+                // Native code only borrows the schema, so the children the export allocated are ours to release.
+                if (arrowSchema.snapshot().release != 0) {
+                    arrowSchema.release();
+                }
+            }
         }
 
         vectorSchemaRoot.clear();
