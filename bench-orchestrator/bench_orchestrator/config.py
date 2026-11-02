@@ -103,9 +103,9 @@ BENCHMARK_SCAN_V2: dict[Benchmark, bool] = {
     Benchmark.FINEWEB: True,
     Benchmark.GHARCHIVE: True,
     Benchmark.JOB: True,
-    Benchmark.POLARSIGNALS: False,
+    Benchmark.POLARSIGNALS: True,
     Benchmark.PUBLIC_BI: True,
-    Benchmark.STATPOPGEN: False,
+    Benchmark.STATPOPGEN: True,
     Benchmark.SPATIALBENCH: True,
     Benchmark.VORTEX_QUERIES: True,
 }
