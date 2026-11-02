@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -91,6 +92,18 @@ impl FlatReader {
     }
 }
 
+/// Trace the canonical forms a filter evaluation reused instead of executing again.
+fn trace_canonical_cache(name: &str, ctx: &ExecutionCtx) {
+    if let Some(stats) = ctx.canonical_cache_stats()
+        && stats.hits > 0
+    {
+        trace!(
+            "Flat filter {name} reused {} canonical arrays ({} bytes)",
+            stats.hits, stats.saved_bytes
+        );
+    }
+}
+
 impl LayoutReader for FlatReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -158,15 +171,17 @@ impl LayoutReader for FlatReader {
                 // after this.
                 let array = array.apply_bound(&expr)?;
                 let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
+                let mut ctx = session.create_execution_ctx().with_canonical_cache();
                 let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+                trace_canonical_cache(&name, &ctx);
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply_bound(&expr)?;
-                let mut ctx = session.create_execution_ctx();
+                let mut ctx = session.create_execution_ctx().with_canonical_cache();
                 let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+                trace_canonical_cache(&name, &ctx);
 
                 mask.bitand(&array_mask)
             };

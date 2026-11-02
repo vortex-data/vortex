@@ -149,6 +149,11 @@ impl ArrayRef {
         unsafe { Arc::from_raw(raw.cast::<ArrayInner<ArrayData<V>>>()) }
     }
 
+    /// Whether another handle references the same array allocation.
+    pub(crate) fn is_shared(&self) -> bool {
+        Arc::strong_count(&self.0) > 1
+    }
+
     /// Returns true if the two ArrayRefs point to the same allocation.
     pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
         Arc::ptr_eq(&this.0, &other.0)
