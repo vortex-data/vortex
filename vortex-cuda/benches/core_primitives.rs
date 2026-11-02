@@ -187,6 +187,8 @@ fn benchmark_core_primitives(c: &mut Criterion) {
         &BUFFER_SIZE,
         |b, &size| {
             let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+            // SAFETY: The device's pool outlives the benchmark's allocations.
+            unsafe { cuda_ctx.use_mem_pool(cuda_default_mem_pool()) };
             let stream = cuda_ctx.new_stream().expect("cuda stream");
 
             // Seed the pool so the timed loop measures reuse after free+sync.
@@ -219,6 +221,8 @@ fn benchmark_core_primitives(c: &mut Criterion) {
             let stream = cuda_ctx.new_stream().expect("cuda stream");
 
             let pool = cuda_default_mem_pool();
+            // SAFETY: The device's pool outlives the benchmark's allocations.
+            unsafe { cuda_ctx.use_mem_pool(pool) };
             let _release_threshold_guard =
                 ThresholdGuard::set(pool, high_device_mem_pool_release_threshold(&cuda_ctx));
 

@@ -192,7 +192,12 @@ impl CudaStream {
         // SAFETY: The context is current; the driver writes the allocation.
         unsafe {
             if self.context.has_async_alloc() {
-                sys::cuMemAllocAsync(&raw mut pointer, bytes, self.stream)
+                let pool = self.context.mem_pool();
+                if pool.is_null() {
+                    sys::cuMemAllocAsync(&raw mut pointer, bytes, self.stream)
+                } else {
+                    sys::cuMemAllocFromPoolAsync(&raw mut pointer, bytes, pool, self.stream)
+                }
             } else {
                 sys::cuMemAlloc_v2(&raw mut pointer, bytes)
             }

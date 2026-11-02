@@ -6,6 +6,7 @@
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::sync::Arc;
+use std::sync::atomic::AtomicPtr;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
@@ -28,6 +29,10 @@ pub struct CudaContext {
     context: sys::CUcontext,
     ordinal: usize,
     has_async_alloc: bool,
+    /// The pool stream-ordered allocations come from; null selects the device's current pool.
+    mem_pool: AtomicPtr<sys::CUmemPoolHandle_st>,
+    /// The pool this context created and destroys, if any.
+    owned_mem_pool: sys::CUmemoryPool,
     /// Whether the context is the device's primary context, released rather than destroyed.
     primary: bool,
     error_state: AtomicU32,
@@ -64,6 +69,11 @@ impl Drop for CudaContext {
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
             let _ = unsafe { sys::cuEventDestroy_v2(event) };
+        }
+        if !self.owned_mem_pool.is_null() {
+            // SAFETY: Created by `wrap` and destroyed once; allocations still live are released
+            // by the driver once they are freed.
+            let _ = unsafe { result::mem_pool::destroy(self.owned_mem_pool) };
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
@@ -122,11 +132,18 @@ impl CudaContext {
         ordinal: usize,
         primary: bool,
     ) -> Result<Arc<Self>, DriverError> {
+        let owned_mem_pool = if has_async_alloc {
+            Self::retaining_pool(device)
+        } else {
+            std::ptr::null_mut()
+        };
         let context = Arc::new(Self {
             device,
             context,
             ordinal,
             has_async_alloc,
+            mem_pool: AtomicPtr::new(owned_mem_pool),
+            owned_mem_pool,
             primary,
             error_state: AtomicU32::new(0),
             events: Mutex::new(Vec::new()),
@@ -134,6 +151,45 @@ impl CudaContext {
         // On failure, dropping the context releases or destroys it.
         context.bind_to_thread()?;
         Ok(context)
+    }
+
+    /// A pool that keeps freed memory reserved for reuse, up to half the device, or null to use the
+    /// device's pool.
+    ///
+    /// The device's default pool returns freed memory to the driver at every synchronization, so
+    /// scans that free and reallocate their batches between synchronizations pay for remapping
+    /// device memory on every batch. At each synchronization this pool releases freed memory beyond
+    /// half the device: the threshold bounds what it keeps idle, not what it can allocate, and every
+    /// context has its own pool. Failures fall back to the device's pool rather than failing the
+    /// context.
+    fn retaining_pool(device: sys::CUdevice) -> sys::CUmemoryPool {
+        let mut total = 0;
+        // SAFETY: `device` is valid; the driver writes its memory size.
+        if unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }
+            .result()
+            .is_err()
+        {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `device` is valid and supports memory pools.
+        let Ok(pool) = (unsafe { result::mem_pool::create(device) }) else {
+            return std::ptr::null_mut();
+        };
+        let mut threshold = total as u64 / 2;
+        // SAFETY: The release threshold is a u64.
+        let retained = unsafe {
+            result::mem_pool::set_attribute(
+                pool,
+                sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+                (&raw mut threshold).cast(),
+            )
+        };
+        if retained.is_err() {
+            // SAFETY: Created above and never used.
+            let _ = unsafe { result::mem_pool::destroy(pool) };
+            return std::ptr::null_mut();
+        }
+        pool
     }
 
     /// The number of devices.
@@ -157,9 +213,34 @@ impl CudaContext {
         self.context
     }
 
-    /// Whether allocations are stream-ordered through the device's memory pool.
+    /// Whether allocations are stream-ordered through a memory pool; see [`Self::mem_pool`].
     pub fn has_async_alloc(&self) -> bool {
         self.has_async_alloc
+    }
+
+    /// The pool stream-ordered allocations come from, or null for the device's current pool.
+    pub fn mem_pool(&self) -> sys::CUmemoryPool {
+        self.mem_pool.load(Ordering::Acquire)
+    }
+
+    /// Allocates from `pool` from now on, for example to share a pool with another library.
+    ///
+    /// Null returns to the pool this context created, or to the device's current pool if it has
+    /// none. Allocations made before the switch stay valid.
+    ///
+    /// # Safety
+    ///
+    /// A non-null `pool` must be a device memory pool of this context's device. It must outlive
+    /// every allocation made from it through this context, and must not be destroyed until this
+    /// context has been pointed at another pool and allocation calls already in progress on its
+    /// streams have returned.
+    pub unsafe fn use_mem_pool(&self, pool: sys::CUmemoryPool) {
+        let pool = if pool.is_null() {
+            self.owned_mem_pool
+        } else {
+            pool
+        };
+        self.mem_pool.store(pool, Ordering::Release);
     }
 
     /// The device's name.

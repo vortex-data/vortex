@@ -11,6 +11,7 @@ use crate::DevicePtrMut;
 use crate::DriverError;
 use crate::HostSlice;
 use crate::SyncOnDrop;
+use crate::result;
 use crate::sys;
 
 /// A context and two streams, or `None` without a CUDA driver or device.
@@ -271,5 +272,45 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     assert!(host.iter().all(|byte| *byte == 1));
     // SAFETY: The copies accessing the memory completed.
     unsafe { crate::result::free_host(pointer) }?;
+    context.check_err()
+}
+
+/// Allocations come from the context's pool, which retains freed memory up to half the device, until
+/// the context is pointed at another pool.
+#[test]
+fn allocations_use_the_retaining_pool() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    if !context.has_async_alloc() {
+        return Ok(());
+    }
+    let owned = context.mem_pool();
+    assert!(!owned.is_null());
+    let mut threshold = 0u64;
+    // SAFETY: The release threshold is a u64.
+    unsafe {
+        result::mem_pool::get_attribute(
+            owned,
+            sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+            (&raw mut threshold).cast(),
+        )
+    }?;
+    let mut total = 0;
+    // SAFETY: The driver writes the device's memory size.
+    unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, context.cu_device()) }.result()?;
+    assert_eq!(threshold, total as u64 / 2);
+    let values: Vec<u32> = (0..1024).collect();
+    assert_eq!(stream.clone_dtoh(&stream.clone_htod(&values)?)?, values);
+
+    // SAFETY: The device's pool outlives the context.
+    let device_pool = unsafe { result::device::get_mem_pool(context.cu_device()) }?;
+    // SAFETY: As above.
+    unsafe { context.use_mem_pool(device_pool) };
+    assert_eq!(context.mem_pool(), device_pool);
+    assert_eq!(stream.clone_dtoh(&stream.clone_htod(&values)?)?, values);
+    // SAFETY: Null returns to the context's own pool.
+    unsafe { context.use_mem_pool(std::ptr::null_mut()) };
+    assert_eq!(context.mem_pool(), owned);
     context.check_err()
 }
