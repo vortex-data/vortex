@@ -20,6 +20,8 @@ val sparkVersion =
     when (sparkLine) {
         "3.5" -> libs.findVersion("spark35").get().requiredVersion
         "4.0" -> libs.findVersion("spark40").get().requiredVersion
+        "4.1" -> libs.findVersion("spark41").get().requiredVersion
+        "4.2" -> libs.findVersion("spark42").get().requiredVersion
         else -> throw GradleException("Unsupported Spark line: $sparkLine")
     }
 val scalaVersion =
@@ -27,64 +29,58 @@ val scalaVersion =
         "3.5" to "2.12" -> libs.findVersion("scala212").get().requiredVersion
         "3.5" to "2.13" -> libs.findVersion("scala213Spark35").get().requiredVersion
         "4.0" to "2.13" -> libs.findVersion("scala213Spark40").get().requiredVersion
+        "4.1" to "2.13" -> libs.findVersion("scala213Spark41").get().requiredVersion
+        "4.2" to "2.13" -> libs.findVersion("scala213Spark42").get().requiredVersion
         else -> throw GradleException("Unsupported Spark/Scala variant: $sparkLine/$scalaBinaryVersion")
     }
-// Later Spark 4 releases run the Spark 4.0 module's tests against its jar to catch binary breaks.
+// Later Spark 4 releases run each Spark 4 module's tests against its jar to catch binary breaks.
 val sparkCompatVersions =
-    if (sparkLine == "4.0") {
-        listOf("4.1" to "spark41", "4.2" to "spark42").map { (line, alias) ->
-            line to libs.findVersion(alias).get().requiredVersion
-        }
-    } else {
-        emptyList()
-    }
+    when (sparkLine) {
+        "4.0" -> listOf("4.1" to "spark41", "4.2" to "spark42")
+        "4.1" -> listOf("4.2" to "spark42")
+        else -> emptyList()
+    }.map { (line, alias) -> line to libs.findVersion(alias).get().requiredVersion }
 
 layout.buildDirectory = layout.projectDirectory.dir("build/${project.name}")
 
 val commonSourceDir = rootProject.file("vortex-spark/common/src")
 val versionSourceDir = project.file("src")
 
+// Sources shared by several Spark lines: `spark4` holds what every Spark 4 line has, such as the
+// VARIANT type, and `spark41` what Spark 4.1 added, such as variant extraction pushdown.
+val sharedSourceDirs =
+    when (sparkLine) {
+        "4.0" -> listOf("spark4")
+        "4.1", "4.2" -> listOf("spark4", "spark41")
+        else -> emptyList()
+    }.map { rootProject.file("vortex-spark/$it/src") }
+val sourceRoots = listOf(commonSourceDir) + sharedSourceDirs + listOf(versionSourceDir)
+
+fun sourceDirs(path: String) = sourceRoots.map { it.resolve(path) }
+
 sourceSets {
     named("main") {
         // Java stays with javac so ErrorProne, Nopen, and -Werror keep covering it. Only Scala
         // depends on Java here, and compileScala already sees compileJava's output.
         java.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("main/java"),
-                versionSourceDir.resolve("main/java"),
-            ),
+            sourceDirs("main/java"),
         )
         scala.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("main/scala"),
-                versionSourceDir.resolve("main/scala"),
-            ),
+            sourceDirs("main/scala"),
         )
         resources.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("main/resources"),
-                versionSourceDir.resolve("main/resources"),
-            ),
+            sourceDirs("main/resources"),
         )
     }
     named("test") {
         java.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("test/java"),
-                versionSourceDir.resolve("test/java"),
-            ),
+            sourceDirs("test/java"),
         )
         scala.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("test/scala"),
-                versionSourceDir.resolve("test/scala"),
-            ),
+            sourceDirs("test/scala"),
         )
         resources.setSrcDirs(
-            listOf(
-                commonSourceDir.resolve("test/resources"),
-                versionSourceDir.resolve("test/resources"),
-            ),
+            sourceDirs("test/resources"),
         )
     }
 }
@@ -127,10 +123,7 @@ testing {
         register<JvmTestSuite>("benchmark") {
             sources {
                 java.setSrcDirs(
-                    listOf(
-                        commonSourceDir.resolve("jmh/java"),
-                        versionSourceDir.resolve("jmh/java"),
-                    ),
+                    sourceDirs("jmh/java"),
                 )
                 resources.setSrcDirs(emptyList<String>())
             }
@@ -154,10 +147,7 @@ testing {
                 useJUnitJupiter()
                 sources {
                     java.setSrcDirs(
-                        listOf(
-                            commonSourceDir.resolve("test/java"),
-                            versionSourceDir.resolve("test/java"),
-                        ),
+                        sourceDirs("test/java"),
                     )
                     scala.setSrcDirs(
                         listOf(
@@ -166,10 +156,7 @@ testing {
                         ),
                     )
                     resources.setSrcDirs(
-                        listOf(
-                            commonSourceDir.resolve("test/resources"),
-                            versionSourceDir.resolve("test/resources"),
-                        ),
+                        sourceDirs("test/resources"),
                     )
                 }
                 dependencies {
@@ -274,8 +261,7 @@ tasks.register<JavaExec>("jmh") {
 tasks.withType<Javadoc>().configureEach {
     setSource(
         files(
-            fileTree(commonSourceDir.resolve("main/java")) { include("**/*.java") },
-            fileTree(versionSourceDir.resolve("main/java")) { include("**/*.java") },
+            sourceDirs("main/java").map { dir -> fileTree(dir) { include("**/*.java") } },
         ),
     )
 }

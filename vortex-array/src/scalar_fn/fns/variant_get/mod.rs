@@ -19,8 +19,13 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::Filter;
+use crate::arrays::FilterArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Variant;
 use crate::arrays::VariantArray;
+use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -53,6 +58,51 @@ impl VariantGet {
     /// Returns an error if `input` is not Variant data.
     pub fn try_new(input: ArrayRef, options: VariantGetOptions) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(VariantGet.bind(options), [input])
+    }
+}
+
+/// The extraction of `options` from beneath the wrappers of `input`, or `None` when `input` has
+/// none to look beneath.
+///
+/// The canonical variant wraps its storage, so the kernels of the storage encoding, such as Parquet
+/// Variant's vectorized extraction, never see this function. Without shredded values the storage
+/// holds every value, so the extraction moves onto it. A scan's row filter wraps either one in
+/// filters, and extraction is element-wise, so it commutes with them: extract beneath each filter
+/// and filter the result with the same mask.
+///
+/// Each extraction is executed before it is filtered again. A lazy extraction beneath a filter
+/// would be pushed back beneath it, and never finish.
+fn extract_beneath(
+    input: &ArrayRef,
+    options: &VariantGetOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if let Some(filter) = input.as_opt::<Filter>() {
+        let extracted = extract(filter.child(), options, ctx)?;
+        return FilterArray::try_new(extracted, filter.filter_mask().clone())?
+            .into_array()
+            .execute::<ArrayRef>(ctx)
+            .map(Some);
+    }
+    if let Some(variant) = input.as_opt::<Variant>()
+        && variant.shredded().is_none()
+    {
+        return extract(variant.core_storage(), options, ctx).map(Some);
+    }
+    Ok(None)
+}
+
+/// The executed extraction of `options` from `input`, beneath its wrappers where it has any.
+fn extract(
+    input: &ArrayRef,
+    options: &VariantGetOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    match extract_beneath(input, options, ctx)? {
+        Some(extracted) => Ok(extracted),
+        None => VariantGet::try_new(input.clone(), options.clone())?
+            .into_array()
+            .execute::<ArrayRef>(ctx),
     }
 }
 
@@ -139,6 +189,12 @@ impl ScalarFnVTable for VariantGet {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+
+        // Extract beneath any wrappers, where the storage's kernels apply, instead of row by row.
+        if let Some(extracted) = extract_beneath(&input, options, ctx)? {
+            return Ok(extracted);
+        }
+
         // Missing paths, traversal mismatches, and cast failures all produce nulls.
         let dtype = options
             .dtype()

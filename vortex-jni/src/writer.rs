@@ -34,13 +34,20 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::fns::is_sorted::IsSorted;
+use vortex::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
+use vortex::editions::ComponentKind;
+use vortex::editions::EditionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::CountingVortexWrite;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
@@ -177,6 +184,30 @@ impl NativeWriter {
     }
 }
 
+/// The options of every JNI write. Besides the default file statistics, a writer records whether
+/// each column is sorted across the file, which lets readers report the order to query engines,
+/// when the enabled editions permit that aggregate.
+fn jni_write_options(
+    session: &VortexSession,
+    metadata: HashMap<String, ByteBuffer>,
+) -> VortexWriteOptions {
+    let is_sorted = IsSorted.bind(IsSortedOptions { strict: false });
+    let options = session.write_options();
+    let options = if session
+        .enabled_component_ids(ComponentKind::Aggregate)
+        .contains(&is_sorted.id())
+    {
+        options
+            .with_additional_file_statistics(vec![is_sorted])
+            // `IsSorted` has no legacy statistics slot, so only the nested statistics keep it.
+            .include_nested_statistics()
+    } else {
+        options
+    };
+
+    options.with_metadata_segments(metadata)
+}
+
 fn write_summary_to_java<'local>(
     env: &mut Env<'local>,
     summary: &WriteSummary,
@@ -226,7 +257,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let resolved = resolve_store(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let write_options = session.write_options().with_metadata_segments(metadata);
+        let write_options = jni_write_options(session, metadata);
         // The same check runs inside `write`, but only once the write task is under way, where
         // it would surface as an opaque send failure on the first batch.
         write_options.validate_metadata()?;
@@ -314,7 +345,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let writable = Arc::new(env.new_global_ref(&writable)?);
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let write_options = session.write_options().with_metadata_segments(metadata);
+        let write_options = jni_write_options(session, metadata);
         // See the note in `create`: validate before the write task can start.
         write_options.validate_metadata()?;
         let buffered_bytes = write_options.buffered_bytes_tracker();

@@ -25,5 +25,6 @@ public final class NativePartition {
      * @param partitionPointer partition pointer to consume
      * @param streamAddress address of an allocated {@code FFI_ArrowArrayStream} struct
      */
-    public static native void scanArrow(long sessionPointer, long partitionPointer, long streamAddress);
+    public static native void scanArrow(
+            long sessionPointer, long partitionPointer, long streamAddress, boolean unscaledSmallDecimals);
 }

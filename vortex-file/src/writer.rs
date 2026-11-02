@@ -51,6 +51,7 @@ use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
+use vortex_layout::layouts::file_stats::FileStatsSelection;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
@@ -89,7 +90,7 @@ pub struct VortexWriteOptions {
     /// The aggregates to compute for file-level statistics.
     ///
     /// If unset, the writer chooses pruning aggregates from the file dtype.
-    file_statistics: Option<Vec<AggregateFnRef>>,
+    file_statistics: FileStatsSelection,
     write_nested_statistics: bool,
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
@@ -113,7 +114,7 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: None,
+            file_statistics: FileStatsSelection::default(),
             write_nested_statistics: false,
             write_legacy_statistics: true,
             metadata: HashMap::default(),
@@ -170,7 +171,17 @@ impl VortexWriteOptions {
     /// Like zone maps, file statistics only record aggregates the enabled editions include: the
     /// write fails if this asks for one they don't, while the defaults leave such aggregates out.
     pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
-        self.file_statistics = Some(file_statistics);
+        self.file_statistics = FileStatsSelection::Explicit(Arc::from(file_statistics));
+        self
+    }
+
+    /// Record `file_statistics` at the file level besides the aggregates the writer chooses from
+    /// the file dtype.
+    ///
+    /// The same edition rules apply as for [`Self::with_file_statistics`]. This replaces any
+    /// list set before.
+    pub fn with_additional_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
+        self.file_statistics = FileStatsSelection::Defaults(Arc::from(file_statistics));
         self
     }
 
@@ -313,16 +324,17 @@ impl VortexWriteOptions {
                 .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
         )
         .sendable();
-        let omit_statistics = matches!(&self.file_statistics, Some(stats) if stats.is_empty())
+        let omit_statistics = self.file_statistics.is_empty()
             || (!self.write_nested_statistics && !self.write_legacy_statistics);
-        let file_statistics: Option<Arc<[AggregateFnRef]>> = if omit_statistics {
-            Some(Arc::from([]))
+        let file_statistics = if omit_statistics {
+            FileStatsSelection::Explicit(Arc::from([]))
         } else {
-            self.file_statistics.clone().map(Arc::from)
+            self.file_statistics.clone()
         };
-        // When unset, `accumulate_stats` resolves each leaf's own default from its dtype, the way
-        // `default_zoned_aggregate_fns` does for zoned layouts (e.g. bounded min/max for
-        // variable-length columns), rather than a single dtype-blind default applied uniformly.
+        // Unless the caller replaced them, `accumulate_stats` resolves each leaf's own defaults
+        // from its dtype, the way `default_zoned_aggregate_fns` does for zoned layouts (e.g.
+        // bounded min/max for variable-length columns), rather than a single dtype-blind default
+        // applied uniformly.
         // Editions before the aggregates (for example `core2025.10.0`) do not permit `Min`, so the
         // nested statistics would have no min and max. Readers of these editions use only the
         // legacy format, so these editions get the legacy statistics only.
