@@ -139,8 +139,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
 
 /// Open a CUDA-readable Vortex file sink with a fixed row block size.
 ///
-/// Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
-/// outer layout dictionaries, but retain per-block dictionary compression.
+/// Zero `block_rows` selects the GPU default of 8,388,608 rows. Blocks are not byte-size coalesced
+/// and have no outer layout dictionaries, but retain per-block dictionary compression.
 /// Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
 ///
 /// # Safety
