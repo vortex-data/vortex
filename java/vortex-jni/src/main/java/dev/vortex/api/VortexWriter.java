@@ -165,6 +165,10 @@ public final class VortexWriter implements AutoCloseable {
                 }
                 return new VortexWriter(pointer);
             } finally {
+                // Native code only borrows the schema, so the children the export allocated are ours to release.
+                if (ffi.snapshot().release != 0) {
+                    ffi.release();
+                }
                 ffi.close();
             }
         }

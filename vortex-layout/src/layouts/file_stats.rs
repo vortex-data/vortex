@@ -236,6 +236,20 @@ fn non_null(value: Precision<Scalar>) -> Precision<Scalar> {
     value.and_then(|value| (!value.is_null()).then_some(value))
 }
 
+/// Returns whether `aggregate_fn` gives a value to a slot of the legacy stats, exactly or
+/// approximately, as [`AggregateStats::to_stats_set`] fills them. For example, the bounded min of
+/// a string column fills the min slot.
+fn fills_legacy_stat_slot(aggregate_fn: &AggregateFnRef) -> bool {
+    Stat::all()
+        .filter_map(|stat| stat.aggregate_fn())
+        .any(|requested| {
+            !matches!(
+                aggregate_fn.can_satisfy(&requested),
+                AggregateFnSatisfaction::No
+            )
+        })
+}
+
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
@@ -668,8 +682,17 @@ impl FileStatsAccumulator {
         write_legacy_stats: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
+        let accumulates = |aggregate_fn: &AggregateFnRef| {
+            Self::accumulates(
+                writer_ctx,
+                write_nested_stats,
+                write_legacy_stats,
+                aggregate_fn,
+            )
+        };
+
         for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
-            if !writer_ctx.allows_aggregate(&aggregate_fn.id()) {
+            if !accumulates(aggregate_fn) {
                 vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
@@ -677,7 +700,7 @@ impl FileStatsAccumulator {
         let root = StatsNode::build_root(
             dtype,
             stats.as_deref(),
-            &|aggregate_fn| writer_ctx.allows_aggregate(&aggregate_fn.id()),
+            &accumulates,
             write_nested_stats,
             write_legacy_stats,
         );
@@ -698,12 +721,39 @@ impl FileStatsAccumulator {
         let mut node = StatsNode::build_root(
             &self.dtype,
             self.stats.as_deref(),
-            &|aggregate_fn| self.writer_ctx.allows_aggregate(&aggregate_fn.id()),
+            &|aggregate_fn| {
+                Self::accumulates(
+                    &self.writer_ctx,
+                    self.write_nested_stats,
+                    self.write_legacy_stats,
+                    aggregate_fn,
+                )
+            },
             self.write_nested_stats,
             self.write_legacy_stats,
         );
         node.push_chunk(chunk, ctx)?;
         Ok(node)
+    }
+
+    /// Returns whether the accumulators compute `aggregate_fn`.
+    ///
+    /// The nested layout records only the aggregates that `writer_ctx` permits. The legacy layout
+    /// stores its values in fixed stat slots and not as aggregates, so its readers do not need
+    /// the aggregate. Thus, when only the legacy layout is written, it also records an aggregate
+    /// that `writer_ctx` does not permit, if the aggregate fills a stat slot. Editions before the
+    /// aggregates (for example `core2025.10.0`) permit no `vortex.min`, but their readers read
+    /// min and max from the slots.
+    fn accumulates(
+        writer_ctx: &LayoutWriterContext,
+        write_nested_stats: bool,
+        write_legacy_stats: bool,
+        aggregate_fn: &AggregateFnRef,
+    ) -> bool {
+        let legacy_only = write_legacy_stats && !write_nested_stats;
+
+        writer_ctx.allows_aggregate(&aggregate_fn.id())
+            || (legacy_only && fills_legacy_stat_slot(aggregate_fn))
     }
 
     /// Merges the stats of the chunk that follows all chunks merged so far.
@@ -732,10 +782,17 @@ impl FileStatsAccumulator {
 
     /// Returns the legacy top-level-fields-only aggregates (one per top-level struct field, or a
     /// single entry for a non-struct root dtype), leaving out the aggregates the writer context
-    /// forbids. Each entry is empty if `write_legacy_stats` was `false`.
+    /// forbids. Without nested stats, an aggregate that fills a legacy stat slot is kept although the
+    /// writer context forbids it. Each entry is empty if `write_legacy_stats` was `false`.
     pub fn legacy_aggregate_stats(&self) -> VortexResult<Vec<AggregateStats>> {
-        let allowed =
-            |aggregate_fn: &AggregateFnRef| self.writer_ctx.allows_aggregate(&aggregate_fn.id());
+        let allowed = |aggregate_fn: &AggregateFnRef| {
+            Self::accumulates(
+                &self.writer_ctx,
+                self.write_nested_stats,
+                self.write_legacy_stats,
+                aggregate_fn,
+            )
+        };
         let root = self.root.lock();
         // Readers that predate nested stats reject a file whose legacy layout doesn't have one
         // entry per top-level field, so entries that aren't recorded are still written, empty. The

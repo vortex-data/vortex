@@ -107,9 +107,9 @@ struct Args {
     )]
     reuse: bool,
 
-    /// Use the planner-driven V2 Vortex scan.
-    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-    scan_v2: bool,
+    /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    scan_v1: bool,
 
     /// Limit DuckDB-managed query memory; this does not cap process RSS.
     #[arg(long)]
@@ -140,7 +140,8 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
-    vortex_duckdb::set_scan_v2(args.scan_v2);
+    let scan_v2 = !args.scan_v1;
+    vortex_duckdb::set_scan_v2(scan_v2);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
@@ -164,10 +165,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     #[cfg(all(target_os = "linux", feature = "io-uring"))]
-    let io = uring::configure(args.scan_v2)?;
+    let io = uring::configure(scan_v2)?;
     #[cfg(not(all(target_os = "linux", feature = "io-uring")))]
     anyhow::ensure!(
-        !args.scan_v2
+        !scan_v2
             || std::env::var("VORTEX_IO_BACKEND")
                 .map_or(true, |backend| backend.is_empty() || backend == "legacy"),
         "Completion I/O requires the Linux io-uring build feature"

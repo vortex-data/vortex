@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(test)]
-mod test;
-
 use std::sync::Arc;
 
 use vortex_error::VortexError;
@@ -213,3 +210,6 @@ impl TryFrom<ExtensionArray> for TemporalData {
         Ok(Self { ext })
     }
 }
+
+#[cfg(test)]
+mod tests;

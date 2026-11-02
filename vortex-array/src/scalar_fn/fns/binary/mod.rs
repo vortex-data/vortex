@@ -55,6 +55,9 @@ pub struct Binary;
 impl Binary {
     /// Creates a lazy binary operation over `lhs` and `rhs`.
     ///
+    /// Comparisons require matching logical dtypes, ignoring nullability, even for empty or null
+    /// operands. Extension dtypes must match, including their metadata; storage dtypes are distinct.
+    ///
     /// # Errors
     ///
     /// Returns an error if the children have different lengths or incompatible dtypes.
@@ -150,12 +153,8 @@ impl ScalarFnVTable for Binary {
             );
         }
 
-        if operator.is_comparison()
-            && !lhs.eq_ignore_nullability(rhs)
-            && !lhs.is_extension()
-            && !rhs.is_extension()
-        {
-            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+        if operator.is_comparison() {
+            validate_comparison_dtypes(lhs, rhs)?;
         }
 
         if matches!(operator, Operator::And | Operator::Or)
