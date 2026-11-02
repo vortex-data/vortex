@@ -110,51 +110,66 @@ jobs:
         if: steps.shard.outputs.active == 'true'
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
-      - uses: ./.github/actions/system-info
-        if: steps.shard.outputs.active == 'true'
-      - name: Install Codspeed
-        if: steps.shard.outputs.active == 'true'
-        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
-        with:
-          tool: cargo-codspeed
-      - name: Build benchmarks
-        if: steps.shard.outputs.active == 'true'
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
-          # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
-          # skipped here. Untagged ones run as they always have, under bare names, so this
-          # job's CodSpeed history is unaffected.
-          VORTEX_BENCH_VARIANT: simulation
-        run: cargo codspeed build --locked ${{ steps.shard.outputs.build-args }} --profile bench
-      - name: Run benchmarks
-        if: steps.shard.outputs.active == 'true'
-        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
-        env:
-          # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
-          # measures one iteration without warmup, so each benchmark then also pays for a cold
-          # allocator and cold caches. This adds about 15 µs to each benchmark and hides small
-          # changes in short benchmarks. Run all benchmarks of a target in one process, as before.
-          CODSPEED_PROCESS_ISOLATION: "false"
-          # Allocators return freed memory to the OS and grow their heaps with system calls. A
-          # system call inside a measured iteration is left out of the measure, so CodSpeed reports
-          # that benchmark as dominated by system calls. Keep freed memory mapped instead.
-          #
-          # mimalloc, which every benchmark binary uses, returns memory 10 ms after it is freed.
-          # The simulation runs many times slower than native code, so that delay can end inside a
-          # later benchmark's measured iteration.
-          MIMALLOC_PURGE_DELAY: "-1"
-          # glibc `malloc`, which C dependencies such as zstd use, shrinks its heap after large
-          # frees and grows it again with `brk`. Shrink only when 1 GiB is free at the top of the
-          # heap, and grow in 64 MiB steps so that a later benchmark rarely needs to grow it.
-          MALLOC_TRIM_THRESHOLD_: "1073741824"
-          MALLOC_TOP_PAD_: "67108864"
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "simulation"
-          exclude-allocations: ${{ steps.shard.outputs.exclude-allocations }}
-          # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
-          cache-instruments: "false"
+      - parallel:
+          - uses: ./.github/actions/system-info
+            if: steps.shard.outputs.active == 'true'
+          - name: Install Codspeed
+            if: steps.shard.outputs.active == 'true'
+            uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+            with:
+              tool: cargo-codspeed
+      # The CodSpeed action does its setup (CLI install, its Valgrind package, runner start-up)
+      # inside the step that runs the benchmarks, so it starts alongside the build and its
+      # command waits for the build to report an exit status before running anything.
+      - parallel:
+          - name: Build benchmarks
+            if: steps.shard.outputs.active == 'true'
+            env:
+              RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
+              # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
+              # skipped here. Untagged ones run as they always have, under bare names, so this
+              # job's CodSpeed history is unaffected.
+              VORTEX_BENCH_VARIANT: simulation
+              BUILD_STATUS: ${{ runner.temp }}/codspeed-build-status
+            run: |
+              trap 'echo $? > "$BUILD_STATUS"' EXIT
+              cargo codspeed build --locked ${{ steps.shard.outputs.build-args }} --profile bench
+          - name: Run benchmarks
+            if: steps.shard.outputs.active == 'true'
+            uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+            env:
+              # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
+              # measures one iteration without warmup, so each benchmark then also pays for a cold
+              # allocator and cold caches. This adds about 15 µs to each benchmark and hides small
+              # changes in short benchmarks. Run all benchmarks of a target in one process, as before.
+              CODSPEED_PROCESS_ISOLATION: "false"
+              # Allocators return freed memory to the OS and grow their heaps with system calls. A
+              # system call inside a measured iteration is left out of the measure, so CodSpeed reports
+              # that benchmark as dominated by system calls. Keep freed memory mapped instead.
+              #
+              # mimalloc, which every benchmark binary uses, returns memory 10 ms after it is freed.
+              # The simulation runs many times slower than native code, so that delay can end inside a
+              # later benchmark's measured iteration.
+              MIMALLOC_PURGE_DELAY: "-1"
+              # glibc `malloc`, which C dependencies such as zstd use, shrinks its heap after large
+              # frees and grows it again with `brk`. Shrink only when 1 GiB is free at the top of the
+              # heap, and grow in 64 MiB steps so that a later benchmark rarely needs to grow it.
+              MALLOC_TRIM_THRESHOLD_: "1073741824"
+              MALLOC_TOP_PAD_: "67108864"
+            with:
+              run: |
+                BUILD_STATUS='${{ runner.temp }}/codspeed-build-status'
+                until [ -s "$BUILD_STATUS" ]; do sleep 2; done
+                if [ "$(cat "$BUILD_STATUS")" != 0 ]; then
+                  echo "Benchmark build failed; nothing to run." >&2
+                  exit 1
+                fi
+                cargo codspeed run
+              token: ${{ secrets.CODSPEED_TOKEN }}
+              mode: "simulation"
+              exclude-allocations: ${{ steps.shard.outputs.exclude-allocations }}
+              # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
+              cache-instruments: "false"
 
   bench-codspeed-python:
     name: "Benchmark with Codspeed (Python)"
@@ -183,28 +198,41 @@ jobs:
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - uses: ./.github/actions/system-info
-      # Build the extension before measurement, so the benchmark step does not compile it.
-      - name: Build Python extension
-        run: uv sync --all-packages
-      # Simulation runs all of the benchmark process on Valgrind, so write the input files first.
-      - name: Write benchmark data
-        working-directory: vortex-python
-        env:
-          VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
-        run: uv run --all-packages --no-sync python -m benchmark.data "$VORTEX_BENCH_DATA_DIR"
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
-        env:
-          VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
-          # Drive scans on the calling thread. Background workers wake every 100 ms to check
-          # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
-          VORTEX_MAX_THREADS: "0"
-        with:
-          run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "simulation"
-          # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
-          cache-instruments: "false"
+      # As in `bench-codspeed`, the CodSpeed action's setup runs alongside the build, and its
+      # command waits for the build to report an exit status.
+      - parallel:
+          # Build the extension before measurement, so the benchmark step does not compile it.
+          # Simulation runs all of the benchmark process on Valgrind, so write the input files
+          # first too.
+          - name: Build Python extension and write benchmark data
+            env:
+              VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+              BUILD_STATUS: ${{ runner.temp }}/codspeed-build-status
+            run: |
+              trap 'echo $? > "$BUILD_STATUS"' EXIT
+              uv sync --all-packages
+              cd vortex-python
+              uv run --all-packages --no-sync python -m benchmark.data "$VORTEX_BENCH_DATA_DIR"
+          - name: Run benchmarks
+            uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+            env:
+              VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+              # Drive scans on the calling thread. Background workers wake every 100 ms to check
+              # for shutdown. Under simulation, those timer wakeups can dominate the measured work.
+              VORTEX_MAX_THREADS: "0"
+            with:
+              run: |
+                BUILD_STATUS='${{ runner.temp }}/codspeed-build-status'
+                until [ -s "$BUILD_STATUS" ]; do sleep 2; done
+                if [ "$(cat "$BUILD_STATUS")" != 0 ]; then
+                  echo "Python extension build failed; nothing to run." >&2
+                  exit 1
+                fi
+                cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
+              token: ${{ secrets.CODSPEED_TOKEN }}
+              mode: "simulation"
+              # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
+              cache-instruments: "false"
 
   # Compile on smaller VMs from the same CPU family as the measurement hosts. Globally
   # enabled features also affect build scripts, so the build host must support them.
