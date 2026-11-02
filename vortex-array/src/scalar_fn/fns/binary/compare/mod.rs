@@ -10,10 +10,6 @@
 //!
 //! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
 //! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
-//!
-//! Operands must have matching logical dtypes, ignoring nullability. Binding and execution check
-//! this before any fast path or encoding kernel runs. Extensions with matching dtypes compare
-//! through their storage; an extension value cannot be compared with a storage-typed operand.
 
 use std::cmp::Ordering;
 
@@ -77,10 +73,7 @@ pub trait CompareKernel: VTable {
 /// this adaptor extracts the comparison operator and other operand, normalizes operand order
 /// (swapping the operator if the encoded array is on the RHS), and delegates to the kernel.
 #[derive(Default, Debug)]
-pub struct CompareExecuteAdaptor<V>(
-    /// The encoding whose comparison kernel handles the normalized operands.
-    pub V,
-);
+pub struct CompareExecuteAdaptor<V>(pub V);
 
 impl<V> ExecuteParentKernel<V> for CompareExecuteAdaptor<V>
 where
@@ -182,9 +175,6 @@ pub(crate) fn execute_compare(
 }
 
 /// Dispatches operands with matching logical dtypes to their native comparison kernel.
-///
-/// The caller checks the logical dtypes before fast paths run. Extension storage dtypes are checked
-/// again after unwrapping, before dispatch to the storage kernel.
 fn compare_arrays(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -223,9 +213,6 @@ fn compare_arrays(
 }
 
 /// Returns the storage of an extension array or constant.
-///
-/// The array must have an extension dtype. The caller checks that both comparison operands have
-/// matching logical dtypes before unwrapping either one.
 fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     if let Some(constant) = array.as_opt::<Constant>() {
         return Ok(ConstantArray::new(

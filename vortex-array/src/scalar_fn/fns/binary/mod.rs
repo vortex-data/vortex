@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Binary scalar functions and their encoding-specific execution adaptors.
-//!
-//! [`Binary`] binds an [`Operator`] to two operands. Comparisons require matching logical dtypes,
-//! ignoring nullability; engines must perform any type coercion before binding. Execution retains
-//! that requirement across constant evaluation, native kernels, and encoding-specific fast paths.
-
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -55,7 +49,6 @@ mod primitive_operand;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 
-/// A binary scalar function parameterized by an [`Operator`].
 #[derive(Clone)]
 pub struct Binary;
 

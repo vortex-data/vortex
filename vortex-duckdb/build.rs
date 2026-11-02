@@ -582,10 +582,6 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         }
     }
 
-    if env::var_os("CARGO_FEATURE__TEST_HARNESS").is_some() {
-        build.define("VORTEX_DUCKDB_TEST_HARNESS", None);
-    }
-
     build
         .include("include")
         .include("cpp/include")
