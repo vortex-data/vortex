@@ -314,6 +314,24 @@ mod tests {
     }
 
     #[test]
+    fn validity_select_and_root() -> VortexResult<()> {
+        let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
+        let expr = unbound::select(["a"], unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition validity scope=bool: $
+        partition 0 scope=i32: $
+        root scope={0=bool, 1=i32}: vortex.mask(pack(a: $.1), $.0)
+        ");
+        assert_snapshot!(partition(unbound::root(), &scope)?, @"
+        partition validity scope=bool: $
+        partition 0 scope=i32: $
+        partition 1 scope=i32: $
+        root scope={0=bool, 1=i32, 2=i32}: vortex.mask(pack(a: $.1, b: $.2), $.0)
+        ");
+        Ok(())
+    }
+
+    #[test]
     fn validity_and_field() -> VortexResult<()> {
         let inner = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
         let scope = struct_of(&[("a", i32()), ("s", inner)], Nullability::Nullable);
