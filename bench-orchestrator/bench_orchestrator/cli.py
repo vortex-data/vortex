@@ -22,7 +22,6 @@ from .ci_matrix import MATRIX_PRESETS, resolve_matrix
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
-    BENCHMARK_SCAN_V2,
     Benchmark,
     BenchmarkTarget,
     BuildConfig,
@@ -33,6 +32,7 @@ from .config import (
     parse_formats_json,
     parse_targets_json,
     resolve_axis_targets,
+    uses_scan_v2,
 )
 from .data_cache import S3DataCache, cached_dataset
 from .runner.builder import BenchmarkBuilder
@@ -401,7 +401,7 @@ def run(
     console.print(f"  Targets: {', '.join(map(str, config.targets))}")
     console.print(f"  Iterations: {iterations}")
     if any(target.engine in {Engine.DATAFUSION, Engine.DUCKDB} for target in config.targets):
-        console.print(f"  Vortex scan: {'V2' if BENCHMARK_SCAN_V2[benchmark] else 'V1'}")
+        console.print(f"  Vortex scan: {'V2' if uses_scan_v2(benchmark) else 'V1'}")
     if label:
         console.print(f"  Label: {label}")
     console.print()
