@@ -11,6 +11,8 @@ use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
 use num_traits::AsPrimitive;
+use num_traits::Bounded;
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -24,6 +26,7 @@ use vortex_array::arrays::PrimitiveArray as VortexPrimitiveArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::matcher::Matcher;
@@ -37,6 +40,7 @@ use vortex_mask::AllOr;
 
 use crate::ArrowExporter;
 use crate::executor::execute_arrow_naive;
+use crate::executor::primitive::canonical_primitive_to_arrow;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
 struct ArrowDictExportable;
@@ -111,16 +115,62 @@ fn chunked_to_dict(
     exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrowArrayRef>> {
+    match codes_type {
+        DataType::Int8 => join_dicts::<Int8Type>(chunked, values_type, exporter, ctx),
+        DataType::Int16 => join_dicts::<Int16Type>(chunked, values_type, exporter, ctx),
+        DataType::Int32 => join_dicts::<Int32Type>(chunked, values_type, exporter, ctx),
+        DataType::Int64 => join_dicts::<Int64Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt8 => join_dicts::<UInt8Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt16 => join_dicts::<UInt16Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt32 => join_dicts::<UInt32Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt64 => join_dicts::<UInt64Type>(chunked, values_type, exporter, ctx),
+        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+    }
+}
+
+/// [`chunked_to_dict`] for Arrow keys of type `K`, written directly so they need no cast.
+fn join_dicts<K: ArrowDictionaryKeyType>(
+    chunked: &ChunkedArray,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>>
+where
+    K::Native: NativePType + Bounded,
+    u8: AsPrimitive<K::Native>,
+    u16: AsPrimitive<K::Native>,
+    u32: AsPrimitive<K::Native>,
+    u64: AsPrimitive<K::Native>,
+    i8: AsPrimitive<K::Native>,
+    i16: AsPrimitive<K::Native>,
+    i32: AsPrimitive<K::Native>,
+    i64: AsPrimitive<K::Native>,
+    usize: AsPrimitive<K::Native>,
+{
+    let max_code = K::Native::max_value().to_u64().unwrap_or(u64::MAX);
     let dtype = chunked.dtype().clone();
-    let mut codes = BufferMut::<u64>::with_capacity(chunked.len());
+    let mut codes = BufferMut::<K::Native>::with_capacity(chunked.len());
     let mut validity = BitBufferMut::with_capacity(chunked.len());
     let mut values = Vec::with_capacity(chunked.nchunks());
-    let mut offset = 0u64;
+    let mut offset = 0usize;
 
     for chunk in chunked.non_empty_chunks() {
         let chunk = chunk.clone().execute_until::<ArrowDictExportable>(ctx)?;
-        let chunk_values = match chunk.try_downcast::<Dict>() {
-            Ok(dict) => {
+        let chunk_values = if let Some(dict) = chunk.as_opt::<Dict>() {
+            dict.values().cast(dtype.clone())?
+        } else if let Some(constant) = chunk.as_opt::<Constant>() {
+            ConstantArray::new(constant.scalar().clone(), 1).into_array()
+        } else {
+            return Ok(None);
+        };
+        let end = offset + chunk_values.len();
+        if end > 0 && (end - 1) as u64 > max_code {
+            return Ok(None);
+        }
+        let base: K::Native = offset.as_();
+
+        match chunk.as_opt::<Dict>() {
+            Some(dict) => {
                 let chunk_codes = dict.codes().clone().execute::<VortexPrimitiveArray>(ctx)?;
                 let mask = chunk_codes
                     .as_ref()
@@ -133,37 +183,33 @@ fn chunked_to_dict(
                         AllOr::All => codes.extend(
                             chunk_codes
                                 .iter()
-                                .map(|&code| AsPrimitive::<u64>::as_(code) + offset),
+                                .map(|&code| AsPrimitive::<K::Native>::as_(code) + base),
                         ),
-                        AllOr::None => codes.push_n(0, chunk_codes.len()),
+                        AllOr::None => codes.push_n(K::Native::default(), chunk_codes.len()),
                         AllOr::Some(bits) => codes.extend(chunk_codes.iter().zip(bits.iter()).map(
                             |(&code, valid)| {
                                 if valid {
-                                    AsPrimitive::<u64>::as_(code) + offset
+                                    AsPrimitive::<K::Native>::as_(code) + base
                                 } else {
-                                    0
+                                    K::Native::default()
                                 }
                             },
                         )),
                     }
                 });
                 validity.append_buffer(&mask.into_bit_buffer());
-                dict.values().cast(dtype.clone())?
             }
-            Err(chunk) => {
-                let Ok(constant) = chunk.try_downcast::<Constant>() else {
-                    return Ok(None);
-                };
-                codes.push_n(offset, constant.len());
+            None => {
+                let constant = chunk.as_::<Constant>();
+                codes.push_n(base, constant.len());
                 validity.append_n(!constant.scalar().is_null(), constant.len());
-                ConstantArray::new(constant.scalar().clone(), 1).into_array()
             }
-        };
-        offset += chunk_values.len() as u64;
+        }
+        offset = end;
         values.push(chunk_values);
     }
 
-    if offset == 0 || offset - 1 > max_code(codes_type)? {
+    if offset == 0 {
         return Ok(None);
     }
 
@@ -171,25 +217,14 @@ fn chunked_to_dict(
         codes.freeze(),
         Validity::from_bit_buffer(validity.freeze(), Nullability::Nullable),
     );
-    let codes = execute_arrow_naive(codes.into_array(), Some(codes_type), exporter, ctx)?;
+    let codes = canonical_primitive_to_arrow::<K>(codes, ctx)?;
     let values = ChunkedArray::try_new(values, dtype)?.into_array();
     let values = execute_arrow_naive(values, Some(values_type), exporter, ctx)?;
-    make_dict_array(codes_type, codes, values).map(Some)
-}
-
-/// The largest code an Arrow dictionary with `codes_type` keys can hold.
-fn max_code(codes_type: &DataType) -> VortexResult<u64> {
-    Ok(match codes_type {
-        DataType::Int8 => i8::MAX as u64,
-        DataType::Int16 => i16::MAX as u64,
-        DataType::Int32 => i32::MAX as u64,
-        DataType::Int64 => i64::MAX as u64,
-        DataType::UInt8 => u8::MAX as u64,
-        DataType::UInt16 => u16::MAX as u64,
-        DataType::UInt32 => u32::MAX as u64,
-        DataType::UInt64 => u64::MAX,
-        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
-    })
+    // SAFETY: every valid code was shifted onto the values its chunk contributed, and null codes
+    // are zero, which the non-empty joined values hold.
+    let dict =
+        unsafe { DictionaryArray::<K>::new_unchecked(codes.as_primitive::<K>().clone(), values) };
+    Ok(Some(Arc::new(dict)))
 }
 
 /// Convert a constant array to a dictionary with a single entry.
