@@ -49,8 +49,9 @@ use crate::source::SegmentId;
 pub struct FilterPlans {
     expression: FilterExpr,
     predicates: Vec<PlanRef>,
-    /// A metadata-only pruning plan per conjunct, where the conjunct has one.
-    pruning: Vec<Option<PlanRef>>,
+    /// A metadata-only pruning plan per original conjunct, where the conjunct has one, with the
+    /// index of the unit the conjunct belongs to.
+    pruning: Vec<(usize, Option<PlanRef>)>,
 }
 
 impl FilterPlans {
@@ -80,24 +81,23 @@ impl FilterPlans {
                 Ok(FilterPlan::new(plan).into_plan())
             })
             .collect::<VortexResult<_>>()?;
-        let pruning = expression
-            .conjuncts()
-            .iter()
-            .map(|expr| {
-                expr.falsify(session)?
+        // Pruning runs per original conjunct rather than per unit: a unit is false wherever any
+        // member is, and a member's metadata-only plan must not be lost to a sibling's.
+        let pruning = (0..expression.conjuncts().len())
+            .flat_map(|idx| expression.members(idx).iter().map(move |expr| (idx, expr)))
+            .map(|(idx, expr)| {
+                let plan = expr
+                    .falsify(session)?
                     .map(|pruning| {
                         optimize(
                             plan_row_idx_expression(pruning, root.clone(), session)?,
                             session,
                         )
                     })
-                    .transpose()
-            })
-            .map(|plan| {
-                let plan = plan?;
+                    .transpose()?;
                 match plan {
-                    Some(plan) if metadata_only(&plan)? => Ok(Some(plan)),
-                    _ => Ok(None),
+                    Some(plan) if metadata_only(&plan)? => Ok((idx, Some(plan))),
+                    _ => Ok((idx, None)),
                 }
             })
             .collect::<VortexResult<_>>()?;
@@ -122,7 +122,7 @@ impl FilterPlans {
     /// The pruning plans of every conjunct that has one.
     #[cfg(test)]
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
-        self.pruning.iter().flatten()
+        self.pruning.iter().filter_map(|(_, plan)| plan.as_ref())
     }
 
     /// The pruning plans worth running before a scan of `rows` rows.
@@ -136,7 +136,6 @@ impl FilterPlans {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
         self.pruning
             .iter()
-            .enumerate()
             .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
             .filter_map(|(_, plan)| plan.as_ref())

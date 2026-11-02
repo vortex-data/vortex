@@ -10,13 +10,17 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
+use vortex_array::dtype::Field;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::and_collect as bound_and_collect;
 use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_expr::analysis::referenced_field_paths;
 use vortex_functions::dynamic::DynamicExprUpdates;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -28,12 +32,19 @@ const UNSELECTIVE_DYNAMIC_SELECTIVITY: f64 = 0.99;
 /// conjunct stops being evaluated until its dynamic values change.
 pub(crate) const UNSELECTIVE_DYNAMIC_SPLITS: u32 = 4;
 
-/// A [`FilterExpr`] splits boolean expressions into individual conjunctions, tracks
-/// statistics about selectivity, and uses this information to reorder the evaluation of the
-/// conjunctions in an attempt to minimize the work done.
+/// A [`FilterExpr`] splits boolean expressions into individual conjunctions, groups the
+/// conjunctions that read a common top-level field into one unit, tracks statistics about the
+/// selectivity of each unit, and uses this information to reorder their evaluation in an attempt
+/// to minimize the work done.
+///
+/// A unit is a connected component of the graph linking conjuncts that share a field, so the
+/// conjuncts over one field are evaluated together on each batch. A conjunct with dynamic
+/// expressions stays a unit of its own, so that switching it off never skips a static conjunct.
 pub struct FilterExpr {
-    /// The conjuncts involved in the filter expression.
+    /// The units of the filter expression: each is the conjunction of its members.
     conjuncts: Vec<BoundExpression>,
+    /// The original conjuncts that make up each unit, in input order.
+    members: Vec<Vec<BoundExpression>>,
     /// A histogram for the selectivity of each conjunct.
     conjunct_selectivity: Vec<RwLock<DDSketch>>,
     /// Dynamic expression trackers for each conjunct, incase they contain dynamic expressions.
@@ -66,16 +77,93 @@ fn bound_conjuncts(expr: &BoundExpression) -> Vec<BoundExpression> {
     conjuncts
 }
 
+/// The top-level fields a conjunct reads, or `None` when it reads the whole scope.
+fn top_level_fields(expr: &BoundExpression) -> Option<HashSet<Field>> {
+    let paths = referenced_field_paths(expr).ok()?;
+    paths
+        .iter()
+        .map(|path| path.parts().first().cloned())
+        .collect()
+}
+
+/// Group conjuncts into the connected components of the graph linking conjuncts that read a
+/// common top-level field. A conjunct reading the whole scope links with every conjunct that
+/// reads any field, and a conjunct with dynamic expressions links with none. Members and groups
+/// keep their input order.
+fn group_conjuncts(conjuncts: Vec<BoundExpression>) -> Vec<Vec<BoundExpression>> {
+    struct Group {
+        members: Vec<usize>,
+        fields: HashSet<Field>,
+        reads_all: bool,
+        dynamic: bool,
+    }
+
+    impl Group {
+        fn reads_any(&self) -> bool {
+            self.reads_all || !self.fields.is_empty()
+        }
+
+        fn links(&self, other: &Group) -> bool {
+            !self.dynamic
+                && !other.dynamic
+                && ((self.reads_all && other.reads_any())
+                    || (other.reads_all && self.reads_any())
+                    || !self.fields.is_disjoint(&other.fields))
+        }
+    }
+
+    let mut groups: Vec<Group> = Vec::new();
+    for (idx, conjunct) in conjuncts.iter().enumerate() {
+        let fields = top_level_fields(conjunct);
+        let mut group = Group {
+            members: vec![idx],
+            reads_all: fields.is_none(),
+            fields: fields.unwrap_or_default(),
+            dynamic: DynamicExprUpdates::new(conjunct).is_some(),
+        };
+        let (linked, mut rest): (Vec<_>, Vec<_>) =
+            groups.into_iter().partition(|g| g.links(&group));
+        for g in linked {
+            group.members.extend(g.members);
+            group.fields.extend(g.fields);
+            group.reads_all |= g.reads_all;
+        }
+        group.members.sort_unstable();
+        rest.push(group);
+        rest.sort_unstable_by_key(|g| g.members[0]);
+        groups = rest;
+    }
+
+    let mut conjuncts = conjuncts.into_iter().map(Some).collect_vec();
+    groups
+        .into_iter()
+        .map(|g| {
+            g.members
+                .into_iter()
+                .map(|idx| conjuncts[idx].take().vortex_expect("conjunct grouped once"))
+                .collect()
+        })
+        .collect()
+}
+
 impl FilterExpr {
-    /// Splits a bound predicate into conjuncts and initializes their ordering.
+    /// Splits a bound predicate into conjuncts, groups them into units and initializes their
+    /// ordering.
     pub fn new(expr: BoundExpression) -> Self {
-        let conjuncts = bound_conjuncts(&expr);
+        let members = group_conjuncts(bound_conjuncts(&expr));
+        let conjuncts = members
+            .iter()
+            .map(|members| {
+                bound_and_collect(members.iter().cloned()).vortex_expect("non-empty group")
+            })
+            .collect_vec();
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();
 
         Self {
             conjuncts,
+            members,
             conjunct_selectivity: iter::repeat_with(|| RwLock::new(DDSketch::default()))
                 .take(num_conjuncts)
                 .collect(),
@@ -149,10 +237,16 @@ impl FilterExpr {
         }
     }
 
-    /// The conjuncts that make up this filter expression.
+    /// The units that make up this filter expression, each the conjunction of its members.
     #[inline]
     pub fn conjuncts(&self) -> &[BoundExpression] {
         &self.conjuncts
+    }
+
+    /// The original conjuncts grouped into the unit at `conjunct_idx`.
+    #[inline]
+    pub fn members(&self, conjunct_idx: usize) -> &[BoundExpression] {
+        &self.members[conjunct_idx]
     }
 
     /// The dynamic updates for the given conjunct, if any.
@@ -237,29 +331,54 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::Expression;
     use vortex_array::expr::and;
+    use vortex_array::expr::and_collect;
+    use vortex_array::expr::col;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::gt;
     use vortex_array::expr::lit;
+    use vortex_array::expr::lt;
     use vortex_array::expr::not;
     use vortex_array::expr::root;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::dynamic;
 
     use super::FilterExpr;
     use super::UNSELECTIVE_DYNAMIC_SPLITS;
+    use super::bound_conjuncts;
+
+    fn struct_dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter(
+                ["a", "b", "c", "d"]
+                    .map(|name| (name, DType::Primitive(PType::I32, Nullability::NonNullable))),
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// `a > 1 AND b > 1`: two units that share no field.
+    fn two_units() -> VortexResult<FilterExpr> {
+        let bound = and(gt(col("a"), lit(1i32)), gt(col("b"), lit(1i32))).bind(&struct_dtype())?;
+        Ok(FilterExpr::new(bound))
+    }
 
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
         let expr = and(root(), and(not(root()), lit(true)));
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = expr.bind(&dtype)?;
-        let filter = FilterExpr::new(bound);
-        let conjuncts = filter.conjuncts();
+        let conjuncts = bound_conjuncts(&expr.bind(&dtype)?);
 
         let expected = vec![
             root().bind(&dtype)?,
             not(root()).bind(&dtype)?,
             lit(true).bind(&dtype)?,
         ];
-        assert_eq!(conjuncts, expected.as_slice());
+        assert_eq!(conjuncts, expected);
         assert_eq!(
             conjuncts
                 .iter()
@@ -275,10 +394,84 @@ mod tests {
     }
 
     #[test]
-    fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
+    fn groups_conjuncts_connected_by_shared_fields() -> VortexResult<()> {
+        let dtype = struct_dtype();
+        let a_gt = gt(col("a"), lit(1i32));
+        let b_lt = lt(col("b"), lit(2i32));
+        let a_lt_c = lt(col("a"), col("c"));
+        let c_eq = eq(col("c"), lit(5i32));
+        let b_eq = eq(col("b"), lit(3i32));
+        let d_eq = eq(col("d"), lit(0i32));
+        let filter = FilterExpr::new(
+            and_collect([
+                a_gt.clone(),
+                b_lt.clone(),
+                a_lt_c.clone(),
+                c_eq.clone(),
+                b_eq.clone(),
+                d_eq.clone(),
+            ])
+            .expect("non-empty")
+            .bind(&dtype)?,
+        );
+
+        // `a` and `c` chain through `a < c`; `b` and `d` stand apart.
+        let expected: Vec<Vec<Expression>> =
+            vec![vec![a_gt, a_lt_c, c_eq], vec![b_lt, b_eq], vec![d_eq]];
+        assert_eq!(filter.conjuncts().len(), expected.len());
+        for (idx, members) in expected.into_iter().enumerate() {
+            let bound = members
+                .iter()
+                .map(|expr| expr.bind(&dtype))
+                .collect::<VortexResult<Vec<_>>>()?;
+            assert_eq!(filter.members(idx), bound.as_slice());
+            assert_eq!(
+                filter.conjuncts()[idx],
+                and_collect(members).expect("non-empty").bind(&dtype)?
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn root_conjunct_joins_every_field_reading_conjunct() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = and(root(), not(root())).bind(&dtype)?;
-        let filter = FilterExpr::new(bound);
+        let filter = FilterExpr::new(and(root(), and(not(root()), lit(true))).bind(&dtype)?);
+
+        assert_eq!(filter.conjuncts().len(), 2);
+        assert_eq!(
+            filter.members(0),
+            [root().bind(&dtype)?, not(root()).bind(&dtype)?].as_slice()
+        );
+        assert_eq!(filter.members(1), [lit(true).bind(&dtype)?].as_slice());
+        Ok(())
+    }
+
+    /// A dynamic conjunct can be switched off, so it never shares a unit with a static one.
+    #[test]
+    fn dynamic_conjunct_stays_its_own_unit() -> VortexResult<()> {
+        let dtype = struct_dtype();
+        let a_gt = gt(col("a"), lit(1i32));
+        let a_dynamic = dynamic(
+            CompareOperator::Lt,
+            || Some(5i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        let filter = FilterExpr::new(and(a_gt.clone(), a_dynamic.clone()).bind(&dtype)?);
+
+        assert_eq!(filter.conjuncts().len(), 2);
+        assert_eq!(filter.members(0), [a_gt.bind(&dtype)?].as_slice());
+        assert_eq!(filter.members(1), [a_dynamic.bind(&dtype)?].as_slice());
+        assert!(filter.dynamic_updates(0).is_none());
+        assert!(filter.dynamic_updates(1).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
+        let filter = two_units()?;
 
         filter.report_selectivity(0, 0.9);
         assert_eq!(*filter.ordering.read(), vec![0, 1]);
@@ -290,9 +483,7 @@ mod tests {
 
     #[test]
     fn skips_unselective_dynamic_conjunct_until_version_changes() -> VortexResult<()> {
-        let dtype = DType::Bool(Nullability::Nullable);
-        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?)
-            .with_skip_unselective_dynamic(true);
+        let filter = two_units()?.with_skip_unselective_dynamic(true);
 
         for _ in 0..UNSELECTIVE_DYNAMIC_SPLITS {
             assert!(!filter.skips_dynamic_conjunct(0, 1));

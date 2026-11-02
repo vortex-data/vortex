@@ -491,7 +491,8 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
 }
 
 fn can_prune_conjuncts(filter: &FilterExpr, reader: &dyn LayoutReader) -> VortexResult<bool> {
-    for conjunct in filter.conjuncts() {
+    // Per original conjunct: a unit is prunable wherever any of its members is.
+    for conjunct in (0..filter.conjuncts().len()).flat_map(|idx| filter.members(idx)) {
         if reader.can_prune_file(conjunct)? {
             return Ok(true);
         }
