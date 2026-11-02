@@ -43,6 +43,10 @@ pub trait DictEncoder: Send {
 
     /// Returns the PType of the codes this encoder produces.
     fn codes_ptype(&self) -> PType;
+
+    /// Hint that up to `additional` more distinct values are coming, so the encoder can size its
+    /// tables once instead of rehashing as they grow. The default ignores the hint.
+    fn reserve(&mut self, _additional: usize) {}
 }
 
 /// Create a dictionary encoder using the default allocator.

@@ -26,7 +26,6 @@ arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 itertools = { workspace = true }
 num-traits = { workspace = true }
-rustc-hash = { workspace = true }
 simdutf8 = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
@@ -34,7 +33,6 @@ vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

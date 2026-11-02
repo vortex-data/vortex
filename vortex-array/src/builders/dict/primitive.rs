@@ -212,6 +212,13 @@ where
         PrimitiveArray::new(values, Validity::from_bit_buffer(nulls, self.nullability)).into_array()
     }
 
+    fn reserve(&mut self, additional: usize) {
+        let additional = additional.min(self.max_dict_len.saturating_sub(self.values.len()));
+        self.lookup.reserve(additional);
+        self.values.reserve(additional);
+        self.values_nulls.reserve(additional);
+    }
+
     fn codes_ptype(&self) -> PType {
         Code::PTYPE
     }

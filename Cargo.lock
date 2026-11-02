@@ -11464,7 +11464,6 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "rstest",
- "rustc-hash",
  "simdutf8",
  "tracing",
  "vortex-array",
@@ -11475,7 +11474,6 @@ dependencies = [
  "vortex-mask",
  "vortex-onpair",
  "vortex-session",
- "vortex-utils",
  "vortex-zstd",
 ]
 
