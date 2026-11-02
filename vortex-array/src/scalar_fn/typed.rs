@@ -71,20 +71,7 @@ impl<V: ScalarFnVTable> TypedScalarFnInstance<V> {
         ScalarFnRef(Arc::new(self))
     }
 
-    #[cfg(debug_assertions)]
-    fn expected_dtype(&self, args: &dyn ExecutionArgs) -> VortexResult<DType> {
-        let args_dtypes: Vec<DType> = (0..args.num_inputs())
-            .map(|i| args.get(i).map(|a| a.dtype().clone()))
-            .collect::<VortexResult<_>>()?;
-        V::return_dtype(&self.vtable, &self.options, &args_dtypes)
-    }
-
-    fn check_result(
-        &self,
-        args: &dyn ExecutionArgs,
-        result: &ArrayRef,
-        #[cfg(debug_assertions)] expected_dtype: &DType,
-    ) -> VortexResult<()> {
+    fn check_result(&self, args: &dyn ExecutionArgs, result: &ArrayRef) -> VortexResult<()> {
         assert_eq!(
             result.len(),
             args.row_count(),
@@ -94,13 +81,18 @@ impl<V: ScalarFnVTable> TypedScalarFnInstance<V> {
             args.row_count(),
         );
 
-        #[cfg(debug_assertions)]
-        vortex_error::vortex_ensure_eq!(
-            result.dtype(),
-            expected_dtype,
-            "Expression execution {} returned vector of invalid dtype",
-            self.vtable.id(),
-        );
+        if cfg!(debug_assertions) {
+            let args_dtypes: Vec<DType> = (0..args.num_inputs())
+                .map(|i| args.get(i).map(|a| a.dtype().clone()))
+                .collect::<VortexResult<_>>()?;
+            let expected_dtype = V::return_dtype(&self.vtable, &self.options, &args_dtypes)?;
+            vortex_error::vortex_ensure_eq!(
+                result.dtype(),
+                &expected_dtype,
+                "Expression execution {} returned vector of invalid dtype",
+                self.vtable.id(),
+            );
+        }
 
         Ok(())
     }
@@ -175,15 +167,8 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
     }
 
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        #[cfg(debug_assertions)]
-        let expected_dtype = self.expected_dtype(args)?;
         let result = V::execute(&self.vtable, &self.options, args, ctx)?;
-        self.check_result(
-            args,
-            &result,
-            #[cfg(debug_assertions)]
-            &expected_dtype,
-        )?;
+        self.check_result(args, &result)?;
         Ok(result)
     }
 
@@ -192,22 +177,23 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
-        #[cfg(debug_assertions)]
-        let expected_dtype = self.expected_dtype(args)?;
         let result = V::execute_step(&self.vtable, &self.options, args, ctx)?;
         match result.step() {
-            ScalarFnExecutionStep::Done(array) => self.check_result(
-                args,
-                array,
-                #[cfg(debug_assertions)]
-                &expected_dtype,
-            )?,
-            ScalarFnExecutionStep::ExecuteInput(idx, _) => vortex_ensure!(
-                *idx < args.num_inputs(),
-                "Scalar function {} requested input {idx}, but has {} inputs",
-                self.vtable.id(),
-                args.num_inputs(),
-            ),
+            ScalarFnExecutionStep::Done(array) => self.check_result(args, array)?,
+            ScalarFnExecutionStep::ExecuteInput(idx, done) => {
+                vortex_ensure!(
+                    *idx < args.num_inputs(),
+                    "Scalar function {} requested input {idx}, but has {} inputs",
+                    self.vtable.id(),
+                    args.num_inputs(),
+                );
+                // Requesting an input that already matches would loop without progress.
+                vortex_ensure!(
+                    !done(&args.get(*idx)?),
+                    "Scalar function {} requested execution of input {idx}, which is already done",
+                    self.vtable.id(),
+                );
+            }
         }
         Ok(result)
     }

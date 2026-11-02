@@ -18,7 +18,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -85,21 +84,6 @@ impl ScalarFnVTable for Not {
             );
         }
         Ok(child_dtype.clone())
-    }
-
-    fn execute(
-        &self,
-        _data: &Self::Options,
-        args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?;
-        if let Some(result) = not_columnar(&child, args.row_count())? {
-            return Ok(result);
-        }
-
-        // Otherwise, execute and try again
-        child.execute::<ArrayRef>(ctx)?.not()
     }
 
     fn execute_step(

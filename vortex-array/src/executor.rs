@@ -854,12 +854,12 @@ impl ExecutionResult {
 
     /// Like [`execute_slot`](Self::execute_slot), but with a [`DonePredicate`] chosen at runtime.
     pub(crate) fn execute_slot_until(
-        array: impl IntoArray,
+        array: ArrayRef,
         slot_idx: usize,
         done: DonePredicate,
     ) -> Self {
         Self {
-            array: array.into_array(),
+            array,
             step: ExecutionStep::ExecuteSlot(slot_idx, done),
         }
     }
