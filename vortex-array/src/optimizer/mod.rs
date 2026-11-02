@@ -9,18 +9,26 @@
 //!
 //! There are three public entry points on [`ArrayOptimizer`]:
 //!
-//! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables.
+//! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables, and only
+//!   rewrites the root node.
 //! - [`ArrayOptimizer::optimize_ctx`] also consults the session's active
 //!   [`kernels::ArrayKernels`] registry before static parent-reduce rules, so this is the entry
-//!   point used by execution.
-//! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
-//!   every descendant.
+//!   point used by execution. It optimizes the root after the descendants below it that were
+//!   never optimized.
+//! - [`ArrayOptimizer::optimize_recursive`] is the same as [`ArrayOptimizer::optimize_ctx`].
 //!
-//! Each array records whether [`ArrayOptimizer::optimize_recursive`] has optimized it and all of
-//! its descendants. A new array starts unoptimized, and the optimizer marks the arrays that
-//! [`ArrayOptimizer::optimize_recursive`] returns, so optimizing a marked array again returns it
-//! without trying any rule. The mark does not record the session: an array optimized with one
-//! session is not optimized again with a session that registers more kernels.
+//! With a session, optimizing a node first optimizes its children that were never optimized,
+//! bottom up: a parent rule or kernel keyed on a child's encoding sees that encoding rather than a
+//! lazy wrapper around it, such as a slice of an FSST array under a `LIKE`. Children already
+//! optimized are left without visiting their subtrees. Whenever a rule rewrites a node, the nodes
+//! the rule built are optimized the same way.
+//!
+//! Each array records whether the optimizer has taken it to its fixpoint. A new array starts
+//! unoptimized, and optimizing with a session marks the arrays it returns, so optimizing an array
+//! again returns it without trying any rule. The optimizer marks a node only after it optimized
+//! the children of the node, so the descendants of a marked node are marked too. The mark does not
+//! record the session: an array optimized with one session is not optimized again with a session
+//! that registers more kernels.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -29,6 +37,7 @@ use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::optimizer::kernels::ArrayKernels;
@@ -113,19 +122,20 @@ pub trait ArrayOptimizer {
     /// when a session-scoped [`kernels::ArrayKernels`] registry should participate.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the root array node using static rules and the active
-    /// [`kernels::ArrayKernels`] registry on `session`, if any.
+    /// Optimize the array tree using static rules and the active [`kernels::ArrayKernels`]
+    /// registry on `session`, if any.
     ///
-    /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
-    /// the child's static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on
-    /// `session`, if any. If `session` does not contain a [`kernels::KernelSession`], this behaves
-    /// like [`Self::optimize`].
+    /// The descendants that were never optimized are optimized before the root. Session kernels
+    /// are checked for each `(parent_encoding_id, child_encoding_id)` pair before the child's
+    /// static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on `session`,
+    /// if any. If `session` does not contain a [`kernels::KernelSession`], this behaves like
+    /// [`Self::optimize`] on the root and its never optimized descendants.
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// This uses the same session-aware rule ordering as [`Self::optimize_ctx`] for every node in
-    /// the tree.
+    /// This is the same as [`Self::optimize_ctx`]: optimizing a node first optimizes every
+    /// descendant that was never optimized.
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 }
 
@@ -135,7 +145,11 @@ impl ArrayOptimizer for ArrayRef {
             return Ok(self.clone());
         }
 
-        Ok(optimize_owned(self.clone(), None)?.0)
+        Optimizer {
+            session_kernels: None,
+            rewritten_shared: HashMap::new(),
+        }
+        .optimize_root(self.clone())
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
@@ -143,73 +157,195 @@ impl ArrayOptimizer for ArrayRef {
             return Ok(self.clone());
         }
 
-        Ok(optimize_owned(self.clone(), Some(session))?.0)
+        let session_kernels = session.kernels();
+        let session_kernels: &ArrayKernels = &session_kernels;
+        Optimizer {
+            session_kernels: Some(session_kernels),
+            rewritten_shared: HashMap::new(),
+        }
+        .optimize(self.clone())
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self.clone(), session)?.0)
+        self.optimize_ctx(session)
     }
 }
 
-fn optimize_owned(
-    mut current_array: ArrayRef,
-    session: Option<&VortexSession>,
-) -> VortexResult<(ArrayRef, bool)> {
-    let mut any_optimizations = false;
-    let session_kernels = session.map(|session| session.kernels());
+/// The state of one optimize call.
+struct Optimizer<'a> {
+    /// The session kernels, tried before the static parent-reduce rules.
+    ///
+    /// Without them, the optimizer rewrites only the root node and does not mark the result, so
+    /// optimizing it later with a session still tries the session kernels.
+    session_kernels: Option<&'a ArrayKernels>,
+    /// The shared nodes this call rewrote, by address, each with the array it was rewritten into.
+    ///
+    /// Many parents can hold the same unoptimized node, such as the struct below every field of a
+    /// projection. A rewrite returns a new array and does not mark the node, so without this each
+    /// parent would rewrite the node and its whole subtree again. The entry keeps the node alive,
+    /// so no other array can get its address during the call.
+    rewritten_shared: HashMap<usize, (ArrayRef, ArrayRef)>,
+}
 
-    trace_op!(record_optimize_start(&current_array, session.is_some()));
-
-    for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
-        trace_op!(record_optimize_loop_start(&current_array));
-
-        if let Some(new_array) = current_array.reduce()? {
-            current_array = new_array;
-            any_optimizations = true;
-            trace_op!(record_optimize_loop_end());
-            continue;
+impl Optimizer<'_> {
+    /// Optimizes `array` after the descendants below it that were never optimized, and marks the
+    /// result.
+    fn optimize(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        if array.optimized_state().is_optimized() {
+            return Ok(array);
         }
 
-        trace_op!(record_optimize_reduce_none(&current_array));
+        // Parent rules match on their children's encodings, so optimize the children first.
+        let current_array = self.optimize_new_nodes(array.clone())?;
+        let optimized = self.optimize_root(current_array)?;
 
-        // Try children in order; the first parent rewrite restarts the fixpoint loop.
-        let mut reduced_parent = None;
-        for (slot_idx, slot) in current_array.slots().iter().enumerate() {
-            let Some(child) = slot else {
-                continue;
-            };
-
-            // Session kernels take precedence over the child's static parent-reduce rules.
-            if let Some(session_kernels) = &session_kernels
-                && let Some(new_array) =
-                    try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
-            {
-                reduced_parent = Some(new_array);
-                break;
-            }
-
-            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
-                reduced_parent = Some(new_array);
-                break;
-            }
+        // A rewrite keeps the logical values, so every statistic of the input stays valid. Lazy
+        // constructors such as `slice` put the statistics they carry over on the lazy node.
+        if !ArrayRef::ptr_eq(&optimized, &array) {
+            optimized.statistics().inherit_from(array.statistics());
         }
 
-        if let Some(new_array) = reduced_parent {
-            current_array = new_array;
-            any_optimizations = true;
-            trace_op!(record_optimize_loop_end());
-            continue;
-        }
-
-        trace_op!(record_optimize_parent_reduce_none(&current_array));
-        trace_op!(record_optimize_loop_end());
-
-        trace_op!(record_optimize_done(&current_array, any_optimizations));
-
-        return Ok((current_array, any_optimizations));
+        optimized.optimized_state().mark_optimized();
+        Ok(optimized)
     }
 
-    vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+    /// Runs the reduce and parent-reduce rules on the root of `current_array` to fixpoint.
+    ///
+    /// With session kernels, the nodes each rewrite built are optimized before the next pass.
+    fn optimize_root(&mut self, mut current_array: ArrayRef) -> VortexResult<ArrayRef> {
+        let mut any_optimizations = false;
+
+        trace_op!(record_optimize_start(
+            &current_array,
+            self.session_kernels.is_some()
+        ));
+
+        for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
+            trace_op!(record_optimize_loop_start(&current_array));
+
+            if let Some(new_array) = current_array.reduce()? {
+                current_array = self.optimize_rewritten(new_array)?;
+                any_optimizations = true;
+                trace_op!(record_optimize_loop_end());
+                continue;
+            }
+
+            trace_op!(record_optimize_reduce_none(&current_array));
+
+            // Try children in order; the first parent rewrite restarts the fixpoint loop.
+            let mut reduced_parent = None;
+            for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+                let Some(child) = slot else {
+                    continue;
+                };
+
+                // Session kernels take precedence over the child's static parent-reduce rules.
+                if let Some(session_kernels) = self.session_kernels
+                    && let Some(new_array) =
+                        try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
+                {
+                    reduced_parent = Some(new_array);
+                    break;
+                }
+
+                if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
+                    reduced_parent = Some(new_array);
+                    break;
+                }
+            }
+
+            if let Some(new_array) = reduced_parent {
+                current_array = self.optimize_rewritten(new_array)?;
+                any_optimizations = true;
+                trace_op!(record_optimize_loop_end());
+                continue;
+            }
+
+            trace_op!(record_optimize_parent_reduce_none(&current_array));
+            trace_op!(record_optimize_loop_end());
+
+            trace_op!(record_optimize_done(&current_array, any_optimizations));
+
+            return Ok(current_array);
+        }
+
+        vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+    }
+
+    /// Optimizes the nodes that a rule built below the array it returned, if the optimizer has
+    /// session kernels.
+    fn optimize_rewritten(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        if self.session_kernels.is_none() {
+            return Ok(array);
+        }
+
+        self.optimize_new_nodes(array)
+    }
+
+    /// Optimizes the nodes below `array` that were never optimized, such as those a rule built
+    /// below its result.
+    ///
+    /// Rules and constructors build lazy arrays, so these nodes are not yet optimized, at any
+    /// depth. Optimizing them as each rewrite happens keeps the optimizer from undoing one rule
+    /// with its inverse: `slice(get_item(s))` and `get_item(slice(s))` rewrite into each other
+    /// until the inner `slice(s)` collapses into `s`'s own encoding.
+    ///
+    /// A child that is already optimized is left as it is without visiting its subtree, which
+    /// skips the subtrees a rule carries over from the array it rewrote.
+    fn optimize_new_nodes(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        let mut new_slots: Option<SmallVec<_>> = None;
+        for (slot_idx, slot) in array.slots().iter().enumerate() {
+            let optimized = match slot {
+                Some(child) if !child.optimized_state().is_optimized() => {
+                    let optimized = self.optimize_child(child)?;
+                    (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
+                }
+                _ => None,
+            };
+
+            match optimized {
+                Some(optimized) => new_slots
+                    .get_or_insert_with(|| {
+                        let mut slots = SmallVec::with_capacity(array.slots().len());
+                        slots.extend(array.slots()[..slot_idx].iter().cloned());
+                        slots
+                    })
+                    .push(Some(optimized)),
+                None => {
+                    if let Some(new_slots) = &mut new_slots {
+                        new_slots.push(slot.clone());
+                    }
+                }
+            }
+        }
+
+        let Some(new_slots) = new_slots else {
+            return Ok(array);
+        };
+
+        // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
+        // the parent's logical values and statistics remain valid.
+        unsafe { array.with_slots(new_slots) }
+    }
+
+    /// Optimizes `child`, and reuses the rewrite of a shared child that this call made before.
+    fn optimize_child(&mut self, child: &ArrayRef) -> VortexResult<ArrayRef> {
+        if !child.is_shared() {
+            return self.optimize(child.clone());
+        }
+
+        if let Some((_, rewritten)) = self.rewritten_shared.get(&child.addr()) {
+            return Ok(rewritten.clone());
+        }
+
+        let optimized = self.optimize(child.clone())?;
+        if !ArrayRef::ptr_eq(&optimized, child) {
+            self.rewritten_shared
+                .insert(child.addr(), (child.clone(), optimized.clone()));
+        }
+
+        Ok(optimized)
+    }
 }
 
 fn try_session_parent_reduce(
@@ -249,51 +385,6 @@ fn try_session_parent_reduce(
     Ok(None)
 }
 
-fn try_optimize_recursive(
-    current_array: ArrayRef,
-    session: &VortexSession,
-) -> VortexResult<(ArrayRef, bool)> {
-    if current_array.optimized_state().is_optimized() {
-        return Ok((current_array, false));
-    }
-
-    trace_op!(record_optimize_recursive_start(&current_array));
-
-    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, Some(session))?;
-
-    let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
-    let mut any_slot_optimized = false;
-    for slot in current_array.slots() {
-        match slot {
-            Some(child) => {
-                let (new_child, new_slot_optimized) =
-                    try_optimize_recursive(child.clone(), session)?;
-                if new_slot_optimized {
-                    trace_op!(record_optimize_recursive_slot(
-                        new_slots.len(),
-                        child,
-                        &new_child,
-                    ));
-                }
-                new_slots.push(Some(new_child));
-                any_slot_optimized |= new_slot_optimized;
-            }
-            None => new_slots.push(None),
-        }
-    }
-
-    if any_slot_optimized {
-        // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
-        // parent logical values and statistics remain valid.
-        current_array = unsafe { current_array.with_slots(new_slots) }?;
-        any_optimizations = true;
-    }
-
-    // Every child is marked now, so the mark on this node covers its whole subtree.
-    current_array.optimized_state().mark_optimized();
-    Ok((current_array, any_optimizations))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -308,44 +399,103 @@ mod tests {
     use crate::arrays::FilterArray;
     use crate::arrays::Primitive;
     use crate::arrays::SliceArray;
+    use crate::arrays::StructArray;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::ScalarValue;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+    fn lazy_slice(array: ArrayRef, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
+        Ok(SliceArray::try_new(array, range)?.into_array())
+    }
+
     #[test]
-    fn optimize_recursive_marks_result_and_skips_it_after() -> VortexResult<()> {
-        let sliced = SliceArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 1..3)?.into_array();
+    fn optimize_marks_result_and_skips_it_after() -> VortexResult<()> {
+        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
         assert!(!sliced.optimized_state().is_optimized());
 
-        let optimized = sliced.optimize_recursive(&SESSION)?;
+        let optimized = sliced.optimize_ctx(&SESSION)?;
         assert!(optimized.is::<Primitive>());
         assert!(optimized.optimized_state().is_optimized());
-        assert!(ArrayRef::ptr_eq(
-            &optimized.optimize_recursive(&SESSION)?,
-            &optimized
-        ));
         assert!(ArrayRef::ptr_eq(
             &optimized.optimize_ctx(&SESSION)?,
             &optimized
         ));
 
         // A new array built over an optimized one starts unoptimized.
-        let resliced = SliceArray::try_new(optimized, 0..1)?.into_array();
-        assert!(!resliced.optimized_state().is_optimized());
+        assert!(
+            !lazy_slice(optimized, 0..1)?
+                .optimized_state()
+                .is_optimized()
+        );
         Ok(())
     }
 
     #[test]
-    fn optimize_recursive_marks_every_descendant() -> VortexResult<()> {
-        let sliced = SliceArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 1..4)?.into_array();
+    fn optimize_without_session_does_not_mark() -> VortexResult<()> {
+        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
+
+        let optimized = sliced.optimize()?;
+        assert!(optimized.is::<Primitive>());
+        assert!(!optimized.optimized_state().is_optimized());
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_rewrites_a_shared_node_once() -> VortexResult<()> {
+        // Both fields hold the same unoptimized slice. The second field reuses the rewrite of the
+        // first, so the optimizer does not rewrite the slice and its subtree again.
+        let shared = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
+        let parent =
+            StructArray::from_fields(&[("a", shared.clone()), ("b", shared)])?.into_array();
+
+        let optimized = parent.optimize_ctx(&SESSION)?;
+        let fields = optimized.slots().iter().flatten().collect::<Vec<_>>();
+        assert_eq!(fields.len(), 2);
+        assert!(fields[0].is::<Primitive>());
+        assert!(ArrayRef::ptr_eq(fields[0], fields[1]));
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_marks_every_descendant() -> VortexResult<()> {
+        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..4)?;
         let filtered =
             FilterArray::try_new(sliced, Mask::from_iter([true, false, true]))?.into_array();
 
-        let optimized = filtered.optimize_recursive(&SESSION)?;
+        let optimized = filtered.optimize_ctx(&SESSION)?;
         assert!(
             optimized
                 .depth_first_traversal()
                 .all(|node| node.optimized_state().is_optimized())
+        );
+        assert!(ArrayRef::ptr_eq(
+            &optimized.optimize_recursive(&SESSION)?,
+            &optimized
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_keeps_stats_of_rewritten_array() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3, 4].into_array();
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::exact(ScalarValue::Bool(true)));
+
+        let sliced = lazy_slice(array, 1..3)?;
+        sliced
+            .statistics()
+            .set(Stat::IsSorted, Precision::exact(ScalarValue::Bool(true)));
+
+        let optimized = sliced.optimize_ctx(&SESSION)?;
+        assert!(optimized.is::<Primitive>());
+        assert_eq!(
+            optimized.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::exact(true)
         );
         Ok(())
     }
