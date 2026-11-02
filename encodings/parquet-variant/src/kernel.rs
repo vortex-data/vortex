@@ -678,6 +678,52 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::bare(false)]
+    #[case::beneath_a_scan_filter(true)]
+    fn variant_get_extracts_through_an_unshredded_canonical_variant(
+        #[case] filtered: bool,
+    ) -> VortexResult<()> {
+        // Either way the storage holds the same three rows; a scan's row filter wraps it in a filter.
+        let storage = if filtered {
+            let unfiltered = make_unshredded_json_array(vec![
+                Some(r#"{"a": "ok"}"#),
+                Some(r#"{"a": "dropped"}"#),
+                None,
+                Some(r#"{"b": 2}"#),
+            ])?;
+            vortex_array::arrays::FilterArray::try_new(
+                unfiltered,
+                Mask::from_iter([true, false, true, true]),
+            )?
+            .into_array()
+        } else {
+            make_unshredded_json_array(vec![Some(r#"{"a": "ok"}"#), None, Some(r#"{"b": 2}"#)])?
+        };
+        let wrapped = VariantArray::try_new(storage, None)?.into_array();
+
+        let result = execute_variant_get(wrapped, "$.a", None)?;
+
+        // The storage's kernel answers, rather than a row-by-row fallback, so the result keeps Parquet
+        // Variant storage and exports to Arrow.
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = SESSION.arrow().to_arrow_field("a", result.dtype())?;
+        SESSION
+            .arrow()
+            .execute_arrow(result.clone(), Some(&field), &mut ctx)?;
+        let row0 = result.execute_scalar(0, &mut ctx)?;
+        assert_eq!(
+            row0.as_variant()
+                .value()
+                .and_then(|value| value.as_utf8().value())
+                .map(|value| value.as_str()),
+            Some("ok")
+        );
+        assert_nth_scalar_is_null!(result, 1, &mut ctx);
+        assert_nth_scalar_is_null!(result, 2, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn test_variant_get_unshredded_field_as_variant() -> VortexResult<()> {
         let arr = make_unshredded_json_array(vec![

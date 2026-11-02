@@ -13,8 +13,9 @@
 //! Vortex runtime threads (smol workers and the `blocking` pool used by
 //! [`Handle::spawn_blocking`](vortex::io::runtime::Handle::spawn_blocking)) are not
 //! JVM threads. Every upcall goes through [`with_jvm`], which attaches the current
-//! thread on first use (detached automatically at thread exit) — re-attachment is a
-//! cheap thread-local lookup.
+//! thread on first use — re-attachment is a cheap thread-local lookup. Threads are
+//! attached as daemons: runtime threads live as long as the process, and a non-daemon
+//! attachment would keep the JVM from exiting after its `main` method returns.
 //!
 //! # JavaVM lifetime
 //!
@@ -29,12 +30,16 @@
 mod read_at;
 mod write;
 
+use std::ptr;
+
 use jni::Env;
 use jni::JavaVM;
 pub(crate) use read_at::JavaFileSystem;
 pub(crate) use read_at::java_readable;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 pub(crate) use write::JavaWrite;
 
 use crate::errors::JNIError;
@@ -49,7 +54,34 @@ pub(crate) fn with_jvm<T>(
     vm: &JavaVM,
     f: impl FnOnce(&mut Env) -> Result<T, JNIError>,
 ) -> VortexResult<T> {
+    attach_as_daemon(vm)?;
+
     vm.attach_current_thread(f).map_err(VortexError::from)
+}
+
+/// Attaches the current thread to `vm` as a daemon thread, unless it is attached already.
+///
+/// `jni` only attaches non-daemon threads, and the JVM waits for those before it exits. Once the
+/// thread is attached here, `jni` finds the attachment and uses it as it is.
+fn attach_as_daemon(vm: &JavaVM) -> VortexResult<()> {
+    if vm
+        .is_thread_attached()
+        .map_err(|e| vortex_err!("is_thread_attached failed: {e}"))?
+    {
+        return Ok(());
+    }
+
+    let raw = vm.get_raw();
+    let mut env = ptr::null_mut();
+    // SAFETY: `raw` is the valid JavaVM pointer `vm` wraps, and `jni` requires JNI 1.4 or later,
+    // which has `AttachCurrentThreadAsDaemon`. Null arguments attach the thread with defaults.
+    let code =
+        unsafe { ((*(*raw)).v1_4.AttachCurrentThreadAsDaemon)(raw, &raw mut env, ptr::null_mut()) };
+    if code != jni::sys::JNI_OK {
+        vortex_bail!("AttachCurrentThreadAsDaemon failed with code {code}");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

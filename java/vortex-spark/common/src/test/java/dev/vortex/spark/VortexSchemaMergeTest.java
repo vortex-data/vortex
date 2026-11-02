@@ -131,6 +131,7 @@ public final class VortexSchemaMergeTest {
                 .format("vortex")
                 .option("vortex.mergeSchema", "false")
                 .option("vortex.stats.rowCount", "false")
+                .option("vortex.completeAggregatePushdown", "false")
                 .option("vortex.footerParallelism", "0")
                 .load(dir.toString());
 
@@ -147,6 +148,7 @@ public final class VortexSchemaMergeTest {
                 .format("vortex")
                 .option("VORTEX.MERGESCHEMA", "false")
                 .option("VORTEX.STATS.ROWCOUNT", "false")
+                .option("VORTEX.COMPLETEAGGREGATEPUSHDOWN", "false")
                 .option("VORTEX.FOOTERPARALLELISM", "0")
                 .load(dir.toString());
 

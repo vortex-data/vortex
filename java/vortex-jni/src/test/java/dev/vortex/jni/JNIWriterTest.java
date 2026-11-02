@@ -30,6 +30,7 @@ import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -142,6 +143,37 @@ public final class JNIWriterTest {
         value.setValueCount(3);
         variant.setValueCount(3);
         root.setRowCount(3);
+    }
+
+    @Test
+    public void testWriterReleasesEveryExportedSchema(@TempDir Path dir) throws IOException {
+        Session session = Session.create();
+        Schema schema = new Schema(List.of(Field.notNullable("v", new ArrowType.Int(64, true))));
+        // A dedicated allocator shows what the native writer still holds once the file is finished.
+        try (RootAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(
+                                    session, dir.resolve("released.vortex").toString(), schema, allocator)
+                            .build();
+                    VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                for (int batch = 0; batch < 5; batch++) {
+                    BigIntVector values = (BigIntVector) root.getVector(0);
+                    values.allocateNew(1024);
+                    for (int i = 0; i < 1024; i++) {
+                        values.set(i, i + batch);
+                    }
+                    root.setRowCount(1024);
+                    try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                            ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                        Data.exportVectorSchemaRoot(allocator, root, null, array, arrowSchema);
+                        writer.writeBatch(array.memoryAddress(), arrowSchema.memoryAddress());
+                    }
+                    root.clear();
+                }
+                writer.finish();
+            }
+            // Native code is the consumer of every exported array and schema, so it must have released them all.
+            assertEquals(0, allocator.getAllocatedMemory());
+        }
     }
 
     @Test

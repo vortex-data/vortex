@@ -3,6 +3,8 @@
 
 package dev.vortex.spark
 
+import java.util.OptionalLong
+
 import scala.collection.JavaConverters._
 
 import org.apache.hadoop.conf.Configuration
@@ -12,6 +14,7 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.TaskContext
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.FileSourceGeneratedMetadataStructField
 import org.apache.spark.sql.execution.vectorized.ConstantColumnVector
 import org.apache.spark.sql.execution.datasources.{
   FileFormat,
@@ -20,16 +23,25 @@ import org.apache.spark.sql.execution.datasources.{
 }
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
-import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
 import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.{VortexFile, VortexIo}
-import dev.vortex.spark.read.{VortexFooterReader, VortexPartitionReader}
+import dev.vortex.spark.read.{
+  VortexFooterReader,
+  VortexPartitionReader,
+  VortexScan,
+  VortexScanMetrics
+}
 import dev.vortex.spark.write.{SparkToArrowSchema, VortexOutputWriterFactory}
 
 /** V1 fallback used for catalog tables and when Vortex is listed in
   * useV1SourceList.
+  *
+  * Files are split by byte range, and each split reads its share of the file's
+  * rows. Besides Spark's file metadata, `_metadata.row_index` gives each row's
+  * index in its file, which Vortex computes during the scan.
   */
 final class VortexFileFormat
     extends FileFormat
@@ -64,7 +76,13 @@ final class VortexFileFormat
       sparkSession: SparkSession,
       options: Map[String, String],
       path: Path
-  ): Boolean = false
+  ): Boolean =
+    VortexOptions
+      .of(options.asJava)
+      .getBoolean(VortexScan.SplitFilesOption, true)
+
+  override def metadataSchemaFields: Seq[StructField] =
+    super.metadataSchemaFields :+ VortexFileFormat.RowIndexField
 
   override def supportBatch(
       sparkSession: SparkSession,
@@ -101,7 +119,8 @@ final class VortexFileFormat
       hadoopConf: Configuration
   ): PartitionedFile => Iterator[InternalRow] = {
     val optionMap = VortexOptions.of(options.asJava)
-    val io = VortexIo.create(optionMap, hadoopConf)
+    // Broadcast once, as Spark's own file formats do, rather than shipped with every task.
+    val io = VortexIo.broadcast(optionMap, hadoopConf, spark.sparkContext)
     val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     skippingNonVortexFiles { (file: PartitionedFile) =>
       val reader = new VortexPartitionReader(
@@ -112,7 +131,14 @@ final class VortexFileFormat
         io,
         optionMap,
         filters.toArray,
-        caseSensitive
+        caseSensitive,
+        OptionalLong.empty(),
+        null,
+        null,
+        Array.empty,
+        0L,
+        false,
+        new VortexScanMetrics.Task()
       )
       Option(TaskContext.get())
         .foreach(_.addTaskCompletionListener[Unit](_ => reader.close()))
@@ -173,7 +199,8 @@ final class VortexFileFormat
     }
 
     val optionMap = VortexOptions.of(options.asJava)
-    val io = VortexIo.create(optionMap, hadoopConf)
+    // Broadcast once, as Spark's own file formats do, rather than shipped with every task.
+    val io = VortexIo.broadcast(optionMap, hadoopConf, spark.sparkContext)
     val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     skippingNonVortexFiles { (file: PartitionedFile) =>
       val reader = new VortexPartitionReader(
@@ -184,7 +211,14 @@ final class VortexFileFormat
         io,
         optionMap,
         filters.toArray,
-        caseSensitive
+        caseSensitive,
+        OptionalLong.empty(),
+        null,
+        null,
+        Array.empty,
+        0L,
+        false,
+        new VortexScanMetrics.Task()
       )
       Option(TaskContext.get()).foreach(
         _.addTaskCompletionListener[Unit](_ => reader.close())
@@ -227,4 +261,17 @@ final class VortexFileFormat
     file =>
       if (VortexFile.hasVortexExtension(file.toPath.getName)) read(file)
       else Iterator.empty
+}
+
+object VortexFileFormat {
+
+  /** `_metadata.row_index`, as Parquet offers it. The reader fills the column
+    * named here with each row's index in its file, before any filter.
+    */
+  val RowIndexField: StructField = FileSourceGeneratedMetadataStructField(
+    "row_index",
+    VortexPartitionReader.ROW_INDEX_COLUMN,
+    LongType,
+    nullable = false
+  )
 }

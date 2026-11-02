@@ -29,6 +29,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
+import dev.vortex.spark.SparkVariants;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
@@ -198,7 +199,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 InternalRow row = batchRows.get(rowIndex);
 
                 if (row.isNullAt(fieldIndex)) {
-                    vector.setNull(rowIndex);
+                    setNull(vector, rowIndex);
                 } else {
                     populateVector(vector, dataType, row, fieldIndex, rowIndex);
                 }
@@ -216,6 +217,15 @@ public final class VortexOutputWriter extends OutputWriter {
 
         vectorSchemaRoot.clear();
         batchRows.clear();
+    }
+
+    /** Marks {@code index} of {@code vector} null, keeping the parts of a variant non-null as Vortex requires. */
+    private static void setNull(FieldVector vector, int index) {
+        if (vector instanceof StructVector struct && SparkVariants.isVariant(struct.getField())) {
+            SparkVariants.writeNull(struct, index);
+        } else {
+            vector.setNull(index);
+        }
     }
 
     /** Populates an Arrow vector with a value from an InternalRow. */
@@ -255,6 +265,8 @@ public final class VortexOutputWriter extends OutputWriter {
             java.math.BigDecimal decimal = row.getDecimal(fieldIndex, decType.precision(), decType.scale())
                     .toJavaBigDecimal();
             ((DecimalVector) vector).setSafe(rowIndex, decimal);
+        } else if (SparkVariants.isVariant(dataType)) {
+            SparkVariants.write((StructVector) vector, row, fieldIndex, rowIndex);
         } else if (dataType instanceof StructType structType) {
             populateStructVector(
                     (StructVector) vector, structType, row.getStruct(fieldIndex, structType.fields().length), rowIndex);
@@ -269,7 +281,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 if (data.isNullAt(i)) {
                     // Reading a null slot of a fixed-width element returns the zeroed slot, and the
                     // typed setters mark it valid, so a null element must be written explicitly.
-                    elementVector.setNull(elementIndex);
+                    setNull(elementVector, elementIndex);
                 } else {
                     populateVector(elementVector, arrayType.elementType(), data, i, elementIndex);
                 }
@@ -292,7 +304,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 entries.setIndexDefined(entryIndex);
                 populateVector(keyVector, mapType.keyType(), keys, i, entryIndex);
                 if (values.isNullAt(i)) {
-                    valueVector.setNull(entryIndex);
+                    setNull(valueVector, entryIndex);
                 } else {
                     populateVector(valueVector, mapType.valueType(), values, i, entryIndex);
                 }
@@ -311,7 +323,7 @@ public final class VortexOutputWriter extends OutputWriter {
         for (int fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
             FieldVector childVector = (FieldVector) vector.getVectorById(fieldIndex);
             if (row.isNullAt(fieldIndex)) {
-                childVector.setNull(rowIndex);
+                setNull(childVector, rowIndex);
                 continue;
             }
             populateVector(childVector, fields[fieldIndex].dataType(), row, fieldIndex, rowIndex);
