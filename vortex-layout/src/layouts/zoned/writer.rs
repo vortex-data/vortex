@@ -363,6 +363,7 @@ mod tests {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_buffer::buffer;
@@ -375,14 +376,32 @@ mod tests {
 
     use super::*;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::schema::aggregate_state_dtype;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::variant(DType::Variant(Nullability::Nullable))]
+    #[case::variant_in_struct(DType::Struct(
+        StructFields::new(["v"].into(), vec![DType::Variant(Nullability::Nullable)]),
+        Nullability::NonNullable,
+    ))]
+    fn zone_maps_hold_no_variant_state(#[case] dtype: DType) {
+        let session = SESSION.clone().with::<LayoutSession>();
+        let accumulator =
+            AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype, &session));
+        for aggregate_fn in accumulator.aggregate_fns().iter() {
+            let state = aggregate_state_dtype(&dtype, aggregate_fn).vortex_expect("kept state");
+            assert!(!contains_variant(&state), "{aggregate_fn} keeps a variant");
+        }
+    }
 
     /// Write three zones of primitives through `ctx`, returning the aggregates the zoned
     /// layout recorded.
