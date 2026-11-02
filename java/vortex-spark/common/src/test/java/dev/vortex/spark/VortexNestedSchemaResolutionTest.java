@@ -175,14 +175,19 @@ public final class VortexNestedSchemaResolutionTest {
                 "[[0,[10,20,null]], [1,[11,21,null]], [2,[12,22,32]], [3,null]]");
         assertMatchesParquet(parquet, vortex, schema, data -> data.selectExpr("id", "c"));
         assertMatchesParquet(parquet, vortex, schema, data -> data.selectExpr("id", "c.y", "c.z"));
-        assertMatchesParquet(parquet, vortex, schema, data -> data.where("c.x > 10").selectExpr("id", "c.y"));
+        assertMatchesParquet(
+                parquet, vortex, schema, data -> data.where("c.x > 10").selectExpr("id", "c.y"));
     }
 
     @Test
     @DisplayName("A struct read over a field the file stores as another type fails and names the field")
     public void structOverAnotherType(@TempDir Path tempDir) {
         String path = tempDir.resolve("vortex").toString();
-        spark.range(2).selectExpr("id", "named_struct('a', id) AS s").write().format("vortex").save(path);
+        spark.range(2)
+                .selectExpr("id", "named_struct('a', id) AS s")
+                .write()
+                .format("vortex")
+                .save(path);
 
         Exception thrown = assertThrows(Exception.class, () -> spark.read()
                 .schema("id BIGINT, s STRUCT<a: STRUCT<x: BIGINT>>")

@@ -21,8 +21,8 @@ import org.apache.spark.sql.types.StructType;
 /**
  * Pushes Spark's nested schema pruning down to the native scan, and resolves the read schema against each file.
  *
- * <p>Columns and struct fields resolve by name under Spark's case sensitivity, so a file can store a struct's fields
- * in another order, in another case, or without some nullable fields, and still read correctly.
+ * <p>Columns and struct fields resolve by name under Spark's case sensitivity, so a file can store a struct's fields in
+ * another order, in another case, or without some nullable fields, and still read correctly.
  *
  * <p>Only struct fields are pruned and resolved by name. Structs inside arrays and maps, and extension types that
  * export as Arrow structs such as Variant, are read whole and by position, since projecting each element needs a
