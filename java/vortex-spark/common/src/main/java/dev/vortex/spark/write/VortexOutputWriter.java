@@ -339,18 +339,20 @@ public final class VortexOutputWriter extends OutputWriter {
     /**
      * Flushes the last batch and finalizes the file.
      *
-     * <p>After a failed {@link #write}, the batch it left half-populated is dropped. Then, and in any task that has
-     * already failed, this releases everything and logs what fails instead of throwing, because Spark's abort closes a
-     * task's writers one after another and stops at the first that throws. The incomplete file is never committed,
-     * since the task has failed.
+     * <p>After a failed {@link #write}, or in a task that has already failed, the last batch is dropped because the
+     * file is never committed. In both cases this releases everything and logs what fails instead of throwing, because
+     * Spark's abort closes a task's writers one after another and stops at the first that throws.
      */
     @Override
     public void close() {
         if (closed) {
             return;
         }
+
+        boolean aborting = writeFailure != null || taskFailed();
         IOException failure = null;
-        if (writeFailure == null && !batchRows.isEmpty()) {
+
+        if (!aborting && !batchRows.isEmpty()) {
             try {
                 writeBatch();
             } catch (IOException e) {
@@ -359,6 +361,7 @@ public final class VortexOutputWriter extends OutputWriter {
                 failure = new IOException("Failed to write the last Vortex batch", e);
             }
         }
+
         if (vortexWriter != null) {
             try {
                 vortexWriter.finish();
@@ -370,6 +373,7 @@ public final class VortexOutputWriter extends OutputWriter {
         }
 
         failure = closeArrowResources(failure);
+
         if (writable != null) {
             try {
                 writable.close();
@@ -379,12 +383,15 @@ public final class VortexOutputWriter extends OutputWriter {
                 writable = null;
             }
         }
+
         session = null;
         closed = true;
-        if (failure != null && (writeFailure != null || taskFailed())) {
+
+        if (failure != null && aborting) {
             logger.warn("Failed to close the writer for {} in a failed task", filePath, failure);
             return;
         }
+
         if (failure != null) {
             throw new UncheckedIOException("Failed to close Vortex output " + filePath, failure);
         }
