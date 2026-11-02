@@ -11,7 +11,6 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -32,18 +31,18 @@ use crate::eval::SequenceValue;
 /// kernel so the hot loop stays branch-free, and null indices are exempt from the bounds check.
 ///
 /// Both `T` and `O` are unsigned: indices are non-negative, and wrapping arithmetic produces the
-/// same bits in either signedness, so the result is reinterpreted back to `ptype`. This keeps the
-/// kernel to 4x4 instantiations instead of 8x8.
+/// same bits in either signedness, so the result is reinterpreted back to the sequence ptype. This
+/// keeps the kernel to 4x4 instantiations instead of 8x8.
 fn take_inner<T: UnsignedPType, O: SequenceValue + UnsignedPType>(
-    base: O,
-    multiplier: O,
+    array: ArrayView<'_, Sequence>,
     indices: &[T],
     indices_mask: Mask,
-    ptype: PType,
     result_nullability: Nullability,
-    len: usize,
     allocator: BufferAllocatorRef,
-) -> ArrayRef {
+) -> VortexResult<ArrayRef> {
+    let (base, multiplier) = array.wrapping_parts::<O>()?;
+    let ptype = array.dtype().as_ptype();
+    let len = array.len();
     let value_at = |index: T| {
         let index: usize = index.as_();
         (index < len).then(|| eval::wrapping_value(base, multiplier, index))
@@ -64,11 +63,11 @@ fn take_inner<T: UnsignedPType, O: SequenceValue + UnsignedPType>(
             Validity::from(result_nullability)
         }
         AllOr::None => {
-            return ConstantArray::new(
+            return Ok(ConstantArray::new(
                 Scalar::null(DType::Primitive(ptype, Nullability::Nullable)),
                 indices.len(),
             )
-            .into_array();
+            .into_array());
         }
         AllOr::Some(bits) => {
             if let Err(position) = indices.try_map_masked_into(bits, out, value_at) {
@@ -85,9 +84,9 @@ fn take_inner<T: UnsignedPType, O: SequenceValue + UnsignedPType>(
     // SAFETY: the lane kernel wrote every lane before returning `Ok`.
     unsafe { buffer.set_len(indices.len()) };
 
-    PrimitiveArray::new(buffer.freeze(), validity)
+    Ok(PrimitiveArray::new(buffer.freeze(), validity)
         .reinterpret_cast(ptype)
-        .into_array()
+        .into_array())
 }
 
 fn take_sequence(
@@ -97,21 +96,16 @@ fn take_sequence(
     result_nullability: Nullability,
     allocator: BufferAllocatorRef,
 ) -> VortexResult<ArrayRef> {
-    let ptype = array.dtype().as_ptype();
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     match_each_unsigned_integer_ptype!(indices.ptype(), |T| {
-        match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |O| {
-            let (base, multiplier) = array.wrapping_parts::<O>()?;
-            Ok(take_inner::<T, O>(
-                base,
-                multiplier,
+        match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |O| {
+            take_inner::<T, O>(
+                array,
                 indices.as_slice::<T>(),
                 indices_mask,
-                ptype,
                 result_nullability,
-                array.len(),
                 allocator,
-            ))
+            )
         })
     })
 }
