@@ -14,6 +14,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -689,6 +690,10 @@ impl Scan {
     pub fn step(&mut self) -> VortexResult<Turn> {
         loop {
             if let Some((split, array)) = self.outputs.pop_front() {
+                // Operators build their results lazily, such as a filter of a decoded segment.
+                // Optimize each array once here, so a caller that reads its encoding, such as an
+                // exporter that keeps dictionaries and constants, sees what it reduces to.
+                let array = array.optimize_ctx(&self.core.exec)?;
                 return Ok(Turn::Output(split, array));
             }
             if let Some(read) = self.core.new_reads.pop_front() {
