@@ -597,7 +597,11 @@ mod tests {
     use super::*;
     use crate::ZstdBuffersMetadata;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn make_primitive_array() -> ArrayRef {
         PrimitiveArray::from_iter(0i32..100).into_array()

@@ -26,17 +26,21 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::RLEData;
 use crate::rle::array::RLESlots;
 use crate::rle::array::RLESlotsView;
 use crate::rle::array::rle_decompress::rle_decompress;
-use crate::rle::vtable::rules::RULES;
 
 mod operations;
 mod plugin;
 mod rules;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    rules::register_parent_rules(session);
+}
 mod validity;
 
 /// A [`RLE`]-encoded Vortex array.
@@ -137,14 +141,6 @@ impl VTable for RLE {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -37,4 +37,5 @@ use vortex_session::VortexSession;
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(OnPair);
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }

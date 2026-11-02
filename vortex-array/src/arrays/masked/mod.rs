@@ -18,3 +18,7 @@ pub use vtable::Masked;
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    compute::rules::register_parent_rules(session);
+}

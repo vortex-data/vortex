@@ -77,7 +77,11 @@ mod test {
     use crate::FoRData;
     use crate::for_::array::FoRArraySlotsExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_sorted() {

@@ -28,6 +28,7 @@ pub fn initialize(session: &VortexSession) {
         Some(IsConstant.id()),
         &compute::is_constant::DateTimePartsIsConstantKernel,
     );
+    compute::rules::register_parent_rules(session);
 }
 
 #[cfg(test)]

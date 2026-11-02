@@ -11387,6 +11387,7 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "arbitrary",
+ "arc-swap",
  "arcref",
  "arrow-buffer 59.3.2",
  "bytes",

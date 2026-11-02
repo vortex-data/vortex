@@ -3,12 +3,15 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Filter;
+use crate::arrays::Slice;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::filter::FilterArraySlotsExt;
@@ -21,17 +24,20 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructDataParts;
 use crate::builtins::ArrayBuiltins;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::get_item::GetItem;
 
-pub(super) const PARENT_RULES: ParentRuleSet<Filter> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Filter)),
-    ParentRuleSet::lift(&FilterGetItemRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Filter)),
-]);
+/// Registers the parent-reduce rules for [`Filter`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), Filter, FilterReduceAdaptor(Filter));
+    kernels.register_reduce_parent_rule(GetItem.id(), Filter, FilterGetItemRule);
+    kernels.register_reduce_parent_rule(Slice.id(), Filter, SliceReduceAdaptor(Filter));
+}
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
     ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);

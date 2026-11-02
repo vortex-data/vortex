@@ -165,6 +165,7 @@ mod tests {
     use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::encodings::fastlanes;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
@@ -173,7 +174,12 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    // The fastlanes rules reduce a slice of a Delta array to a Delta array.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        fastlanes::initialize(&session);
+        session
+    });
 
     /// Decodes on the GPU and compares against the independent uncompressed fixture.
     async fn assert_gpu_matches_expected(

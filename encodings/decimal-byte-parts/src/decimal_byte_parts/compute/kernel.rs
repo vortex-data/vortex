@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::rules::register_parent_rules;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -23,4 +24,5 @@ pub(crate) fn initialize(session: &VortexSession) {
         DecimalByteParts,
         BetweenExecuteAdaptor(DecimalByteParts),
     );
+    register_parent_rules(session);
 }

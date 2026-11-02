@@ -17,4 +17,5 @@ pub use vtable::RLEArray;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     kernel::initialize(session);
+    vtable::initialize(session);
 }

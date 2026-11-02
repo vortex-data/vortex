@@ -86,13 +86,18 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::optimizer::kernels::ArrayKernelsExt;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::bitpack_compress::bitpack_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {
@@ -103,8 +108,9 @@ mod tests {
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 
         let bitpacked_ref = bitpacked.into_array();
-        let reduced = bitpacked_ref
-            .reduce_parent(&slice_array.into_array(), 0)?
+        let reduced = SESSION
+            .kernels()
+            .reduce_parent(&bitpacked_ref, &slice_array.into_array(), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());

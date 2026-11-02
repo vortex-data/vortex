@@ -66,6 +66,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Binary.id(), Widen, WidenNumericKernel);
     kernels.register_execute_parent_kernel(Dict.id(), Widen, TakeExecuteAdaptor(Widen));
     kernels.register_execute_parent_kernel(Zip.id(), Widen, ZipExecuteAdaptor(Widen));
+    compute::rules::register_parent_rules(session);
 }
 
 #[cfg(test)]

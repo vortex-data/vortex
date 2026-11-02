@@ -20,6 +20,7 @@ pub use vtable::BoolArray;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
 
 #[cfg(feature = "_test-harness")]

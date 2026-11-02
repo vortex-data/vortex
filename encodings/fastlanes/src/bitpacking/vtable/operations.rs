@@ -51,6 +51,7 @@ mod test {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::kernels::ArrayKernelsExt;
     use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -72,8 +73,9 @@ mod test {
     fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let array_ref = array.clone().into_array();
         let slice_array = SliceArray::new(array_ref.clone(), range);
-        let sliced = array_ref
-            .reduce_parent(&slice_array.into_array(), 0)
+        let sliced = SESSION
+            .kernels()
+            .reduce_parent(&array_ref, &slice_array.into_array(), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
         sliced.as_::<BitPacked>().into_owned()
