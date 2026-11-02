@@ -120,9 +120,9 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
-    /// Use the planner-driven V2 Vortex scan.
-    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-    scan_v2: bool,
+    /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    scan_v1: bool,
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
@@ -136,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
-    let scan_v2 = args.scan_v2;
+    let scan_v2 = !args.scan_v1;
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;

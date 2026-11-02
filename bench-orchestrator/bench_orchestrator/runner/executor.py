@@ -55,7 +55,7 @@ class BenchmarkExecutor:
 
         if self.backend in {Engine.DATAFUSION, Engine.DUCKDB}:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
-            cmd.extend(["--scan-v2", str(uses_scan_v2(benchmark)).lower()])
+            cmd.extend(["--scan-v1", str(not uses_scan_v2(benchmark)).lower()])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
 

@@ -58,8 +58,8 @@ def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark
 
     cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
 
-    expected = "false" if benchmark in BENCHMARK_SCAN_V1 else "true"
-    assert cmd[cmd.index("--scan-v2") + 1] == expected
+    expected = "true" if benchmark in BENCHMARK_SCAN_V1 else "false"
+    assert cmd[cmd.index("--scan-v1") + 1] == expected
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -73,7 +73,7 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
-    assert "--scan-v2" not in cmd
+    assert "--scan-v1" not in cmd
     assert cmd[cmd.index("--queries") + 1] == "3"
 
 

@@ -103,9 +103,9 @@ struct Args {
     )]
     reuse: bool,
 
-    /// Use the planner-driven V2 Vortex scan.
-    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
-    scan_v2: bool,
+    /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    scan_v1: bool,
 }
 
 #[global_allocator]
@@ -116,7 +116,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
-    vortex_duckdb::set_scan_v2(args.scan_v2);
+    vortex_duckdb::set_scan_v2(!args.scan_v1);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
