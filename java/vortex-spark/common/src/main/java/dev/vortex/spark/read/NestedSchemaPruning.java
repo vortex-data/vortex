@@ -9,16 +9,24 @@ import dev.vortex.api.Expression;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 /**
- * Pushes Spark's nested schema pruning down to the native scan.
+ * Pushes Spark's nested schema pruning down to the native scan, and resolves the read schema against each file.
  *
- * <p>Only struct fields are pruned. Fields inside arrays and maps keep their full table type, since projecting each
- * element needs a per-element expression the native scan does not expose yet.
+ * <p>Columns and struct fields resolve by name under Spark's case sensitivity, so a file can store a struct's fields
+ * in another order, in another case, or without some nullable fields, and still read correctly.
+ *
+ * <p>Only struct fields are pruned and resolved by name. Structs inside arrays and maps, and extension types that
+ * export as Arrow structs such as Variant, are read whole and by position, since projecting each element needs a
+ * per-element expression the native scan does not expose yet.
  */
 final class NestedSchemaPruning {
     private NestedSchemaPruning() {}
@@ -110,6 +118,7 @@ final class NestedSchemaPruning {
             String fileName,
             String prefix) {
         StructField[] fields = read.fields();
+        FieldLookup lookup = new FieldLookup(file, caseSensitive);
         List<String> names = new ArrayList<>(fields.length);
         List<Expression> children = new ArrayList<>(fields.length);
         int[] slots = new int[fields.length];
@@ -119,7 +128,7 @@ final class NestedSchemaPruning {
         boolean filled = false;
         for (int i = 0; i < fields.length; i++) {
             String path = prefix + fields[i].name();
-            int index = fieldIndex(file, fields[i].name(), caseSensitive, fileName, prefix);
+            int index = lookup.indexOf(fields[i].name(), fileName, prefix);
             if (index < 0) {
                 checkArgument(
                         fields[i].nullable(),
@@ -135,10 +144,21 @@ final class NestedSchemaPruning {
             slots[i] = names.size();
             Field fileField = file.get(index);
             Expression child = Expression.getItem(fileField.getName(), struct);
+
+            if (fields[i].dataType() instanceof StructType) {
+                checkArgument(
+                        fileField.getType() instanceof ArrowType.Struct
+                                || fileField.getType() instanceof ArrowType.ExtensionType,
+                        "%s stores %s as %s, but the query reads it as a struct",
+                        fileName,
+                        path,
+                        fileField.getType());
+            }
+
             // An extension type such as Variant exports as an Arrow struct but is not a native struct.
             if (fields[i].dataType() instanceof StructType readStruct
                     && fileField.getType() instanceof ArrowType.Struct
-                    && !fileField.getMetadata().containsKey("ARROW:extension:name")) {
+                    && !fileField.getMetadata().containsKey(ArrowType.ExtensionType.EXTENSION_METADATA_KEY_NAME)) {
                 Projection nested = struct(
                         child,
                         fileField.isNullable(),
@@ -168,21 +188,48 @@ final class NestedSchemaPruning {
         return new Projection(nullable ? Expression.mask(pack, Expression.isNotNull(struct)) : pack, shape);
     }
 
-    private static int fieldIndex(
-            List<Field> fields, String name, boolean caseSensitive, String fileName, String prefix) {
-        int found = -1;
-        for (int i = 0; i < fields.size(); i++) {
-            String fileField = fields.get(i).getName();
-            if (caseSensitive ? fileField.equals(name) : fileField.equalsIgnoreCase(name)) {
-                checkArgument(
-                        found < 0,
-                        "Ambiguous columns %s and %s in %s under Spark's case sensitivity setting",
-                        prefix + fields.get(found < 0 ? i : found).getName(),
-                        prefix + fileField,
-                        fileName);
-                found = i;
+    /**
+     * Finds the fields of one file struct by name under Spark's case sensitivity, with one map lookup per field, so
+     * resolving a wide schema stays linear in its width.
+     */
+    private static final class FieldLookup {
+        private final List<Field> fields;
+        private final Map<String, Integer> indices;
+
+        /** The second field that matches a name, for names that more than one field matches. */
+        private final Map<String, Integer> duplicates;
+
+        FieldLookup(List<Field> fields, boolean caseSensitive) {
+            this.fields = fields;
+            this.indices = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+            this.duplicates = caseSensitive ? new HashMap<>() : new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+
+            for (int i = 0; i < fields.size(); i++) {
+                String name = fields.get(i).getName();
+                if (indices.putIfAbsent(name, i) != null) {
+                    duplicates.putIfAbsent(name, i);
+                }
             }
         }
-        return found;
+
+        /** Returns the position of the field {@code name} resolves to, or -1 if the struct does not carry it. */
+        int indexOf(String name, String fileName, String prefix) {
+            Integer index = indices.get(name);
+            if (index == null) {
+                return -1;
+            }
+
+            Integer duplicate = duplicates.get(name);
+            if (duplicate != null) {
+                throw new IllegalArgumentException(String.format(
+                        Locale.ROOT,
+                        "Ambiguous columns %s and %s in %s under Spark's case sensitivity setting",
+                        prefix + fields.get(index).getName(),
+                        prefix + fields.get(duplicate).getName(),
+                        fileName));
+            }
+
+            return index;
+        }
     }
 }

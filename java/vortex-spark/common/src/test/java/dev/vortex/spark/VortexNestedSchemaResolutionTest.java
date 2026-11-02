@@ -5,6 +5,7 @@ package dev.vortex.spark;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.api.Session;
 import dev.vortex.api.VortexWriter;
@@ -154,6 +155,51 @@ public final class VortexNestedSchemaResolutionTest {
     }
 
     @Test
+    @DisplayName("Files whose structs differ in field order and in fields read by name in one query")
+    public void filesWithDifferentStructs(@TempDir Path tempDir) {
+        String parquet = tempDir.resolve("parquet").toString();
+        String vortex = tempDir.resolve("vortex").toString();
+        Dataset<Row> first = spark.range(0, 2).selectExpr("id", "named_struct('x', id + 10, 'y', id + 20) AS c");
+        Dataset<Row> second = spark.range(2, 4)
+                .selectExpr("id", "IF(id = 3, NULL, named_struct('y', id + 20, 'z', id + 30, 'x', id + 10)) AS c");
+        for (Dataset<Row> rows : List.of(first, second)) {
+            rows.write().mode("append").parquet(parquet);
+            rows.write().mode("append").format("vortex").save(vortex);
+        }
+
+        String schema = "id BIGINT, c STRUCT<x: BIGINT, y: BIGINT, z: BIGINT>";
+        assertRows(
+                vortex,
+                schema,
+                data -> data.selectExpr("id", "c"),
+                "[[0,[10,20,null]], [1,[11,21,null]], [2,[12,22,32]], [3,null]]");
+        assertMatchesParquet(parquet, vortex, schema, data -> data.selectExpr("id", "c"));
+        assertMatchesParquet(parquet, vortex, schema, data -> data.selectExpr("id", "c.y", "c.z"));
+        assertMatchesParquet(parquet, vortex, schema, data -> data.where("c.x > 10").selectExpr("id", "c.y"));
+    }
+
+    @Test
+    @DisplayName("A struct read over a field the file stores as another type fails and names the field")
+    public void structOverAnotherType(@TempDir Path tempDir) {
+        String path = tempDir.resolve("vortex").toString();
+        spark.range(2).selectExpr("id", "named_struct('a', id) AS s").write().format("vortex").save(path);
+
+        Exception thrown = assertThrows(Exception.class, () -> spark.read()
+                .schema("id BIGINT, s STRUCT<a: STRUCT<x: BIGINT>>")
+                .format("vortex")
+                .load(path)
+                .selectExpr("id", "s.a.x")
+                .collectAsList());
+
+        String expected = "stores s.a as Int(64, true), but the query reads it as a struct";
+        boolean found = false;
+        for (Throwable cause = thrown; cause != null && !found; cause = cause.getCause()) {
+            found = cause.getMessage() != null && cause.getMessage().contains(expected);
+        }
+        assertTrue(found, () -> "expected a cause containing \"" + expected + "\" in " + thrown);
+    }
+
+    @Test
     @DisplayName("A struct field Spark cannot read does not fail a query that reads its siblings")
     public void unreadStructFieldSparkCannotRead(@TempDir Path tempDir) throws IOException {
         Schema schema = new Schema(List.of(
@@ -234,13 +280,18 @@ public final class VortexNestedSchemaResolutionTest {
 
     /** Asserts that {@code query} returns the same rows from Vortex as from Parquet, with pruning off and on. */
     private void assertMatchesParquet(String schema, Function<Dataset<Row>, Dataset<Row>> query) {
+        assertMatchesParquet(parquetPath, vortexPath, schema, query);
+    }
+
+    private void assertMatchesParquet(
+            String parquet, String vortex, String schema, Function<Dataset<Row>, Dataset<Row>> query) {
         for (boolean pruning : new boolean[] {false, true}) {
             spark.conf().set(PRUNING, pruning);
-            List<Row> expected = query.apply(spark.read().schema(schema).parquet(parquetPath))
+            List<Row> expected = query.apply(spark.read().schema(schema).parquet(parquet))
                     .orderBy("id")
                     .collectAsList();
             List<Row> actual = query.apply(
-                            spark.read().schema(schema).format("vortex").load(vortexPath))
+                            spark.read().schema(schema).format("vortex").load(vortex))
                     .orderBy("id")
                     .collectAsList();
             assertEquals(expected, actual, schema + " with pruning " + (pruning ? "on" : "off"));

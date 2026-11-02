@@ -24,7 +24,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
@@ -98,21 +100,26 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
     private static StructType restrictTo(StructType schema, List<Field> fileColumns) {
         // Native filters use physical field names, at every level. Filters on other paths stay with Spark.
+        Map<String, Field> byName = new HashMap<>();
+        for (Field column : fileColumns) {
+            byName.putIfAbsent(column.getName(), column);
+        }
+
         List<StructField> present = new ArrayList<>(schema.length());
         for (StructField field : schema.fields()) {
-            fileColumns.stream()
-                    .filter(column -> column.getName().equals(field.name()))
-                    .findFirst()
-                    .ifPresent(column -> present.add(
-                            field.dataType() instanceof StructType struct
-                                            && column.getType() instanceof ArrowType.Struct
-                                    ? new StructField(
-                                            field.name(),
-                                            restrictTo(struct, column.getChildren()),
-                                            field.nullable(),
-                                            field.metadata())
-                                    : field));
+            Field column = byName.get(field.name());
+            if (column == null) {
+                continue;
+            }
+
+            if (field.dataType() instanceof StructType struct && column.getType() instanceof ArrowType.Struct) {
+                present.add(new StructField(
+                        field.name(), restrictTo(struct, column.getChildren()), field.nullable(), field.metadata()));
+            } else {
+                present.add(field);
+            }
         }
+
         return new StructType(present.toArray(new StructField[0]));
     }
 
