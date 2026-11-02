@@ -7,6 +7,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.DateUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
@@ -44,6 +45,12 @@ public final class ArrowUtils {
      * @throws UnsupportedOperationException if the Arrow type is not supported
      */
     public static DataType fromArrowField(Field field) {
+        if (SparkVariants.isVariant(field)) {
+            Optional<DataType> variant = SparkVariants.variantType();
+            if (variant.isPresent()) {
+                return variant.get();
+            }
+        }
         switch (field.getType().getTypeID()) {
             case Struct:
                 return DataTypes.createStructType(field.getChildren().stream()

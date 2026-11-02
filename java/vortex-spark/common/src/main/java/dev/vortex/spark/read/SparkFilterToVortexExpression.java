@@ -259,7 +259,11 @@ public final class SparkFilterToVortexExpression {
         return null;
     }
 
-    private static Optional<Expression> literal(Object value, DataType dataType) {
+    /**
+     * The Vortex literal of {@code value} as a value of the Spark type {@code dataType}, or a typed null for a null
+     * {@code value}. Accepts external Java values and Catalyst's internal ones alike.
+     */
+    static Optional<Expression> literal(Object value, DataType dataType) {
         if (dataType instanceof BooleanType) {
             return value == null
                     ? Optional.of(Expression.nullLiteralBool())

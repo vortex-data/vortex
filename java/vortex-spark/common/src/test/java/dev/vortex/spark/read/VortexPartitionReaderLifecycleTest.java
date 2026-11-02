@@ -31,10 +31,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.spark.paths.SparkPath;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.sources.Filter;
 import org.apache.spark.sql.types.DataTypes;
@@ -200,7 +202,14 @@ final class VortexPartitionReaderLifecycleTest {
                 VortexIo.create(OPTIONS, new Configuration()),
                 OPTIONS,
                 new Filter[0],
-                true);
+                true,
+                OptionalLong.empty(),
+                null,
+                null,
+                new Expression[0],
+                0L,
+                false,
+                new VortexScanMetrics.Task());
     }
 
     private static void assertClosed(DataSource source, Scan scan, NativeReadable readable) {

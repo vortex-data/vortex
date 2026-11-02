@@ -6,10 +6,15 @@ package dev.vortex.io;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.api.DataSource;
+import dev.vortex.api.DynamicValue;
+import dev.vortex.api.Expression;
+import dev.vortex.api.FileAggregate;
+import dev.vortex.api.FileAggregateResult;
 import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
@@ -292,6 +297,104 @@ public final class NativeIOBridgeTest {
             assertEquals(25, statistics.get(1).lowerBound().orElseThrow());
             assertEquals(40, statistics.get(1).upperBound().orElseThrow());
         }
+    }
+
+    @Test
+    public void testSplitsCoverEveryRow() throws IOException {
+        Path path = tempDir.resolve("bridge_splits.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            long[] boundaries = NativeFiles.splits(session, readable);
+            assertTrue(boundaries.length >= 2, "a file with rows has at least one split");
+            assertEquals(0, boundaries[0]);
+            assertEquals(3, boundaries[boundaries.length - 1]);
+            for (int i = 1; i < boundaries.length; i++) {
+                assertTrue(boundaries[i - 1] < boundaries[i], "splits are not empty and are in order");
+            }
+        }
+    }
+
+    @Test
+    public void testAggregatesThroughBridge() throws IOException {
+        Path path = tempDir.resolve("bridge_aggregates.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        List<FileAggregate> aggregates = List.of(
+                FileAggregate.countStar(),
+                FileAggregate.count("age"),
+                FileAggregate.min("age"),
+                FileAggregate.max("age"),
+                FileAggregate.sum("age"),
+                FileAggregate.min("name"),
+                FileAggregate.max("name"),
+                FileAggregate.isSorted("name"),
+                FileAggregate.isSorted("age"));
+        try (FileChannelReadable readable = new FileChannelReadable(path);
+                FileAggregateResult result = NativeFiles.aggregate(session, readable, aggregates, true, allocator)) {
+            // The core edition does not include the `IsSorted` statistic, so only it stays unanswered.
+            for (int i = 0; i < 7; i++) {
+                assertTrue(result.answered(i));
+            }
+            assertEquals(3L, result.vector(0).getObject(0));
+            assertEquals(3L, result.vector(1).getObject(0));
+            assertEquals(25, result.vector(2).getObject(0));
+            assertEquals(40, result.vector(3).getObject(0));
+            assertEquals(95L, result.vector(4).getObject(0));
+            assertEquals("Alice", result.vector(5).getObject(0).toString());
+            assertEquals("Carol", result.vector(6).getObject(0).toString());
+            assertFalse(result.answered(7));
+            assertFalse(result.answered(8));
+        }
+
+        // Without a scan, only what the footer states exactly is answered, and COUNT(*) always is.
+        try (FileChannelReadable readable = new FileChannelReadable(path);
+                FileAggregateResult result = NativeFiles.aggregate(session, readable, aggregates, false, allocator)) {
+            assertTrue(result.answered(0));
+            assertEquals(3L, result.vector(0).getObject(0));
+            for (int i = 0; i < result.size(); i++) {
+                if (!result.answered(i)) {
+                    assertTrue(result.vector(i).isNull(0));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDynamicComparisonFollowsItsValue() throws IOException {
+        Path path = tempDir.resolve("bridge_dynamic.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        writePeopleFile(session, allocator, path);
+
+        DynamicValue threshold = DynamicValue.create(Expression.nullLiteral(Expression.DType.I32));
+        Expression filter = Expression.dynamic(Expression.BinaryOp.LT, Expression.column("age"), threshold, true);
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            DataSource source = DataSource.open(session, readable);
+            // Unset, the comparison keeps every row.
+            assertEquals(3, countRows(source, filter, allocator));
+            threshold.set(Expression.literal(35));
+            assertEquals(2, countRows(source, filter, allocator));
+            threshold.set(Expression.literal(26));
+            assertEquals(1, countRows(source, filter, allocator));
+        }
+    }
+
+    private static int countRows(DataSource source, Expression filter, BufferAllocator allocator) throws IOException {
+        Scan scan = source.scan(ScanOptions.builder().filter(filter).build());
+        int rows = 0;
+        while (scan.hasNext()) {
+            try (ArrowReader reader = scan.next().scanArrow(allocator)) {
+                while (reader.loadNextBatch()) {
+                    rows += reader.getVectorSchemaRoot().getRowCount();
+                }
+            }
+        }
+        return rows;
     }
 
     @Test

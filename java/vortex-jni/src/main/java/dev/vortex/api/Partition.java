@@ -61,6 +61,15 @@ public final class Partition {
      * reader when finished; doing so releases the native partition resources as well.
      */
     public ArrowReader scanArrow(BufferAllocator allocator) {
+        return scanArrow(allocator, false);
+    }
+
+    /**
+     * Like {@link #scanArrow(BufferAllocator)}. With {@code unscaledSmallDecimals}, each top-level decimal column of at
+     * most 18 digits arrives as a {@code BIGINT} column of its unscaled values, which costs less to export and to read
+     * than a 128-bit decimal. The caller must know each such column's precision and scale.
+     */
+    public ArrowReader scanArrow(BufferAllocator allocator, boolean unscaledSmallDecimals) {
         if (!consumed.compareAndSet(false, true)) {
             throw new IllegalStateException("partition already consumed");
         }
@@ -75,7 +84,8 @@ public final class Partition {
             }
             try {
                 // JNI consumes the partition even when it throws.
-                NativePartition.scanArrow(session.nativePointer(), pointer, stream.memoryAddress());
+                NativePartition.scanArrow(
+                        session.nativePointer(), pointer, stream.memoryAddress(), unscaledSmallDecimals);
                 // Closes the stream struct once its reader has taken the stream.
                 return Data.importArrayStream(allocator, stream);
             } catch (RuntimeException | Error failure) {

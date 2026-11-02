@@ -96,11 +96,21 @@ final class NestedSchemaPruning {
      * <p>Fields resolve by name under Spark's case sensitivity, at every level, and are read under the file's names, in
      * the order Spark reads them and only as far down as Spark reads them. A nullable field the file does not carry is
      * left out and filled in with nulls through {@link Projection#shape}.
+     *
+     * <p>More top-level columns follow the fields of {@code readSchema}: one named {@code extraNames[i]} that
+     * {@code extraColumns[i]} computes for each {@code i}. They come after the columns that {@link Projection#shape}
+     * lays out.
      */
     static Projection projection(
-            StructType readSchema, List<Field> fileColumns, boolean caseSensitive, String fileName) {
+            StructType readSchema,
+            List<Field> fileColumns,
+            boolean caseSensitive,
+            String fileName,
+            List<String> extraNames,
+            List<Expression> extraColumns) {
         Expression root = Expression.root();
-        Projection projection = struct(root, false, readSchema, fileColumns, caseSensitive, fileName, "");
+        Projection projection =
+                struct(root, false, readSchema, fileColumns, caseSensitive, fileName, "", extraNames, extraColumns);
         if (projection.expression() != null) {
             return projection;
         }
@@ -116,7 +126,9 @@ final class NestedSchemaPruning {
             List<Field> file,
             boolean caseSensitive,
             String fileName,
-            String prefix) {
+            String prefix,
+            List<String> extraNames,
+            List<Expression> extraColumns) {
         StructField[] fields = read.fields();
         FieldLookup lookup = new FieldLookup(file, caseSensitive);
         List<String> names = new ArrayList<>(fields.length);
@@ -166,7 +178,9 @@ final class NestedSchemaPruning {
                         fileField.getChildren(),
                         caseSensitive,
                         fileName,
-                        path + ".");
+                        path + ".",
+                        List.of(),
+                        List.of());
                 if (nested.expression() != null) {
                     child = nested.expression();
                     packed = true;
@@ -178,6 +192,9 @@ final class NestedSchemaPruning {
             children.add(child);
         }
         Shape shape = filled ? new Shape(read, slots, shapes) : null;
+        names.addAll(extraNames);
+        children.addAll(extraColumns);
+        packed |= !extraNames.isEmpty();
         String[] fileNames = names.toArray(new String[0]);
         // `select` keeps the struct's own nulls, so use it when no child needs packing. An empty one loses them.
         if (!packed && !(nullable && names.isEmpty())) {

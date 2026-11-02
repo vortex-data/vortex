@@ -24,6 +24,7 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
+use parking_lot::RwLock;
 use vortex::VortexSessionDefault;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
@@ -43,6 +44,7 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::between;
+use vortex::expr::dynamic;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -55,6 +57,7 @@ use vortex::expr::or_collect;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::expr::variant_get;
 use vortex::extension::datetime::Date;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
@@ -73,7 +76,10 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
+use vortex::scalar_fn::fns::operators::CompareOperator;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::variant_get::VariantPath;
+use vortex::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
@@ -391,6 +397,150 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_like(
         },
         [child, pattern],
     ))
+}
+
+/// Build `variant_get(child, path)`: the variant value at `path` within each variant of `child`,
+/// or null where the path does not resolve.
+///
+/// The path is given element by element: `fields[i]` names an object field, or is null for an
+/// array element at index `indexes[i]`. The result stays a variant, which callers cast with their
+/// own rules.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_variantGet(
+    mut env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+    fields: JObjectArray,
+    indexes: JLongArray,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let count = fields.len(env)?;
+        if indexes.len(env)? != count {
+            throw_runtime!("variant path fields and indexes must have equal length");
+        }
+        let mut positions = vec![0 as jlong; count];
+        indexes.get_region(env, 0, &mut positions)?;
+
+        let mut elements = Vec::with_capacity(count);
+        for (element, position) in positions.iter().enumerate() {
+            let field = fields.get_element(env, element)?;
+            if field.is_null() {
+                let index = u64::try_from(*position)
+                    .map_err(|_| vortex_err!("negative variant path index {position}"))?;
+                elements.push(VariantPathElement::index(index));
+            } else {
+                let name: String = env.cast_local::<JString>(field)?.try_to_string(env)?;
+                elements.push(VariantPathElement::field(name.as_str()));
+            }
+        }
+
+        let child = unsafe { expr_ref(child) }.clone();
+        Ok(into_raw(variant_get(
+            child,
+            VariantPath::new(elements),
+            None,
+        )))
+    })
+}
+
+/// A comparison value that a running scan reads each time it evaluates a dynamic comparison.
+///
+/// Java tightens it as the scan proceeds, for example to the current N-th best value of an
+/// `ORDER BY ... LIMIT n`, so that zone statistics prune more of what is left to read.
+struct NativeDynamicValue {
+    value: Arc<RwLock<Option<ScalarValue>>>,
+    dtype: DType,
+}
+
+/// SAFETY: pointer must originate from [`Java_dev_vortex_jni_NativeExpression_dynamicValueCreate`]
+/// and not yet be freed.
+unsafe fn dynamic_value_ref<'a>(ptr: jlong) -> &'a NativeDynamicValue {
+    debug_assert!(ptr != 0, "null dynamic value pointer");
+    unsafe { &*(ptr as *const NativeDynamicValue) }
+}
+
+/// Create an unset dynamic value of the dtype of the literal `prototype`, typically a typed null.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_dynamicValueCreate(
+    mut env: EnvUnowned,
+    _class: JClass,
+    prototype: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let dtype =
+            unsafe { prototype_dtype(prototype, "dynamic value type", Nullability::NonNullable) }?;
+        let value = NativeDynamicValue {
+            value: Arc::new(RwLock::new(None)),
+            dtype,
+        };
+        Ok(Box::into_raw(Box::new(value)) as jlong)
+    })
+}
+
+/// Set a dynamic value to the literal `literal`, cast to the value's dtype. Comparisons that read
+/// it see the new value from their next evaluation on.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_dynamicValueSet(
+    mut env: EnvUnowned,
+    _class: JClass,
+    pointer: jlong,
+    literal: jlong,
+) {
+    try_or_throw(&mut env, |_| {
+        let dynamic = unsafe { dynamic_value_ref(pointer) };
+        let scalar = unsafe { literal_scalar(literal, "dynamic value") }?.cast(&dynamic.dtype)?;
+        *dynamic.value.write() = scalar.into_value();
+        Ok(())
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_dynamicValueFree(
+    _env: EnvUnowned,
+    _class: JClass,
+    pointer: jlong,
+) {
+    if pointer == 0 {
+        return;
+    }
+    drop(unsafe { Box::from_raw(pointer as *mut NativeDynamicValue) });
+}
+
+/// Build `lhs <op> value`, a comparison against the current dynamic `value`. While `value` is
+/// unset, the comparison is the constant `default`.
+///
+/// `op` is a comparison code of [`parse_op`]. The expression shares `value` rather than copying
+/// it, so it stays valid after the dynamic value is freed.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_dynamic(
+    mut env: EnvUnowned,
+    _class: JClass,
+    op: jbyte,
+    lhs: jlong,
+    value: jlong,
+    default: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let operator = match parse_op(op)? {
+            Operator::Eq => CompareOperator::Eq,
+            Operator::NotEq => CompareOperator::NotEq,
+            Operator::Gt => CompareOperator::Gt,
+            Operator::Gte => CompareOperator::Gte,
+            Operator::Lt => CompareOperator::Lt,
+            Operator::Lte => CompareOperator::Lte,
+            other => throw_runtime!("dynamic comparisons need a comparison operator, not {other}"),
+        };
+        let lhs = unsafe { expr_ref(lhs) }.clone();
+        let dynamic_value = unsafe { dynamic_value_ref(value) };
+        let shared = Arc::clone(&dynamic_value.value);
+        Ok(into_raw(dynamic(
+            operator,
+            move || shared.read().clone(),
+            dynamic_value.dtype.clone(),
+            default,
+            lhs,
+        )))
+    })
 }
 
 #[unsafe(no_mangle)]
