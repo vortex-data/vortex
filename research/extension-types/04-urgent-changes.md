@@ -189,10 +189,12 @@ Three more PRs touch this work:
   maintainer added commits on 2026-10-30, up to `6d701af0ac`, and the author agreed. They merge
   `develop`, update the binding tests that expect the old range, and leave the fallible `min_max`
   wrap to #11014. In place of the days range check, the split keeps `i32` days. It rebuilds only
-  the days part as `i64` when a non-null value does not fit. On 2026-11-02 the PR has no review,
-  and it conflicts with `develop` in `encodings/datetime-parts/src/compute/compare.rs`, which U2
-  also changed. The same commit changes the parameters of the `split_temporal` benchmark. So
-  CodSpeed lists its cases as new, and it compares none of them with `develop`.
+  the days part as `i64` when a non-null value does not fit. On 2026-11-02 a maintainer commit
+  merged `develop` again (`0387205e35`). The compare kernel keeps the dtype check of U2, and the
+  PR waits for a review. The PR changes the parameters of the `split_temporal` benchmark, so
+  CodSpeed cannot compare it with `develop`. One local run of each side on 2026-11-02 measured the
+  ordinary split at -4.8% for seconds, +6.8% for milliseconds, +0.4% for microseconds and -5.6%
+  for nanoseconds. The noise of one run is about 5%, so these runs show no clear slowdown.
 - [#11056](https://github.com/vortex-data/vortex/pull/11056) folds `ext_storage` and `get_item`
   over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
   types, and requested changes on 2026-10-30. The maintainer approved it the same day, because it

@@ -205,10 +205,10 @@ implementations that they change into `vortex-aggregates`.
   `DateTimeParts` days wrap (EXT-S3). The maintainer commits of 2026-10-30 merge `develop`, update
   the binding tests that expect the old range, and drop the `min_max/extension.rs` change that
   #11014 owns. In place of the days range check, the split keeps `i32` days, and it rebuilds the
-  days part as `i64` only when a non-null value does not fit. On 2026-11-02 the PR has no review,
-  and it conflicts with the `DateTimeParts` compare kernel that U2 changed. The PR also changes
-  the parameters of the `split_temporal` benchmark, so CodSpeed has no comparison with `develop`
-  for it.
+  days part as `i64` only when a non-null value does not fit. On 2026-11-02 a maintainer commit
+  merged `develop` again and kept the dtype check of U2 in the compare kernel. The PR waits for a
+  review. Part 4 has the local benchmark runs, because CodSpeed has no comparison with `develop`
+  for the changed `split_temporal` cases.
 - Land the spatial fix (EXT-N2) in two PRs. The first makes the spatial validators require non-null
   nested levels and the spatial Arrow importers convert or fail. The second makes the other Arrow
   importers fail on data outside the domain instead of declining, for example the `Vector` importer
