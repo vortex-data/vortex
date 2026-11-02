@@ -280,7 +280,10 @@ impl Scalar {
     ///
     /// Extensions read their storage values in the normalized form, so a list given as a legacy
     /// [`ScalarValue::Tuple`] is normalized before the extension sees it.
-    fn validate_extension_storage(ext_dtype: &ExtDTypeRef, value: &ScalarValue) -> VortexResult<()> {
+    fn validate_extension_storage(
+        ext_dtype: &ExtDTypeRef,
+        value: &ScalarValue,
+    ) -> VortexResult<()> {
         if matches!(value, ScalarValue::Tuple(_)) {
             let mut normalized = value.clone();
             normalize_list_values(ext_dtype.storage_dtype(), &mut normalized);

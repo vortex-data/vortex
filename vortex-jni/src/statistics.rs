@@ -125,12 +125,10 @@ fn scalar_to_java<'local>(
         ScalarValue::List(_)
         | ScalarValue::Tuple(_)
         | ScalarValue::Union(_)
-        | ScalarValue::Variant(_) => {
-            Err(JNIError::Vortex(vortex_err!(
-                "cannot return nested scalar statistic with dtype {} to Java",
-                scalar.dtype()
-            )))
-        }
+        | ScalarValue::Variant(_) => Err(JNIError::Vortex(vortex_err!(
+            "cannot return nested scalar statistic with dtype {} to Java",
+            scalar.dtype()
+        ))),
     }
 }
 

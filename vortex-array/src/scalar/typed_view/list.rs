@@ -17,9 +17,9 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::scalar::ListValue;
-use crate::scalar::list_value::is_flat;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::list_value::is_flat;
 
 /// A scalar value representing a list or fixed-size list (array) of elements.
 ///
@@ -230,7 +230,9 @@ impl<'a> ListScalar<'a> {
         // A change of a flat element dtype's nullability alone keeps every value, so only nulls
         // need checking.
         if is_flat(target_element_dtype)
-            && list.element_dtype().eq_ignore_nullability(target_element_dtype)
+            && list
+                .element_dtype()
+                .eq_ignore_nullability(target_element_dtype)
         {
             let list = list.with_flat_element_nullability(target_element_dtype)?;
             return Scalar::try_new(dtype.clone(), Some(ScalarValue::List(list)));

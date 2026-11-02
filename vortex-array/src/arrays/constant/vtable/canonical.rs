@@ -386,12 +386,16 @@ fn tile_fixed_size_list_elements(
             {
                 return Ok(match_each_native_ptype!(primitive.ptype(), |T| {
                     let row = primitive.as_slice::<T>();
-                    let mut buffer = BufferMut::<T>::with_capacity_in(elements_len, allocator.clone());
+                    let mut buffer =
+                        BufferMut::<T>::with_capacity_in(elements_len, allocator.clone());
                     for _ in 0..len {
                         buffer.extend_from_slice(row);
                     }
-                    PrimitiveArray::new(buffer.freeze(), Validity::from(element_dtype.nullability()))
-                        .into_array()
+                    PrimitiveArray::new(
+                        buffer.freeze(),
+                        Validity::from(element_dtype.nullability()),
+                    )
+                    .into_array()
                 }));
             }
 
@@ -434,6 +438,7 @@ mod tests {
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
@@ -977,9 +982,10 @@ mod tests {
         }
     }
 
-    /// Mixed elements should materialize once, with every row chunking that one copy.
+    /// A small primitive tile is copied into one contiguous buffer, a copy per row costing less
+    /// than a chunk per row.
     #[test]
-    fn test_canonicalize_fixed_size_list_tiles_one_copy_of_mixed_elements() {
+    fn test_canonicalize_fixed_size_list_copies_small_primitive_tile() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         const LEN: usize = 1_000;
         let fsl_scalar = Scalar::fixed_size_list(
@@ -993,27 +999,54 @@ mod tests {
 
         let canonical = ConstantArray::new(fsl_scalar, LEN)
             .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)
-            .unwrap();
+            .execute::<FixedSizeListArray>(&mut ctx)?;
 
-        assert_eq!(canonical.elements().len(), 2 * LEN);
+        assert!(canonical.elements().is::<Primitive>());
+        assert_arrays_eq!(
+            canonical.elements().clone(),
+            PrimitiveArray::from_iter(std::iter::repeat_n([1i32, 2], LEN).flatten()),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A large tile is held once, with every row chunking that one copy.
+    #[test]
+    fn test_canonicalize_fixed_size_list_tiles_one_copy_of_large_elements() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        const LEN: usize = 100;
+        const SIZE: i32 = 1_000;
+        let fsl_scalar = Scalar::fixed_size_list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            (0..SIZE)
+                .map(|i| Scalar::primitive(i, Nullability::NonNullable))
+                .collect(),
+            Nullability::NonNullable,
+        );
+
+        let canonical = ConstantArray::new(fsl_scalar, LEN)
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+
+        assert_eq!(canonical.elements().len(), SIZE as usize * LEN);
+        let chunks = canonical.elements().as_::<Chunked>();
         assert_eq!(
-            canonical.elements().as_::<Chunked>().nchunks(),
+            chunks.nchunks(),
             LEN,
             "every row should reference the same tile rather than hold its own copy",
         );
-        let chunks = canonical.elements().as_::<Chunked>();
         let tile_ptr = chunks.chunk(0).buffer_handles()[0].as_host().as_ptr();
         for chunk in chunks.iter_chunks() {
             assert_eq!(chunk.buffer_handles()[0].as_host().as_ptr(), tile_ptr);
         }
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
-                canonical.fixed_size_list_elements_at(index).unwrap(),
-                PrimitiveArray::from_iter([1i32, 2]),
+                canonical.fixed_size_list_elements_at(index)?,
+                PrimitiveArray::from_iter(0..SIZE),
                 &mut ctx
             );
         }
+        Ok(())
     }
 
     /// Only a value too long to inline should cost a data buffer.

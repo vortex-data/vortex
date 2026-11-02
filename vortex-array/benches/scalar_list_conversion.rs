@@ -5,7 +5,13 @@
 //! scalar into an array, and building, comparing and serializing list scalars.
 
 #![expect(clippy::unwrap_used)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss
+)]
 
+use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -270,7 +276,11 @@ fn construct_list_scalar(bencher: Bencher, list_size: usize) {
                 .collect::<Vec<_>>()
         })
         .bench_values(|children| {
-            Scalar::list(Arc::clone(&element_dtype), children, Nullability::NonNullable)
+            Scalar::list(
+                Arc::clone(&element_dtype),
+                children,
+                Nullability::NonNullable,
+            )
         });
 }
 
@@ -284,7 +294,7 @@ fn eq_list_scalar(bencher: Bencher, list_size: usize) {
 #[divan::bench(args = LIST_SIZES)]
 fn hash_list_scalar(bencher: Bencher, list_size: usize) {
     let scalar = i64_list_scalar(list_size);
-    let state = std::collections::hash_map::RandomState::new();
+    let state = RandomState::new();
     bencher.bench(|| state.hash_one(divan::black_box(&scalar)));
 }
 

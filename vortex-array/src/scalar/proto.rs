@@ -26,6 +26,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
+use crate::match_each_native_ptype;
 use crate::proto::scalar as pb;
 use crate::proto::scalar::ListValue;
 use crate::proto::scalar::UnionValue as PbUnionValue;
@@ -37,7 +38,6 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::UnionValue;
 use crate::validity::Validity;
-use crate::match_each_native_ptype;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Serialize INTO proto.

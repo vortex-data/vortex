@@ -24,8 +24,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::array::ArrayView;
 use crate::VortexSessionExecute;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
@@ -48,8 +48,8 @@ use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
@@ -211,15 +211,17 @@ impl ListValue {
     /// The elements as a slice of `T`, if they are non-null primitives of type `T`.
     pub fn as_slice<T: NativePType>(&self) -> Option<&[T]> {
         let primitive = self.elements.as_opt::<Primitive>()?;
-        (primitive.ptype() == T::PTYPE && self.all_valid)
-            .then(|| primitive.data().as_slice::<T>())
+        (primitive.ptype() == T::PTYPE && self.all_valid).then(|| primitive.data().as_slice::<T>())
     }
 
     /// The same list with elements of `element_dtype`, a flat dtype equal to the current element
     /// dtype up to nullability.
     ///
     /// Fails if the list holds a null and `element_dtype` is non-nullable.
-    pub(crate) fn with_flat_element_nullability(&self, element_dtype: &DType) -> VortexResult<Self> {
+    pub(crate) fn with_flat_element_nullability(
+        &self,
+        element_dtype: &DType,
+    ) -> VortexResult<Self> {
         if !element_dtype.is_nullable() && !self.all_valid {
             vortex_bail!(
                 "Cannot cast a list with null elements to non-nullable elements {element_dtype}"
@@ -441,7 +443,10 @@ pub(crate) fn retype_list_values(dtype: &DType, value: ScalarValue) -> VortexRes
                     ),
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
-            Ok(ScalarValue::List(ListValue::from_values(element_dtype, values)))
+            Ok(ScalarValue::List(ListValue::from_values(
+                element_dtype,
+                values,
+            )))
         }
         (DType::Struct(fields, _), ScalarValue::Tuple(values)) => Ok(ScalarValue::Tuple(
             fields
@@ -709,12 +714,7 @@ pub(crate) fn normalize_list_values(dtype: &DType, value: &mut ScalarValue) {
 
 /// Returns `true` if `array` and all of its descendants are canonical encodings.
 pub(crate) fn is_recursively_canonical(array: &ArrayRef) -> bool {
-    array.is_canonical()
-        && array
-            .slots()
-            .iter()
-            .flatten()
-            .all(is_recursively_canonical)
+    array.is_canonical() && array.slots().iter().flatten().all(is_recursively_canonical)
 }
 
 /// Reads element values out of a recursively canonical array.
@@ -831,7 +831,9 @@ impl<'a> ValueReader<'a> {
             ReaderKind::Utf8 => {
                 let bytes = array.as_::<VarBinView>().bytes_at(index);
                 // SAFETY: a Utf8 VarBinView array only holds valid UTF-8.
-                Some(ScalarValue::Utf8(unsafe { BufferString::new_unchecked(bytes) }))
+                Some(ScalarValue::Utf8(unsafe {
+                    BufferString::new_unchecked(bytes)
+                }))
             }
             ReaderKind::Binary => Some(ScalarValue::Binary(
                 array.as_::<VarBinView>().bytes_at(index),
@@ -932,15 +934,17 @@ mod tests {
         assert!(with_null < lhs);
         assert_ne!(lhs, with_null);
 
-        // The fast path hashes like the generic per-value loop.
-        let list = lhs.as_list().list_value().unwrap();
-        let mut fast = DefaultHasher::new();
-        list.hash(&mut fast);
-        let mut expected = DefaultHasher::new();
-        expected.write_usize(2);
-        Some(ScalarValue::Primitive(1i32.into())).hash(&mut expected);
-        Some(ScalarValue::Primitive(2i32.into())).hash(&mut expected);
-        assert_eq!(fast.finish(), expected.finish());
+        // A list read out of an array hashes like the same list built from scalars.
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements = PrimitiveArray::from_iter([9i32, 1, 2]).into_array();
+        let read = Scalar::list_from_array(
+            elements.slice(1..3).unwrap(),
+            Nullability::NonNullable,
+            &mut ctx,
+        )
+        .unwrap();
+        assert_eq!(read, lhs);
+        assert_eq!(hash_of(&read), hash_of(&lhs));
     }
 
     /// Lists given as tuples, at the top level and nested in a struct, become array-backed.
@@ -950,7 +954,7 @@ mod tests {
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             Nullability::NonNullable,
         );
-        let struct_dtype = DType::struct_([("tags", list_dtype.clone())], Nullability::NonNullable);
+        let struct_dtype = DType::struct_([("tags", list_dtype)], Nullability::NonNullable);
         let scalar = Scalar::try_new(
             struct_dtype,
             Some(ScalarValue::Tuple(vec![Some(ScalarValue::Tuple(vec![
@@ -1010,7 +1014,13 @@ mod tests {
             .into_listview();
         assert!(ArrayRef::ptr_eq(canonical.elements(), &elements));
         for row in 0..3 {
-            assert_eq!(canonical.clone().into_array().execute_scalar(row, &mut ctx)?, scalar);
+            assert_eq!(
+                canonical
+                    .clone()
+                    .into_array()
+                    .execute_scalar(row, &mut ctx)?,
+                scalar
+            );
         }
         Ok(())
     }

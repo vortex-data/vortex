@@ -26,12 +26,12 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::DecimalValue;
-use crate::scalar::PValue;
 use crate::scalar::ListValue;
-use crate::scalar::list_value::is_flat;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::UnionValue;
+use crate::scalar::list_value::is_flat;
 
 // TODO(connor): Really, we want `try_` constructors that return errors instead of just panic.
 impl Scalar {
@@ -230,8 +230,12 @@ impl Scalar {
         nullability: Nullability,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        let size = u32::try_from(elements.len())
-            .map_err(|_| vortex_err!("fixed-size list of {} elements is too large", elements.len()))?;
+        let size = u32::try_from(elements.len()).map_err(|_| {
+            vortex_err!(
+                "fixed-size list of {} elements is too large",
+                elements.len()
+            )
+        })?;
         let dtype = DType::FixedSizeList(Arc::new(elements.dtype().clone()), size, nullability);
         let list = ListValue::try_from_array(elements, ctx)?;
         // SAFETY: the list's element dtype and length match the dtype by construction.

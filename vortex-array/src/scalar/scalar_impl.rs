@@ -18,9 +18,9 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::half::f16;
 use crate::scalar::PValue;
-use crate::scalar::list_value::normalize_list_values;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::list_value::normalize_list_values;
 
 impl Scalar {
     // Constructors for null scalars.
