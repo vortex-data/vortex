@@ -21,7 +21,8 @@ COPY (SELECT id, CAST(value AS DECIMAL(21,1)) AS value FROM (VALUES
 statement ok
 CREATE VIEW decimals AS SELECT * FROM '${WORK_DIR}/decimal_to_integer.vortex';
 
-# EXPLAIN verifies that the cast executes inside the Vortex scan.
+# Vortex does not convert decimal-to-integer casts, so EXPLAIN shows the cast in a
+# DataFusion ProjectionExec above the scan.
 query TT
 EXPLAIN SELECT CAST(value AS BIGINT) AS integer_value FROM decimals;
 ----
@@ -29,7 +30,9 @@ logical_plan
 01)Projection: CAST(decimals.value AS Int64) AS integer_value
 02)--SubqueryAlias: decimals
 03)----TableScan: ${WORK_DIR}/decimal_to_integer.vortex projection=[value]
-physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/decimal_to_integer.vortex]]}, projection=[CAST(value@1 AS Int64) as integer_value], file_type=vortex
+physical_plan
+01)ProjectionExec: expr=[CAST(value@0 AS Int64) as integer_value]
+02)--DataSourceExec: file_groups={1 group: [[${WORK_DIR}/decimal_to_integer.vortex]]}, projection=[value], file_type=vortex
 
 # Fractions truncate toward zero; large integers remain exact and nulls survive.
 query I

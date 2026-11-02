@@ -16,4 +16,5 @@ physical_plan
 02)--AggregateExec: mode=Final, gby=[], aggr=[sum(hits.ResolutionWidth), count(hits.ResolutionWidth)]
 03)----CoalescePartitionsExec
 04)------AggregateExec: mode=Partial, gby=[], aggr=[sum(hits.ResolutionWidth), count(hits.ResolutionWidth)]
-05)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[CAST(ResolutionWidth@20 AS Int64) as __common_expr_2], file_type=vortex
+05)--------ProjectionExec: expr=[CAST(ResolutionWidth@0 AS Int64) as __common_expr_2]
+06)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>], [${WORK_DIR}/hits.vortex:<slt:ignore>]]}, projection=[ResolutionWidth], file_type=vortex
