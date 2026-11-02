@@ -285,7 +285,7 @@ impl Planner for FilterPlanner {
             );
             self.filter
                 .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
+                .report_row_counts(*index, input, selected.mask.true_count());
             self.active = None;
             self.pieces.clear();
         }
@@ -304,10 +304,15 @@ impl Planner for FilterPlanner {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+            .with_value_cache(self.scan.values.clone())
+            .with_segment_cache(selected.segment_cache());
             self.active = Some((
                 index,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
+                ScanAdaptor::new(
+                    scan,
+                    Arc::clone(&self.scan.locations),
+                    self.scan.subsegment_reads,
+                ),
             ));
             return Ok(PlannerOutput::Continue);
         }

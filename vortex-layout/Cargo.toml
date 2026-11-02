@@ -79,8 +79,10 @@ vortex-buffer = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-file = { path = "../vortex-file" }
 vortex-io = { path = "../vortex-io", features = ["tokio", "object_store"] }
+vortex-onpair = { workspace = true }
 
 [features]
+io-uring = ["vortex-io/io-uring"]
 default = ["wasm-bindgen"]
 _test-harness = ["vortex-array/_test-harness"]
 tokio = ["dep:tokio", "vortex-error/tokio"]

@@ -97,6 +97,8 @@ pub struct ReadRequest {
     pub(crate) offset: u64,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
+    /// Whether coalescing may read gaps around this request.
+    pub(crate) allow_gaps: bool,
     pub(crate) callback: oneshot::Sender<VortexResult<BufferHandle>>,
 }
 

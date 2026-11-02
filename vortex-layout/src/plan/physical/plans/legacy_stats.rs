@@ -146,7 +146,7 @@ impl PlanVTable for LegacyStats {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        compiler.compile(&plan.data_plan()?, rows, mask)
+        compiler.compile_rows(&plan.data_plan()?, rows, mask)
     }
 }
 

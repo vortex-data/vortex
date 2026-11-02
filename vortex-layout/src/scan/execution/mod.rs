@@ -14,6 +14,7 @@
 mod adaptor;
 mod chunk;
 mod filter;
+mod primitive;
 mod projection;
 mod prune;
 mod selection;
@@ -45,11 +46,10 @@ use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::SegmentCache;
+use crate::plan::physical::pipeline::SegmentLease;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
-use crate::scan::v2::io::SegmentRanges;
-use crate::scan::v2::io::SegmentScanIo;
-use crate::segments::SegmentSource;
 
 /// Where a segment's bytes live in the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,10 +82,10 @@ pub struct PreparedScan {
     pub(super) rows: Range<u64>,
     /// The rows of `rows` the scan selects.
     pub(super) selection: Selection,
-    /// Fetches segment bytes by id.
-    pub(super) segments: Arc<dyn SegmentSource>,
-    /// The segments' byte ranges, back to their ids.
-    pub(super) ranges: SegmentRanges,
+    /// The service from which each planning run takes its read scope.
+    pub(super) io: Arc<dyn IoService>,
+    /// Whether the positional service may read verified primitive subranges.
+    pub(super) subsegment_reads: bool,
     /// Held for the scan's life, so scans of the file that start meanwhile share it.
     #[expect(dead_code, reason = "kept alive, never read")]
     pub(super) cache: ScanCache,
@@ -120,13 +120,9 @@ impl PreparedScan {
         self.filter.as_deref()
     }
 
-    /// The service a driver takes IO sessions from: every read a planner of the scan requests is
-    /// served from it by segment.
+    /// The service from which a driver takes independent IO registration scopes.
     pub fn io(&self) -> Arc<dyn IoService> {
-        Arc::new(SegmentScanIo::new(
-            Arc::clone(&self.segments),
-            Arc::clone(&self.ranges),
-        ))
+        Arc::clone(&self.io)
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
@@ -146,4 +142,11 @@ pub(super) struct SelectedRows {
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
     mask: Mask,
+    lease: Option<Arc<SegmentLease>>,
+}
+
+impl SelectedRows {
+    fn segment_cache(&self) -> Option<SegmentCache> {
+        self.lease.as_ref().map(|lease| lease.cache.clone())
+    }
 }

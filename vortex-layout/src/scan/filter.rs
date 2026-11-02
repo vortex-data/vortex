@@ -93,6 +93,23 @@ impl FilterExpr {
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
+    /// Reports a predicate's observed input and output row counts.
+    pub(crate) fn report_row_counts(
+        &self,
+        conjunct_idx: usize,
+        input_rows: usize,
+        output_rows: usize,
+    ) {
+        assert!(input_rows > 0 && output_rows <= input_rows);
+        // A uniform prior contributes one match and one non-match. In particular, zero matches
+        // among a few surviving rows must not outrank a selective predicate tested on a full
+        // chunk merely because that small sample finishes first.
+        self.report_selectivity(
+            conjunct_idx,
+            (output_rows as f64 + 1.0) / (input_rows as f64 + 2.0),
+        );
+    }
+
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
     pub fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
         if !(0.0..=1.0).contains(&selectivity) {
@@ -208,6 +225,23 @@ mod tests {
 
         filter.report_selectivity(1, 0.1);
         assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case(3, vec![0, 1])]
+    #[case(32_768, vec![1, 0])]
+    fn row_counts_account_for_empty_sample_size(
+        #[case] input_rows: usize,
+        #[case] expected: Vec<usize>,
+    ) -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let filter = FilterExpr::new(and(root(), not(root())).bind(&dtype)?);
+
+        filter.report_row_counts(0, 32_768, 100);
+        filter.report_row_counts(1, input_rows, 0);
+
+        assert_eq!(*filter.ordering.read(), expected);
         Ok(())
     }
 }

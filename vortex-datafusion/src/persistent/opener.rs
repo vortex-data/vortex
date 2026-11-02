@@ -39,6 +39,8 @@ use datafusion_physical_plan::metrics::BaselineMetrics;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
+use datafusion_physical_plan::metrics::SplitMetrics;
+use datafusion_physical_plan::stream::BatchSplitStream;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_pruning::FilePruner;
 use futures::FutureExt;
@@ -137,6 +139,12 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
+    pub scan_v2_share_plans: bool,
+    pub scan_v2_io_cache_bytes: usize,
+    pub scan_v2_chunk_rows: Option<usize>,
+    pub scan_v2_consumer_mapping: bool,
+    pub scan_v2_consumer_mapping_fixed_width_only: bool,
+    pub batch_size: Option<usize>,
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
@@ -180,6 +188,17 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
+        let scan_v2_share_plans = self.scan_v2_share_plans;
+        let scan_v2_io_cache_bytes = self.scan_v2_io_cache_bytes;
+        let scan_v2_chunk_rows = self.scan_v2_chunk_rows;
+        let scan_v2_consumer_mapping = self.scan_v2_consumer_mapping;
+        let scan_v2_consumer_mapping_fixed_width_only =
+            self.scan_v2_consumer_mapping_fixed_width_only;
+        let split = self
+            .batch_size
+            .filter(|_| scan_v2)
+            .map(|size| (size, SplitMetrics::new(&self.df_metrics, self.partition)));
+        let vortex_reader_factory = Arc::clone(&self.vortex_reader_factory);
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -401,6 +420,21 @@ impl FileOpener for VortexOpener {
             let residual_filter = residual_filter
                 .map(|expr| reassign_expr_columns(expr, &stream_schema))
                 .transpose()?;
+            let split = split.filter(|_| {
+                residual_filter.is_some()
+                    || leftover_projection.as_ref().iter().any(|projection| {
+                        projection
+                            .expr
+                            .downcast_ref::<datafusion_physical_expr::expressions::Column>()
+                            .is_none()
+                    })
+            });
+            let fixed_width_output = stream_schema.fields().iter().all(|field| {
+                field.data_type().is_primitive()
+                    || matches!(field.data_type(), DataType::Boolean | DataType::Null)
+            });
+            let consumer_mapping = scan_v2_consumer_mapping
+                && (!scan_v2_consumer_mapping_fixed_width_only || fixed_width_output);
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             let byte_range = file
@@ -440,10 +474,21 @@ impl FileOpener for VortexOpener {
                     &file.object_meta.location,
                     scan_file.segments,
                 );
-                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                if scan_v2_share_plans {
+                    scan_file.cache =
+                        Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                }
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter);
+                    .with_some_filter(native_filter)
+                    .with_io_cache_bytes(scan_v2_io_cache_bytes);
+                if let Some(rows) = scan_v2_chunk_rows {
+                    if rows == 0 {
+                        return Err(exec_datafusion_err!("V2 chunk rows must be positive"));
+                    }
+                    builder = builder.with_chunk_rows(rows);
+                }
+                builder = vortex_reader_factory.configure_v2_scan(&file, vxf.session(), builder)?;
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -494,7 +539,10 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let mapping_concurrency = if fixed_width_output { 4 } else { usize::MAX };
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering)
+                    .with_consumer_mapping(consumer_mapping, mapping_concurrency);
+                let driver = vortex_reader_factory.configure_v2_driver(driver);
                 Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -573,30 +621,45 @@ impl FileOpener for VortexOpener {
                     file.object_meta.location
                 ))))
             })
-            .map(move |batch| -> DFResult<Option<RecordBatch>> {
-                let mut batch = batch?;
-                if let Some(residual) = &residual_filter {
-                    batch = batch_filter(&batch, residual).map_err(|e| {
+            .boxed();
+            let stream = if let Some((batch_size, split_metrics)) = split {
+                BatchSplitStream::new(
+                    Box::pin(RecordBatchStreamAdapter::new(
+                        Arc::new(stream_schema),
+                        stream,
+                    )),
+                    batch_size,
+                    split_metrics,
+                )
+                .boxed()
+            } else {
+                stream
+            };
+            let stream = stream
+                .map(move |batch| -> DFResult<Option<RecordBatch>> {
+                    let mut batch = batch?;
+                    if let Some(residual) = &residual_filter {
+                        batch = batch_filter(&batch, residual).map_err(|e| {
                         exec_datafusion_err!(
                             "Failed to evaluate residual filter {residual} in {residual_path}: {e}"
                         )
                     })?;
-                    // Do not evaluate the projection on batches the residual filter emptied.
-                    if batch.num_rows() == 0 {
-                        return Ok(None);
+                        // Do not evaluate the projection on batches the residual filter emptied.
+                        if batch.num_rows() == 0 {
+                            return Ok(None);
+                        }
                     }
-                }
-                let batch = projector.project_batch(&batch)?;
+                    let batch = projector.project_batch(&batch)?;
 
-                let (_, columns, row_count) = batch.into_parts();
-                Ok(Some(RecordBatch::try_new_with_options(
-                    Arc::clone(&output_schema),
-                    columns,
-                    &RecordBatchOptions::new().with_row_count(Some(row_count)),
-                )?))
-            })
-            .filter_map(|batch| ready(batch.transpose()))
-            .boxed();
+                    let (_, columns, row_count) = batch.into_parts();
+                    Ok(Some(RecordBatch::try_new_with_options(
+                        Arc::clone(&output_schema),
+                        columns,
+                        &RecordBatchOptions::new().with_row_count(Some(row_count)),
+                    )?))
+                })
+                .filter_map(|batch| ready(batch.transpose()))
+                .boxed();
 
             let stream = if let Some((limit, schema)) = native_limit {
                 LimitStream::new(
@@ -832,6 +895,8 @@ mod tests {
     use std::fmt;
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use arrow_array::record_batch;
     use arrow_schema::Field;
@@ -861,8 +926,12 @@ mod tests {
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_execution::object_store::ObjectStoreUrl;
+    use datafusion_expr::ColumnarValue;
     use datafusion_expr::Operator;
+    use datafusion_expr::Volatility;
+    use datafusion_expr::create_udf;
     use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use futures::TryStreamExt;
@@ -874,8 +943,11 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::VortexReadAt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
+    use vortex::io::read_at2::FutureReadAt2;
+    use vortex::io::read_at2::ReadAt2IoService;
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::selection::Selection;
     use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -912,7 +984,7 @@ mod tests {
             fmt::Display::fmt(self, f)
         }
 
-        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<datafusion_expr::ColumnarValue> {
+        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<ColumnarValue> {
             Err(DataFusionError::Internal(
                 "intentional snapshot error".to_owned(),
             ))
@@ -1156,6 +1228,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         }
     }
 
@@ -1566,6 +1644,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1658,6 +1742,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let stream = opener.open(file)?.await?;
@@ -1841,6 +1931,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1906,6 +2002,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         }
     }
 
@@ -2122,6 +2224,12 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            scan_v2_share_plans: true,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -2392,6 +2500,246 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
+        Ok(())
+    }
+    #[rstest]
+    #[case::v1(false, false, false)]
+    #[case::v2_worker(true, false, false)]
+    #[case::v2_consumer(true, true, false)]
+    #[case::v2_fixed_width_consumer(true, true, true)]
+    #[tokio::test]
+    async fn column_projection_keeps_io_batches_until_datasource_splits(
+        #[case] scan_v2: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "columns.vortex", batch.clone()).await?;
+        let projection = ProjectionExprs::from_indices(&[0], batch.schema().as_ref());
+        let mut opener = make_test_opener(store, batch.schema(), projection);
+        opener.scan_v2 = scan_v2;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        opener.scan_v2_chunk_rows = Some(64);
+        opener.batch_size = Some(2);
+        opener.has_output_ordering = true;
+        let actual = opener
+            .open(PartitionedFile::new("columns.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(actual.len(), 1, "Column selection fragmented the I/O batch");
+        assert_eq!(actual[0], batch);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::worker(false, false)]
+    #[case::consumer(true, false)]
+    #[case::fixed_width_consumer(true, true)]
+    #[tokio::test]
+    async fn v2_splits_before_residual_projection(
+        #[values(1, 2, 4)] batch_size: usize,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "batches.vortex", batch.clone()).await?;
+        let udf = create_udf(
+            "bounded_batch",
+            vec![DataType::Int32],
+            DataType::Int32,
+            Volatility::Immutable,
+            Arc::new(move |args| {
+                let ColumnarValue::Array(array) = &args[0] else {
+                    return Err(exec_datafusion_err!("Expected an array input"));
+                };
+                assert!(
+                    array.len() <= batch_size,
+                    "Projection evaluated {} rows",
+                    array.len()
+                );
+                Ok(args[0].clone())
+            }),
+        );
+        let expression = ScalarFunctionExpr::try_new(
+            Arc::new(udf),
+            vec![df_expr::col("a", batch.schema().as_ref())?],
+            batch.schema().as_ref(),
+            Arc::default(),
+        )?;
+        let projection = ProjectionExprs::new(vec![ProjectionExpr::new(Arc::new(expression), "a")]);
+        let mut opener = make_test_opener(store, batch.schema(), projection);
+        opener.scan_v2 = true;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        opener.scan_v2_chunk_rows = Some(64);
+        opener.batch_size = Some(batch_size);
+        opener.has_output_ordering = true;
+        let actual = opener
+            .open(PartitionedFile::new("batches.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(actual.iter().all(|batch| batch.num_rows() <= batch_size));
+        assert_eq!(concat_batches(&batch.schema(), &actual)?, batch);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::worker(false, false)]
+    #[case::consumer(true, false)]
+    #[case::fixed_width_consumer(true, true)]
+    #[tokio::test]
+    async fn v2_shared_plans_isolate_files_and_projections(
+        #[values(false, true)] share_plans: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(
+            ("a", Int32, vec![1, 2, 3, 4]),
+            ("b", Utf8, vec!["one", "two", "three", "four"])
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "first.vortex", batch.clone()).await?;
+        let file = PartitionedFile::new("first.vortex".to_string(), size);
+        let mut first = make_opener(
+            Arc::clone(&store),
+            TableSchema::from(batch.schema()),
+            Some(logical2physical(&col("a").gt(lit(1)), &batch.schema())),
+        );
+        first.scan_v2 = true;
+        first.scan_v2_consumer_mapping = consumer_mapping;
+        first.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        first.scan_v2_chunk_rows = Some(2);
+        first.projection_pushdown = true;
+        first.has_output_ordering = true;
+        first.scan_v2_share_plans = share_plans;
+        let mut second = first.clone();
+        second.partition = 2;
+        second.projection = ProjectionExprs::from_indices(&[1], &batch.schema());
+        second.filter = Some(logical2physical(&col("a").lt_eq(lit(2)), &batch.schema()));
+        let (left, right) = futures::try_join!(
+            async {
+                first
+                    .open(file.clone())?
+                    .await?
+                    .try_collect::<Vec<_>>()
+                    .await
+            },
+            async {
+                second
+                    .open(file.clone())?
+                    .await?
+                    .try_collect::<Vec<_>>()
+                    .await
+            },
+        )?;
+        let expected_left = record_batch!(("a", Int32, vec![2, 3, 4]))?;
+        let expected_right = record_batch!(("b", Utf8, vec!["one", "two"]))?;
+        assert_eq!(
+            concat_batches(&expected_left.schema(), &left)?,
+            expected_left
+        );
+        assert_eq!(
+            concat_batches(&expected_right.schema(), &right)?,
+            expected_right
+        );
+
+        let other = record_batch!(("a", Int32, vec![9, 10]), ("b", Utf8, vec!["nine", "ten"]))?;
+        let size = write_arrow_to_vortex(store, "second.vortex", other).await?;
+        let result = second
+            .open(PartitionedFile::new("second.vortex".to_string(), size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(result.iter().all(|batch| batch.num_rows() == 0));
+        if share_plans {
+            assert_eq!(first.scan_caches.len(), 2);
+        }
+        Ok(())
+    }
+    #[derive(Debug)]
+    struct CompletionFactory {
+        inner: DefaultVortexReaderFactory,
+        scopes: Arc<AtomicUsize>,
+        drivers: Arc<AtomicUsize>,
+    }
+
+    impl VortexReaderFactory for CompletionFactory {
+        fn create_reader(
+            &self,
+            file: &PartitionedFile,
+            session: &VortexSession,
+        ) -> DFResult<Arc<dyn VortexReadAt>> {
+            self.inner.create_reader(file, session)
+        }
+
+        fn configure_v2_scan(
+            &self,
+            file: &PartitionedFile,
+            session: &VortexSession,
+            scan: V2ScanBuilder,
+        ) -> DFResult<V2ScanBuilder> {
+            let reader = self.create_reader(file, session)?;
+            let scopes = Arc::clone(&self.scopes);
+            Ok(
+                scan.with_io_service(Arc::new(ReadAt2IoService::new(Arc::new(move || {
+                    scopes.fetch_add(1, Ordering::Relaxed);
+                    Ok(Arc::new(FutureReadAt2::new(Arc::clone(&reader))) as _)
+                })))),
+            )
+        }
+
+        fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
+            self.drivers.fetch_add(1, Ordering::Relaxed);
+            driver
+        }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn v2_uses_completion_factory_with_existing_object_store(
+        #[values(false, true)] consumer_mapping: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let expected = record_batch!(
+            ("a", Int32, vec![Some(1), None, Some(3), Some(4)]),
+            ("b", Utf8, vec!["one", "two", "three", "four"])
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "completion.vortex", expected.clone())
+            .await?;
+        let scopes = Arc::new(AtomicUsize::new(0));
+        let drivers = Arc::new(AtomicUsize::new(0));
+        let mut opener = make_test_opener(
+            Arc::clone(&store),
+            expected.schema(),
+            ProjectionExprs::from_indices(&[0, 1], expected.schema().as_ref()),
+        );
+        opener.vortex_reader_factory = Arc::new(CompletionFactory {
+            inner: DefaultVortexReaderFactory::new(store),
+            scopes: Arc::clone(&scopes),
+            drivers: Arc::clone(&drivers),
+        });
+        opener.scan_v2 = true;
+        opener.scan_v2_chunk_rows = Some(2);
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.has_output_ordering = true;
+        let batches = opener
+            .open(PartitionedFile::new("completion.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(concat_batches(&expected.schema(), &batches)?, expected);
+        assert!(
+            scopes.load(Ordering::Relaxed) > 0,
+            "completion scopes were not used"
+        );
+        assert_eq!(drivers.load(Ordering::Relaxed), 1);
         Ok(())
     }
 }

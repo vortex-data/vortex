@@ -19,6 +19,14 @@ use crate::compat::Compat;
 /// Compatibility adapter for `VortexReadAt` implementations that are based on Tokio.
 #[deny(clippy::missing_trait_methods)]
 impl<R: VortexReadAt> VortexReadAt for Compat<R> {
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        Compat::new(self.inner().read_suffix(length, alignment)).boxed()
+    }
+
     fn uri(&self) -> Option<&Arc<str>> {
         self.inner().uri()
     }

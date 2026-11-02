@@ -69,6 +69,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
+use super::reader::VortexReaderFactory;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
@@ -130,6 +131,7 @@ pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
+    reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 }
 
 impl Debug for VortexFormat {
@@ -239,6 +241,16 @@ extensions_options! {
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
+        /// Share V2 plans and decoded dictionaries across partitions of the same file and scan.
+        pub scan_v2_share_plans: bool, default = true
+        /// Requested bytes retained by each V2 planning run; zero disables the additional cache.
+        pub scan_v2_io_cache_bytes: usize, default = 0
+        /// File rows per V2 work chunk; `None` keeps the scan's automatic sizing.
+        pub scan_v2_chunk_rows: Option<usize>, default = None
+        /// Convert V2 output to Arrow when the consumer polls it instead of on scan tasks.
+        pub scan_v2_consumer_mapping: bool, default = false
+        /// Limit enabled consumer mapping to flat primitive, boolean, or null fields.
+        pub scan_v2_consumer_mapping_fixed_width_only: bool, default = false
     }
 }
 
@@ -446,6 +458,12 @@ impl FileFormatFactory for VortexFormatFactory {
 }
 
 impl VortexFormat {
+    /// Sets the reader factory for file data and planner-driven scan I/O.
+    pub fn with_vortex_reader_factory(mut self, factory: Arc<dyn VortexReaderFactory>) -> Self {
+        self.reader_factory = Some(factory);
+        self
+    }
+
     /// Creates a format with default [`VortexTableOptions`].
     ///
     /// Prefer [`VortexFormatFactory`] when registering with a session. Construct
@@ -462,6 +480,7 @@ impl VortexFormat {
             session,
             opts,
             expression_converter: None,
+            reader_factory: None,
         }
     }
 
@@ -771,6 +790,9 @@ impl FileFormat for VortexFormat {
             VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone());
         if let Some(expression_converter) = &self.expression_converter {
             source = source.with_expression_converter(Arc::clone(expression_converter));
+        }
+        if let Some(factory) = &self.reader_factory {
+            source = source.with_vortex_reader_factory(Arc::clone(factory));
         }
         Arc::new(source) as _
     }

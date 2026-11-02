@@ -228,6 +228,7 @@ impl State {
         let mut requests = vec![first_req];
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
+        let allow_gaps = requests[0].allow_gaps;
         let align = self.coalesced_buffer_alignment.as_usize() as u64;
 
         // Track requests that we've already decided to remove (or that were cancelled) so that
@@ -270,6 +271,12 @@ impl State {
 
                 // Check if this request is within coalescing distance of our current range
                 let req_end = req_offset + req.length as u64;
+                // Keep metadata probes independent of large whole-segment transfers.
+                if allow_gaps != req.allow_gaps
+                    || (!allow_gaps && (req_offset > current_end || req_end < current_start))
+                {
+                    continue;
+                }
                 if (req_offset <= current_end + window.distance && req_end >= current_start)
                     || (req_end + window.distance >= current_start && req_offset <= current_end)
                 {
@@ -362,6 +369,7 @@ mod tests {
                 offset,
                 length,
                 alignment: Alignment::none(),
+                allow_gaps: true,
                 callback: tx,
             },
             rx,
@@ -550,6 +558,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn partial_reads_do_not_coalesce_across_unrequested_bytes() {
+        let (mut first, _first_result) = create_request(1, 0, 10);
+        first.allow_gaps = false;
+        let (second, _second_result) = create_request(2, 15, 10);
+        let outputs = collect_outputs(
+            vec![
+                ReadEvent::Request(first),
+                ReadEvent::Request(second),
+                ReadEvent::Polled(1),
+                ReadEvent::Polled(2),
+            ],
+            Some(CoalesceConfig {
+                distance: 1024,
+                max_size: 4096,
+            }),
+        )
+        .await;
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0].range(), 0..10);
+        assert_eq!(outputs[1].range(), 15..25);
+    }
+
+    #[tokio::test]
     async fn test_coalesce_alignment_adjustment() {
         let (tx1, _rx1) = oneshot::channel();
         let (tx2, _rx2) = oneshot::channel();
@@ -559,6 +590,7 @@ mod tests {
             offset: 6,
             length: 5,
             alignment: Alignment::new(2),
+            allow_gaps: true,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -566,6 +598,7 @@ mod tests {
             offset: 12,
             length: 1,
             alignment: Alignment::new(4),
+            allow_gaps: true,
             callback: tx2,
         };
 
@@ -635,6 +668,7 @@ mod tests {
             offset: 0,
             length: 10,
             alignment: Alignment::none(),
+            allow_gaps: true,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -642,6 +676,7 @@ mod tests {
             offset: 100,
             length: 10,
             alignment: Alignment::none(),
+            allow_gaps: true,
             callback: tx2,
         };
 
@@ -671,6 +706,7 @@ mod tests {
             offset: 10,
             length: 4,
             alignment: Alignment::none(),
+            allow_gaps: true,
             callback: tx1,
         };
         state.on_event(ReadEvent::Request(req1));
@@ -685,6 +721,7 @@ mod tests {
             offset: 20,
             length: 8,
             alignment: Alignment::none(),
+            allow_gaps: true,
             callback: tx2,
         };
         state.on_event(ReadEvent::Request(req2));

@@ -27,20 +27,17 @@
 //!
 //! # Sharing
 //!
-//! A segment several readers decode is decoded once. Before the scan starts, one pass over the
-//! plans every split's stages run records the rows each segment is read for, so the splits that
-//! will read it are found by binary search over the splits. The first reader of a segment read
-//! more than once builds one pipeline that decodes it and fans the decoded array out into one
-//! single-use port per reader, tagged with the reader's split: a reader in the same stage, a
-//! later stage of a query, or a later split claims its own port. A split's ports it never
-//! claims, because its rows were pruned or a stage never ran, leave the sharing pipeline's
-//! outlets and are freed when it finishes, so nothing is ever pushed into a port nobody will
-//! read, and a claimed port is dropped once its source has drained it, so a decoded segment
-//! lives only as long as a split that may still read it.
+//! Chunk planners can share whole encoded arrays through a row-scoped cache. Filters and
+//! projection morsels retain a lease on their chunk's rows; completing or cancelling the last
+//! consumer retires those rows. An entry is released once none of its rows remain outstanding.
+//! Sparse reconstructed buffers are private to their reader. Dictionary values use a separate
+//! cache because their domain is independent of the selected root rows.
 
 mod compile;
 mod port;
+mod primitive;
 mod scan;
+mod segments;
 pub mod synthetic;
 mod values;
 
@@ -50,11 +47,15 @@ pub(crate) use self::compile::overlapping;
 pub(super) use self::port::Arena;
 pub use self::port::Inlet;
 pub(super) use self::port::PortId;
+pub use self::primitive::PrimitiveRead;
 pub use self::scan::ReadId;
 pub use self::scan::ReadRequest;
 pub use self::scan::Scan;
 pub use self::scan::Split;
 pub use self::scan::Turn;
+pub(crate) use self::segments::CachedSegment;
+pub(crate) use self::segments::SegmentCache;
+pub(crate) use self::segments::SegmentLease;
 pub use self::values::ValueCache;
 
 /// Batches an inlet holds before its sink is blocked, unless the plan joining it says

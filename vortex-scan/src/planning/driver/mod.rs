@@ -452,8 +452,15 @@ impl Run {
             }
             Output::Planner(PlannerOutput::NeedsIO(batch))
             | Output::Morsel(MorselOutput::NeedsIO(batch)) => {
+                let root = work.root;
                 self.submit(&mut work, batch)?;
                 self.settle(work)?;
+                while let Some(source) = self.roots.get(&root) {
+                    let Some(completion) = source.io.take_ready()? else {
+                        break;
+                    };
+                    self.complete(completion)?;
+                }
             }
             Output::Planner(PlannerOutput::Planner(scope, child)) => {
                 let path = work.child_path();

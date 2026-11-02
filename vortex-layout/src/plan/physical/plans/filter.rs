@@ -110,7 +110,7 @@ impl PlanVTable for Filter {
         }
         let len = usize::try_from(rows.end - rows.start)?;
         let predicate = plan.dtype().is_boolean();
-        let chain = compiler.compile(&child, rows, &Mask::new_true(len))?;
+        let chain = compiler.compile_rows(&child, rows, &Mask::new_true(len))?;
         Ok(chain.map(|chain| {
             if mask.all_true() {
                 chain

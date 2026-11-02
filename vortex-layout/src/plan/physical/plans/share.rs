@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::arrays::shared::Shared;
@@ -24,6 +25,7 @@ use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::UNBOUNDED;
 use crate::plan::physical::operators::WholeSource;
+use crate::plan::physical::optimize;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 
@@ -39,7 +41,11 @@ pub struct Share;
 
 /// Operator-specific data for a [`Share`] plan.
 #[derive(Clone, Debug, Default)]
-pub struct ShareData;
+pub struct ShareData {
+    // Equivalent optimizer rewrites retain the original share's identity. Keeping the plan alive
+    // also prevents its address from being reused while a rewritten share still refers to it.
+    cache_key: Option<PlanRef>,
+}
 
 /// A plan that shares its child's value between executions.
 pub type SharePlan = Plan<Share>;
@@ -52,7 +58,7 @@ impl SharePlan {
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
             children: vec![child].into(),
-            data: ShareData,
+            data: ShareData::default(),
         }
         .into_typed()
     }
@@ -60,6 +66,32 @@ impl SharePlan {
     /// Returns the shared plan.
     pub fn child_plan(&self) -> VortexResult<PlanRef> {
         self.child_required(0)
+    }
+
+    fn cache_key(&self) -> PlanRef {
+        self.data()
+            .cache_key
+            .clone()
+            .unwrap_or_else(|| self.to_plan())
+    }
+
+    /// Optimizes the child while retaining the identity of the equivalent whole value.
+    pub(crate) fn optimize_child(&self, session: &VortexSession) -> VortexResult<PlanRef> {
+        let child = self.child_plan()?;
+        let optimized = optimize(child.clone(), session)?;
+        if PlanRef::ptr_eq(&child, &optimized) {
+            return Ok(self.to_plan());
+        }
+        Ok(PlanParts {
+            vtable: Share,
+            dtype: self.dtype().clone(),
+            row_count: self.row_count(),
+            children: vec![optimized].into(),
+            data: ShareData {
+                cache_key: Some(self.cache_key()),
+            },
+        }
+        .into_plan())
     }
 }
 
@@ -79,7 +111,7 @@ impl PlanVTable for Share {
     fn with_children(
         plan: &Plan<Self>,
         children: &PlanChildren,
-        _data: &mut Self::PlanData,
+        data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         check_child_count("Share", children, 1)?;
         let child = children
@@ -88,6 +120,8 @@ impl PlanVTable for Share {
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
             vortex_bail!("Share child does not match the share's dtype and row count");
         }
+        // Generic replacement can change values even when dtype and row count still match.
+        data.cache_key = None;
         Ok(())
     }
 
@@ -112,7 +146,7 @@ impl PlanVTable for Share {
             return Ok(None);
         }
         let cache = compiler.values().clone();
-        let shared = plan.clone().into_plan();
+        let shared = plan.cache_key();
         if let Some(value) = cache.get(&shared) {
             return Ok(Some(Chain::new(OnceSource::new(selected_rows(
                 &value, &rows, mask,

@@ -33,6 +33,7 @@ use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SharePlan;
 use crate::plan::physical::TakePlan;
 use crate::plan::physical::ZonedPlan;
 
@@ -126,14 +127,25 @@ fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
 fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
     // Dict serialization stores values before codes; the plan order is deliberately codes,
     // values because that is the optimizer-facing logical shape.
+    let source = layout.to_layout();
+    let children = PlanChildren::lazy(2, move |index| {
+        let slot = [1, 0]
+            .get(index)
+            .copied()
+            .ok_or_else(|| vortex_err!("Missing dictionary plan child {index}"))?;
+        let child = lower_slot(&source, slot)?;
+        // Share decoded values between predicates and projections, but leave struct fields
+        // visible so expression pushdown can prune unused fields.
+        Ok(if index == 1 && !child.dtype().is_struct() {
+            SharePlan::new(child).into_plan()
+        } else {
+            child
+        })
+    });
     // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
     // those slots to [codes, values] while preserving the derived output dtype and row domain.
     Ok(unsafe {
-        TakePlan::from_children_unchecked(
-            layout.dtype().clone(),
-            layout.row_count(),
-            lazy_children(layout.to_layout(), vec![1, 0]),
-        )
+        TakePlan::from_children_unchecked(layout.dtype().clone(), layout.row_count(), children)
     })
 }
 
@@ -159,11 +171,15 @@ fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {
             .get(index)
             .copied()
             .ok_or_else(|| vortex_err!("Missing plan child slot {index}"))?;
-        let child = layout
-            .slot(slot)?
-            .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
-        lower(&child)
+        lower_slot(&layout, slot)
     })
+}
+
+fn lower_slot(layout: &LayoutRef, slot: usize) -> VortexResult<PlanRef> {
+    let child = layout
+        .slot(slot)?
+        .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
+    lower(&child)
 }
 
 fn lower_zoned(layout: &LayoutRef) -> VortexResult<PlanRef> {

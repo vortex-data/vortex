@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
+use std::ops::Range;
+
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -10,6 +13,7 @@ use crate::ProbeState;
 use crate::arrays::runend::RunEnd;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
+use crate::search_sorted::IndexOrd;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
@@ -49,16 +53,53 @@ pub fn find_slice_end_index(
         SearchSortedPrimitiveArray::<T>::new(array, ctx)
             .search_sorted(&index, SearchSortedSide::Right)?
     });
-    Ok(match result {
+    Ok(slice_end_index(result, array.len()))
+}
+
+fn slice_end_index(result: SearchResult, len: usize) -> usize {
+    match result {
         SearchResult::Found(i) => i,
         SearchResult::NotFound(i) => {
-            if i == array.len() {
+            if i == len {
                 i
             } else {
                 i + 1
             }
         }
+    }
+}
+
+pub(super) fn find_slice_indices(
+    array: &ArrayRef,
+    range: Range<usize>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Range<usize>> {
+    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        // Both boundaries can touch the same compressed pages. Retain the probe state between
+        // searches so those pages are decoded only once.
+        let search = SearchSortedPrimitiveArray::<T>::new(array, ctx);
+        let start = search_run_end(&search, range.start)?.to_ends_index(array.len());
+        let end = slice_end_index(search_run_end(&search, range.end)?, array.len());
+        Ok(start..end)
     })
+}
+
+fn search_run_end(search: &impl IndexOrd<usize>, value: usize) -> VortexResult<SearchResult> {
+    let mut lo = 0;
+    let mut hi = search.index_len();
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        match search.index_cmp(mid, &value)? {
+            Some(Ordering::Equal) => {
+                // Run ends are strictly increasing. Searching for more equal values would
+                // unnecessarily probe and potentially decode other compressed pages.
+                return Ok(SearchResult::Found(mid + 1));
+            }
+            Some(Ordering::Greater) => hi = mid,
+            _ => lo = mid + 1,
+        }
+    }
+    Ok(SearchResult::NotFound(lo))
 }
 
 /// Find the physical index (the run) that contains the logical `index`, given the run `ends`.
