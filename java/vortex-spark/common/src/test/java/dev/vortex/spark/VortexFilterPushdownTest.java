@@ -142,6 +142,15 @@ public final class VortexFilterPushdownTest {
                 List.of(1, 3),
                 idsOf(readDf.filter(readDf.col("name").isin("alpha", "gamma")).orderBy("id")));
 
+        // NOT IN with a null element is never true in SQL, so the native set must not admit a non-match.
+        assertEquals(
+                List.of(),
+                idsOf(readDf.filter(functions.not(readDf.col("id").isin(1, null)))
+                        .orderBy("id")));
+        assertEquals(
+                List.of(2, 3, 4, 5),
+                idsOf(readDf.filter(functions.not(readDf.col("id").isin(1))).orderBy("id")));
+
         assertEquals(
                 List.of(4), idsOf(readDf.filter(readDf.col("amount").isNull()).orderBy("id")));
 
@@ -612,6 +621,32 @@ public final class VortexFilterPushdownTest {
                     }
                 });
             }
+        }
+    }
+
+    @Test
+    @DisplayName("LIKE patterns and column comparisons without a V1 form are pushed and keep every matching row")
+    public void testCatalystOnlyPredicates() {
+        Path output = tempDir.resolve("catalyst_predicates");
+        Dataset<Row> data = spark.range(0, 2000)
+                .selectExpr(
+                        "id",
+                        "id % 37 AS a",
+                        "id % 41 AS b",
+                        "case when id % 9 = 0 then null else concat('k', id % 13, '_x', id % 7) end AS name");
+        data.write().format("vortex").mode(SaveMode.Overwrite).save(output.toString());
+        Dataset<Row> read = spark.read().format("vortex").load(output.toString());
+
+        for (String predicate : List.of(
+                "name LIKE 'k1%_x3'",
+                "name NOT LIKE '%1_x%'", "a < b", "a = b OR id > 1990", "NOT (a >= b) AND name LIKE 'k%2'")) {
+            Dataset<Row> pushed = read.filter(predicate).select("id").orderBy("id");
+            String plan = pushed.queryExecution().executedPlan().toString();
+            assertTrue(!plan.contains("PushedPredicates: []"), predicate + " should be pushed:\n" + plan);
+            assertEquals(
+                    data.filter(predicate).select("id").orderBy("id").collectAsList(),
+                    pushed.collectAsList(),
+                    predicate);
         }
     }
 }

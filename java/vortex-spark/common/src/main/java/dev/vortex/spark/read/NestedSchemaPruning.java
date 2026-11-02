@@ -50,6 +50,34 @@ final class NestedSchemaPruning {
         return structProjection(Expression.root(), false, fileNames, readSchema, dataSchema);
     }
 
+    /**
+     * Like {@link #projection}, with more top-level columns after the fields of {@code readSchema}: one named
+     * {@code extraNames[i]} that {@code extraColumns[i]} computes for each {@code i}.
+     */
+    static Expression projection(
+            String[] fileNames,
+            StructType readSchema,
+            StructType dataSchema,
+            List<String> extraNames,
+            List<Expression> extraColumns) {
+        if (extraNames.isEmpty()) {
+            return projection(fileNames, readSchema, dataSchema);
+        }
+
+        String[] names = new String[fileNames.length + extraNames.size()];
+        Expression[] children = new Expression[names.length];
+        for (int i = 0; i < fileNames.length; i++) {
+            names[i] = fileNames[i];
+            children[i] = child(Expression.root(), fileNames[i], readSchema.fields()[i], dataSchema);
+        }
+        for (int i = 0; i < extraNames.size(); i++) {
+            names[fileNames.length + i] = extraNames.get(i);
+            children[fileNames.length + i] = extraColumns.get(i);
+        }
+
+        return Expression.pack(names, children, false);
+    }
+
     private static Expression structProjection(
             Expression struct, boolean nullable, String[] names, StructType read, StructType table) {
         // `select` keeps the struct's own nulls, so use it when no child needs pruning.
@@ -59,22 +87,28 @@ final class NestedSchemaPruning {
 
         Expression[] children = new Expression[names.length];
         for (int i = 0; i < names.length; i++) {
-            Expression field = Expression.getItem(names[i], struct);
-            StructField readField = read.fields()[i];
-            DataType tableType = table.apply(readField.name()).dataType();
-            children[i] = readField.dataType().equals(tableType)
-                    ? field
-                    : structProjection(
-                            field,
-                            readField.nullable(),
-                            ((StructType) readField.dataType()).fieldNames(),
-                            (StructType) readField.dataType(),
-                            (StructType) tableType);
+            children[i] = child(struct, names[i], read.fields()[i], table);
         }
 
         Expression packed = Expression.pack(names, children, false);
         // `pack` builds a struct with no nulls, so carry over the source struct's nulls.
         return nullable ? Expression.mask(packed, Expression.isNotNull(struct)) : packed;
+    }
+
+    /** The field {@code name} of {@code struct}, pruned to {@code readField}'s type. */
+    private static Expression child(Expression struct, String name, StructField readField, StructType table) {
+        Expression field = Expression.getItem(name, struct);
+        DataType tableType = table.apply(readField.name()).dataType();
+        if (readField.dataType().equals(tableType)) {
+            return field;
+        }
+
+        return structProjection(
+                field,
+                readField.nullable(),
+                ((StructType) readField.dataType()).fieldNames(),
+                (StructType) readField.dataType(),
+                (StructType) tableType);
     }
 
     private static boolean isPruned(StructType read, StructType table) {

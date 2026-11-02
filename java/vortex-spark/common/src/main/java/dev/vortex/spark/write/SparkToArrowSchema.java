@@ -11,6 +11,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.FieldType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Schema;
+import dev.vortex.spark.SparkVariants;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.spark.sql.types.ArrayType;
@@ -43,6 +44,9 @@ public final class SparkToArrowSchema {
 
     /** Returns whether Vortex's Spark writer can represent this Spark SQL type. */
     public static boolean supportsDataType(DataType dataType) {
+        if (SparkVariants.isVariant(dataType)) {
+            return true;
+        }
         if (dataType instanceof StructType structType) {
             for (StructField field : structType.fields()) {
                 if (!supportsDataType(field.dataType())) {
@@ -97,6 +101,9 @@ public final class SparkToArrowSchema {
     }
 
     private static Field convertField(String name, DataType sparkType, boolean nullable) {
+        if (SparkVariants.isVariant(sparkType)) {
+            return SparkVariants.arrowField(name, nullable);
+        }
         if (sparkType instanceof StructType structType) {
             List<Field> children = new ArrayList<>();
             for (StructField childField : structType.fields()) {

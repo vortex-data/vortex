@@ -15,6 +15,7 @@ use jni::objects::JObject;
 use jni::objects::JObjectArray;
 use jni::objects::JString;
 use jni::sys::jlong;
+use jni::sys::jlongArray;
 use jni::sys::jobject;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -202,6 +203,58 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
         let cache_key = name.trim_start_matches('/');
         let segments = read_metadata_segments(session, source, cache_key, Some(length))?;
         metadata_to_java(env, segments)
+    })
+}
+
+/// The natural row splits of a Vortex file read through a `dev.vortex.io.NativeReadable`, as their
+/// boundaries: split `i` holds rows `[boundaries[i], boundaries[i + 1])`.
+///
+/// The splits follow the file's chunks, so a scan of whole splits reads whole chunks. `name` keys
+/// the file in the session footer cache, as it does for the scan path.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+) -> jlongArray {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        if readable.is_null() {
+            throw_runtime!("null readable");
+        }
+        let name: String = name.try_to_string(env)?;
+        let length =
+            u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+
+        let vm = env.get_java_vm()?;
+        let readable = Arc::new(env.new_global_ref(&readable)?);
+        let source = java_readable(vm, readable, length, session.handle());
+        let cache_key = name.trim_start_matches('/');
+        let file = RUNTIME.block_on(open_cached(
+            session,
+            Some(cache_key),
+            source,
+            Some(length),
+            &|options| options,
+        ))?;
+
+        let splits = file.splits()?;
+        let mut boundaries = Vec::with_capacity(splits.len() + 1);
+        boundaries.push(splits.first().map_or(0, |split| split.start));
+        for split in &splits {
+            boundaries.push(split.end);
+        }
+        let boundaries = boundaries
+            .into_iter()
+            .map(|boundary| jlong::try_from(boundary).map_err(Into::into))
+            .collect::<VortexResult<Vec<jlong>>>()?;
+
+        let array = env.new_long_array(boundaries.len())?;
+        array.set_region(env, 0, &boundaries)?;
+        Ok(array.into_raw())
     })
 }
 

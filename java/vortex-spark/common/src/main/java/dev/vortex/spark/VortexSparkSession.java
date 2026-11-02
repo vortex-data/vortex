@@ -32,6 +32,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * referenced for the JVM's lifetime.
  */
 public final class VortexSparkSession {
+    static {
+        // Executors load this class before any Vortex batch, so Arrow sees the settings before it reads them.
+        ArrowProperties.configure();
+    }
+
     /** Options key used to select a {@link VortexSessionProvider} by class name. */
     public static final String PROVIDER_OPTION = "vortex.session.provider";
 
