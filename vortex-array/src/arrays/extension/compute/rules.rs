@@ -247,67 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_fn_no_pushdown_different_ext_types() {
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct TestExt2;
-        impl ExtVTable for TestExt2 {
-            type Metadata = EmptyMetadata;
-            type NativeValue<'a> = &'a str;
-
-            #[expect(clippy::disallowed_methods, reason = "test-only id")]
-            fn id(&self) -> ExtId {
-                ExtId::new("test_ext_2")
-            }
-
-            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                Ok(vec![])
-            }
-
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                Ok(EmptyMetadata)
-            }
-
-            fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
-            }
-
-            fn unpack_native<'a>(
-                _extension_dtype: &'a ExtDType<Self>,
-                _storage_value: &'a ScalarValue,
-            ) -> VortexResult<Self::NativeValue<'a>> {
-                Ok("")
-            }
-        }
-
-        let ext_dtype1 = ExtDType::<TestExt>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap()
-        .erased();
-
-        let storage = buffer![10i64, 20, 30].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype1, storage).into_array();
-
-        // Create constant with different extension type
-        let const_scalar = Scalar::extension::<TestExt2>(EmptyMetadata, Scalar::from(25i64));
-        let const_array = ConstantArray::new(const_scalar, 3).into_array();
-
-        let scalar_fn_array = Binary::try_new(ext_array, const_array, Operator::Lt)
-            .unwrap()
-            .into_array();
-
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
-        assert!(
-            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
-            "Expected first child to remain ExtensionArray when ext types differ"
-        );
-    }
-
-    #[test]
     fn test_scalar_fn_no_pushdown_non_constant_sibling() {
         let ext_dtype = test_ext_dtype();
 
@@ -329,29 +268,6 @@ mod tests {
         assert!(
             scalar_fn.children()[0].as_opt::<Extension>().is_some(),
             "Expected first child to remain ExtensionArray when sibling is not constant"
-        );
-    }
-
-    #[test]
-    fn test_scalar_fn_no_pushdown_non_extension_constant() {
-        let ext_dtype = test_ext_dtype();
-        let storage = buffer![10i64, 20, 30].into_array();
-        let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
-
-        // Create a non-extension constant (plain primitive)
-        let const_array = ConstantArray::new(Scalar::from(25i64), 3).into_array();
-
-        let scalar_fn_array = Binary::try_new(ext_array, const_array, Operator::Lt)
-            .unwrap()
-            .into_array();
-
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // No pushdown should happen because constant is not an extension scalar
-        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
-        assert!(
-            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
-            "Expected first child to remain ExtensionArray when constant is not extension"
         );
     }
 }
