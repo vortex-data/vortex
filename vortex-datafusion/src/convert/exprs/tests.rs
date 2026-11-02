@@ -19,6 +19,8 @@ use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::common::DFSchema;
 use datafusion::execution::context::ExecutionProps;
@@ -736,6 +738,96 @@ fn test_literal_preserves_extension_metadata(
             )
         );
     }
+    Ok(())
+}
+
+#[rstest]
+#[case::comparison(false)]
+#[case::membership(true)]
+fn test_comparison_literal_metadata_is_not_replaced(
+    #[case] membership: bool,
+) -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), true);
+    field.try_with_extension_type(ArrowUuid)?;
+    let schema = Schema::new(vec![field.clone()]);
+    let value = ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcdef".to_vec()));
+    let valid = Arc::new(df_expr::Literal::new_with_metadata(
+        value.clone(),
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    field.metadata_mut().insert(
+        "ARROW:extension:name".into(),
+        "unregistered.extension".into(),
+    );
+    let invalid = Arc::new(df_expr::Literal::new_with_metadata(
+        value,
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    let column = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+    let predicate = if membership {
+        Arc::new(df_expr::InListExpr::try_new(
+            column,
+            vec![valid, invalid],
+            false,
+            &schema,
+        )?) as Arc<dyn PhysicalExpr>
+    } else {
+        Arc::new(df_expr::BinaryExpr::new(column, DFOperator::Eq, invalid))
+    };
+
+    assert!(!converts(&predicate, &schema)?);
+
+    Ok(())
+}
+
+#[test]
+fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    field.try_with_extension_type(ArrowUuid)?;
+    let bytes = *b"0123456789abcdef";
+    let values = FixedSizeBinaryArray::try_from_iter([bytes].into_iter())?;
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![field.clone()])),
+        vec![Arc::new(values)],
+    )?;
+
+    let mut literal_field = field;
+    literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
+    literal_field.metadata_mut().insert(
+        EXTENSION_TYPE_METADATA_KEY.into(),
+        "unrelated payload".into(),
+    );
+    let literal = df_expr::Literal::new_with_metadata(
+        ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
+        Some(FieldMetadata::new_from_field(&literal_field)),
+    );
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("id", 0)),
+        DFOperator::Eq,
+        Arc::new(literal),
+    ));
+
+    assert_native_matches(predicate, batch)
+}
+
+#[test]
+fn test_comparison_literal_keeps_timestamp_units() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+        true,
+    )]);
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::TimestampNanosecond(
+            Some(1_000_000),
+            None,
+        ))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert!(!converts(&predicate, &schema)?);
+
     Ok(())
 }
 
