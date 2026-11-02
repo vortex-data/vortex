@@ -11,6 +11,8 @@ import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
 /** Per-allocation ownership used by the native zero-copy importer. */
+// The private accessors are only called from native code.
+@SuppressWarnings("UnusedMethod")
 public final class NativeBuffer {
     private final ReferenceManager manager;
     private final long address;
@@ -43,22 +45,22 @@ public final class NativeBuffer {
     }
 
     /** Buffer address, called by JNI. */
-    public long address() {
+    private long address() {
         return address;
     }
 
     /** Buffer capacity, called by JNI. */
-    public long capacity() {
+    private long capacity() {
         return capacity;
     }
 
     /** Acquire an independent native reference, called by JNI. */
-    public void retain() {
+    private void retain() {
         manager.retain();
     }
 
     /** Release the native reference, possibly from a writer worker thread. */
-    public void release() {
+    private void release() {
         manager.release();
     }
 }
