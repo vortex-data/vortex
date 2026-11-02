@@ -7,6 +7,7 @@ use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -157,7 +158,8 @@ pub(crate) fn constant_canonicalize(
                 *list_size,
                 value.dtype().nullability(),
                 array.len(),
-            ))
+                ctx,
+            )?)
         }
         DType::Struct(struct_dtype, _) => {
             let value = scalar.as_struct();
@@ -315,7 +317,8 @@ fn constant_canonical_fixed_size_list_array(
     list_size: u32,
     list_nullability: Nullability,
     len: usize,
-) -> FixedSizeListArray {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<FixedSizeListArray> {
     let elements_len = list_size as usize * len;
 
     let (elements, validity) = match values {
@@ -325,15 +328,25 @@ fn constant_canonical_fixed_size_list_array(
             Validity::AllInvalid,
         ),
         Some(values) => (
-            tile_fixed_size_list_elements(values, element_dtype, len, elements_len),
+            tile_fixed_size_list_elements(
+                values,
+                element_dtype,
+                len,
+                elements_len,
+                ctx.allocator(),
+            )?,
             Validity::from(list_nullability),
         ),
     };
 
     // SAFETY: `elements` holds exactly `list_size * len` values, and the validity carries no
     // length of its own.
-    unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, len) }
+    Ok(unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, len) })
 }
+
+/// The largest primitive tile a constant fixed-size list run copies once per row, rather than
+/// repeating the tile as chunks. Past this, a row's copy costs more than its chunk.
+const MAX_COPIED_FSL_TILE_BYTES: usize = 512;
 
 /// Tiles one row's `values` across a run of `len` rows, storing them once.
 ///
@@ -345,13 +358,14 @@ fn tile_fixed_size_list_elements(
     element_dtype: &DType,
     len: usize,
     elements_len: usize,
-) -> ArrayRef {
+    allocator: &BufferAllocatorRef,
+) -> VortexResult<ArrayRef> {
     // An empty run, or a degenerate `list_size == 0`.
     if elements_len == 0 {
-        return Canonical::empty(element_dtype).into_array();
+        return Ok(Canonical::empty(element_dtype).into_array());
     }
 
-    match values.values().all_equal_value() {
+    Ok(match values.values().all_equal_value() {
         Ok(uniform) => {
             // SAFETY: the value was read from an array of `element_dtype`.
             let uniform = unsafe { Scalar::new_unchecked(element_dtype.clone(), uniform) };
@@ -362,7 +376,23 @@ fn tile_fixed_size_list_elements(
             let tile = values.elements().clone();
 
             if len == 1 {
-                return tile;
+                return Ok(tile);
+            }
+
+            // Non-null primitive elements repeat as one buffer, which costs a copy per row where
+            // a chunk per row costs an array per row.
+            if let Some(primitive) = values.primitive_tile()
+                && primitive.buffer_handle().len() <= MAX_COPIED_FSL_TILE_BYTES
+            {
+                return Ok(match_each_native_ptype!(primitive.ptype(), |T| {
+                    let row = primitive.as_slice::<T>();
+                    let mut buffer = BufferMut::<T>::with_capacity_in(elements_len, allocator.clone());
+                    for _ in 0..len {
+                        buffer.extend_from_slice(row);
+                    }
+                    PrimitiveArray::new(buffer.freeze(), Validity::from(element_dtype.nullability()))
+                        .into_array()
+                }));
             }
 
             // SAFETY: every chunk is `tile` itself, so they share its dtype and none is empty.
@@ -374,7 +404,7 @@ fn tile_fixed_size_list_elements(
             }
             .into_array()
         }
-    }
+    })
 }
 
 #[cfg(test)]

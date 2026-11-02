@@ -6,6 +6,8 @@
 use num_traits::ToBytes;
 use num_traits::ToPrimitive;
 use prost::Message;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -16,7 +18,11 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
@@ -30,6 +36,8 @@ use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::UnionValue;
+use crate::validity::Validity;
+use crate::match_each_native_ptype;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Serialize INTO proto.
@@ -115,6 +123,18 @@ impl From<&ScalarValue> for pb::ScalarValue {
                 }
             }
             ScalarValue::List(list) => {
+                if let Some(primitive) = list.primitive_tile() {
+                    let values = match_each_native_ptype!(primitive.ptype(), |T| {
+                        primitive
+                            .as_slice::<T>()
+                            .iter()
+                            .map(|value| pb::ScalarValue::from(&PValue::from(*value)))
+                            .collect()
+                    });
+                    return pb::ScalarValue {
+                        kind: Some(Kind::ListValue(ListValue { values })),
+                    };
+                }
                 let values = list
                     .values()
                     .map(|elem| ScalarValue::to_proto(elem.as_ref()))
@@ -459,6 +479,9 @@ fn list_from_proto(
 ) -> VortexResult<ScalarValue> {
     let values = match dtype {
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
+            if let DType::Primitive(ptype, nullability) = element_dtype.as_ref() {
+                return primitive_list_from_proto(v, element_dtype, *ptype, *nullability, session);
+            }
             let values = v
                 .values
                 .iter()
@@ -496,6 +519,50 @@ fn list_from_proto(
         _ => vortex_bail!("expected a tuple-backed dtype for ListValue, got {dtype}"),
     };
     Ok(ScalarValue::Tuple(values))
+}
+
+/// Deserialize a list of primitives straight into its elements buffer.
+fn primitive_list_from_proto(
+    v: &ListValue,
+    element_dtype: &DType,
+    ptype: PType,
+    nullability: Nullability,
+    session: &VortexSession,
+) -> VortexResult<ScalarValue> {
+    let len = v.values.len();
+    let mut validity = nullability
+        .is_nullable()
+        .then(|| BitBufferMut::with_capacity(len));
+    let elements = match_each_native_ptype!(ptype, |T| {
+        let mut buffer = BufferMut::<T>::with_capacity(len);
+        for elem in &v.values {
+            match ScalarValue::from_proto(elem, element_dtype, session)? {
+                Some(ScalarValue::Primitive(pvalue)) => {
+                    // `from_proto` yields values of exactly the element ptype.
+                    buffer.push(pvalue.cast::<T>()?);
+                    if let Some(validity) = validity.as_mut() {
+                        validity.append(true);
+                    }
+                }
+                None => {
+                    let validity = validity.as_mut().ok_or_else(|| {
+                        vortex_err!("non-nullable list elements {element_dtype} hold a null")
+                    })?;
+                    buffer.push(T::default());
+                    validity.append(false);
+                }
+                Some(other) => {
+                    vortex_bail!("list of {element_dtype} holds a non-primitive value {other}")
+                }
+            }
+        }
+        let validity = validity.map_or(Validity::NonNullable, |bits| Validity::from(bits.freeze()));
+        PrimitiveArray::new(buffer.freeze(), validity).into_array()
+    });
+    // SAFETY: a primitive array is recursively canonical.
+    Ok(ScalarValue::List(unsafe {
+        ScalarListValue::new_unchecked(elements)
+    }))
 }
 
 /// Deserialize a present union scalar value.

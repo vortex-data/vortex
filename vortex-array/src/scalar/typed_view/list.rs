@@ -232,18 +232,8 @@ impl<'a> ListScalar<'a> {
         if is_flat(target_element_dtype)
             && list.element_dtype().eq_ignore_nullability(target_element_dtype)
         {
-            if !target_element_dtype.is_nullable() && list.has_null_element() {
-                vortex_bail!(
-                    "Cannot cast list with null elements to non-nullable elements {target_element_dtype}"
-                );
-            }
-            return Scalar::try_new(
-                dtype.clone(),
-                Some(ScalarValue::List(ListValue::from_values(
-                    target_element_dtype,
-                    list.values(),
-                ))),
-            );
+            let list = list.with_flat_element_nullability(target_element_dtype)?;
+            return Scalar::try_new(dtype.clone(), Some(ScalarValue::List(list)));
         }
 
         let elements = (0..list.len())

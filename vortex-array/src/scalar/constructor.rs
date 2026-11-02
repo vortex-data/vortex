@@ -28,6 +28,7 @@ use crate::dtype::extension::ExtVTable;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::ListValue;
+use crate::scalar::list_value::is_flat;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::UnionValue;
@@ -265,7 +266,15 @@ impl Scalar {
             ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
         };
 
-        let list = ListValue::from_scalars(dtype.as_any_size_list_element_opt().vortex_expect("list dtype"), &children);
+        let element_dtype = dtype
+            .as_any_size_list_element_opt()
+            .vortex_expect("list dtype");
+        let list = if is_flat(element_dtype) {
+            // Flat values are written straight into the elements buffer.
+            ListValue::from_values(element_dtype, children.into_iter().map(Scalar::into_value))
+        } else {
+            ListValue::from_scalars(element_dtype, &children)
+        };
         Self::try_new(dtype, Some(ScalarValue::List(list)))
             .vortex_expect("unable to construct a list `Scalar`")
     }

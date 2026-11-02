@@ -24,6 +24,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
+use crate::array::ArrayView;
 use crate::VortexSessionExecute;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -47,6 +48,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
@@ -84,6 +86,9 @@ pub(crate) fn element_ctx() -> ExecutionCtx {
 #[derive(Clone)]
 pub struct ListValue {
     elements: ArrayRef,
+    /// Whether every element is non-null, computed once so the fast paths need not ask the
+    /// elements for their validity.
+    all_valid: bool,
 }
 
 impl ListValue {
@@ -91,10 +96,10 @@ impl ListValue {
     /// it is not already.
     pub fn try_from_array(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if is_recursively_canonical(&elements) {
-            return Ok(Self { elements });
+            return Ok(Self::wrap(elements));
         }
         let elements = elements.execute::<RecursiveCanonical>(ctx)?.0.into_array();
-        Ok(Self { elements })
+        Ok(Self::wrap(elements))
     }
 
     /// Creates a list value from an elements array that is already recursively canonical.
@@ -107,7 +112,15 @@ impl ListValue {
             is_recursively_canonical(&elements) || !has_builder(elements.dtype()),
             "ListValue elements must be recursively canonical"
         );
-        Self { elements }
+        Self::wrap(elements)
+    }
+
+    fn wrap(elements: ArrayRef) -> Self {
+        let all_valid = all_valid(&elements);
+        Self {
+            elements,
+            all_valid,
+        }
     }
 
     /// Creates a list value from element values of `element_dtype`.
@@ -120,11 +133,15 @@ impl ListValue {
         I::IntoIter: ExactSizeIterator,
     {
         let values: Vec<Option<ScalarValue>> = values.into_iter().collect();
-        Self::from_built(build_elements(
-            element_dtype,
-            &values,
-            BufferAllocatorRef::static_ref(),
-        ))
+        let elements = build_elements(element_dtype, &values, BufferAllocatorRef::static_ref());
+        if is_flat(element_dtype) {
+            // Flat elements are written straight into canonical arrays.
+            return Self {
+                elements,
+                all_valid: values.iter().all(Option::is_some),
+            };
+        }
+        Self::from_built(elements)
     }
 
     /// Creates a list value from element scalars of `element_dtype`.
@@ -154,7 +171,7 @@ impl ListValue {
     /// Wraps an array produced by a canonical builder.
     fn from_built(elements: ArrayRef) -> Self {
         if is_recursively_canonical(&elements) || !has_builder(elements.dtype()) {
-            return Self { elements };
+            return Self::wrap(elements);
         }
         let mut ctx = element_ctx();
         Self::try_from_array(elements, &mut ctx)
@@ -194,13 +211,54 @@ impl ListValue {
     /// The elements as a slice of `T`, if they are non-null primitives of type `T`.
     pub fn as_slice<T: NativePType>(&self) -> Option<&[T]> {
         let primitive = self.elements.as_opt::<Primitive>()?;
-        (primitive.ptype() == T::PTYPE && all_valid(&self.elements))
+        (primitive.ptype() == T::PTYPE && self.all_valid)
             .then(|| primitive.data().as_slice::<T>())
+    }
+
+    /// The same list with elements of `element_dtype`, a flat dtype equal to the current element
+    /// dtype up to nullability.
+    ///
+    /// Fails if the list holds a null and `element_dtype` is non-nullable.
+    pub(crate) fn with_flat_element_nullability(&self, element_dtype: &DType) -> VortexResult<Self> {
+        if !element_dtype.is_nullable() && !self.all_valid {
+            vortex_bail!(
+                "Cannot cast a list with null elements to non-nullable elements {element_dtype}"
+            );
+        }
+        if self.element_dtype() == element_dtype {
+            return Ok(self.clone());
+        }
+        Ok(match self.primitive_tile() {
+            // Non-null primitives only swap their validity, keeping the values buffer.
+            Some(primitive) => {
+                // SAFETY: the buffer holds `len` values of `ptype`, and the validity carries no
+                // nulls.
+                let elements = unsafe {
+                    PrimitiveArray::new_unchecked_from_handle(
+                        primitive.buffer_handle().clone(),
+                        primitive.ptype(),
+                        Validity::from(element_dtype.nullability()),
+                    )
+                };
+                Self {
+                    elements: elements.into_array(),
+                    all_valid: true,
+                }
+            }
+            None => Self::from_values(element_dtype, self.values()),
+        })
+    }
+
+    /// The elements as a primitive array, if they are non-null primitives.
+    pub(crate) fn primitive_tile(&self) -> Option<ArrayView<'_, Primitive>> {
+        self.all_valid
+            .then(|| self.elements.as_opt::<Primitive>())
+            .flatten()
     }
 
     /// Returns `true` if any element of the list is null.
     pub fn has_null_element(&self) -> bool {
-        !self.is_empty() && !all_valid(&self.elements)
+        !self.all_valid
     }
 
     /// The value of the element at `index`, or [`None`] if the element is null.
@@ -277,21 +335,31 @@ impl Hash for ListValue {
     /// whatever their elements' physical buffers.
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_usize(self.len());
-        if let Some(primitive) = self.elements.as_opt::<Primitive>()
-            && all_valid(&self.elements)
+        if self.all_valid
+            && let Some(primitive) = self.elements.as_opt::<Primitive>()
         {
             // The same hashes as the generic loop below, without a dispatch per element.
             match_each_native_ptype!(primitive.ptype(), |T| {
                 for value in primitive.as_slice::<T>() {
-                    Some(ScalarValue::Primitive(PValue::from(*value))).hash(state);
+                    hash_primitive_element(PValue::from(*value), state);
                 }
             });
             return;
         }
         for value in self.values() {
-            value.hash(state);
+            match value {
+                Some(ScalarValue::Primitive(value)) => hash_primitive_element(value, state),
+                value => value.hash(state),
+            }
         }
     }
+}
+
+/// Hashes a non-null primitive element, distinct from the hash of any other element value.
+#[inline]
+fn hash_primitive_element<H: Hasher>(value: PValue, state: &mut H) {
+    state.write_u8(u8::MAX);
+    value.hash(state);
 }
 
 /// Compares two lists of non-null primitive elements of the same type directly on their buffers.
@@ -300,10 +368,7 @@ impl Hash for ListValue {
 fn fast_eq(lhs: &ListValue, rhs: &ListValue) -> Option<bool> {
     let lhs_prim = lhs.elements.as_opt::<Primitive>()?;
     let rhs_prim = rhs.elements.as_opt::<Primitive>()?;
-    if lhs_prim.ptype() != rhs_prim.ptype()
-        || !all_valid(&lhs.elements)
-        || !all_valid(&rhs.elements)
-    {
+    if lhs_prim.ptype() != rhs_prim.ptype() || !lhs.all_valid || !rhs.all_valid {
         return None;
     }
     // Integer equality is bit equality. Floats compare by total order in `PValue`, which is also
@@ -317,10 +382,7 @@ fn fast_eq(lhs: &ListValue, rhs: &ListValue) -> Option<bool> {
 fn fast_cmp(lhs: &ListValue, rhs: &ListValue) -> Option<Ordering> {
     let lhs_prim = lhs.elements.as_opt::<Primitive>()?;
     let rhs_prim = rhs.elements.as_opt::<Primitive>()?;
-    if lhs_prim.ptype() != rhs_prim.ptype()
-        || !all_valid(&lhs.elements)
-        || !all_valid(&rhs.elements)
-    {
+    if lhs_prim.ptype() != rhs_prim.ptype() || !lhs.all_valid || !rhs.all_valid {
         return None;
     }
     match_each_native_ptype!(lhs_prim.ptype(), |T| {
@@ -362,6 +424,11 @@ pub(crate) fn retype_list_values(dtype: &DType, value: ScalarValue) -> VortexRes
         ) => {
             if list.element_dtype() == element_dtype.as_ref() {
                 return Ok(ScalarValue::List(list));
+            }
+            if is_flat(element_dtype) {
+                return Ok(ScalarValue::List(
+                    list.with_flat_element_nullability(element_dtype)?,
+                ));
             }
             let values = list
                 .values()
@@ -657,7 +724,7 @@ pub(crate) fn is_recursively_canonical(array: &ArrayRef) -> bool {
 pub(crate) struct ValueReader<'a> {
     array: &'a ArrayRef,
     validity: ValidityBits,
-    kind: ReaderKind,
+    kind: ReaderKind<'a>,
 }
 
 enum ValidityBits {
@@ -666,10 +733,11 @@ enum ValidityBits {
     Bits(BitBuffer),
 }
 
-enum ReaderKind {
+enum ReaderKind<'a> {
     Null,
     Bool,
-    Primitive,
+    /// The values buffer and its type, so a read is one load with no downcast.
+    Primitive(PType, &'a [u8]),
     Decimal,
     Utf8,
     Binary,
@@ -680,12 +748,15 @@ enum ReaderKind {
 
 impl<'a> ValueReader<'a> {
     pub(crate) fn new(array: &'a ArrayRef) -> Self {
-        let kind = if array.is::<Null>() {
+        let kind = if let Some(primitive) = array.as_opt::<Primitive>() {
+            ReaderKind::Primitive(
+                primitive.ptype(),
+                primitive.data().buffer_handle().as_host().as_slice(),
+            )
+        } else if array.is::<Null>() {
             ReaderKind::Null
         } else if array.is::<Bool>() {
             ReaderKind::Bool
-        } else if array.is::<Primitive>() {
-            ReaderKind::Primitive
         } else if array.is::<Decimal>() {
             ReaderKind::Decimal
         } else if array.is::<VarBinView>() {
@@ -741,10 +812,14 @@ impl<'a> ValueReader<'a> {
             ReaderKind::Bool => Some(ScalarValue::Bool(
                 array.as_::<Bool>().bit_buffer_view().value(index),
             )),
-            ReaderKind::Primitive => {
-                let primitive = array.as_::<Primitive>();
-                Some(match_each_native_ptype!(primitive.ptype(), |T| {
-                    ScalarValue::Primitive(primitive.as_slice::<T>()[index].into())
+            ReaderKind::Primitive(ptype, bytes) => {
+                Some(match_each_native_ptype!(*ptype, |T| {
+                    let width = size_of::<T>();
+                    let value = &bytes[index * width..(index + 1) * width];
+                    // SAFETY: `value` is exactly `size_of::<T>()` bytes of a buffer of `T`, read
+                    // unaligned so its offset in the buffer does not matter.
+                    let value = unsafe { std::ptr::read_unaligned(value.as_ptr().cast::<T>()) };
+                    ScalarValue::Primitive(value.into())
                 }))
             }
             ReaderKind::Decimal => {
