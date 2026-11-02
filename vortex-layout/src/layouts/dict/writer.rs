@@ -28,6 +28,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -174,9 +175,10 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                !self
+                let compressed = self
                     .probe_compressor
-                    .chooses_dictionary(&sample, &mut exec_ctx)?
+                    .compress_chunk(&sample, &mut exec_ctx)?;
+                !compressed.is::<Dict>()
             }
         };
         if should_fallback {
