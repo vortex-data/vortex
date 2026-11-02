@@ -140,16 +140,24 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
     use crate::SequenceArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::basic_sequence(Sequence::try_new_typed(
@@ -235,5 +243,36 @@ mod test {
             .unwrap()
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap();
+    }
+
+    #[rstest]
+    #[case::i8(PrimitiveArray::from_iter([0i8, -1]))]
+    #[case::i16(PrimitiveArray::from_iter([0i16, -1]))]
+    #[case::i32(PrimitiveArray::from_iter([0i32, -1]))]
+    #[case::i64(PrimitiveArray::from_iter([0i64, -1]))]
+    #[should_panic(expected = "out of bounds")]
+    fn test_negative_index_out_of_bounds(#[case] indices: PrimitiveArray) {
+        let array = Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
+        let _array = array
+            .take(indices.into_array())
+            .unwrap()
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+    }
+
+    #[test]
+    fn test_null_negative_index_ignored() -> VortexResult<()> {
+        let array = Sequence::try_new_typed(-5i32, 2i32, Nullability::NonNullable, 10)?;
+        let indices = PrimitiveArray::new(
+            buffer![3i32, -1, 0],
+            Validity::from_iter([true, false, true]),
+        );
+        let taken = array.take(indices.into_array())?;
+        assert_arrays_eq!(
+            taken,
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(-5)]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
     }
 }
