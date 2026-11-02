@@ -90,6 +90,28 @@ def test_target_over_the_cap_is_rejected():
         shards.plan({("vortex-buffer", "a"): 101}, cap=100)
 
 
+def test_more_shards_than_slots_is_rejected():
+    counts = {("vortex-buffer", f"t{i}"): 100 for i in range(shards.MAX_SHARDS + 1)}
+    with pytest.raises(SystemExit, match="slots"):
+        shards.plan(counts, cap=100)
+
+
+def test_github_outputs_key_shards_by_slot():
+    plan = shards.plan({("vortex-buffer", "a"): 1, ("vortex-array", "take_x"): 1}, cap=100)
+    outputs = shards.github_outputs(plan)
+    assert json.loads(outputs["active"]) == [1, 2]
+    by_slot = json.loads(outputs["shards"])
+    assert sorted(by_slot) == ["1", "2"]
+    assert by_slot["2"]["exclude-allocations"] is True
+
+
+def test_workflow_matrix_has_max_shards_slots():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "codspeed.yml").read_text()
+    slots = re.search(r"^\s+shard: \[([\d, ]+)\]$", workflow, re.MULTILINE)
+    assert slots is not None
+    assert [int(s) for s in slots.group(1).split(",")] == list(range(1, shards.MAX_SHARDS + 1))
+
+
 def test_plan_is_deterministic():
     counts = shards.load_counts()
     assert json.dumps(shards.plan(counts)) == json.dumps(shards.plan(dict(reversed(list(counts.items())))))

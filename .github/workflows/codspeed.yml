@@ -56,7 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
+      active: ${{ steps.plan.outputs.active }}
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - id: plan
@@ -65,37 +66,68 @@ jobs:
   bench-codspeed:
     needs: [plan-codspeed]
     strategy:
-      matrix: ${{ fromJSON(needs.plan-codspeed.outputs.matrix) }}
-    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }} - ${{ matrix.benchmarks }} benchmarks)"
+      matrix:
+        # Fixed slots, so that each one can be a required check. The plan fills as many as it
+        # needs; an unused slot runs no steps and succeeds. Keep in sync with MAX_SHARDS in
+        # scripts/codspeed_shards.py.
+        shard: [1, 2, 3, 4, 5]
+    name: "Benchmark with Codspeed (Shard ${{ matrix.shard }})"
     timeout-minutes: 60
-    # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU.
+    env:
+      SHARD_ACTIVE: ${{ contains(fromJSON(needs.plan-codspeed.outputs.active), matrix.shard) }}
+    # Each CodSpeed runner is pinned to one instance type, because results depend on the CPU. An
+    # unused slot takes a GitHub-hosted runner instead.
     runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
+      ${{ contains(fromJSON(needs.plan-codspeed.outputs.active), matrix.shard)
+          && github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
+        if: env.SHARD_ACTIVE == 'true' && github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
+      - name: Select shard
+        id: shard
+        env:
+          SHARDS: ${{ needs.plan-codspeed.outputs.shards }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+
+          shard = json.loads(os.environ["SHARDS"]).get(os.environ["SHARD"])
+          if shard is None:
+              print("active=false")
+          else:
+              print("active=true")
+              print(f"build-args={shard['build-args']}")
+              print(f"exclude-allocations={str(shard['exclude-allocations']).lower()}")
+          EOF
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        if: steps.shard.outputs.active == 'true'
       - uses: ./.github/actions/setup-prebuild
+        if: steps.shard.outputs.active == 'true'
         with:
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - uses: ./.github/actions/system-info
+        if: steps.shard.outputs.active == 'true'
       - name: Install Codspeed
+        if: steps.shard.outputs.active == 'true'
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
+        if: steps.shard.outputs.active == 'true'
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C force-frame-pointers=yes -C link-arg=-fuse-ld=mold"
           # Benchmarks carrying `#[cpu_features]` belong to a walltime leg below and are
           # skipped here. Untagged ones run as they always have, under bare names, so this
           # job's CodSpeed history is unaffected.
           VORTEX_BENCH_VARIANT: simulation
-        run: cargo codspeed build --locked ${{ matrix.build-args }} --profile bench
+        run: cargo codspeed build --locked ${{ steps.shard.outputs.build-args }} --profile bench
       - name: Run benchmarks
+        if: steps.shard.outputs.active == 'true'
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
@@ -120,7 +152,7 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
-          exclude-allocations: ${{ matrix.exclude-allocations }}
+          exclude-allocations: ${{ steps.shard.outputs.exclude-allocations }}
           # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
           cache-instruments: "false"
 

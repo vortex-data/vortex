@@ -31,6 +31,10 @@ COUNTS_PATH = REPO_ROOT / "scripts" / "codspeed_bench_counts.json"
 # Most benchmarks per shard, leaving headroom under CodSpeed's recommended 1,000.
 CAP = 800
 
+# Shard slots in the `bench-codspeed` matrix of `.github/workflows/codspeed.yml`. The slots are fixed
+# so that each one can be a required check; slots the plan does not use succeed without running.
+MAX_SHARDS = 5
+
 # Benchmarks measured for a target missing from the counts file, until the file is regenerated.
 DEFAULT_COUNT = 100
 
@@ -157,7 +161,21 @@ def plan(counts: dict[Target, int], cap: int = CAP) -> list[Shard]:
                     "exclude-allocations": exclude,
                 }
             )
+    if len(shards) > MAX_SHARDS:
+        raise SystemExit(
+            f"{len(shards)} shards needed but the workflow has {MAX_SHARDS} slots; add slots to the "
+            "`bench-codspeed` matrix and MAX_SHARDS together"
+        )
     return shards
+
+
+def github_outputs(shards: list[Shard]) -> dict[str, str]:
+    """Return the `plan-codspeed` job outputs: the used slots, and each slot's shard by number."""
+    by_slot = {str(shard["shard"]): shard for shard in shards}
+    return {
+        "active": json.dumps([shard["shard"] for shard in shards]),
+        "shards": json.dumps(by_slot, separators=(",", ":")),
+    }
 
 
 def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
@@ -182,7 +200,7 @@ def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("plan", help="print the shard matrix as a GITHUB_OUTPUT line")
+    sub.add_parser("plan", help="print the shard plan as GITHUB_OUTPUT lines")
     counts_parser = sub.add_parser("counts", help="regenerate benchmark counts from CodSpeed job logs")
     counts_parser.add_argument("logs", nargs="+", type=Path)
     args = parser.parse_args()
@@ -205,7 +223,8 @@ def main() -> None:
     shards = plan(counts)
     for shard in shards:
         print(f"shard {shard['shard']}: {shard['benchmarks']} benchmarks, {shard['packages']}", file=sys.stderr)
-    print("matrix=" + json.dumps({"include": shards}, separators=(",", ":")))
+    for name, value in github_outputs(shards).items():
+        print(f"{name}={value}")
 
 
 if __name__ == "__main__":
