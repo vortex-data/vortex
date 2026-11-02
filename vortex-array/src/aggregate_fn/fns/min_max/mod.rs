@@ -71,7 +71,7 @@ pub fn min_max(
             // NaN-free: identical to the NaN-skipping path below, including its stat caching.
             Precision::Exact(0) => {}
             // At least one NaN value poisons both extrema.
-            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
+            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype())?)),
             _ => {
                 if array.is_empty() || array.valid_count(ctx)? == 0 {
                     return Ok(None);
@@ -158,12 +158,13 @@ pub(crate) fn columnar_min_max(
 }
 
 /// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
-fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
-    let nan = nan_scalar(dtype);
-    MinMaxResult {
+fn nan_minmax_result(dtype: &DType) -> VortexResult<MinMaxResult> {
+    let nan = nan_scalar(dtype)?;
+
+    Ok(MinMaxResult {
         min: nan.clone(),
         max: nan,
-    }
+    })
 }
 
 /// Whether `dtype` can hold NaN values: floats, and extension types stored as floats.
@@ -175,19 +176,22 @@ pub(crate) fn has_nan_values(dtype: &DType) -> bool {
 }
 
 /// A non-nullable NaN scalar of `dtype`, a float or an extension type stored as a float.
-pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
+///
+/// Returns an error if an extension dtype rejects NaN.
+pub(crate) fn nan_scalar(dtype: &DType) -> VortexResult<Scalar> {
     if let DType::Extension(ext_dtype) = dtype {
-        return Scalar::extension_ref(
+        return Scalar::try_extension_ref(
             ext_dtype.with_nullability(Nullability::NonNullable),
-            nan_scalar(ext_dtype.storage_dtype()),
+            nan_scalar(ext_dtype.storage_dtype())?,
         );
     }
-    match dtype.as_ptype() {
+
+    Ok(match dtype.as_ptype() {
         PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
         PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
         PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
         _ => vortex_panic!("NaN scalar requested for non-float dtype {dtype}"),
-    }
+    })
 }
 
 /// Whether a scalar holds a float NaN value, directly or as the storage of an extension scalar.
@@ -250,9 +254,9 @@ impl MinMaxPartial {
         &mut self,
         args: AggregateArgs<'_, NumericalAggregateOpts>,
         local: Option<MinMaxResult>,
-    ) {
+    ) -> VortexResult<()> {
         let Some(MinMaxResult { min, max }) = local else {
-            return;
+            return Ok(());
         };
 
         // NaN scalars are incomparable under `partial_min`/`partial_max`, so they are handled
@@ -260,9 +264,9 @@ impl MinMaxPartial {
         // dropped when they are skipped.
         if scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned() {
             if !args.options.skip_nans {
-                self.poison(args);
+                self.poison(args)?;
             }
-            return;
+            return Ok(());
         }
 
         self.min = Some(match self.min.take() {
@@ -274,13 +278,17 @@ impl MinMaxPartial {
             Some(current) => partial_max(max, current).vortex_expect("incomparable max scalars"),
             None => max,
         });
+
+        Ok(())
     }
 
     /// Poison the partial state to `{min: NaN, max: NaN}`.
-    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) {
-        let nan = nan_scalar(args.dtype);
+    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
+        let nan = nan_scalar(args.dtype)?;
         self.min = Some(nan.clone());
         self.max = Some(nan);
+
+        Ok(())
     }
 
     /// Whether the partial state is poisoned to NaN.
@@ -376,7 +384,7 @@ impl AggregateFnVTable for MinMax {
             max: None,
         };
         // `merge` normalizes the parsed extrema: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, MinMaxResult::from_scalar(scalar)?);
+        partial.merge(args, MinMaxResult::from_scalar(scalar)?)?;
         Ok(partial)
     }
 
@@ -387,7 +395,7 @@ impl AggregateFnVTable for MinMax {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         if let (Some(min), Some(max)) = (second.min, second.max) {
-            first.merge(args, Some(MinMaxResult { min, max }));
+            first.merge(args, Some(MinMaxResult { min, max }))?;
         }
         Ok(first)
     }
@@ -441,14 +449,14 @@ impl AggregateFnVTable for MinMax {
                             min: min.cast(&non_nullable_dtype)?,
                             max: max.cast(&non_nullable_dtype)?,
                         }),
-                    );
+                    )?;
                     return Ok(true);
                 }
                 Ok(false)
             }
             Precision::Exact(_) => {
                 // At least one NaN value poisons both extrema without scanning the batch.
-                partial.poison(args);
+                partial.poison(args)?;
                 Ok(true)
             }
             _ => Ok(false),
@@ -475,7 +483,7 @@ impl AggregateFnVTable for MinMax {
                 // NaN float constants are skipped or poison the extrema, per the options.
                 if scalar_is_nan(scalar) {
                     if !args.options.skip_nans {
-                        partial.poison(args);
+                        partial.poison(args)?;
                     }
                     return Ok(());
                 }
@@ -487,8 +495,7 @@ impl AggregateFnVTable for MinMax {
                         min: cast.clone(),
                         max: cast,
                     }),
-                );
-                Ok(())
+                )
             }
             Columnar::Canonical(c) => match c {
                 Canonical::Primitive(p) => accumulate_primitive(args, partial, p, ctx),

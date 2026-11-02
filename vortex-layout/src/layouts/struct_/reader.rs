@@ -1814,10 +1814,14 @@ mod tests {
         // DType mismatch: "age" is u8 but literal is i32
         let filt = eq(col("age"), lit(67i32));
 
-        let result = filt.bind(reader.dtype());
-        assert!(result.is_err());
-        let err = result.err().unwrap().to_string();
-        assert!(err.contains("Cannot compare different DTypes"), "{err}");
+        let error = filt
+            .bind(reader.dtype())
+            .expect_err("the u8 column cannot be compared with an i32 literal");
+        assert!(
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
+        );
     }
 
     /// Nine rows sorted by `(a, b)`; three zones of three; `c` copies `b` with nulls.

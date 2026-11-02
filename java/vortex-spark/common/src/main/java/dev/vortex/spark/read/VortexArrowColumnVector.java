@@ -17,9 +17,11 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.ArrowUtils;
 import java.math.BigDecimal;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
+import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarArray;
 import org.apache.spark.sql.vectorized.ColumnarMap;
@@ -292,6 +294,24 @@ public class VortexArrowColumnVector extends ColumnVector {
     private static VortexArrowColumnVector withAccessor(DataType type, ArrowVectorAccessor accessor) {
         VortexArrowColumnVector column = new VortexArrowColumnVector(type);
         column.accessor = accessor;
+        return column;
+    }
+
+    /** A column of {@code type} that is null in every one of its {@code rowCount} rows. */
+    static VortexArrowColumnVector nulls(DataType type, int rowCount) {
+        VortexArrowColumnVector column = withAccessor(type, new NullAccessor(new NullVector("", rowCount)));
+        if (type instanceof StructType struct) {
+            column.childColumns = Arrays.stream(struct.fields())
+                    .map(field -> nulls(field.dataType(), rowCount))
+                    .toArray(VortexArrowColumnVector[]::new);
+        }
+        return column;
+    }
+
+    /** This struct column read as {@code type}, with {@code fields} as its fields. */
+    VortexArrowColumnVector withFields(DataType type, VortexArrowColumnVector[] fields) {
+        VortexArrowColumnVector column = withAccessor(type, accessor);
+        column.childColumns = fields;
         return column;
     }
 
