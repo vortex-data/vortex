@@ -287,7 +287,7 @@ fn apply_rule(
     node: &BoundExpression,
 ) -> VortexResult<Option<NodeTouches>> {
     let rule = if node.is_root() {
-        rules.root(source)
+        rules.root_rule(source)
     } else {
         node.as_scalar()
             .and_then(|fn_| rules.rule(source, fn_.id()))

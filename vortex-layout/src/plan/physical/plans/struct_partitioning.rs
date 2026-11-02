@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::partition::replacement_scope;
@@ -31,15 +32,15 @@ use crate::plan::physical::PlanVTable;
 pub(crate) const VALIDITY_SLOT: FieldIndex = FieldIndex::MAX;
 
 pub(crate) fn register_struct_partition_rules(session: &PartitionSession) {
-    session.register_root(Pack.id(), &StructRootRule);
-    session.register(Pack.id(), GetItem.id(), &StructGetItemRule);
-    session.register(Pack.id(), Select.id(), &StructSelectRule);
-    session.register(
+    session.register_root_rule(Pack.id(), &StructRootRule);
+    session.register_rule(Pack.id(), GetItem.id(), &StructGetItemRule);
+    session.register_rule(Pack.id(), Select.id(), &StructSelectRule);
+    session.register_rule(
         Pack.id(),
         IsNotNull.id(),
         &StructNullCheckRule { negated: false },
     );
-    session.register(
+    session.register_rule(
         Pack.id(),
         IsNull.id(),
         &StructNullCheckRule { negated: true },
@@ -92,6 +93,8 @@ fn select_fields(
     names: FieldNames,
     slots: Vec<FieldIndex>,
 ) -> VortexResult<NodeTouches> {
+    vortex_ensure!(fields.nfields() > 0);
+
     if !scope.is_nullable() {
         if let [index] = slots.as_slice() {
             let field = BoundExpression::new_root(field_dtype(fields, *index)?);
@@ -197,7 +200,7 @@ impl PartitionRule for StructSelectRule {
 struct StructNullCheckRule {
     negated: bool,
 }
-/// is[_not]_null($) is replaced with lit() or $.validity
+/// is_null($) / is_not_null($) is replaced with lit() or $.validity
 impl PartitionRule for StructNullCheckRule {
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
         let Some(scope) = parent_of_root_scope(node) else {
@@ -306,6 +309,48 @@ mod tests {
         partition 0 scope=i32: $
         partition 1 scope=i32: $
         root scope={0=i32, 1=i32}: pack(v: true, a: $.0, b: $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn validity_and_field() -> VortexResult<()> {
+        let inner = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
+        let scope = struct_of(&[("a", i32()), ("s", inner)], Nullability::Nullable);
+        let expr = unbound::and(
+            unbound::is_null(unbound::root()),
+            unbound::gt(
+                unbound::get_item("d", unbound::get_item("s", unbound::root())),
+                unbound::lit(0i32),
+            ),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition validity scope=bool: pack(0: $, 1: vortex.not($))
+        partition 1 scope={c=i32, d=i32}: $
+        root scope={0={0=bool, 1=bool}, 1={c=i32, d=i32}}: ($.0.1 and (vortex.mask($.1, $.0.0).d > 0i32))
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn validity_only() -> VortexResult<()> {
+        let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
+        let expr = unbound::is_not_null(unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: $");
+        let expr = unbound::is_null(unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: vortex.not($)");
+
+        let a = struct_of(&[("x", i32())], Nullability::Nullable);
+        let b = struct_of(&[("y", i32())], Nullability::Nullable);
+        let scope = struct_of(&[("a", a), ("b", b)], Nullability::NonNullable);
+        let expr = unbound::and(
+            unbound::is_not_null(unbound::get_item("a", unbound::root())),
+            unbound::is_not_null(unbound::get_item("b", unbound::root())),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope={x=i32}?: is_not_null($)
+        partition 1 scope={y=i32}?: is_not_null($)
+        root scope={0=bool, 1=bool}: ($.0 and $.1)
         ");
         Ok(())
     }

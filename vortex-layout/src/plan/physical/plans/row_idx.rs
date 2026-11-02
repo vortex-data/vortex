@@ -114,8 +114,8 @@ const CHILD_SLOT: FieldIndex = 0;
 const ROW_IDX_SLOT: FieldIndex = FieldIndex::MAX;
 
 pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
-    session.register_root(RowIdx.id(), &RowIdxRootRule);
-    session.register(RowIdx.id(), RowIdxFn.id(), &RowIdxFnRule);
+    session.register_root_rule(RowIdx.id(), &RowIdxRootRule);
+    session.register_rule(RowIdx.id(), RowIdxFn.id(), &RowIdxFnRule);
 }
 
 /// row_idx as $ reads its child

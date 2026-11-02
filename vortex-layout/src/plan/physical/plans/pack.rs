@@ -342,15 +342,15 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         let expression = parent.expression();
         let fields = child.fields();
+        if fields.nfields() == 0 {
+            return Ok(None);
+        }
         let partitioned = match partition_expression(expression, Pack.id(), session)? {
             PartitionedExpression::One(Some(slot), expr) => {
                 let field = field_plan(child, slot)?;
                 return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));
             }
             PartitionedExpression::One(None, expr) => {
-                if fields.nfields() == 0 {
-                    return Ok(None);
-                }
                 let rewritten = child.with_pruned_fields(Vec::new())?.into_plan();
                 return Ok(Some(EvalPlan::try_new(expr, rewritten)?.into_plan()));
             }

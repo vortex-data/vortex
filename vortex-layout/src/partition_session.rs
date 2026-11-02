@@ -35,23 +35,32 @@ pub trait PartitionRule: Send + Sync {
 /// Session state for partitioning plans with expressions
 #[derive(Clone)]
 pub struct PartitionSession {
-    /// Root expression rules
-    roots: ArcSwapMap<PlanId, &'static dyn PartitionRule>,
-    /// Non-root expression rules
-    by_fn: ArcSwapMap<(PlanId, ScalarFnId), &'static dyn PartitionRule>,
+    /// Root expression rules. These apply when you encounter a root expression
+    /// ($) while traversing the expression graph.
+    root_rules: ArcSwapMap<PlanId, &'static dyn PartitionRule>,
+    /// Non-root expression rules. These apply when you encounter anything but
+    /// a root expression while traversing the expression graph.
+    rules: ArcSwapMap<(PlanId, ScalarFnId), &'static dyn PartitionRule>,
 }
 
 impl PartitionSession {
-    pub fn register_root(&self, plan: PlanId, rule: &'static dyn PartitionRule) {
-        self.roots.insert(plan, rule);
+    /// Register a rule which allows partitioning "plan" with "root()"
+    pub fn register_root_rule(&self, plan: PlanId, rule: &'static dyn PartitionRule) {
+        self.root_rules.insert(plan, rule);
     }
 
-    pub fn register(&self, plan: PlanId, scalar_fn: ScalarFnId, rule: &'static dyn PartitionRule) {
-        self.by_fn.insert((plan, scalar_fn), rule);
+    /// Register a rule which allows partitioning "plan" with a "scalar_fn"
+    pub fn register_rule(
+        &self,
+        plan: PlanId,
+        scalar_fn: ScalarFnId,
+        rule: &'static dyn PartitionRule,
+    ) {
+        self.rules.insert((plan, scalar_fn), rule);
     }
 
-    pub(crate) fn root(&self, plan: PlanId) -> Option<&'static dyn PartitionRule> {
-        self.roots.get(&plan)
+    pub(crate) fn root_rule(&self, plan: PlanId) -> Option<&'static dyn PartitionRule> {
+        self.root_rules.get(&plan)
     }
 
     pub(crate) fn rule(
@@ -59,15 +68,15 @@ impl PartitionSession {
         plan: PlanId,
         scalar_fn: ScalarFnId,
     ) -> Option<&'static dyn PartitionRule> {
-        self.by_fn.get(&(plan, scalar_fn))
+        self.rules.get(&(plan, scalar_fn))
     }
 }
 
 impl Default for PartitionSession {
     fn default() -> Self {
         let this = Self {
-            roots: ArcSwapMap::default(),
-            by_fn: ArcSwapMap::default(),
+            root_rules: ArcSwapMap::default(),
+            rules: ArcSwapMap::default(),
         };
         register_struct_partition_rules(&this);
         register_row_idx_partition_rules(&this);
