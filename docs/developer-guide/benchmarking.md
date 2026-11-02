@@ -236,9 +236,10 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 The cost of the system allocator depends on its state, which differs between runner images and
 between runs. Allocation inside a timed region made several simulation benchmarks flip between two
-values on pull requests that did not change the measured code. `mimalloc` does the same work every
-time, and one allocator for every binary means that no benchmark measures a different allocator
-from its neighbors. Each crate with benchmarks already has the `mimalloc` dev-dependency.
+values on pull requests that did not change the measured code. `mimalloc` still depends on allocator
+state. Using it consistently removes differences caused by choosing different allocators, but does
+not guarantee repeatable measurements. Each crate with benchmarks already has the `mimalloc`
+dev-dependency.
 
 ## What Not to Do
 
@@ -269,24 +270,80 @@ unnoticed. When a section above explains a rule, the rule links to that section.
 - **Do not acknowledge a flagged benchmark in CodSpeed without a cause.** If the pull request
   cannot reach the flagged code, open the log of the CodSpeed job and compare the divan table of
   the run with the table of the base run. If the median did not move, the report comes from the
-  fastest-sample comparison. Fix the benchmark, or add it to the list below.
+  fastest-sample comparison. Fix the benchmark, or exclude it from automatic runs with evidence
+  in the table below.
 
-### Known unstable benchmarks
+### Benchmarks excluded from automatic runs
 
-The benchmarks below switch between a fast state and a slow state for a whole run, on code that
-did not change. The cause is not known. For the NEON `threshold` and `filter` cases, a larger
-iteration does not help, because the slow state also slows the work for each element, not only a
-fixed cost for each call. A report on one of these benchmarks is not evidence of a regression
-unless the pull request changes the code that the benchmark measures.
+These cases remain available locally. They show unexplained variation on unchanged code,
+so automatic reports cannot reliably distinguish regressions from noise. The cause of the Rust
+cases is unknown. Larger iterations did not fix the NEON filter and take cases.
 
-| Benchmark | Instrument | Observed values |
+| Benchmark | Excluded instrument | Evidence |
 | --- | --- | --- |
-| `bitpacking_take`: `threshold[8, 64, 80]` | NEON leg | 1.4 to 2 times slower in 15% to 30% of runs |
-| `bitpacking_filter`: `filter[8, 64, 80]` | NEON leg | 1.4 to 2 times slower in 15% to 30% of runs |
-| `binary_ops`: `mul_u64_nonnull` | NEON leg | About 20 µs, or about 40 µs in 17% of runs |
-| `row_fn_utf8_input`: `starts_with[8 and 64, VarBin]` | AVX2 and AVX-512 legs | 12% to 17% slower in 40% to 50% of runs |
-| `bitpacking_take`: `isolated_runs[u32, (16, 0)]` | Simulation | 78 µs or 88 µs |
-| `chunk_array_builder`: `chunked_opt_bool_canonical_into[(1000, 10)]` | Simulation | 55 µs or 65.5 µs |
+| `bitpacking_take`: `threshold[64, 80]` | NEON walltime | 1.4 to 2 times slower in 15% to 30% of runs. |
+| `bitpacking_filter`: `filter[64, 80]` | NEON walltime | 1.4 to 2 times slower in 15% to 30% of runs. |
+| `binary_ops`: `mul_u64_nonnull` | NEON walltime | About 20 or 40 µs. |
+| `row_fn_utf8_input`: `starts_with[8 and 64, VarBin]` | AVX2 and AVX-512 walltime | 12% to 17% shifts between runs. |
+| `row_fn_utf8_input`: `starts_with[64, VarBin]` | NEON walltime | 6.38% spread over 30 processes on three hosts with one binary. |
+| `chunk_array_builder`: `chunked_opt_bool_canonical_into[(1000, 10)]` | Simulation | About 55 or 65.5 µs. |
+| Python `test_scan_scalar_at[int]` and `test_repeated_scan_scalar_at[int]` | Simulation | Variable reactor polling inside measured iterations. |
+
+The walltime exclusions match Divan tree paths in `codspeed.yml`. Simulation uses a smaller Rust
+argument list and Python collection skips. Stable CPU variants and other arguments still run.
+
+The historical Rust measurements come from [PR #10808](https://github.com/vortex-data/vortex/pull/10808).
+Recent repeats include the string alert on the workflow-only
+[PR #11095](https://github.com/vortex-data/vortex/pull/11095#issuecomment-6577817281).
+For the Python repeated scalar scan on
+[PR #11102](https://github.com/vortex-data/vortex/pull/11102), the head trace contains five reactor
+polls and three clock calls absent from the base trace. Both also call `getpid` twice.
+Memory mapping and `VORTEX_MAX_THREADS=0` do not remove those calling-thread runtime operations.
+Simulation excludes syscall time and cannot measure their full cost. Keep the scan operation
+intact for local measurements instead of replacing it with an in-memory lookup under the same name.
+
+### Check repeatability before restoring a case
+
+Use `scripts/codspeed_repeatability.py` to run independent benchmark processes. It records the
+binary hash, command, compiler, CPU, environment, and per-process values. It reads instrument
+results, not process elapsed time. For a built walltime binary on matching Linux hardware:
+
+```bash
+python3 scripts/codspeed_repeatability.py collect \
+  --instrument walltime --binary /path/to/benchmark --output /tmp/host-a \
+  --repeats 10 -- /path/to/benchmark --bench 'benchmark_filter'
+python3 scripts/codspeed_repeatability.py summarize \
+  /tmp/host-{a,b,c}/report.json
+```
+
+Each process writes into a fresh `CODSPEED_CARGO_WORKSPACE_ROOT`. Walltime uses the minimum sample,
+matching CodSpeed's reported metric. Raw results and process logs remain beside each report.
+For simulation, provide a command that runs the simulator and exports one JSON record per URI
+under that directory. Select its metric with `--result-glob`, `--value-field`, and `--scale`.
+Do not label native walltime as simulation.
+
+Qualification requires at least 30 processes across three hosts, with a maximum spread of 5%.
+First compare one binary, then repeat with independent builds using `--allow-rebuilds`. Compare a
+temporary variant with 20% additional measured work to confirm that regressions remain visible.
+A failing case stays excluded until a demonstrated fix passes these checks.
+
+Fixed sampling also matters when one binary is repeatable on most runs. With 1000 samples per
+process, `filter_avx2[80]` varied by 9.36% across 30 processes on three `c7i.metal-24xl` hosts.
+Setting `sample_size=64` reduced that spread to 1.45% with the same executable. Across independent
+base and head AVX2 builds, its worst spread was 4.66% over 60 processes on three hosts. The AVX-512
+filter cases stayed within 1.78% over 30 processes. The take cases use `sample_size=16`, which
+reduced AVX-512 `threshold[80]` from 8.26% to 1.69%.
+
+The head measurements used artifacts from workflow run `41449104113`, source commit
+`44bdefff6e69`. The independent base build came from run `41442182591`, commit `7c9bb58e39fe`.
+The NEON measurements used the head run's artifact on three `c7g.metal` hosts. These are comparisons
+of identical executables, not proof that unrelated source changes cannot affect code placement.
+A separate calibration loop with 20% additional measured CPU work reported a 19.99% increase,
+with less than 0.05% spread in both versions over 30 processes on three x86 hosts.
+
+Record the exact base and head commits when investigating a report. An unexpected comparison base
+is inconclusive. Separate instruction changes from cache, allocator, and syscall effects before
+attributing a change to a kernel. Do not raise the repository's regression threshold to hide noise.
 
 ## SQL Benchmarks
 

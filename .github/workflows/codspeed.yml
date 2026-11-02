@@ -376,7 +376,15 @@ jobs:
           # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
         with:
-          run: bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
+          # Divan filters use tree paths (including separate argument components), not result URIs.
+          # Keep the documented unstable cases local. Stable CPU and layout variants still run.
+          run: >-
+            bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
+            --skip 'bitpacking_take::neon::threshold_neon::(64|80)$'
+            --skip 'bitpacking_filter::neon::filter_neon::(64|80)$'
+            --skip 'binary_ops::neon::mul_u64_nonnull_neon$'
+            --skip 'row_fn_utf8_input::(avx2::starts_with_avx2|avx512::starts_with_avx512)::(8|64)::VarBin$'
+            --skip 'row_fn_utf8_input::neon::starts_with_neon::64::VarBin$'
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "walltime"
 
