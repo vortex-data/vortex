@@ -76,6 +76,23 @@ const PROBE_RANGE_SIZE: u32 = 64;
 /// Distributes this many probe ranges across the input.
 const PROBE_RANGE_COUNT: u32 = 128;
 
+/// Samples this many adjacent rows from each range in the head probe that screens out unique
+/// inputs before the full probe.
+const HEAD_PROBE_RANGE_SIZE: u32 = 16;
+
+/// Requires a head probe this large before it may reject an incomplete input.
+///
+/// A distributed sample of 1024 values without a single repeat means the input holds hundreds of
+/// thousands of distinct values, or nearly one per row.
+const MIN_HEAD_PROBE_ROWS: usize = 1024;
+
+/// Bounds how well a string scheme compresses a dictionary's values.
+///
+/// Dictionary values are distinct, so a scheme can only shrink them one value at a time. FSST
+/// writes a 1-byte code for at most 8 bytes and OnPair a 2-byte code for at most 16, so neither
+/// can exceed 8× on them, however well it compresses the repetitive input.
+const MAX_VALUES_RATIO: f64 = 8.0;
+
 /// Stores a completed dictionary result for reuse by the compression phase.
 ///
 /// The containing [`ArrayAndStats`] exists for one selection and compression call. The cached
@@ -169,7 +186,13 @@ fn estimate_bytes_dictionary(
         return Ok(EstimateVerdict::Skip);
     }
 
-    let Some(sample) = ProbeSample::new(&array, &profile.validity) else {
+    if ProbeSample::new(&array, &profile.validity, HEAD_PROBE_RANGE_SIZE).is_some_and(|head| {
+        head.is_unique() && admit_trial(&profile, &head, best_so_far) == Admission::Reject
+    }) {
+        return Ok(EstimateVerdict::Skip);
+    }
+
+    let Some(sample) = ProbeSample::new(&array, &profile.validity, PROBE_RANGE_SIZE) else {
         return sample_verdict(
             scheme,
             compressor,
@@ -314,10 +337,11 @@ struct ProbeSample {
 }
 
 impl ProbeSample {
-    /// Probes the input, or returns `None` when the probed values exceed the probe budget.
-    fn new(array: &ArrayView<'_, VarBinView>, validity: &Mask) -> Option<Self> {
+    /// Probes `range_size` adjacent rows from each range, or returns `None` when the probed values
+    /// exceed the probe budget.
+    fn new(array: &ArrayView<'_, VarBinView>, validity: &Mask, range_size: u32) -> Option<Self> {
         let views = array.views();
-        let ranges = sample_slices(array.len(), PROBE_RANGE_SIZE, PROBE_RANGE_COUNT);
+        let ranges = sample_slices(array.len(), range_size, PROBE_RANGE_COUNT);
         let complete = matches!(ranges.as_slice(), [(0, end)] if *end == array.len());
 
         let probe_bytes = ranges
@@ -363,6 +387,11 @@ impl ProbeSample {
             adjacent_changes,
             complete,
         })
+    }
+
+    /// Reports whether every probed value is distinct, in a probe large enough to tell.
+    fn is_unique(&self) -> bool {
+        self.distinct == self.rows && (self.complete || self.rows >= MIN_HEAD_PROBE_ROWS)
     }
 
     /// Estimates the number of distinct non-null values in the complete input.
@@ -422,7 +451,8 @@ fn admit_trial(
     let distinct = sample.estimated_distinct(profile.valid_rows);
     let has_nulls = profile.valid_rows < profile.rows;
     let entries = distinct + f64::from(u8::from(has_nulls));
-    if optimistic_ratio(profile, sample, entries, best_ratio) <= best_ratio {
+    let values_ratio = best_ratio.min(MAX_VALUES_RATIO);
+    if optimistic_ratio(profile, sample, entries, values_ratio) <= best_ratio {
         return Admission::Reject;
     }
 
@@ -438,8 +468,8 @@ fn admit_trial(
 
 /// Estimates the compression ratio of a dictionary with `entries` values.
 ///
-/// The model assumes dictionary values compress as well as the best estimate so far compresses
-/// the whole input, and that codes compress to their bit width over the runs the probe saw.
+/// The model assumes dictionary values compress by `values_ratio`, and that codes compress to their
+/// bit width over the runs the probe saw.
 fn optimistic_ratio(
     profile: &InputProfile,
     sample: &ProbeSample,

@@ -17,9 +17,11 @@ use vortex_session::VortexSession;
 
 use super::Admission;
 use super::CachedBytesDictionary;
+use super::HEAD_PROBE_RANGE_SIZE;
 use super::InputProfile;
 use super::MAX_DICTIONARY_ENTRIES;
 use super::MAX_PROBE_BYTES;
+use super::PROBE_RANGE_SIZE;
 use super::ProbeSample;
 use super::admit_trial;
 use super::build_candidate;
@@ -70,7 +72,11 @@ fn profile_and_probe(
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<(InputProfile, Option<ProbeSample>)> {
     let profile = InputProfile::new(data, exec_ctx)?;
-    let sample = ProbeSample::new(&data.array_as_varbinview(), &profile.validity);
+    let sample = ProbeSample::new(
+        &data.array_as_varbinview(),
+        &profile.validity,
+        PROBE_RANGE_SIZE,
+    );
     Ok((profile, sample))
 }
 
@@ -241,5 +247,59 @@ fn completed_candidate_is_reused() -> VortexResult<()> {
         StringDictScheme.compress(&compressor, &data, CompressorContext::new(), &mut exec_ctx)?;
 
     assert!(ArrayRef::ptr_eq(cached.array(), &compressed));
+    Ok(())
+}
+
+/// Repeats far apart still reach the head probe: each value below recurs half the input away.
+#[rstest]
+#[case::unique(65_536, 65_536, true)]
+#[case::two_repeats_per_value(65_536, 32_768, false)]
+#[case::four_repeats_per_value(65_536, 16_384, false)]
+#[case::two_repeats_in_a_shorter_input(16_384, 8_192, false)]
+fn head_probe_screens_unique_inputs(
+    #[case] rows: usize,
+    #[case] distinct: usize,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let data = string_data(&cycled(rows, distinct));
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let profile = InputProfile::new(&data, &mut exec_ctx)?;
+    let head = ProbeSample::new(
+        &data.array_as_varbinview(),
+        &profile.validity,
+        HEAD_PROBE_RANGE_SIZE,
+    )
+    .ok_or_else(|| vortex_err!("probe did not finish"))?;
+
+    assert!(!head.complete);
+    assert_eq!(head.is_unique(), expected);
+    if expected {
+        assert_eq!(admit_trial(&profile, &head, None), Admission::Reject);
+    }
+    Ok(())
+}
+
+/// A mostly-null column of distinct long values compresses far better as sparse values than as a
+/// dictionary, whose distinct values no string scheme compresses more than eight-fold.
+#[test]
+fn values_ratio_bound_rejects_sparse_unique_values() -> VortexResult<()> {
+    let suffix = "x".repeat(240);
+    let values = (0..40_960)
+        .map(|index| (index % 23 == 0).then(|| format!("{index:016x}{suffix}")))
+        .collect::<Vec<_>>();
+    let data = string_data(&values);
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let (profile, sample) = profile_and_probe(&data, &mut exec_ctx)?;
+    let sample = sample.ok_or_else(|| vortex_err!("probe did not finish"))?;
+
+    assert_eq!(admit_trial(&profile, &sample, None), Admission::Trial);
+    assert_eq!(
+        admit_trial(
+            &profile,
+            &sample,
+            Some(EstimateScore::FiniteCompression(22.0))
+        ),
+        Admission::Reject
+    );
     Ok(())
 }
