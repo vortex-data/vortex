@@ -35,7 +35,6 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
-use super::select::WinnerEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
@@ -59,25 +58,6 @@ impl Selection {
             Selection::Compressed(array) | Selection::Unchanged(array) => array,
         }
     }
-}
-
-/// The outcome of [`CascadingCompressor::choose`], before any winning scheme has compressed.
-enum Choice {
-    /// The compressor settled the array without a scheme.
-    Settled(Selection),
-    /// A scheme won selection and still has to compress the array.
-    Winner {
-        /// The winning scheme.
-        scheme: &'static dyn Scheme,
-        /// The winning estimate, kept for tracing.
-        estimate: WinnerEstimate,
-        /// The input bundled with the statistics and results its estimates cached.
-        data: ArrayAndStats,
-        /// The context the winner compresses in.
-        compress_ctx: CompressorContext,
-        /// The exact uncompressed size the winner must beat.
-        before_nbytes: u64,
-    },
 }
 
 impl CascadingCompressor {
@@ -104,40 +84,6 @@ impl CascadingCompressor {
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 
         Ok(compressed)
-    }
-
-    /// Returns the scheme [`compress`](Self::compress) would apply to a leaf array, without
-    /// compressing it.
-    ///
-    /// Returns `None` when no scheme wins: the array is empty, all null or constant, nothing
-    /// beats the canonical encoding, or it is not a leaf (struct, list and similar arrays have
-    /// no single scheme). [`compress`](Self::compress) can still leave a winner's input
-    /// unchanged if the winner's actual output is larger than its estimate promised.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if canonicalization or scheme estimation fails.
-    pub fn choose_scheme(
-        &self,
-        array: &ArrayRef,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<&'static dyn Scheme>> {
-        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
-        if !matches!(
-            compact,
-            Canonical::Bool(_)
-                | Canonical::Primitive(_)
-                | Canonical::Decimal(_)
-                | Canonical::VarBinView(_)
-        ) {
-            return Ok(None);
-        }
-
-        match self.choose(compact, CompressorContext::new(), exec_ctx)? {
-            Choice::Settled(_) => Ok(None),
-            Choice::Winner { scheme, .. } => Ok(Some(scheme)),
-        }
     }
 
     /// Compresses a child array produced by a cascading scheme.
@@ -322,17 +268,55 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Selection> {
-        let (winner, winner_estimate, data, compress_ctx, before_nbytes) =
-            match self.choose(canonical, compress_ctx, exec_ctx)? {
-                Choice::Settled(selection) => return Ok(selection),
-                Choice::Winner {
-                    scheme,
-                    estimate,
-                    data,
-                    compress_ctx,
-                    before_nbytes,
-                } => (scheme, estimate, data, compress_ctx, before_nbytes),
-            };
+        let eligible_schemes: Vec<&'static dyn Scheme> = self
+            .schemes
+            .iter()
+            .copied()
+            .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
+            .collect();
+
+        let array: ArrayRef = canonical.into();
+
+        if array.is_empty() {
+            return Ok(Selection::Unchanged(array));
+        }
+
+        if array.all_invalid(exec_ctx)? {
+            return Ok(Selection::Compressed(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+            ));
+        }
+
+        // Constant detection is built into the compressor: a constant leaf always short-circuits
+        // scheme selection. Samples are exempt because a constant sample does not imply that the
+        // full array is constant.
+        //
+        // Compare valid values directly so even nullable constants avoid distinct-value counting.
+        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
+            return constant::compress_as_constant(array, exec_ctx).map(Selection::Compressed);
+        }
+
+        // A scheme competes against the bytes the rows reference, not dead bytes in the buffers.
+        let before_nbytes = exact_uncompressed_size(&array, exec_ctx)?;
+
+        let merged_opts = eligible_schemes
+            .iter()
+            .fold(GenerateStatsOptions::default(), |acc, s| {
+                acc.merge(s.stats_options())
+            });
+        let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
+
+        let data = ArrayAndStats::new(array, merged_opts);
+
+        if eligible_schemes.is_empty() {
+            return Ok(Selection::Unchanged(data.into_array()));
+        }
+
+        let Some((winner, winner_estimate)) =
+            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
+        else {
+            return Ok(Selection::Unchanged(data.into_array()));
+        };
 
         // Run the winning scheme's `compress`. On failure, emit an ERROR event carrying the
         // scheme name and cascade history before propagating.
@@ -364,74 +348,6 @@ impl CascadingCompressor {
         } else {
             Ok(Selection::Unchanged(data.into_array()))
         }
-    }
-
-    /// Settles empty, all-null and constant arrays, or picks the scheme that should compress the
-    /// array, without compressing it.
-    fn choose(
-        &self,
-        canonical: Canonical,
-        compress_ctx: CompressorContext,
-        exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Choice> {
-        let eligible_schemes: Vec<&'static dyn Scheme> = self
-            .schemes
-            .iter()
-            .copied()
-            .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
-            .collect();
-
-        let array: ArrayRef = canonical.into();
-
-        if array.is_empty() {
-            return Ok(Choice::Settled(Selection::Unchanged(array)));
-        }
-
-        if array.all_invalid(exec_ctx)? {
-            return Ok(Choice::Settled(Selection::Compressed(
-                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
-            )));
-        }
-
-        // Constant detection is built into the compressor: a constant leaf always short-circuits
-        // scheme selection. Samples are exempt because a constant sample does not imply that the
-        // full array is constant.
-        //
-        // Compare valid values directly so even nullable constants avoid distinct-value counting.
-        if !compress_ctx.is_sample() && constant::is_constant_for_compression(&array, exec_ctx)? {
-            return constant::compress_as_constant(array, exec_ctx)
-                .map(|array| Choice::Settled(Selection::Compressed(array)));
-        }
-
-        // A scheme competes against the bytes the rows reference, not dead bytes in the buffers.
-        let before_nbytes = exact_uncompressed_size(&array, exec_ctx)?;
-
-        let merged_opts = eligible_schemes
-            .iter()
-            .fold(GenerateStatsOptions::default(), |acc, s| {
-                acc.merge(s.stats_options())
-            });
-        let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
-
-        let data = ArrayAndStats::new(array, merged_opts);
-
-        if eligible_schemes.is_empty() {
-            return Ok(Choice::Settled(Selection::Unchanged(data.into_array())));
-        }
-
-        let Some((scheme, estimate)) =
-            self.choose_best_scheme(&eligible_schemes, &data, compress_ctx.clone(), exec_ctx)?
-        else {
-            return Ok(Choice::Settled(Selection::Unchanged(data.into_array())));
-        };
-
-        Ok(Choice::Winner {
-            scheme,
-            estimate,
-            data,
-            compress_ctx,
-            before_nbytes,
-        })
     }
 }
 
