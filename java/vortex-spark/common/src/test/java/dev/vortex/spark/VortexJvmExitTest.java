@@ -6,7 +6,9 @@ package dev.vortex.spark;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.apache.spark.sql.SparkSession;
@@ -25,17 +27,21 @@ public final class VortexJvmExitTest {
     @Test
     public void jvmExitsAfterWrites() throws Exception {
         Path log = tempDir.resolve("child.log");
-        Process child = new ProcessBuilder(List.of(
-                        Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                        "-Xmx512m",
-                        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-                        "--add-opens=java.base/java.nio=ALL-UNNAMED",
-                        "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
-                        "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
-                        "-cp",
-                        System.getProperty("java.class.path"),
-                        VortexJvmExitTest.class.getName(),
-                        tempDir.resolve("table").toUri().toString()))
+
+        // The child needs the same module openings Spark needs in this JVM.
+        List<String> command = new ArrayList<>();
+        command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+        command.add("-Xmx512m");
+        ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
+                .filter(arg -> arg.startsWith("--add-opens="))
+                .forEach(command::add);
+        command.addAll(List.of(
+                "-cp",
+                System.getProperty("java.class.path"),
+                VortexJvmExitTest.class.getName(),
+                tempDir.resolve("table").toUri().toString()));
+
+        Process child = new ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .redirectOutput(log.toFile())
                 .start();

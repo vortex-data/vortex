@@ -89,11 +89,13 @@ final class NativeWorkerAttachmentTest {
             }
             boolean allStarted = started.await(30, TimeUnit.SECONDS);
             release.countDown();
-            assertTrue(allStarted, "every writer should reach its first upcall on a worker");
             for (VortexWriter writer : writers) {
                 writer.close();
             }
+
+            assertTrue(allStarted, "every writer should reach its first upcall on a worker");
         }
+
         for (Sink sink : sinks) {
             assertTrue(sink.thread.isDaemon(), "a worker attached as a non-daemon thread keeps the JVM alive");
         }

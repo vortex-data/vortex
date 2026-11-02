@@ -66,12 +66,19 @@ pub(crate) fn with_jvm<T>(
 /// exits, so attach them as daemons; `with_jvm` then reuses the attachment.
 #[cfg(not(windows))]
 fn attach_as_daemon(vm: &JavaVM) -> VortexResult<()> {
+    // An upcall from another thread-local destructor can run after this slot is gone. Storing the
+    // guard would then panic inside a destructor, so leave the attachment to the jni crate.
+    if DAEMON_ATTACHMENT.try_with(|_| ()).is_err() {
+        return Ok(());
+    }
+
     if vm
         .is_thread_attached()
         .map_err(|e| vortex_err!("cannot check the JVM attachment: {e}"))?
     {
         return Ok(());
     }
+
     let raw = vm.get_raw();
     let mut env = std::ptr::null_mut();
     // SAFETY: `raw` is the live JavaVM `vm` wraps, and a null `args` attaches with defaults.
@@ -81,6 +88,7 @@ fn attach_as_daemon(vm: &JavaVM) -> VortexResult<()> {
     if result != jni::sys::JNI_OK {
         vortex_bail!("failed to attach a native thread to the JVM as a daemon: {result}");
     }
+
     DAEMON_ATTACHMENT.with(|attachment| *attachment.borrow_mut() = Some(DaemonAttachment(raw)));
     Ok(())
 }
