@@ -23,10 +23,12 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::executor::DonePredicate;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
@@ -179,6 +181,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Execute the expression over the input arguments.
     ///
+    /// Superseded by [`execute_step`](Self::execute_step). Vortex only calls this method through
+    /// the default `execute_step`, so a function that implements `execute_step` never has
+    /// `execute` called and should implement it with [`vortex_panic!`].
+    ///
+    /// [`vortex_panic!`]: vortex_error::vortex_panic
+    ///
     /// Implementations are encouraged to check their inputs for constant arrays to perform
     /// more optimized execution.
     ///
@@ -194,6 +202,30 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
+
+    /// Perform a single step of execution over the input arguments.
+    ///
+    /// This is used by the iterative executor when executing a
+    /// [`ScalarFnArray`]. Instead of executing an input itself, an implementation can return
+    /// [`ScalarFnExecutionResult::execute_input`] to ask the scheduler to execute that input until
+    /// it matches a [`Matcher`]. The scheduler then calls `execute_step` again with the executed
+    /// input in its place, so deep trees of scalar functions run without recursion.
+    ///
+    /// Only request an input that does not already match, otherwise execution cannot make
+    /// progress and fails.
+    ///
+    /// The default delegates to [`execute`](Self::execute), for functions that have not been
+    /// migrated yet. [`ScalarFnRef::execute`] is defined in terms of this method, so once a
+    /// function overrides it, its [`execute`](Self::execute) is never called.
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -557,6 +589,53 @@ pub trait ExecutionArgs {
 
     /// Returns the row count of the execution scope.
     fn row_count(&self) -> usize;
+}
+
+/// The result of a single [`ScalarFnVTable::execute_step`].
+pub struct ScalarFnExecutionResult(ScalarFnExecutionStep);
+
+/// What the scheduler should do after a [`ScalarFnVTable::execute_step`].
+#[derive(Clone)]
+pub enum ScalarFnExecutionStep {
+    /// Execution finished with this result.
+    Done(ArrayRef),
+    /// Execute the input at this index until the predicate matches, then call
+    /// [`ScalarFnVTable::execute_step`] again.
+    ExecuteInput(usize, DonePredicate),
+}
+
+impl ScalarFnExecutionResult {
+    /// Execution finished with the given result.
+    pub fn done(result: impl IntoArray) -> Self {
+        Self(ScalarFnExecutionStep::Done(result.into_array()))
+    }
+
+    /// Ask the scheduler to execute the input at `input_idx` until it matches `M`, then call
+    /// [`ScalarFnVTable::execute_step`] again.
+    pub fn execute_input<M: Matcher>(input_idx: usize) -> Self {
+        Self(ScalarFnExecutionStep::ExecuteInput(input_idx, M::matches))
+    }
+
+    /// Returns the requested step.
+    pub fn step(&self) -> &ScalarFnExecutionStep {
+        &self.0
+    }
+
+    /// Returns the requested step.
+    pub fn into_step(self) -> ScalarFnExecutionStep {
+        self.0
+    }
+}
+
+impl Debug for ScalarFnExecutionResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            ScalarFnExecutionStep::Done(array) => f.debug_tuple("Done").field(array).finish(),
+            ScalarFnExecutionStep::ExecuteInput(idx, _) => {
+                f.debug_tuple("ExecuteInput").field(idx).finish()
+            }
+        }
+    }
 }
 
 /// A concrete [`ExecutionArgs`] backed by a `Vec<ArrayRef>`.
