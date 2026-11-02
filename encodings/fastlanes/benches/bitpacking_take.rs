@@ -83,8 +83,7 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
     (packed, indices)
 }
 
-// With one iteration per sample, AVX-512 threshold[80] varied by 8% between processes.
-// Batch 16 iterations so each sample measures tens of microseconds of take work.
+// Batch short iterations to reduce variation in the fastest walltime sample.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = [64, 80], sample_size = 16)]
 fn threshold(bencher: Bencher, selected_per_chunk: usize) {

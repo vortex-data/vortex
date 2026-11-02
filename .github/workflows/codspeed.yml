@@ -228,7 +228,11 @@ jobs:
                   echo "Python extension build failed; nothing to run." >&2
                   exit 1
                 fi
-                cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
+                cd vortex-python
+                # Reactor polling varies inside these scalar scans under simulation.
+                uv run --all-packages --no-sync pytest benchmark/ --codspeed \
+                  --deselect 'vortex-python/benchmark/test_scalar_at.py::test_scan_scalar_at[int]' \
+                  --deselect 'vortex-python/benchmark/test_scalar_at.py::test_repeated_scan_scalar_at[int]'
               token: ${{ secrets.CODSPEED_TOKEN }}
               mode: "simulation"
               # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
@@ -377,7 +381,7 @@ jobs:
           DIVAN_SAMPLE_COUNT: "1000"
         with:
           # Divan filters use tree paths (including separate argument components), not result URIs.
-          # Keep the documented unstable cases local. Stable CPU and layout variants still run.
+          # These cases vary between processes on unchanged code. Keep them available locally.
           run: >-
             bash scripts/bench-taskset.sh cargo codspeed run -- '.*::${{ matrix.features }}::'
             --skip 'bitpacking_take::neon::threshold_neon::(64|80)$'

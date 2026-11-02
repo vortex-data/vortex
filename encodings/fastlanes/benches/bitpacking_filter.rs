@@ -69,8 +69,7 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
     (packed, Mask::from_indices(LEN, indices))
 }
 
-// One AVX2 iteration takes about 1.4 us. Single-iteration samples varied by 9% between processes.
-// Batch 64 iterations so samples stay repeatable across independent builds as well.
+// Batch short iterations to reduce variation in the fastest walltime sample.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = [64, 80], sample_size = 64)]
 fn filter(bencher: Bencher, selected_per_chunk: usize) {
