@@ -180,8 +180,8 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
                 inputs[idx] = inputs[idx].clone().execute::<ArrayRef>(ctx)?;
                 let scalar_fn =
                     TypedScalarFnInstance::new(self.vtable.clone(), self.options.clone()).erased();
-                Ok(ScalarFnArray::try_new_with_len(scalar_fn, inputs, args.row_count())?
-                    .into_array())
+                let array = ScalarFnArray::try_new_with_len(scalar_fn, inputs, args.row_count())?;
+                Ok(array.into_array())
             }
         }
     }

@@ -156,7 +156,7 @@ impl ScalarFnRef {
 
     /// Perform a single step of execution given the input arguments.
     ///
-    /// See [`ScalarFnVTable::execute_step`](crate::scalar_fn::ScalarFnVTable::execute_step).
+    /// See [`ScalarFnVTable::execute_step`].
     pub fn execute_step(
         &self,
         args: &dyn ExecutionArgs,
