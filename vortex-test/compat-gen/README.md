@@ -188,7 +188,11 @@ many releases read concurrently, and `--python` sets the reader environments'
 Python version (default 3.12).
 
 Some old wheels declare their dependencies loosely. Every reader environment
-therefore adds `typing_extensions` and constrains `substrait<0.24`.
+therefore adds `typing_extensions` and pins `substrait<0.24`.
+
+The reader reports each file as it reads it. If an old release aborts the
+process, for example with a Rust panic, the file it was reading fails with the
+panic message and the reader restarts without it, so one crash costs one file.
 
 ### Store abstraction
 

@@ -755,10 +755,10 @@ PYPI_PACKAGE = "vortex-data"
 PYPI_JSON_URL = f"https://pypi.org/pypi/{PYPI_PACKAGE}/json"
 FORWARD_READER = Path(__file__).resolve().with_name("forward_reader.py")
 # Packages added to every reader environment. Some old wheels import typing_extensions without
-# declaring it.
-FORWARD_EXTRA_DEPS = ["pyarrow", "typing_extensions"]
-# substrait 0.24 moved the generated protobuf modules that old wheels import.
-FORWARD_CONSTRAINTS = ["substrait<0.24"]
+# declaring it, and substrait 0.24 moved the generated protobuf modules they import. Every release
+# so far accepts substrait 0.23. `uv run` ignores UV_CONSTRAINT for `--with`, so the pin is a
+# requirement rather than a constraint.
+FORWARD_EXTRA_DEPS = ["pyarrow", "typing_extensions", "substrait<0.24"]
 
 
 def _released_versions() -> list[str]:
@@ -774,33 +774,69 @@ def _released_versions() -> list[str]:
     return versions
 
 
-def _run_forward_reader(
-    version: str,
-    editions: list[str],
-    fixtures_dir: Path,
-    python: str,
-    constraints: Path,
-) -> dict:
-    """Read the files of `editions` with the released `version`, in an isolated environment."""
-    cmd = ["uv", "run", "--quiet", "--isolated", "--no-project", "--python", python]
-    cmd += ["--with", f"{PYPI_PACKAGE}=={version}"]
-    for dep in FORWARD_EXTRA_DEPS:
-        cmd += ["--with", dep]
-    cmd += ["python", "-I", str(FORWARD_READER), "--dir", str(fixtures_dir)]
-    cmd += ["--editions", ",".join(editions), "--version", version]
+def _run_forward_reader(version: str, editions: list[str], fixtures_dir: Path, python: str) -> dict:
+    """Read the files of `editions` with the released `version`, in an isolated environment.
 
-    env = {**os.environ, "UV_CONSTRAINT": str(constraints)}
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        stderr = result.stderr.strip().splitlines()
-        detail = "\n".join(stderr[-20:]) or f"exit code {result.returncode}"
-        return {
-            "version": version,
-            "passed": [],
-            "failed": [{"edition": e, "name": "(reader)", "error": detail} for e in editions],
-        }
+    The reader reports each file as it goes. If an old native reader aborts the process, the file
+    it was reading fails with the crash output, and the reader restarts without it.
+    """
+    passed: list[dict] = []
+    failed: list[dict] = []
+    with tempfile.NamedTemporaryFile("w", suffix=".txt") as skip_file:
+        skip: list[str] = []
+        while True:
+            skip_file.seek(0)
+            skip_file.truncate()
+            skip_file.write("\n".join(skip) + "\n")
+            skip_file.flush()
+
+            cmd = ["uv", "run", "--quiet", "--isolated", "--no-project", "--python", python]
+            cmd += ["--with", f"{PYPI_PACKAGE}=={version}"]
+            for dep in FORWARD_EXTRA_DEPS:
+                cmd += ["--with", dep]
+            cmd += ["python", "-I", str(FORWARD_READER), "--dir", str(fixtures_dir)]
+            cmd += ["--editions", ",".join(editions), "--version", version, "--skip", skip_file.name]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            reading: str | None = None
+            done = False
+            for line in result.stdout.splitlines():
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "reading" in record:
+                    reading = record["reading"]
+                elif "done" in record:
+                    done = True
+                else:
+                    reading = None
+                    skip.append(f"{record['edition']}/{record['name']}")
+                    (passed if record["error"] is None else failed).append(record)
+            if done:
+                break
+
+            detail = _crash_detail(result)
+            if reading is None:
+                # The reader failed before reading a file, e.g. the environment did not install.
+                failed.extend({"edition": e, "name": "(reader)", "error": detail} for e in editions)
+                break
+            edition, name = reading.split("/", 1)
+            failed.append({"edition": edition, "name": name, "error": f"reader crashed: {detail}"})
+            skip.append(reading)
+    return {"version": version, "passed": passed, "failed": failed}
+
+
+def _crash_detail(result: subprocess.CompletedProcess) -> str:
+    """Summarize why a reader process stopped early, preferring a Rust panic message."""
+    lines = result.stderr.strip().splitlines()
+    for i, line in enumerate(lines):
+        if "panicked at" in line:
+            return " ".join(lines[i : i + 2]).strip()
+    # Otherwise the end of the output, without native backtrace frames.
+    frames = re.compile(r"^\s*(\d+:|at )")
+    tail = [line for line in lines if not frames.match(line)][-5:]
+    return "\n".join(tail) or f"exit code {result.returncode}"
 
 
 def cmd_forward(args: argparse.Namespace) -> None:
@@ -812,10 +848,10 @@ def cmd_forward(args: argparse.Namespace) -> None:
             fixtures_dir = Path(tmpdir) / "forward"
             _info("generating forward-compatibility fixtures...")
             _run_rust_generate_forward(fixtures_dir, exclude=args.exclude, profile=args.profile)
-        _check_forward(fixtures_dir, args, Path(tmpdir))
+        _check_forward(fixtures_dir, args)
 
 
-def _check_forward(fixtures_dir: Path, args: argparse.Namespace, tmpdir: Path) -> None:
+def _check_forward(fixtures_dir: Path, args: argparse.Namespace) -> None:
     manifest = json.loads((fixtures_dir / "forward.json").read_text())
     editions = manifest["editions"]
     if args.editions:
@@ -872,14 +908,11 @@ def _check_forward(fixtures_dir: Path, args: argparse.Namespace, tmpdir: Path) -
         _report_forward_failures(failures)
         sys.exit(1)
 
-    constraints = tmpdir / "forward-constraints.txt"
-    constraints.write_text("\n".join(FORWARD_CONSTRAINTS) + "\n")
-
     _info(f"\nreading with {len(plan)} release(s) of {PYPI_PACKAGE}, {args.jobs} at a time...")
     results: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         futures = {
-            pool.submit(_run_forward_reader, version, covered, fixtures_dir, args.python, constraints): version
+            pool.submit(_run_forward_reader, version, covered, fixtures_dir, args.python): version
             for version, covered in plan
         }
         for future in as_completed(futures):

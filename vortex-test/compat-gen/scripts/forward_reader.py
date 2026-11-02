@@ -13,7 +13,8 @@ Each file is compared with its expected Arrow IPC file by value, after convertin
 Python objects: older readers may export a different but equivalent Arrow type, such as
 `string` for `string_view`.
 
-Prints a JSON result to stdout, and progress to stderr.
+Prints one JSON line per file to stdout as it goes, then `{"done": true}`; progress and
+tracebacks go to stderr.
 """
 
 from __future__ import annotations
@@ -89,45 +90,55 @@ def _compare(actual: pa.Table, expected: pa.Table) -> str | None:
     return None
 
 
+def _emit(record: dict[str, object]) -> None:
+    """Write one JSON line to stdout immediately, so it survives a crash of the reader."""
+    print(json.dumps(record), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dir", required=True, type=Path, help="Output directory of `generate-forward`.")
     parser.add_argument("--editions", required=True, help="Comma-separated editions to read.")
     parser.add_argument("--version", required=True, help="The installed vortex-data version, for messages.")
+    parser.add_argument(
+        "--skip",
+        type=Path,
+        help="File listing `<edition>/<fixture>` entries not to read, one per line.",
+    )
     args = parser.parse_args()
 
     manifest = json.loads((args.dir / "forward.json").read_text())
     expected_paths = {f["name"]: args.dir / f["expected"] for f in manifest["fixtures"]}
     wanted = set(args.editions.split(","))
-
-    passed: list[dict[str, str]] = []
-    failed: list[dict[str, str]] = []
+    skip = set(args.skip.read_text().split()) if args.skip else set()
     expected_tables: dict[str, pa.Table] = {}
 
     for edition in manifest["editions"]:
         if edition["edition"] not in wanted:
             continue
         for name in edition["written"]:
-            path = args.dir / edition["edition"] / name
-            entry = {"edition": edition["edition"], "name": name}
+            key = f"{edition['edition']}/{name}"
+            if key in skip:
+                continue
+            # Announce the file first: if a native reader aborts the process, the orchestrator
+            # attributes the crash to the last announced file and restarts without it.
+            _emit({"reading": key})
             try:
                 if name not in expected_tables:
                     with pa.memory_map(str(expected_paths[name])) as source:
                         expected_tables[name] = pa.ipc.open_file(source).read_all()
-                actual = _to_table(vortex.open(str(path)).to_arrow())
+                actual = _to_table(vortex.open(str(args.dir / key)).to_arrow())
                 error = _compare(actual, expected_tables[name])
             except Exception as e:  # noqa: BLE001  # Any reader failure is a compatibility failure.
                 # Native errors append a backtrace; keep the result to the message.
                 message = str(e).split("Backtrace:")[0].strip()
                 error = f"{type(e).__name__}: {message}"
                 traceback.print_exc(file=sys.stderr)
-            if error is None:
-                passed.append(entry)
-            else:
-                print(f"  v{args.version} FAIL {edition['edition']}/{name}: {error}", file=sys.stderr)
-                failed.append({**entry, "error": error})
+            if error is not None:
+                print(f"  v{args.version} FAIL {key}: {error}", file=sys.stderr)
+            _emit({"edition": edition["edition"], "name": name, "error": error})
 
-    print(json.dumps({"version": args.version, "passed": passed, "failed": failed}))
+    _emit({"done": True})
 
 
 if __name__ == "__main__":
