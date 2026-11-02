@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Typed wrappers for temporal extension arrays.
+//!
+//! [`TemporalData`] gives date, time, and timestamp arrays a shared storage interface. The extension
+//! dtype retains each type's unit and metadata while the underlying array stores numeric values.
+
 use std::sync::Arc;
 
 use vortex_error::VortexError;
