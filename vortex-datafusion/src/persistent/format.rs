@@ -215,9 +215,10 @@ extensions_options! {
         pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
         /// Whether to enable projection pushdown into the underlying Vortex scan.
         ///
-        /// When enabled, projection expressions may be partially evaluated during
-        /// the scan. When disabled, Vortex reads only the referenced columns and
-        /// all expressions are evaluated after the scan.
+        /// When enabled, the scan evaluates projections whose expressions all convert
+        /// to Vortex, and DataFusion evaluates any other projection after the scan.
+        /// When disabled, Vortex reads only the referenced columns and all expressions
+        /// are evaluated after the scan.
         ///
         /// Disabled by default.
         pub projection_pushdown: bool, default = false

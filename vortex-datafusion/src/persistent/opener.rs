@@ -9,6 +9,7 @@ use std::sync::Weak;
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
@@ -315,9 +316,6 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // TODO: support lambda pushdown.
-            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
-
             // Split the adapted filter into conjuncts Vortex evaluates natively and residual
             // conjuncts DataFusion evaluates on the raw scan output.
             let mut native_filters = Vec::new();
@@ -373,14 +371,14 @@ impl FileOpener for VortexOpener {
                     scan_reference_schema,
                     leftover_projection: projection,
                 }
-            } else if projection_pushdown {
-                expr_converter.split_projection(
+            } else {
+                process_projection(
+                    expr_converter.as_ref(),
                     projection,
                     &this_file_schema,
                     output_schema.as_ref(),
+                    projection_pushdown,
                 )?
-            } else {
-                expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };
 
             // The schema of the stream returned from the vortex scan.
@@ -677,6 +675,25 @@ impl NaturalSplits {
             row_boundaries,
             assignment_bytes,
         }
+    }
+}
+
+/// Splits `projection` into the Vortex scan projection and the DataFusion leftover.
+///
+/// [`VortexSource`](super::VortexSource) makes the same split against the table schema when
+/// planning, and accepts only projections the scan evaluates entirely.
+pub(super) fn process_projection(
+    expr_converter: &dyn ExpressionConverter,
+    projection: ProjectionExprs,
+    input_schema: &Schema,
+    output_schema: &Schema,
+    projection_pushdown: bool,
+) -> DFResult<ProcessedProjection> {
+    // TODO: support lambda pushdown.
+    if projection_pushdown && !contains_lambda(&projection)? {
+        expr_converter.split_projection(projection, input_schema, output_schema)
+    } else {
+        expr_converter.no_pushdown_projection(projection, input_schema)
     }
 }
 

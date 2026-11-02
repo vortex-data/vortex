@@ -20,6 +20,7 @@ use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
@@ -43,9 +44,11 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::opener::process_projection;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::convert::exprs::ProcessedProjection;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -137,13 +140,15 @@ use crate::persistent::reader::VortexReaderFactory;
 /// - `vortex_predicate`, which contains accepted exact filters. After per-file
 ///   adaptation, these run either natively or as DataFusion residual filters.
 ///
-/// Projection handling depends on
-/// [`VortexTableOptions::projection_pushdown`]:
+/// `VortexSource` accepts a projection only when the scan evaluates all of it, so
+/// DataFusion keeps any other projection in a `ProjectionExec` above the scan. What
+/// the scan evaluates depends on [`VortexTableOptions::projection_pushdown`]:
 ///
-/// - when disabled, `VortexSource` still prunes unreferenced top-level columns,
-///   but DataFusion applies the full projection after the scan,
-/// - when enabled, the default converter evaluates fully supported projections
-///   natively. Otherwise, DataFusion evaluates the full projection over raw columns.
+/// - when disabled, the scan only selects top-level columns,
+/// - when enabled, the scan also evaluates projections the converter fully supports.
+///
+/// A file whose schema differs from the table schema can still need DataFusion to
+/// evaluate part of an accepted projection, which then happens inside the scan.
 ///
 /// Predicate handling depends on [`VortexTableOptions::predicate_pushdown`]:
 ///
@@ -563,8 +568,31 @@ impl FileSource for VortexSource {
         &self,
         projection: &ProjectionExprs,
     ) -> DFResult<Option<Arc<dyn FileSource>>> {
+        let projection = self.projection.try_merge(projection)?;
+
+        // Accept only projections the scan evaluates entirely, so DataFusion keeps anything else
+        // in its own `ProjectionExec`. Files whose schema differs from the table's are split
+        // again when opened, and may still evaluate part of the projection inside the scan.
+        let table_schema = self.table_schema.table_schema();
+        let ProcessedProjection {
+            leftover_projection,
+            ..
+        } = process_projection(
+            self.expression_converter.as_ref(),
+            projection.clone(),
+            table_schema,
+            &projection.project_schema(table_schema)?,
+            self.options.projection_pushdown,
+        )?;
+        if !leftover_projection
+            .iter()
+            .all(|leftover| leftover.expr.is::<Column>())
+        {
+            return Ok(None);
+        }
+
         let mut source = self.clone();
-        source.projection = self.projection.try_merge(projection)?;
+        source.projection = projection;
         Ok(Some(Arc::new(source)))
     }
 
@@ -604,12 +632,12 @@ mod tests {
     use datafusion_functions::string::octet_length::OctetLengthFunc;
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
-    use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::projection::ProjectionExpr;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
-    use crate::convert::exprs::ProcessedProjection;
 
     struct TrackingExpressionConverter {
         inner: DefaultExpressionConverter,
@@ -772,6 +800,39 @@ mod tests {
             .clone();
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
         assert!(updated_source.vortex_predicate.is_none());
+        Ok(())
+    }
+
+    /// `None` projects column `b`; `Some(op)` projects `a op 2`. Vortex converts `+` but not `%`.
+    #[rstest]
+    #[case::columns(&[None], false, true)]
+    #[case::columns_with_pushdown(&[None], true, true)]
+    #[case::convertible_without_pushdown(&[Some(Operator::Plus)], false, false)]
+    #[case::convertible(&[None, Some(Operator::Plus)], true, true)]
+    #[case::unconvertible(&[Some(Operator::Modulo)], true, false)]
+    #[case::mixed(&[Some(Operator::Plus), Some(Operator::Modulo)], true, false)]
+    fn try_pushdown_projection_accepts_only_what_the_scan_evaluates(
+        #[case] exprs: &[Option<Operator>],
+        #[case] projection_pushdown: bool,
+        #[case] accepted: bool,
+    ) -> anyhow::Result<()> {
+        let source =
+            sort_test_source(sort_test_schema()).with_projection_pushdown(projection_pushdown);
+        let projection = ProjectionExprs::new(exprs.iter().enumerate().map(|(i, op)| {
+            let expr: PhysicalExprRef = match op {
+                None => Arc::new(Column::new("b", 1)),
+                Some(op) => Arc::new(df_expr::BinaryExpr::new(
+                    Arc::new(Column::new("a", 0)),
+                    *op,
+                    Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+                )),
+            };
+            ProjectionExpr::new(expr, format!("e{i}"))
+        }));
+
+        let pushed = source.try_pushdown_projection(&projection)?;
+
+        assert_eq!(pushed.is_some(), accepted);
         Ok(())
     }
 }
