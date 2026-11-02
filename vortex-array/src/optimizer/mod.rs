@@ -47,6 +47,40 @@ const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 /// A shared array never changes, so a node that the optimizer took to its fixpoint stays there.
 /// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
 /// state.
+///
+/// # What the mark promises
+///
+/// The mark promises only that no reduce or parent-reduce rule applies to the node or its
+/// descendants, given their encodings, dtypes, slots and data. These do not change while the
+/// array is shared. A thread that sees the mark skips the optimizer for the whole subtree, so a
+/// rule that could apply later is never tried.
+///
+/// # When an array stays unoptimized
+///
+/// An array must stay unmarked, or clear its mark, when the decision of a rule depends on
+/// something that can change after the optimizer pass:
+///
+/// - The array changes in place. [`ArrayRef::inner_mut`] clears the mark, because the caller holds
+///   the only reference and can replace slots or data.
+/// - A rule reads state that can be set on a shared array after the pass, such as statistics.
+///   For example, a rule that reduces an array to a constant when [`Stat::IsConstant`] is known
+///   does not run if the statistic is computed after the array was marked. A shared array cannot
+///   clear its mark, because that needs the only reference. Thus such a rule must not depend on
+///   the mark, or the optimizer must not mark the arrays that it can apply to.
+/// - The session changes. The mark does not record the kernels it was optimized with, so an
+///   array optimized with one session is not optimized again with a session that registers more
+///   kernels.
+///
+/// # Memory ordering
+///
+/// The flag uses [`Ordering::Relaxed`]. This is correct because the mark only promises things that
+/// a thread can already see through its reference to the array. If the mark comes to promise
+/// state that another thread writes, such as statistics that a rule reads, store it with
+/// [`Ordering::Release`] and load it with [`Ordering::Acquire`]. Then a thread that sees the mark
+/// also sees that state.
+///
+/// [`ArrayRef::inner_mut`]: crate::ArrayRef::inner_mut
+/// [`Stat::IsConstant`]: crate::expr::stats::Stat::IsConstant
 #[derive(Debug, Default)]
 pub(crate) struct OptimizedState(pub(crate) AtomicBool);
 
