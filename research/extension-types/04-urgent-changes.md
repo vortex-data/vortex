@@ -9,7 +9,8 @@ These changes fix wrong results and panics. U1 to U8 do not depend on the design
 each one fits in a small PR with a regression test. U9 needs the declaration types of the design, so
 it lands in phase 2 of part 5. Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
 2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
-part are for that commit. On 2026-10-30, U5 merged in #11015.
+part are for that commit. U5 merged in #11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on
+2026-11-02. U1 and U9 have no PR yet.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -91,8 +92,8 @@ another literal path. A test for each engine and each path confirms the other ca
 An extension type cannot choose its top-level nullability (X25), so a nullability change gives it
 nothing to check. The first version of
 [#11012](https://github.com/vortex-data/vortex/pull/11012) also validated every dtype for both
-nullabilities when it was built. The maintainer rejected that, and #11012 has the form above since
-2026-10-30. A fallible `with_nullability` is the other alternative. It moves the error into every
+nullabilities when it was built. The maintainer rejected that, and #11012 merged in the form above
+on 2026-11-02. A fallible `with_nullability` is the other alternative. It moves the error into every
 caller. The storage declaration of phase 1 replaces this interim form (X27).
 
 ## U5. Built-in temporal validation
@@ -165,33 +166,40 @@ adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
 
-Later on 2026-10-30, the PRs for part 4 stand as follows:
+On 2026-11-02, the PRs for part 4 stand as follows:
 
-- The path-consistency helper (#11013) merged.
-- U4 and U8 (#11012) are a draft in the reworked form of U4, at `f2c669e4ff`.
-- U3, U6 and U7 (#11014) are a draft. #11014 and #10953 make the same fallible wrap in
-  `min_max/extension.rs`. These notes suggest that #10953 drops its copy, so the two PRs do not
-  depend on each other.
-- U5 (#11015) merged.
-- U2 (#11016) is a draft. [#11067](https://github.com/vortex-data/vortex/pull/11067), a draft
-  stacked on it, rebuilds DataFusion comparison and `IN`-list literals as extension scalars from
-  the metadata of the other operand, so `Uuid` and `Json` filters still push down. The two land
-  together ("Order constraints", item 1, in part 5).
+- The path-consistency helper (#11013) and U5 (#11015) merged on 2026-10-30.
+- U4 and U8 (#11012) merged on 2026-11-02 as `b9b02f6288`, in the reworked form of U4.
+- U3, U6 and U7 (#11014) merged on 2026-11-02 as `38dc3191f8`. It owns the fallible wrap in
+  `min_max/extension.rs`, so #10953 dropped its copy. `Scalar::zero_value` now checks the value,
+  and it panics with an error message for a dtype that has no valid zero.
+- U2 (#11016) merged on 2026-11-02 as `dafc832af8`. Its tests include DuckDB filter pushdown
+  through SQL logic tests.
+- [#11067](https://github.com/vortex-data/vortex/pull/11067) merged after U2, as `3f12ae44a8`. It
+  rebuilds DataFusion comparison and `IN`-list literals as extension scalars from the metadata of
+  the other operand, so `Uuid` and `Json` filters still push down. Its tests cover dynamic filter
+  updates. It also makes the export of a non-temporal extension scalar as a bare DataFusion
+  `ScalarValue` an error. So item 1 of "Order constraints" in part 5 holds.
 - U1 and the Arrow export that lands before it have no PR yet.
 
 Three more PRs touch this work:
 
 - [#10953](https://github.com/vortex-data/vortex/pull/10953), an outside contribution, makes
-  `Timestamp` accept every `i64` (X31) and fixes the `DateTimeParts` days wrap (EXT-S3). It
-  conflicts with #11015. The maintainer finishes it with added commits instead of waiting on the
-  author (part 5, phase 0), including an `i64` days part in place of its range check if the
-  benchmark allows it.
+  `Timestamp` accept every `i64` (X31) and fixes the `DateTimeParts` days wrap (EXT-S3). The
+  maintainer added commits on 2026-10-30, up to `6d701af0ac`, and the author agreed. They merge
+  `develop`, update the binding tests that expect the old range, and leave the fallible `min_max`
+  wrap to #11014. In place of the days range check, the split keeps `i32` days. It rebuilds only
+  the days part as `i64` when a non-null value does not fit. On 2026-11-02 the PR has no review,
+  and it conflicts with `develop` in `encodings/datetime-parts/src/compute/compare.rs`, which U2
+  also changed. The same commit changes the parameters of the `split_temporal` benchmark. So
+  CodSpeed lists its cases as new, and it compares none of them with `develop`.
 - [#11056](https://github.com/vortex-data/vortex/pull/11056) folds `ext_storage` and `get_item`
   over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
-  types. The maintainer approved it, because it only folds an `ext_storage` that the expression
-  already holds (X33). It is the constant case of X34.
+  types, and requested changes on 2026-10-30. The maintainer approved it the same day, because it
+  only folds an `ext_storage` that the expression already holds (X33). It is the constant case of
+  X34. On 2026-11-02 it is open, and the request for changes still blocks it.
 - A spatial PR makes the validators require non-null nested levels and the Arrow importers fail on
-  nested nulls (EXT-N2, X26, X29). It is not open yet.
+  nested nulls (EXT-N2, X26, X29). On 2026-11-02 it has no PR yet.
 
 Three PRs added or add mechanisms for extension semantics:
 

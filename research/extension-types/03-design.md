@@ -459,10 +459,10 @@ Storing nullability on the extension dtype, next to a non-nullable storage dtype
 alternative (NU2 in the design notes). It is rejected, because it splits one fact across two
 places.
 
-Until the declaration lands in phase 1, PR
-[#11012](https://github.com/vortex-data/vortex/pull/11012) is the interim fix. `with_nullability`
-no longer validates again, and the documentation of `validate_dtype` states that its result must
-not depend on the top-level nullability.
+PR [#11012](https://github.com/vortex-data/vortex/pull/11012), merged on 2026-11-02, is the
+interim fix until the declaration lands in phase 1. `with_nullability` no longer validates again,
+and the documentation of `validate_dtype` states that its result must not depend on the top-level
+nullability.
 
 ### Authoring and boundaries
 
@@ -494,10 +494,10 @@ when those conversions stop.
   can hide literals that have the storage type.
 - After the rewrite, plans show storage operations, so plans are harder to read.
 - Some conversions that work today through storage stop until a plugin or a converter covers them.
-- The aggregate work coordinates with
-  [#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the aggregate
-  implementations into a new `vortex-aggregates` crate, and with #10837. Statistics work in
-  [#10482](https://github.com/vortex-data/vortex/pull/10482) (file `is_sorted` statistics) and
+- The aggregate work coordinates with [#10769](https://github.com/vortex-data/vortex/pull/10769),
+  which moves the aggregate implementations into a new `vortex-aggregates` crate, and with #10837.
+  Statistics work in [#10661](https://github.com/vortex-data/vortex/pull/10661) (file statistics for
+  a compound sort key, which replaces #10482) and
   [#10686](https://github.com/vortex-data/vortex/pull/10686) (comparisons proven true from
   statistics) meets the claims and the compare rewrite.
 

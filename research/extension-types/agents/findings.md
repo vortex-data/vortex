@@ -16,7 +16,9 @@ EXT-V8, EXT-B4 and EXT-R4 gained new facts. `../04-urgent-changes.md` gives the 
 
 A third pass on 2026-10-30 added EXT-V9, EXT-N2 and EXT-S3. Their line numbers are for `develop`
 at `493967ce33`, except where an entry names `d197efd007`. The code that they cite is the same at
-both commits. #11015 fixed EXT-V4, EXT-V5 and EXT-V8 on 2026-10-30.
+both commits. #11015 fixed EXT-V4, EXT-V5 and EXT-V8 on 2026-10-30. On 2026-11-02, #11012, #11014,
+#11016 and #11067 merged U2 to U4 and U6 to U8. `../05-implementation.md` maps each one to its
+findings.
 
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
@@ -459,10 +461,10 @@ Terms:
 - **Expected:** Arrow, Parquet and many SQL engines accept `9999-12-31`. The range of `Timestamp` is
   every `i64` count of its unit (X31).
 - **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) removes the range check, and
-  `Display` prints the raw count for a value that jiff cannot show. #11014 makes the wrap in
-  `min_max` fallible, which covers other types whose values can fail the check. `replace_time_zone`
-  and `TemporalMatcher::to_jiff` already return errors for values outside the range of jiff
-  (`vortex-array/src/scalar_fn/fns/replace_time_zone.rs:285-288`,
+  `Display` prints the raw count for a value that jiff cannot show. #11014, merged on 2026-11-02,
+  made the wrap in `min_max` fallible, which covers other types whose values can fail the check.
+  `replace_time_zone` and `TemporalMatcher::to_jiff` already return errors for values outside the
+  range of jiff (`vortex-array/src/scalar_fn/fns/replace_time_zone.rs:285-288`,
   `vortex-array/src/extension/datetime/matcher.rs:61-76`).
 
 ### EXT-N1: A nullability change can panic
@@ -545,9 +547,11 @@ Terms:
   days child, for example to `u16` for dates before 2149. #10953 reports that the days pushdown
   then fails with "Cannot cast i32 to u16" for a later literal, such as `2200-01-01`. Nothing ran
   here.
-- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) makes the split fail for such
-  arrays, makes `TemporalScheme` skip them, and makes both pushdowns decline. An `i64` days part
-  for seconds and milliseconds is simpler, because the split then never fails. The decode accepts
+- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) first made the split fail for
+  such arrays, made `TemporalScheme` skip them, and made both pushdowns decline. The maintainer
+  commit `6d701af0ac` replaces that. The split keeps `i32` days, and it rebuilds only the days part
+  as `i64` when a non-null value does not fit. So the split never fails, and `TemporalScheme`
+  encodes these columns too. The encoding already accepts a wider days part. The decode accepts
   any integer days type (`encodings/datetime-parts/src/canonical.rs:69`), the metadata stores the
   days type (`encodings/datetime-parts/src/array.rs:67`), `TemporalScheme` narrows the days child
   (`vortex-btrblocks/src/schemes/temporal.rs:95`), and `compare_dtp` already handles a narrowing

@@ -1036,10 +1036,10 @@ Other code that the declaration touches:
 
 ### 9.5 Interim fix
 
-Until phase 1 lands, U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012)) is the
-interim form. `with_nullability` builds the new dtype directly and does not validate again, and the
-documentation of `validate_dtype` states that its result must not depend on the top-level
-nullability. No validator in the repository depends on it.
+U4 ([#11012](https://github.com/vortex-data/vortex/pull/11012), merged on 2026-11-02) is the interim
+form until phase 1 lands. `with_nullability` builds the new dtype directly and does not validate
+again, and the documentation of `validate_dtype` states that its result must not depend on the
+top-level nullability. No validator in the repository depends on it.
 
 ## 10. Zero values
 

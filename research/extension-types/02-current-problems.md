@@ -11,7 +11,8 @@ and EXT-V9, EXT-N2 and EXT-S3, which are for `develop` at `493967ce33` (2026-10-
 described below. Each ID refers to an entry in [`agents/findings.md`](agents/findings.md), which has
 file and line references, reproductions and fix sketches. "Confirmed" means that a throwaway test
 ([`agents/probe.rs`](agents/probe.rs) or [`agents/probe_followup.rs`](agents/probe_followup.rs))
-reproduced the behavior.
+reproduced the behavior. The urgent changes of part 4 fix some findings, and each fixed finding
+below names the PR that fixed it.
 
 ## Results depend on the encoding and the read path (EXT-P1)
 
@@ -28,7 +29,9 @@ on the encoding of the input, and on whether one row or the whole array is read.
 Cast and compare each have two implementations. Constant inputs use the scalar implementation, and
 other encodings use the array kernels. The two implementations apply different rules to extension
 types. Reading one row wraps each input row in a one-row constant, so it always takes the scalar
-implementation.
+implementation. Since U2 merged on 2026-11-02
+([#11016](https://github.com/vortex-data/vortex/pull/11016)), the compare row returns an error on
+both paths. The cast rows stay until U1.
 
 ## Wrong results
 
@@ -42,7 +45,7 @@ implementation.
 - **Comparisons against raw storage (EXT-Q1).** The compare type check is skipped when either side
   is an extension. A lone extension side then compares its storage, so `ts < 1500` compares raw
   `i64` values. `between` checks types strictly, so `ts BETWEEN 0 AND 1500` fails while
-  `ts >= 0 AND ts <= 1500` runs.
+  `ts >= 0 AND ts <= 1500` runs. U2 (#11016) fixed this on 2026-11-02.
 - **Storage equality and order for every type (EXT-Q2).** Any two values of one extension dtype
   compare by storage. This happens in the compare kernel, the nested comparator and `ExtScalar`. A
   test type with no ordering still supports `<`. The built-in kernel runs first, and the registry
@@ -50,27 +53,30 @@ implementation.
 - **`DateTimeParts` compare (EXT-Q3).** The kernel calls `as_extension()` on its constant operand
   before it checks the type, and it does not compare time units. Confirmed: against an `i64`
   constant, the array path panics. Against a `Timestamp(ns)` constant, a `Timestamp(ms)` column
-  gets a wrong result.
+  gets a wrong result. U2 (#11016) fixed this on 2026-11-02.
 - **`DateTimeParts` days (EXT-S3).** The split converts days to `i32` with a wrapping cast. A
   column in seconds or milliseconds with values more than `i32::MAX` days from 1970 is stored wrong,
   with no error. [#10953](https://github.com/vortex-data/vortex/pull/10953) fixes it.
 - **Engine boundaries (EXT-B1 to EXT-B5).** DataFusion converts non-temporal extension scalars to
-  storage scalars. Arrow export to a storage-like target type exports storage through the cast
-  fallback. Python `as_py()` returns the storage value. DuckDB decides aggregate pushdown from the
-  storage type. JNI write summaries report storage values.
+  storage scalars. [#11067](https://github.com/vortex-data/vortex/pull/11067) fixed this for
+  comparison and `IN`-list literals on 2026-11-02. Arrow export to a storage-like target type
+  exports storage through the cast fallback. Python `as_py()` returns the storage value. DuckDB
+  decides aggregate pushdown from the storage type. JNI write summaries report storage values.
 
 ## Panics and invalid values
 
 - **Arrays are never value-checked (EXT-V1).** `ExtensionArray::new` and `ExtensionBuilder` accept
   values that the type rejects. Reading such a row panics. Confirmed with a type that rejects zero.
   `ext_storage` over the same array returns the zero on the array path and panics on the row path.
+  Since U3 merged on 2026-11-02 ([#11014](https://github.com/vortex-data/vortex/pull/11014)), reads
+  return an error instead of a panic. Arrays are still not value-checked.
 - **Scalars skip the storage check (EXT-V7).** An extension scalar can hold a value of another
   storage type, for example a `Timestamp` with an `f64` value. Then `==` panics in one direction
-  and returns `false` in the other. Confirmed.
+  and returns `false` in the other. Confirmed. U6 (#11014) fixed this on 2026-11-02.
 - **Nullability changes can panic (EXT-N1).** `ExtDType::with_nullability` validates the type again
   and panics if validation fails. A type that accepts only non-nullable storage panics in `take`
   with nullable indices. Confirmed. [#11012](https://github.com/vortex-data/vortex/pull/11012)
-  stops the second validation.
+  stopped the second validation on 2026-11-02.
 - **Timestamps near year 9999 (EXT-V9).** `Timestamp` accepts only the range of jiff, which ends 26
   hours before the end of year 9999. Writing `9999-12-31` panics while the writer computes min and
   max statistics (issue [#8860](https://github.com/vortex-data/vortex/issues/8860)). #10953 makes
@@ -80,13 +86,15 @@ implementation.
   outer level (X26).
 - **Zero values skip validation (EXT-V3).** `Scalar::zero_value` uses the storage zero. For a type
   that rejects zero, debug builds panic and release builds return an invalid scalar. Confirmed.
+  Since U7 (#11014) merged on 2026-11-02, `Scalar::zero_value` checks the value. For such a type,
+  it panics with an error message, and it never returns an invalid scalar.
 - **Built-in temporal types (EXT-V4, EXT-V5).** `Date` and `Time` panic on non-primitive storage, so
   a malformed file panics instead of returning an error. `Timestamp` accepts the `Days` unit and
   unknown time zones, and then rejects every value.
   [#11015](https://github.com/vortex-data/vortex/pull/11015) fixed both on 2026-10-30.
 - **Arrays skip the storage dtype check (EXT-V2).** `Extension::validate` checks the length, but
   it compares the dtype with itself. It accepts `Utf8` storage under a `Timestamp` dtype.
-  Confirmed.
+  Confirmed. U6 (#11014) fixed this on 2026-11-02.
 
 ## Disagreements
 
@@ -138,6 +146,7 @@ implementation.
 - Eight extension types never check values, because `unpack_native` returns the raw storage
   (EXT-V6).
 - `Debug for ExtDTypeRef` prints the metadata before the struct, then `metadata: Ok(())` (EXT-R1).
+  U8 (#11012) fixed this on 2026-11-02.
 - `DTypeSession::register` silently replaces a type with the same ID, and Arrow plugins register
   twice if `initialize` runs twice (EXT-R2).
 - The developer guide page for extension dtypes is a stub, and the vtables page shows an old API

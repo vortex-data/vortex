@@ -126,10 +126,10 @@ uses `DecimalType`, which already has 128-bit and 256-bit widths.
 ## Independent changes
 
 These changes are small and independent, and they can land in any order. On 2026-10-30, strict
-enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`. N1 is in progress:
-#11013 and #11015 merged, and #11012, #11014, #11016 and #11067 are open.
-[Part 4](04-implementation.md) splits these changes and the canonical form into PRs, with one
-brief for each PR.
+enum decoding (#10755) and WD1 to WD4 of the integer `Widen` are on `develop`. On 2026-11-02, N1
+is in progress: #11012 to #11016 and #11067 merged, and U1 and U9 of the extension notes have no
+PR yet. [Part 4](04-implementation.md) splits these changes and the canonical form into PRs, with
+one brief for each PR.
 
 1. **Strict enum decoding.** The decimal `values_type` decodes with `DecimalType::try_from`, and
    the protobuf `PType` decodes with `PType::try_from`. Both fail on an unknown value instead of a
