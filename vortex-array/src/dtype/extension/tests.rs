@@ -76,7 +76,10 @@ fn test_nullability_changes_do_not_validate_again() -> VortexResult<()> {
         for target in [Nullable, NonNullable] {
             let changed = dtype.with_nullability(target);
 
-            assert_eq!(changed.storage_dtype(), &DType::Primitive(PType::I64, target));
+            assert_eq!(
+                changed.storage_dtype(),
+                &DType::Primitive(PType::I64, target)
+            );
             assert_eq!(changed.metadata::<CountingValidator>(), &42);
             assert_eq!(changed.id(), dtype.id());
         }
