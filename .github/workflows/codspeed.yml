@@ -410,6 +410,12 @@ jobs:
         env:
           CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
         with:
-          run: cargo codspeed run
+          # Name the benchmarks: the artifact directory also holds libvortex_cub.so, which a bare
+          # `cargo codspeed run` would try to execute as a benchmark.
+          run: >-
+            cargo codspeed run
+            --bench bitpacked_cuda --bench dynamic_dispatch_cuda --bench alp_cuda
+            --bench date_time_parts_cuda --bench delta_cuda --bench dict_cuda
+            --bench fsst_cuda --bench runend_cuda
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "walltime"
