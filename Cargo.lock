@@ -11994,6 +11994,7 @@ dependencies = [
  "futures",
  "mimalloc",
  "object_store 0.13.2",
+ "parking_lot",
  "paste",
  "rand 0.10.3",
  "tempfile",

@@ -25,6 +25,7 @@ bytes = { workspace = true }
 futures = { workspace = true }
 mimalloc = { workspace = true, optional = true }
 object_store = { workspace = true }
+parking_lot = { workspace = true }
 paste = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

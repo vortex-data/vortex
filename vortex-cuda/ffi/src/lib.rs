@@ -40,6 +40,7 @@ use vortex_cuda::arrow::DeviceArrayStreamExt;
 use vortex_cuda::layout::cuda_write_strategy;
 use vortex_cuda::layout::register_cuda_layout;
 use vortex_ffi::ffi_runtime;
+use vortex_ffi::start_default_runtime_workers;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
@@ -99,6 +100,9 @@ fn session_with_cuda(session: &VortexSession) -> &VortexSession {
 /// Create a CUDA Vortex session.
 ///
 /// Returns an owned handle with reusable CUDA state, or null and an optional `vx_error` on failure.
+/// Unless the host configured runtime worker threads with `vx_runtime_set_worker_threads`, starts
+/// one per available core but one (at least one), so I/O and decode run alongside the consuming
+/// thread.
 ///
 /// # Safety
 ///
@@ -109,6 +113,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
 ) -> *mut vx_session {
     try_or(error_out, ptr::null_mut(), || {
         let cuda_session = CudaSession::try_default()?;
+        start_default_runtime_workers();
         Ok(vx_session_new_with(|session| {
             let session = session.with_some(cuda_session);
             register_cuda_layout(&session);

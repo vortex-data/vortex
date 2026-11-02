@@ -35,6 +35,7 @@ pub use error::vx_error;
 pub use error::vx_error_free;
 pub use error::vx_error_message;
 pub use log::vx_log_level;
+use parking_lot::Mutex;
 pub use scan::vx_partition;
 pub use scan::vx_partition_into_array_stream;
 pub use session::vx_session;
@@ -66,6 +67,10 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 /// Creating the pool does not create threads. It starts empty so callers retain the default
 /// host-thread-owned execution model until they opt in with [`vx_runtime_set_worker_threads`].
 static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
+
+/// Whether worker threads were configured, by the host or by [`start_default_runtime_workers`].
+/// Held while the pool is resized, so a default never overrides a concurrent explicit setting.
+static WORKERS_CONFIGURED: Mutex<bool> = Mutex::new(false);
 
 /// Define a native FFI type that uses a [`Box`] wrapper.
 #[macro_export]
@@ -134,14 +139,31 @@ macro_rules! box_wrapper {
 /// Calling this with a non-zero count opts the process into a Vortex-owned thread pool. These
 /// background threads drive the same executor as host threads currently inside FFI calls. If this
 /// function is never called, Vortex creates no runtime worker threads and execution remains
-/// entirely host-thread-driven.
+/// entirely host-thread-driven, unless a layered FFI crate selects default workers (for example,
+/// creating a CUDA session starts one worker per available core but one, at least one).
 ///
 /// This setting is process-global and affects all FFI sessions. Passing zero restores the
 /// host-thread-only configuration by signalling all background workers to stop. Increasing the
 /// count starts workers immediately; decreasing it signals excess workers to stop.
 #[unsafe(no_mangle)]
 pub extern "C" fn vx_runtime_set_worker_threads(worker_threads: usize) {
+    let mut configured = WORKERS_CONFIGURED.lock();
+    *configured = true;
     POOL.set_workers(worker_threads);
+}
+
+/// Start one runtime worker per available core but one (at least one), unless worker threads were
+/// configured.
+///
+/// For layered FFI crates whose callers are known to scan in bulk, such as GPU scans, where
+/// host-thread-driven execution serializes I/O and decode behind the consuming thread. An explicit
+/// [`vx_runtime_set_worker_threads`], before or after, takes precedence.
+pub fn start_default_runtime_workers() {
+    let mut configured = WORKERS_CONFIGURED.lock();
+    if !*configured {
+        *configured = true;
+        POOL.set_workers_to_available_parallelism();
+    }
 }
 
 /// Return the configured number of Vortex-owned background worker threads.

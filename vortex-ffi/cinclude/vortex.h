@@ -583,7 +583,8 @@ extern "C" {
  * Calling this with a non-zero count opts the process into a Vortex-owned thread pool. These
  * background threads drive the same executor as host threads currently inside FFI calls. If this
  * function is never called, Vortex creates no runtime worker threads and execution remains
- * entirely host-thread-driven.
+ * entirely host-thread-driven, unless a layered FFI crate selects default workers (for example,
+ * creating a CUDA session starts one worker per available core but one, at least one).
  *
  * This setting is process-global and affects all FFI sessions. Passing zero restores the
  * host-thread-only configuration by signalling all background workers to stop. Increasing the

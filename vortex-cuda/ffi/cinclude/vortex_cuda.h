@@ -102,6 +102,9 @@ void vx_cuda_release_file_mappings(void);
  * Create a CUDA Vortex session.
  *
  * Returns an owned handle with reusable CUDA state, or null and an optional `vx_error` on failure.
+ * Unless the host configured runtime worker threads with `vx_runtime_set_worker_threads`, starts
+ * one per available core but one (at least one), so I/O and decode run alongside the consuming
+ * thread.
  *
  * # Safety
  *
