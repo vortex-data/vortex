@@ -10,9 +10,7 @@ from vortex.expr import column
 
 
 @pytest.fixture
-def filter_vxf(
-    request: pytest.FixtureRequest, vxf: vx.VortexFile, codspeed_simulation: bool
-) -> vx.VortexFile:
+def filter_vxf(request: pytest.FixtureRequest, vxf: vx.VortexFile, codspeed_simulation: bool) -> vx.VortexFile:
     assert isinstance(request.node, pytest.Function)
     if codspeed_simulation and request.node.callspec.params["vxf"] == "int":
         pytest.skip("System calls vary inside these filtered scans under simulation.")

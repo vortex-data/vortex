@@ -9,9 +9,7 @@ import vortex as vx
 
 
 @pytest.fixture
-def scalar_vxf(
-    request: pytest.FixtureRequest, vxf: vx.VortexFile, codspeed_simulation: bool
-) -> vx.VortexFile:
+def scalar_vxf(request: pytest.FixtureRequest, vxf: vx.VortexFile, codspeed_simulation: bool) -> vx.VortexFile:
     assert isinstance(request.node, pytest.Function)
     if codspeed_simulation and request.node.callspec.params["vxf"] == "int":
         pytest.skip("Reactor polling varies inside these scalar scans under simulation.")
