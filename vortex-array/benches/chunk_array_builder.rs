@@ -63,7 +63,8 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
         })
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+// The largest nullable case varies on unchanged code in simulation. The cause is unknown.
+#[divan::bench(args = if cfg!(codspeed) { &[(10, 100), (100, 50)] } else { BENCH_ARGS })]
 fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
 

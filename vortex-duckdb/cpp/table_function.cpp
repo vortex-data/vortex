@@ -53,12 +53,23 @@ idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi_input) {
     return reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input)->projections.size();
 }
 
+idx_t duckdb_vx_aggregate_column_id(duckdb_vx_agg_input ffi_input, idx_t scan_index) {
+    const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
+    return input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+}
+
 duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi_input, idx_t i, idx_t *proj_idx) {
     const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
     const auto &[scan_index, expr] = input.projections[i];
-    *proj_idx = scan_index == COUNT_STAR_PROJ_IDX ? scan_index
-                                                  : input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+    *proj_idx =
+        scan_index == COUNT_STAR_PROJ_IDX ? scan_index : duckdb_vx_aggregate_column_id(ffi_input, scan_index);
     return get_ffi_expr(expr);
+}
+
+duckdb_vx_table_filter_set duckdb_vx_aggregate_table_filters(duckdb_vx_agg_input ffi_input) {
+    const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
+    return reinterpret_cast<duckdb_vx_table_filter_set>(
+        const_cast<TableFilterSet *>(&input.get.table_filters));
 }
 }
 
@@ -72,6 +83,18 @@ bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateIn
             continue;
         }
         const idx_t primary_index = input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+        if (SkipMultiFileReaderColumn(primary_index, filename_idx, hive_indices)) {
+            return false;
+        }
+    }
+    // ClearFilters would drop filters Vortex doesn't see
+    if (input.get.table_filters.HasMultiColumnFilters()) {
+        return false;
+    }
+    // DuckDB evaluates hive and filename filters per file by column_ids, which
+    // the rewrite replaces. Hive columns may override file columns
+    for (const auto &entry : input.get.table_filters) {
+        const idx_t primary_index = input.get.GetColumnIds()[entry.GetIndex()].GetPrimaryIndex();
         if (SkipMultiFileReaderColumn(primary_index, filename_idx, hive_indices)) {
             return false;
         }

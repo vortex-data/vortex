@@ -297,7 +297,7 @@ jobs:
               for package in meta["packages"]
               for target in package["targets"]
               if "bench" in target["kind"]
-              and "cpu_features]" in pathlib.Path(target["src_path"]).read_text()
+              and "#[vortex_bench_support::cpu_features" in pathlib.Path(target["src_path"]).read_text()
           )
           if not tagged:
               raise SystemExit("no benchmark carries `#[cpu_features]`; this job has nothing to measure")

@@ -12,10 +12,10 @@ use quote::quote;
 use syn::ItemFn;
 use syn::parse_macro_input;
 
-/// Measure this benchmark on every walltime CPU-feature leg instead of in simulation.
+/// Measure this benchmark on walltime CPU-feature legs instead of in simulation.
 ///
-/// Takes no argument: the benchmark runs on all of them. Write it *above* `#[divan::bench]`,
-/// whose arguments it fills in — the name is qualified with the leg that produced it, both as
+/// Runs on every leg except those named in `exclude = ["neon", ...]`. Write it above
+/// `#[divan::bench]`, whose arguments it fills in. The name is qualified with the leg, both as
 /// a `::` component the CI filter selects on and as a suffix on the leaf name CodSpeed
 /// reports under, so the legs report one series each rather than fighting over a shared name.
 /// `ignore` takes the benchmark out of the sharded simulation job. A plain `cargo bench` runs
@@ -30,22 +30,25 @@ use syn::parse_macro_input;
 /// Spell it out in full rather than importing it: benchmark files are read a function at a
 /// time, and the path says where the behaviour comes from.
 ///
-/// This is for code that is written once and *compiled* differently per feature set — a
+/// This is for code that is written once and *compiled* differently per feature set: a
 /// shipped entry point that selects its kernel through `cfg(target_feature)`, or a scalar
 /// loop whose auto-vectorization depends on the build. A hand-written kernel for one
 /// instruction set extension is a different thing: it cannot run on the other legs, so it
 /// does not belong here. Keep those on `#[cfg(not(codspeed))]` for local A/B runs.
 #[proc_macro_attribute]
 pub fn cpu_features(attr: TokenStream, item: TokenStream) -> TokenStream {
-    if !attr.is_empty() {
-        let attr = TokenStream2::from(attr);
-        return syn::Error::new_spanned(
-            attr,
-            "`#[cpu_features]` takes no argument; a tagged benchmark runs on every feature-set leg",
-        )
-        .to_compile_error()
-        .into();
-    }
+    let excluded = if attr.is_empty() {
+        quote!(false)
+    } else {
+        let argument = parse_macro_input!(attr as syn::MetaNameValue);
+        if !argument.path.is_ident("exclude") {
+            return syn::Error::new_spanned(argument, "expected `exclude = [\"feature\", ...]`")
+                .to_compile_error()
+                .into();
+        }
+        let features = argument.value;
+        quote!((#features).contains(&env!("VORTEX_BENCH_VARIANT")))
+    };
 
     let mut function = parse_macro_input!(item as ItemFn);
 
@@ -117,7 +120,7 @@ pub fn cpu_features(attr: TokenStream, item: TokenStream) -> TokenStream {
                 #name,
                 env!("VORTEX_BENCH_SUFFIX"),
             ),
-            ignore = env!("VORTEX_BENCH_VARIANT") == "simulation",
+            ignore = env!("VORTEX_BENCH_VARIANT") == "simulation" || #excluded,
         )
     };
 
