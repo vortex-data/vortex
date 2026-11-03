@@ -5,6 +5,8 @@ package dev.vortex.spark;
 
 import dev.vortex.api.Session;
 import dev.vortex.jni.NativeRuntime;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -66,7 +68,7 @@ public final class VortexSparkSession {
      */
     public static Session get(VortexOptions options) {
         configureRuntime(options);
-        Optional<String> providerClass = options.get(PROVIDER_OPTION).filter(name -> !name.isEmpty());
+        Optional<String> providerClass = providerClassName(options);
         if (providerClass.isEmpty()) {
             return get();
         }
@@ -74,22 +76,41 @@ public final class VortexSparkSession {
     }
 
     /**
+     * Checks {@value #WORKER_THREADS_OPTION} and {@value #PROVIDER_OPTION} without applying them, so the driver can
+     * reject a value before executors act on it. The provider class is loaded but not instantiated.
+     *
+     * @throws IllegalArgumentException if either option is unusable
+     */
+    public static void validate(VortexOptions options) {
+        workerThreads(options);
+        providerClassName(options).ifPresent(VortexSparkSession::providerConstructor);
+    }
+
+    private static Optional<String> providerClassName(VortexOptions options) {
+        return options.get(PROVIDER_OPTION).filter(name -> !name.isEmpty());
+    }
+
+    /**
      * Sizes the shared worker pool from {@value #WORKER_THREADS_OPTION}, once per JVM.
      *
      * <p>The pool is JVM-wide and resizing it starts or stops threads, so every read and write path resolves its
      * session through here and the first caller wins. Repeating the call per file, or per task, would have concurrent
-     * tasks resize the pool underneath each other.
+     * tasks resize the pool underneath each other. Every caller's value is still checked, so a bad one fails even after
+     * the pool is sized.
      */
     private static void configureRuntime(VortexOptions options) {
-        if (!runtimeConfigured.compareAndSet(false, true)) {
-            return;
+        int workers = workerThreads(options);
+        if (runtimeConfigured.compareAndSet(false, true)) {
+            NativeRuntime.setWorkerThreads(workers);
         }
+    }
+
+    private static int workerThreads(VortexOptions options) {
         int workers = options.getInt(WORKER_THREADS_OPTION, DEFAULT_WORKER_THREADS);
         if (workers < 0) {
-            runtimeConfigured.set(false);
             throw new IllegalArgumentException(WORKER_THREADS_OPTION + " must be >= 0, got " + workers);
         }
-        NativeRuntime.setWorkerThreads(workers);
+        return workers;
     }
 
     /**
@@ -105,15 +126,34 @@ public final class VortexSparkSession {
 
     private static Session loadProvider(String className) {
         try {
-            Class<?> cls = Class.forName(className, true, Thread.currentThread().getContextClassLoader());
-            Object instance = cls.getDeclaredConstructor().newInstance();
-            if (!(instance instanceof VortexSessionProvider provider)) {
-                throw new IllegalArgumentException(
-                        className + " does not implement " + VortexSessionProvider.class.getName());
-            }
+            VortexSessionProvider provider = providerConstructor(className).newInstance();
             return Objects.requireNonNull(provider.get(), className + ".get() returned null");
         } catch (ReflectiveOperationException e) {
             throw new IllegalArgumentException("Failed to load Vortex session provider " + className, e);
+        }
+    }
+
+    private static Constructor<? extends VortexSessionProvider> providerConstructor(String className) {
+        Class<?> cls;
+        try {
+            cls = Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+        } catch (ClassNotFoundException e) {
+            throw new IllegalArgumentException(
+                    PROVIDER_OPTION + " names a class that cannot be loaded: " + className, e);
+        }
+        if (!VortexSessionProvider.class.isAssignableFrom(cls)) {
+            throw new IllegalArgumentException(PROVIDER_OPTION + " names " + className + ", which does not implement "
+                    + VortexSessionProvider.class.getName());
+        }
+        if (!Modifier.isPublic(cls.getModifiers()) || Modifier.isAbstract(cls.getModifiers())) {
+            throw new IllegalArgumentException(
+                    PROVIDER_OPTION + " names " + className + ", which is not a public concrete class");
+        }
+        try {
+            return cls.asSubclass(VortexSessionProvider.class).getConstructor();
+        } catch (NoSuchMethodException e) {
+            throw new IllegalArgumentException(
+                    PROVIDER_OPTION + " names " + className + ", which has no public no-argument constructor", e);
         }
     }
 }

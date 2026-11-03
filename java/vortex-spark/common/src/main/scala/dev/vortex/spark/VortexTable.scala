@@ -21,7 +21,11 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.VortexIo
 import dev.vortex.spark.read.{VortexFooterReader, VortexScanBuilder}
-import dev.vortex.spark.write.{SparkToArrowSchema, VortexWrite}
+import dev.vortex.spark.write.{
+  SparkToArrowSchema,
+  VortexOutputWriterFactory,
+  VortexWrite
+}
 
 /** A Vortex table backed by Spark's file index and commit protocol. */
 final class VortexTable(
@@ -61,12 +65,14 @@ final class VortexTable(
   }
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+    val mergedOptions = mergeOptions(info.options())
+    VortexOutputWriterFactory.validate(
+      VortexOptions.of(mergedOptions.asCaseSensitiveMap)
+    )
     val mergedInfo = new LogicalWriteInfo {
       override def queryId(): String = info.queryId()
       override def schema(): StructType = info.schema()
-      override def options(): CaseInsensitiveStringMap = mergeOptions(
-        info.options()
-      )
+      override def options(): CaseInsensitiveStringMap = mergedOptions
     }
     new WriteBuilder {
       override def build(): Write =
