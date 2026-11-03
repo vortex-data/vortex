@@ -226,15 +226,19 @@ impl LayoutStrategy for SparseLayoutStrategy {
         if switched_at.is_some() || !self.is_sparse_enough(buffered.present(), buffered.rows) {
             // The buffered rows go first: beneath the switching chunk's ID they come before the
             // rest of the stream, and once the stream has ended they come before its end.
-            let mut pointer = match switched_at {
-                Some(sequence_id) => sequence_id.descend(),
-                None => eof.split_off(),
+            // The pointer numbering them is dropped before the fallback writes: a live pointer
+            // holds back every writer ordered after it, the fallback included.
+            let rebuilt: Vec<_> = {
+                let mut pointer = match switched_at {
+                    Some(sequence_id) => sequence_id.descend(),
+                    None => eof.split_off(),
+                };
+                buffered
+                    .rebuild(session)?
+                    .into_iter()
+                    .map(|chunk| Ok((pointer.advance(), chunk)))
+                    .collect()
             };
-            let rebuilt: Vec<_> = buffered
-                .rebuild(session)?
-                .into_iter()
-                .map(|chunk| Ok((pointer.advance(), chunk)))
-                .collect();
             let replay = SequentialStreamAdapter::new(dtype, stream::iter(rebuilt).chain(stream))
                 .sendable();
             return self
