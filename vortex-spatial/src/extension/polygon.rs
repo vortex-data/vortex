@@ -321,50 +321,22 @@ impl ArrowImportVTable for Polygon {
     }
 
     /// Import a `geoarrow.polygon` field as the [`Polygon`] dtype. Keyed off the standard GeoArrow
-    /// name, so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
-    /// `PolygonType` extension, or — for a metadata-less geometry literal — the name alone, inferring
-    /// the dimension from the coordinate field names.
+    /// name, so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here.
     fn from_arrow_field(
         &self,
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) =
-            if let Ok(polygon_meta) = field.try_extension_type::<PolygonType>() {
-                vortex_ensure!(
-                    polygon_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.polygon with interleaved coordinates is not supported; \
+        let polygon_meta = field.try_extension_type::<PolygonType>()?;
+        vortex_ensure!(
+            polygon_meta.coord_type() == CoordType::Separated,
+            "geoarrow.polygon with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    polygon_meta.dimension().into(),
-                    spatial_metadata_from_arrow(polygon_meta.metadata()),
-                )
-            } else {
-                // Infer the dimension from the field names, not the canonical storage check: a literal's
-                // coordinate fields may be nullable, which that check rejects. Peel the two `List` layers
-                // (polygon → rings → coordinates) to reach the struct.
-                if field.extension_type_name() != Some(PolygonType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(ring, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::List(coords, _) = ring.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
-        let storage_dtype = polygon_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype =
+            polygon_storage_dtype(polygon_meta.dimension().into(), field.is_nullable().into());
+        let metadata = spatial_metadata_from_arrow(polygon_meta.metadata());
         Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(Polygon, metadata, storage_dtype)?.erased(),
         )))

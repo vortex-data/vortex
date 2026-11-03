@@ -263,9 +263,7 @@ impl ArrowImportVTable for WellKnownBinary {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
-            return Ok(None);
-        };
+        let wkb_meta = field.try_extension_type::<WkbType>()?;
 
         let storage_dtype = DType::Binary(field.is_nullable().into());
         Ok(Some(DType::Extension(
