@@ -9,6 +9,7 @@ use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_groups::FileGroupPartitioner;
@@ -20,6 +21,7 @@ use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
@@ -43,6 +45,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::sort::reorder_files_by_statistics;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
@@ -212,6 +215,9 @@ pub struct VortexSource {
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
+    /// Sort order requested by an inexact sort pushdown, used to read the files with the best
+    /// statistics first.
+    sort_order_for_reorder: Option<LexOrdering>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
@@ -250,6 +256,7 @@ impl VortexSource {
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
             ordered: false,
+            sort_order_for_reorder: None,
             options: VortexTableOptions::default(),
         }
     }
@@ -434,7 +441,38 @@ impl FileSource for VortexSource {
             });
         }
 
-        Ok(SortOrderPushdownResult::Unsupported)
+        // An inexact pushdown drops the scan's declared ordering. When that ordering is a proper
+        // prefix of the request, keep it so the `SortExec` can still use it as a sort prefix.
+        for prefix_len in 1..order.len() {
+            if eq_properties.ordering_satisfy(order[..prefix_len].iter().cloned())? {
+                return Ok(SortOrderPushdownResult::Unsupported);
+            }
+        }
+
+        // File statistics are keyed by column, so the leading sort key must be a file column.
+        let leading_is_file_column = order[0].expr.downcast_ref::<Column>().is_some_and(|col| {
+            self.table_schema
+                .file_schema()
+                .field_with_name(col.name())
+                .is_ok()
+        });
+        if !leading_is_file_column {
+            return Ok(SortOrderPushdownResult::Unsupported);
+        }
+
+        let mut this = self.clone();
+        this.sort_order_for_reorder = LexOrdering::new(order.iter().cloned());
+        Ok(SortOrderPushdownResult::Inexact {
+            inner: Arc::new(this) as Arc<dyn FileSource>,
+        })
+    }
+
+    fn reorder_files(&self, files: Vec<PartitionedFile>) -> Vec<PartitionedFile> {
+        reorder_files_by_statistics(
+            files,
+            self.sort_order_for_reorder.as_ref(),
+            self.table_schema.table_schema(),
+        )
     }
 
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
@@ -595,8 +633,11 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use datafusion_common::ColumnStatistics;
     use datafusion_common::ScalarValue;
+    use datafusion_common::Statistics;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_common::stats::Precision;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -604,7 +645,6 @@ mod tests {
     use datafusion_functions::string::octet_length::OctetLengthFunc;
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
-    use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
@@ -701,6 +741,99 @@ mod tests {
             }
         }
         assert!(!source.ordered);
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_inexact_for_unordered_file_column() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let order = vec![sort_column("b", 1).reverse()];
+        let eq_properties = EquivalenceProperties::new(schema);
+
+        let SortOrderPushdownResult::Inexact { inner } =
+            source.try_pushdown_sort(&order, &eq_properties)?
+        else {
+            anyhow::bail!("expected inexact sort pushdown");
+        };
+        let inner = inner
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+        assert_eq!(
+            inner.sort_order_for_reorder,
+            LexOrdering::new(order.iter().cloned())
+        );
+        assert!(!inner.ordered);
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_is_unsupported_for_non_column_sort_key() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let a_plus_one = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Plus,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        ));
+        let order = vec![PhysicalSortExpr::new_default(a_plus_one)];
+
+        let result = source.try_pushdown_sort(&order, &EquivalenceProperties::new(schema))?;
+
+        assert!(matches!(result, SortOrderPushdownResult::Unsupported));
+        Ok(())
+    }
+
+    /// The declared ordering `[a]` is a proper prefix of the request `[a, b]`; pushing down
+    /// inexactly would drop it and stop the `SortExec` from using it as a sort prefix.
+    #[test]
+    fn try_pushdown_sort_is_unsupported_when_declared_ordering_is_prefix() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let eq_properties = EquivalenceProperties::new_with_orderings(
+            Arc::clone(&schema),
+            [vec![sort_column("a", 0)]],
+        );
+        let order = vec![sort_column("a", 0), sort_column("b", 1)];
+
+        let result = source.try_pushdown_sort(&order, &eq_properties)?;
+
+        assert!(matches!(result, SortOrderPushdownResult::Unsupported));
+        Ok(())
+    }
+
+    #[test]
+    fn reorder_files_uses_pushed_down_sort_order() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let file = |name: &str, max: i32| {
+            let mut file = PartitionedFile::new(name, 0);
+            file.statistics = Some(Arc::new(Statistics {
+                column_statistics: vec![
+                    ColumnStatistics::new_unknown(),
+                    ColumnStatistics {
+                        max_value: Precision::Exact(ScalarValue::Int32(Some(max))),
+                        ..ColumnStatistics::new_unknown()
+                    },
+                ],
+                ..Statistics::new_unknown(&schema)
+            }));
+            file
+        };
+        let files = || vec![file("low", 1), file("high", 9)];
+        let source = sort_test_source(Arc::clone(&schema));
+
+        // Without a sort pushdown, files keep their listing order.
+        let unchanged = source.reorder_files(files());
+        assert_eq!(unchanged[0].object_meta.location.as_ref(), "low");
+
+        let order = vec![sort_column("b", 1).reverse()];
+        let SortOrderPushdownResult::Inexact { inner } =
+            source.try_pushdown_sort(&order, &EquivalenceProperties::new(Arc::clone(&schema)))?
+        else {
+            anyhow::bail!("expected inexact sort pushdown");
+        };
+        let reordered = inner.reorder_files(files());
+        assert_eq!(reordered[0].object_meta.location.as_ref(), "high");
         Ok(())
     }
 

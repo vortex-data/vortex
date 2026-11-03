@@ -30,6 +30,7 @@ mod opener;
 pub mod reader;
 mod scan_v2;
 mod sink;
+mod sort;
 mod source;
 mod stream;
 
