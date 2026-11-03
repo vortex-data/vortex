@@ -65,45 +65,34 @@ cargo run -p compress-bench --profile release_debug -- --threads 1
 
 ## Sparse-wide baseline
 
-`sparse-write-bench` is a focused, synthetic Vortex benchmark that needs no downloads. It measures
-complete serialized file sizes and in-memory write times with the default production compressor.
-It is a separate, manually invoked runner; the existing compression CI workload is unchanged.
+The default CPU suite includes five synthetic sparse-wide datasets. They require no downloads
+and use the same preparation, format selection, size reporting, and encode/decode timing as the
+other compression workloads. Run just these datasets with:
 
 ```bash
-cargo run -p compress-bench --bin sparse-write-bench --profile release_debug -- \
-  --ingest-output /tmp/sparse-write-baseline.jsonl
-# Quicker smoke run, including round-trip checks for every output:
-cargo run -p compress-bench --bin sparse-write-bench -- \
-  --rows 10000 --groups 10 --iterations 1
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --threads 1 --ingest-jsonl /tmp/sparse-wide-baseline.jsonl
+# Vortex compression only:
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --formats vortex --ops compress --threads 1
 ```
 
-Defaults are 100,000 source rows, 100 mutually exclusive groups, three fields per group, seed 42,
-one runtime worker, and three timed iterations after one warmup. Each row has exactly one present
-group. Fields hold random integers in `[0, 1_000_000)`, or lists of three such integers. Cases are:
+Each dataset has 100,000 rows, 100 mutually exclusive groups, three fields per group, and seed 42.
+Each row has exactly one present group. Fields hold random integers in `[0, 1_000_000)`, or lists
+of three such integers:
 
-- `flat-runs`: nullable integer fields with clustered group presence.
-- `nested-runs`: the integer fields under four nullable struct levels.
-- `lists-runs`: the same nesting with list fields.
-- `lists-shuffled`: list groups scattered across rows, with the same per-group values as `lists-runs`.
-- `nested-child-nulls`: nested integers with genuine child nulls in 10% of present values.
+- `sparse-wide-flat-runs`: nullable integer fields with clustered group presence.
+- `sparse-wide-nested-runs`: the integer fields under four nullable struct levels.
+- `sparse-wide-lists-runs`: the same nesting with list fields.
+- `sparse-wide-lists-shuffled`: list groups scattered across rows, with the same per-group values.
+- `sparse-wide-nested-child-nulls`: nested integers with genuine nulls in 10% of present values.
 
-Select cases with `--cases nested-runs,lists-shuffled`. `--rows` must be divisible by `--groups`.
-`--fields`, `--seed`, `--threads`, and `--iterations` are also configurable. Hold these settings and
-the machine constant when comparing commits.
-
-Each case writes one wide file containing every group and all rows. It reports the complete
-serialized byte size, median write time, and rows per second. These are absolute baseline
-measurements: follow-up changes can be compared against the same case and parameters across
-commits.
-
-Timings include the default writer, compression, and serialization to memory. They exclude data
-generation, statistic-cache resets, disk I/O, and output decoding. Each warmup file is read back
-and checked for matching length, dtype, values, and nulls outside the timer; serialized sizes
-must remain stable across iterations.
-
-`--ingest-output` emits the existing V3 `compression_size` and `compression_time` JSONL records,
-including all iteration timings and best-of-N time following the existing ingestion convention.
-Dataset keys include the case, shape, seed, and worker count.
+Each workload writes one wide file containing every group and all rows. Follow-up compression
+changes can be measured against the same dataset across commits. Source Parquet files use Zstd
+level 3 and are generated and cached during data preparation, outside the timed operations.
+The normal suite loads these files separately for each selected format; its usual reader batch
+sizes and writer settings apply. This includes measuring both compression and decompression by
+default, with complete serialized sizes in the existing tables and ingestion JSONL.
 
 ## GPU decompression
 

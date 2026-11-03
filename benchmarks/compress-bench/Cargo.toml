@@ -1,6 +1,5 @@
 [package]
 name = "compress-bench"
-default-run = "compress-bench"
 description = "Compression benchmarks for Vortex and other formats"
 authors.workspace = true
 categories.workspace = true
@@ -29,7 +28,6 @@ lance-bench = { path = "../lance-bench", optional = true }
 mimalloc = { workspace = true }
 parking_lot = { workspace = true }
 parquet = { workspace = true }
-rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -52,10 +50,6 @@ lance = ["dep:lance-bench"]
 [[bin]]
 name = "compress-bench"
 test = false
-
-[[bin]]
-name = "sparse-write-bench"
-path = "src/bin/sparse-write-bench.rs"
 
 [lib]
 
