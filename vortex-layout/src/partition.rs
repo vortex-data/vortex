@@ -26,6 +26,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::partition_session::FieldIndex;
 use crate::partition_session::NodeTouches;
 use crate::partition_session::PartitionSession;
+use crate::partition_session::PartitionedPlan;
 use crate::plan::physical::PlanId;
 
 pub fn replacement_scope(dtypes: &[DType]) -> BoundExpression {
@@ -71,7 +72,15 @@ pub struct Partition {
     pub expr: BoundExpression,
 }
 
-pub fn partition_expression(
+pub fn partition_expression<Plan: PartitionedPlan>(
+    expr: &BoundExpression,
+    source: &Plan,
+    session: &VortexSession,
+) -> VortexResult<PartitionedExpression> {
+    partition_expression_impl(expr, source.id(), session)
+}
+
+fn partition_expression_impl(
     expr: &BoundExpression,
     source: PlanId,
     session: &VortexSession,
@@ -286,12 +295,7 @@ fn apply_rule(
     source: PlanId,
     node: &BoundExpression,
 ) -> VortexResult<Option<NodeTouches>> {
-    let rule = if node.is_root() {
-        rules.root_rule(source)
-    } else {
-        node.as_scalar()
-            .and_then(|fn_| rules.rule(source, fn_.id()))
-    };
+    let rule = rules.rule(source, node.as_scalar().map(|scalar_fn| scalar_fn.id()));
     match rule {
         Some(rule) => rule.apply(node),
         None => Ok(None),

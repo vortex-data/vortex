@@ -345,7 +345,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         if fields.nfields() == 0 {
             return Ok(None);
         }
-        let partitioned = match partition_expression(expression, Pack.id(), session)? {
+        let partitioned = match partition_expression(expression, &Pack, session)? {
             PartitionedExpression::One(Some(slot), expr) => {
                 let field = field_plan(child, slot)?;
                 return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));

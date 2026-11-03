@@ -25,7 +25,9 @@ use crate::partition::positional_name;
 use crate::partition_session::FieldIndex;
 use crate::partition_session::NodeTouches;
 use crate::partition_session::PartitionRule;
+use crate::partition_session::PartitionRuleAdapter;
 use crate::partition_session::PartitionSession;
+use crate::partition_session::PartitionedPlan;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
@@ -110,21 +112,41 @@ impl PlanVTable for RowIdx {
     }
 }
 
-const CHILD_SLOT: FieldIndex = 0;
-const ROW_IDX_SLOT: FieldIndex = FieldIndex::MAX;
+pub enum RowIdxSlot {
+    Child,
+    RowIdx,
+}
+
+impl From<RowIdxSlot> for FieldIndex {
+    fn from(slot: RowIdxSlot) -> Self {
+        match slot {
+            RowIdxSlot::Child => 0,
+            RowIdxSlot::RowIdx => FieldIndex::MAX,
+        }
+    }
+}
+
+impl PartitionedPlan for RowIdx {
+    type Slot = RowIdxSlot;
+}
 
 pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
-    session.register_root_rule(RowIdx.id(), &RowIdxRootRule);
-    session.register_rule(RowIdx.id(), RowIdxFn.id(), &RowIdxFnRule);
+    session.register_root_rule(
+        &RowIdx,
+        const { &PartitionRuleAdapter::new(RowIdxRootRule) },
+    );
+    session.register_rule(
+        &RowIdx,
+        RowIdxFn.id(),
+        const { &PartitionRuleAdapter::new(RowIdxFnRule) },
+    );
 }
 
 /// row_idx as $ reads its child
 struct RowIdxRootRule;
-impl PartitionRule for RowIdxRootRule {
-    type Slot = FieldIndex;
-
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
-        let slots = vec![CHILD_SLOT];
+impl PartitionRule<RowIdx> for RowIdxRootRule {
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<RowIdxSlot>>> {
+        let slots = vec![RowIdxSlot::Child];
         let replacement = BoundExpression::new_root(node.dtype().clone());
         Ok(Some(NodeTouches { slots, replacement }))
     }
@@ -132,11 +154,9 @@ impl PartitionRule for RowIdxRootRule {
 
 /// row_idx as a non-root reads nothing and generates a virtual output slot
 struct RowIdxFnRule;
-impl PartitionRule for RowIdxFnRule {
-    type Slot = FieldIndex;
-
-    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
-        let slots = vec![ROW_IDX_SLOT];
+impl PartitionRule<RowIdx> for RowIdxFnRule {
+    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches<RowIdxSlot>>> {
+        let slots = vec![RowIdxSlot::RowIdx];
         let replacement = BoundExpression::new_root(row_idx_dtype());
         Ok(Some(NodeTouches { slots, replacement }))
     }
@@ -153,10 +173,12 @@ pub fn plan_row_idx_expression(
     session: &VortexSession,
 ) -> VortexResult<PlanRef> {
     let row_count = child.row_count();
-    let partitioned = match partition_expression(&expression, RowIdx.id(), session)? {
+    let partitioned = match partition_expression(&expression, &RowIdx, session)? {
         PartitionedExpression::One(slot, expr) => {
             let source = match slot {
-                Some(ROW_IDX_SLOT) => RowIdxPlan::new(row_count).into_plan(),
+                Some(slot) if slot == FieldIndex::from(RowIdxSlot::RowIdx) => {
+                    RowIdxPlan::new(row_count).into_plan()
+                }
                 Some(_) => child,
                 None => PackPlan::try_new(
                     StructFields::empty(),
@@ -175,7 +197,7 @@ pub fn plan_row_idx_expression(
 
     let mut plans = Vec::with_capacity(partitions.len());
     for partition in partitions {
-        let source = if partition.slot == ROW_IDX_SLOT {
+        let source = if partition.slot == FieldIndex::from(RowIdxSlot::RowIdx) {
             RowIdxPlan::new(row_count).into_plan()
         } else {
             child.clone()

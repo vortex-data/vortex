@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt;
+use std::marker::PhantomData;
 
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
@@ -11,12 +12,19 @@ use vortex_session::ArcSwapMap;
 use vortex_session::SessionVar;
 
 use crate::plan::physical::PlanId;
+use crate::plan::physical::PlanVTable;
 use crate::plan::physical::register_row_idx_partition_rules;
 use crate::plan::physical::register_struct_partition_rules;
 
-/// Positional index for a schema's original or generated field at some level.
+/// Positional index for a schema's field at some level.
 /// It's up to the plan to interpret its meaning.
 pub type FieldIndex = usize;
+
+/// A plan that allows partitioning itself by some set of expressions
+pub trait PartitionedPlan: PlanVTable {
+    /// A dimension/axis over which you can partition a plan.
+    type Slot: Into<FieldIndex>;
+}
 
 pub struct NodeTouches<S = FieldIndex> {
     /// Output slots node needs. May include slots that are not present in
@@ -26,20 +34,37 @@ pub struct NodeTouches<S = FieldIndex> {
     pub replacement: BoundExpression,
 }
 
-pub trait PartitionRule: Send + Sync {
-    type Slot: Into<FieldIndex>;
+pub trait PartitionRule<Plan: PartitionedPlan>: Send + Sync {
     /// None if rule doesn't apply, otherwise list of slots node needs as well
     /// as a combiner expression for these slots
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Self::Slot>>>;
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Plan::Slot>>>;
 }
 
 pub trait DynPartitionRule: Send + Sync {
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>>;
 }
 
-impl<R: PartitionRule> DynPartitionRule for R {
+pub struct PartitionRuleAdapter<Plan, Rule> {
+    rule: Rule,
+    _plan: PhantomData<fn() -> Plan>,
+}
+
+impl<Plan, Rule> PartitionRuleAdapter<Plan, Rule> {
+    pub const fn new(rule: Rule) -> Self {
+        Self {
+            rule,
+            _plan: PhantomData,
+        }
+    }
+}
+
+impl<Plan, Rule> DynPartitionRule for PartitionRuleAdapter<Plan, Rule>
+where
+    Plan: PartitionedPlan,
+    Rule: PartitionRule<Plan>,
+{
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
-        let rule = PartitionRule::apply(self, node)?.map(|touches| NodeTouches {
+        let rule = self.rule.apply(node)?.map(|touches| NodeTouches {
             slots: touches.slots.into_iter().map(Into::into).collect(),
             replacement: touches.replacement,
         });
@@ -50,38 +75,34 @@ impl<R: PartitionRule> DynPartitionRule for R {
 /// Session state for partitioning plans with expressions
 #[derive(Clone)]
 pub struct PartitionSession {
-    /// Root expression rules. These apply when you encounter a root expression
-    /// ($) while traversing the expression graph.
-    root_rules: ArcSwapMap<PlanId, &'static dyn DynPartitionRule>,
-    /// Non-root expression rules. These apply when you encounter anything but
-    /// a root expression while traversing the expression graph.
-    rules: ArcSwapMap<(PlanId, ScalarFnId), &'static dyn DynPartitionRule>,
+    /// Rules for plan partitioning. Root expression ($) stores None.
+    rules: ArcSwapMap<(PlanId, Option<ScalarFnId>), &'static dyn DynPartitionRule>,
 }
 
 impl PartitionSession {
     /// Register a rule which allows partitioning "plan" with "root()"
-    pub fn register_root_rule(&self, plan: PlanId, rule: &'static dyn DynPartitionRule) {
-        self.root_rules.insert(plan, rule);
+    pub fn register_root_rule<Plan: PartitionedPlan, Rule: PartitionRule<Plan>>(
+        &self,
+        plan: &Plan,
+        rule: &'static PartitionRuleAdapter<Plan, Rule>,
+    ) {
+        self.rules.insert((plan.id(), None), rule);
     }
 
     /// Register a rule which allows partitioning "plan" with a "scalar_fn"
-    pub fn register_rule(
+    pub fn register_rule<Plan: PartitionedPlan, Rule: PartitionRule<Plan>>(
         &self,
-        plan: PlanId,
+        plan: &Plan,
         scalar_fn: ScalarFnId,
-        rule: &'static dyn DynPartitionRule,
+        rule: &'static PartitionRuleAdapter<Plan, Rule>,
     ) {
-        self.rules.insert((plan, scalar_fn), rule);
-    }
-
-    pub(crate) fn root_rule(&self, plan: PlanId) -> Option<&'static dyn DynPartitionRule> {
-        self.root_rules.get(&plan)
+        self.rules.insert((plan.id(), Some(scalar_fn)), rule);
     }
 
     pub(crate) fn rule(
         &self,
         plan: PlanId,
-        scalar_fn: ScalarFnId,
+        scalar_fn: Option<ScalarFnId>,
     ) -> Option<&'static dyn DynPartitionRule> {
         self.rules.get(&(plan, scalar_fn))
     }
@@ -90,7 +111,6 @@ impl PartitionSession {
 impl Default for PartitionSession {
     fn default() -> Self {
         let this = Self {
-            root_rules: ArcSwapMap::default(),
             rules: ArcSwapMap::default(),
         };
         register_struct_partition_rules(&this);

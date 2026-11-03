@@ -10,7 +10,7 @@ mod pack;
 mod row_idx;
 mod segment_scan;
 mod share;
-pub(crate) mod struct_partitioning;
+pub mod struct_partitioning;
 mod take;
 mod zoned;
 
