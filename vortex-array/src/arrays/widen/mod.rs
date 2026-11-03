@@ -11,6 +11,7 @@
 //! [`WidenArray::encode`] picks the narrowest such type for a [`PrimitiveArray`].
 //!
 //! A decimal child has the logical scale and a lower precision, and **must** be valid for its dtype.
+//! Comparisons, bounds checks and fills use the child dtype to bound its valid values.
 //! [`WidenArray::encode_decimal`] picks the smallest precision that holds the valid values and the
 //! scale. Decimal execution copies the child values into the logical canonical width.
 //!

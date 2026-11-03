@@ -10,6 +10,7 @@
 mod aggregates;
 mod compute;
 mod decimal;
+mod decimal_compare;
 mod decimal_fallback;
 mod encoding;
 mod numeric;
@@ -30,8 +31,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::assert_arrays_eq;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -55,6 +59,26 @@ fn stored_ptype(array: &ArrayRef) -> PType {
 /// Returns `array` executed to its canonical form.
 fn canonical(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     Ok(array.clone().execute::<Canonical>(ctx)?.into_array())
+}
+
+/// Asserts that `lhs op rhs` and `rhs op lhs` equal the same compares of the canonical operands.
+#[track_caller]
+fn assert_compare_matches_canonical(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    operator: Operator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let canonical_lhs = canonical(lhs, ctx)?;
+    let canonical_rhs = canonical(rhs, ctx)?;
+
+    let expected = canonical_lhs.binary(canonical_rhs.clone(), operator)?;
+    assert_arrays_eq!(lhs.binary(rhs.clone(), operator)?, expected, ctx);
+
+    let expected = canonical_rhs.binary(canonical_lhs, operator)?;
+    assert_arrays_eq!(rhs.binary(lhs.clone(), operator)?, expected, ctx);
+
+    Ok(())
 }
 
 /// Nullable `i64` values, all valid, at both ends of the `i8` range.

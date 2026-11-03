@@ -30,7 +30,9 @@ impl WidenArray {
     /// **must** be strictly narrower. When `values` is itself a `Widen`, the new array stores its
     /// values instead, so that `Widen` arrays do not nest.
     ///
-    /// A decimal child **must** be a valid decimal array for its declared dtype.
+    /// A decimal child **must** be a valid decimal array for its declared dtype. Comparisons,
+    /// bounds checks and fills rely on this requirement. A violation gives incorrect results,
+    /// but no undefined behavior.
     pub fn try_new(mut values: ArrayRef, dtype: DType) -> VortexResult<Self> {
         // NB: Check `values` before the flatten. The values of a `Widen` child are narrower than
         // the child, so the check in `try_from_parts` alone would accept a child as wide as `dtype`
