@@ -46,6 +46,7 @@ mod tests;
 type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>;
 
 const INITIAL_CHUNK_ROWS: u64 = 8192;
+const MAX_ARROW_BATCH_ROWS: usize = 65_536;
 
 /// Claims a partition's startup budget across its files, without duplicating their rows.
 pub(crate) fn initial_ranges(rows: Range<u64>, remaining: &AtomicUsize) -> Vec<Range<u64>> {
@@ -297,10 +298,27 @@ fn chunk_stream(
             match run.advance()? {
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
-                    let batch = map(batch.array);
-                    let failed = batch.is_err();
-                    if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
-                        return Ok(());
+                    let len = batch.array.len();
+                    if len <= MAX_ARROW_BATCH_ROWS {
+                        let batch = map(batch.array);
+                        let failed = batch.is_err();
+                        if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
+                            return Ok(());
+                        }
+                    } else {
+                        // Retain large scan work chunks, but bound materialization before Arrow
+                        // conversion so decoded values and downstream casts fit smaller working sets.
+                        for offset in (0..len).step_by(MAX_ARROW_BATCH_ROWS) {
+                            let array = batch.array.slice(
+                                offset..offset.saturating_add(MAX_ARROW_BATCH_ROWS).min(len),
+                            )?;
+                            let batch = map(array);
+                            let failed = batch.is_err();
+                            if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed
+                            {
+                                return Ok(());
+                            }
+                        }
                     }
                 }
                 Progress::Spawn(scope, child) => {

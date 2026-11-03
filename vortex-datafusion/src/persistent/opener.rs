@@ -1145,6 +1145,44 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
+    async fn v2_bounds_arrow_batches(
+        #[values(0, 2)] scan_concurrency: usize,
+        #[values(false, true)] filtered: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(("a", UInt32, (0..150_000).collect::<Vec<u32>>()))?;
+        let schema = batch.schema();
+        let size =
+            write_arrow_to_vortex(Arc::clone(&object_store), "batches.vortex", batch.clone())
+                .await?;
+        let filter = filtered.then(|| logical2physical(&col("a").gt(lit(0_u32)), &schema));
+        let mut opener = make_opener(object_store, TableSchema::from(Arc::clone(&schema)), filter);
+        opener.scan_v2 = true;
+        opener.scan_concurrency = Some(scan_concurrency);
+        opener.has_output_ordering = true;
+        let batches = opener
+            .open(PartitionedFile::new("batches.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(batches.iter().all(|batch| batch.num_rows() <= 65_536));
+        let expected = if filtered {
+            batch.slice(1, batch.num_rows() - 1)
+        } else {
+            batch
+        };
+        assert_arrays_eq!(
+            SESSION
+                .arrow()
+                .from_arrow_record_batch(concat_batches(&schema, &batches)?, &schema)?,
+            SESSION.arrow().from_arrow_record_batch(expected, &schema)?,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
     async fn startup_and_bulk_keep_filtered_selected_rows_once(
         #[values(0, 2)] initial_chunks: usize,
         #[values(false, true)] roaring: bool,
