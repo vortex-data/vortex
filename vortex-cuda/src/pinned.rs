@@ -110,7 +110,8 @@ pub struct PinnedByteBufferPool {
     ctx: Arc<CudaContext>,
     max_keep_per_size: usize,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
-    inflight: Mutex<Vec<InflightPinnedBuffer>>,
+    /// Buffers whose last transfer may still read them, reclaimed once its event fires.
+    inflight: Mutex<Vec<PinnedByteBuffer>>,
     hits: AtomicU64,
     misses: AtomicU64,
     allocs: AtomicU64,
@@ -124,10 +125,6 @@ impl std::fmt::Debug for PinnedByteBufferPool {
             .field("stats", &self.stats())
             .finish_non_exhaustive()
     }
-}
-
-struct InflightPinnedBuffer {
-    buffer: PinnedByteBuffer,
 }
 
 impl PinnedByteBufferPool {
@@ -212,12 +209,12 @@ impl PinnedByteBufferPool {
             .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
         let mut idx = 0usize;
         while idx < inflight.len() {
-            if !inflight[idx].buffer.event.is_complete() {
+            if !inflight[idx].event.is_complete() {
                 idx += 1;
                 continue;
             }
             let completed = inflight.swap_remove(idx);
-            self.put(completed.buffer);
+            self.put(completed);
         }
         Ok(())
     }
@@ -371,10 +368,7 @@ impl PooledPinnedBuffer {
         }
 
         let inner = self.inner.take().vortex_expect("buffer already consumed");
-        self.pool
-            .inflight
-            .lock()
-            .push(InflightPinnedBuffer { buffer: inner });
+        self.pool.inflight.lock().push(inner);
         Ok(())
     }
 }
@@ -509,7 +503,7 @@ mod tests {
         {
             let inflight = pool.inflight.lock();
             assert_eq!(inflight.len(), 1);
-            assert_eq!(inflight[0].buffer.ptr.cast_const(), allocation);
+            assert_eq!(inflight[0].ptr.cast_const(), allocation);
         }
         stream
             .synchronize()
