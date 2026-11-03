@@ -452,7 +452,6 @@ mod tests {
 
     #[rstest]
     #[case(f32::NAN, false)]
-    #[case(-1.0f32 / 0.0f32, true)]
     #[case(f32::INFINITY, false)]
     #[case(f32::NEG_INFINITY, true)]
     fn compare_to_non_finite_gt(#[case] value: f32, #[case] result: bool) {
@@ -467,7 +466,6 @@ mod tests {
 
     #[rstest]
     #[case(f32::NAN, true)]
-    #[case(-1.0f32 / 0.0f32, false)]
     #[case(f32::INFINITY, true)]
     #[case(f32::NEG_INFINITY, false)]
     fn compare_to_non_finite_lt(#[case] value: f32, #[case] result: bool) {
