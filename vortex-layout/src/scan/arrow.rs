@@ -1,22 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future;
+use std::iter;
 use std::sync::Arc;
 
+use arrow_array::Array;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
+use arrow_array::RecordBatchOptions;
 use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
 use arrow_schema::ArrowError;
+use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::FieldRef;
+use arrow_schema::Fields;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
+use futures::FutureExt;
 use futures::Stream;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
+use futures::future::join_all;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructDataParts;
+use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::scan::scan_builder::ScanBuilder;
 
@@ -53,11 +77,9 @@ impl ScanBuilder<ArrayRef> {
         let session = self.session().clone();
 
         let stream = self
-            .map(move |chunk| {
-                let mut ctx = session.create_execution_ctx();
-                to_record_batch(chunk, &struct_field, &mut ctx)
-            })
+            .map(move |chunk| record_batch_future(chunk, &struct_field, &session))
             .into_stream()?
+            .and_then(|batch| batch)
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
 
         Ok(stream)
@@ -72,6 +94,119 @@ pub(super) fn to_record_batch(
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(chunk, Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
+}
+
+/// The number of top-level columns a batch needs before its columns are exported in parallel.
+const PARALLEL_EXPORT_COLUMNS: usize = 128;
+
+/// The minimum number of columns exported by each runtime task of a parallel export.
+const MIN_COLUMNS_PER_TASK: usize = 32;
+
+/// Start converting `chunk` into a [`RecordBatch`].
+///
+/// A wide struct without nulls has its columns exported in groups spawned on the session runtime,
+/// so that exporting, and dropping, thousands of columns does not run on a single thread. Every
+/// other chunk is converted in place.
+fn record_batch_future(
+    chunk: ArrayRef,
+    struct_field: &Field,
+    session: &VortexSession,
+) -> VortexResult<BoxFuture<'static, VortexResult<RecordBatch>>> {
+    let DataType::Struct(target_fields) = struct_field.data_type() else {
+        vortex_bail!("Record batch target must be a struct, got {struct_field}");
+    };
+    let handle = (target_fields.len() >= PARALLEL_EXPORT_COLUMNS)
+        .then(|| session.try_handle())
+        .flatten();
+    let chunk = match (handle, chunk.try_downcast::<Struct>()) {
+        (Some(handle), Ok(array))
+            if matches!(
+                array.validity()?,
+                Validity::NonNullable | Validity::AllValid
+            ) =>
+        {
+            return Ok(parallel_record_batch(
+                array,
+                target_fields,
+                &handle,
+                session,
+            ));
+        }
+        (_, Ok(array)) => array.into_array(),
+        (_, Err(chunk)) => chunk,
+    };
+
+    let mut ctx = session.create_execution_ctx();
+    Ok(future::ready(to_record_batch(chunk, struct_field, &mut ctx)).boxed())
+}
+
+/// Export the columns of a struct without nulls in groups spawned on the runtime.
+fn parallel_record_batch(
+    array: StructArray,
+    target_fields: &Fields,
+    handle: &Handle,
+    session: &VortexSession,
+) -> BoxFuture<'static, VortexResult<RecordBatch>> {
+    let len = array.len();
+    let StructDataParts { fields, .. } = array.into_data_parts();
+    if fields.len() != target_fields.len() {
+        return future::ready(Err(vortex_err!(
+            "StructArray field count {} must match the target Arrow type {}",
+            fields.len(),
+            target_fields.len()
+        )))
+        .boxed();
+    }
+
+    let parallelism = get_available_parallelism().unwrap_or(1);
+    let ntasks = (fields.len() / MIN_COLUMNS_PER_TASK).clamp(1, parallelism * 4);
+    let group_size = fields.len().div_ceil(ntasks);
+
+    let mut columns = fields.into_iter().zip(target_fields.iter().cloned());
+    let tasks: Vec<_> = iter::from_fn(|| {
+        let group: Vec<_> = columns.by_ref().take(group_size).collect();
+        (!group.is_empty()).then(|| {
+            let session = session.clone();
+            handle.spawn_cpu(move || export_columns(group, &session))
+        })
+    })
+    .collect();
+
+    let schema = Arc::new(Schema::new(target_fields.clone()));
+    async move {
+        let mut columns = Vec::with_capacity(schema.fields().len());
+        for group in join_all(tasks).await {
+            columns.extend(group?);
+        }
+        Ok(RecordBatch::try_new_with_options(
+            schema,
+            columns,
+            &RecordBatchOptions::new().with_row_count(Some(len)),
+        )?)
+    }
+    .boxed()
+}
+
+/// Export each column to its target Arrow field.
+fn export_columns(
+    columns: Vec<(ArrayRef, FieldRef)>,
+    session: &VortexSession,
+) -> VortexResult<Vec<ArrowArrayRef>> {
+    let mut ctx = session.create_execution_ctx();
+    columns
+        .into_iter()
+        .map(|(column, field)| {
+            let arrow = session
+                .arrow()
+                .execute_arrow(column, Some(field.as_ref()), &mut ctx)?;
+            vortex_ensure!(
+                field.is_nullable() || arrow.null_count() == 0,
+                "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
+                field.name()
+            );
+            Ok(arrow)
+        })
+        .collect()
 }
 
 /// We create an adapter for record batch iterators that supports clone.
@@ -130,9 +265,11 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
+    use vortex_io::runtime::single::block_on;
 
     use super::*;
     use crate::scan::test::SCAN_SESSION;
+    use crate::scan::test::session_with_handle;
 
     fn create_test_struct_array() -> VortexResult<ArrayRef> {
         // Create Arrow arrays
@@ -251,6 +388,44 @@ mod tests {
         assert_eq!(adapter.schema(), schema);
         let result = adapter.next().unwrap();
         assert!(result.is_err());
+    }
+
+    /// A wide struct exports its columns in parallel groups, in column order.
+    #[test]
+    fn test_wide_record_batch_parallel_export() -> VortexResult<()> {
+        let ncols = i32::try_from(PARALLEL_EXPORT_COLUMNS)? + 72;
+        let chunk = vortex_array::arrays::StructArray::from_fields(
+            &(0..ncols)
+                .map(|i| {
+                    (
+                        format!("c{i}"),
+                        vortex_array::arrays::PrimitiveArray::from_iter([i, i + 1]).into_array(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )?
+        .into_array();
+        let fields: Fields = (0..ncols)
+            .map(|i| Field::new(format!("c{i}"), DataType::Int32, false))
+            .collect();
+        let struct_field = Field::new_struct("", fields, false);
+
+        let batch = block_on(|handle| {
+            let session = session_with_handle(handle);
+            async move { record_batch_future(chunk, &struct_field, &session)?.await }
+        })?;
+
+        assert_eq!(batch.num_columns(), PARALLEL_EXPORT_COLUMNS + 72);
+        assert_eq!(batch.num_rows(), 2);
+        for (i, column) in (0..ncols).zip(batch.columns()) {
+            assert_eq!(
+                column
+                    .as_primitive::<arrow_array::types::Int32Type>()
+                    .values(),
+                &[i, i + 1]
+            );
+        }
+        Ok(())
     }
 
     #[test]
