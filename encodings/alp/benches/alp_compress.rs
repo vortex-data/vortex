@@ -38,8 +38,6 @@ fn main() {
     divan::main();
 }
 
-// CodSpeed measures a subset. Times scale linearly with length, and the two nullable validity
-// fractions time alike, so CodSpeed keeps one small length and one nullable fraction.
 const BENCH_ARGS: &[(usize, f64, f64)] = if cfg!(codspeed) {
     &[
         // length, fraction_patch, fraction_valid

@@ -51,9 +51,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 // [(string_count, avg_len, unique_chars)]
-//
-// CodSpeed measures a subset. Times scale linearly with `string_count`, and `unique_chars` moves
-// them by less than 20%, so CodSpeed keeps one string count and checks the alphabet size once.
 const BENCH_ARGS: &[(usize, usize, u8)] = if cfg!(codspeed) {
     &[(500, 4, 4), (500, 16, 4), (500, 64, 4), (500, 64, 8)]
 } else {
@@ -149,8 +146,6 @@ fn canonicalize_compare(
 }
 
 // [(chunk_size, string_count, avg_len, unique_chars)]
-//
-// CodSpeed measures one case per chunk shape: `unique_chars` moves these times by about 10%.
 const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = if cfg!(codspeed) {
     &[(20, 100, 16, 4), (20, 50, 8, 4), (10, 150, 64, 4)]
 } else {
@@ -199,8 +194,6 @@ fn chunked_into_canonical(
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
 }
 
-/// A value that occurs in `array`, so the compare matches some rows and the needle compresses to
-/// symbols from the trained table rather than to escapes.
 fn needle(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Scalar {
     array.execute_scalar(0, ctx).unwrap()
 }
