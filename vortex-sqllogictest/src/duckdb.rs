@@ -167,13 +167,23 @@ fn line_matches(actual: &str, expected: &str) -> bool {
             .all(|(actual, expected)| value_matches(actual, expected))
 }
 
-/// Whether `actual` is equal to `expected`, or is the same number with more fractional digits.
+/// Whether `actual` is equal to `expected`, is the same number at a different scale, or is the
+/// same number with more fractional digits.
 ///
 /// TPC-H and TPC-DS share their expected results between DataFusion and DuckDB. DataFusion
-/// truncates decimal division and `avg` to the scale of the result type. DuckDB calculates them
-/// as `DOUBLE`. Thus a DuckDB value matches when it truncates to the expected value.
+/// prints decimals at their full scale (`4.10`), while this adapter strips trailing zeros
+/// (`4.1`). DataFusion also truncates decimal division and `avg` to the scale of the result
+/// type, where DuckDB calculates them as `DOUBLE`. Thus a DuckDB value matches when it equals
+/// or truncates to the expected value.
 fn value_matches(actual: &str, expected: &str) -> bool {
     if actual == expected {
+        return true;
+    }
+
+    if let (Ok(actual), Ok(expected)) =
+        (BigDecimal::from_str(actual), BigDecimal::from_str(expected))
+        && actual == expected
+    {
         return true;
     }
 
@@ -462,6 +472,10 @@ mod tests {
     #[case("-31.91907079646", "-31.91907", true)]
     #[case("104.161099446459", "104.161", true)]
     #[case("A F 0.050144597063 147790", "A F 0.050144 147790", true)]
+    #[case("4.1", "4.10", true)]
+    #[case("8622", "8622.00", true)]
+    #[case("A 2888.4 21.8", "A 2888.40 21.800000", true)]
+    #[case("4.11", "4.10", false)]
     #[case("4.593670124475", "4.593669", false)]
     #[case("1.9", "1", false)]
     #[case("12", "1", false)]
