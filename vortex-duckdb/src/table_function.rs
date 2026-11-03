@@ -225,6 +225,8 @@ pub struct LocalState {
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     /// The planning run on which this thread runs the chunks of V2 scans.
     pub(crate) run: Run,
+    /// V2 work this thread reserved when it joined its file, run before it takes more.
+    pub(crate) v2_work: Option<crate::scan_v2::Work>,
     /// Chunks of a V2 batch that this thread has yet to export, in reverse order.
     pub(crate) pending: Vec<ArrayRef>,
 
@@ -431,6 +433,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         run: Run::new(),
+        v2_work: None,
         pending: Vec::new(),
         finished: false,
     }
