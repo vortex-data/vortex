@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Keep dictionary lookups over sparse codes proportional to the number of patches.
+//!
+//! ```text
+//! Dict(Sparse(positions, codes, NULL), values)
+//!     -> Sparse(positions, Dict(codes, values), NULL)
+//! ```
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -33,14 +40,18 @@ impl ArrayParentReduceRule<Sparse> for SparseCodes {
         parent: ArrayView<'_, Dict>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Dictionary child 0 holds codes; child 1 holds values. A null code produces a null
+        // output, so a null fill survives the rewrite without a dictionary lookup of its own.
         if child_idx != 0 || !array.fill_scalar().is_null() || !supports_sparse(parent.dtype()) {
             return Ok(None);
         }
-        // Keep the output positions and slice offset intact. Repeated patch codes remain a
-        // dictionary over only the present rows, rather than expanding codes to the full length.
+
+        // Positions identify output rows; codes select dictionary entries and may repeat.
+        // Look up only the patch codes, preserving the output positions and slice offset.
         let patches = array
             .patches()
             .map_values(|codes| parent.values().take(codes))?;
+
         Ok(Some(
             Sparse::try_new_from_patches(patches, Scalar::null(parent.dtype().clone()))?
                 .into_array(),
@@ -58,13 +69,17 @@ impl ExecuteParentKernel<Sparse> for SparseCodes {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Apply the rewrite when sparse storage is the codes child. Sparse dictionary values
+        // still need the existing take kernel, which gathers from those values using the codes.
         if child_idx == 0 {
             return self.reduce_parent(array, parent, child_idx);
         }
+
         TakeExecuteAdaptor(Sparse).execute_parent(array, parent, child_idx, ctx)
     }
 }
 
+/// Preserves the rewrite when a lazy slice sits between the dictionary and its sparse codes.
 #[derive(Debug)]
 pub(crate) struct SlicedSparseCodes;
 
@@ -81,27 +96,35 @@ impl ExecuteParentKernel<Slice> for SlicedSparseCodes {
         if child_idx != 0 || array.is_empty() || !supports_sparse(parent.dtype()) {
             return Ok(None);
         }
+
         let Some(codes) = array.child().as_opt::<Sparse>() else {
             return Ok(None);
         };
         if !codes.fill_scalar().is_null() {
             return Ok(None);
         }
-        // Slice the sparse positions before the dictionary requests dense primitive codes.
+
+        // Executing the slice as primitive codes would erase the sparse representation before
+        // the dictionary can see it. Slice the sparse positions first, then reuse the rewrite.
         let Some(sliced) = <Sparse as SliceKernel>::slice(codes, array.slice_range().clone(), ctx)?
         else {
             return Ok(None);
         };
+
         if let Some(codes) = sliced.as_opt::<Sparse>() {
             return SparseCodes.reduce_parent(codes, parent, child_idx);
         }
+
+        // Slicing may collapse the codes to another encoding, such as a constant for a range
+        // with no patches. Let an ordinary dictionary lookup handle that result.
         Ok(Some(parent.values().take(sliced)?))
     }
 }
 
 fn supports_sparse(dtype: &DType) -> bool {
-    // Do not turn a supported dictionary into an unsupported sparse canonicalization. Struct
-    // canonicalization pushes sparse arrays into its fields, so check descendants as well.
+    // Dictionary execution supports types that sparse canonicalization cannot decode. Only
+    // rewrite when the resulting sparse array is supported all the way down: decoding a struct
+    // distributes sparsity into its fields, and list elements can themselves contain structs.
     match dtype {
         DType::Null
         | DType::Bool(_)

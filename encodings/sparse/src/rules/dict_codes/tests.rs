@@ -33,6 +33,7 @@ fn repeated_and_null_codes(
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let codes = Sparse::try_new(
         buffer![1u32, 3, 6].into_array(),
         PrimitiveArray::from_option_iter(patch_codes).into_array(),
@@ -41,21 +42,25 @@ fn repeated_and_null_codes(
         &mut ctx,
     )?
     .into_array();
+
     let range = if sliced { 1..7 } else { 0..8 };
     let codes = codes.slice(range.clone())?;
     let values = PrimitiveArray::from_option_iter([Some(10i32), None]).into_array();
     let dict = DictArray::try_new(codes, values)?.into_array();
+
     let reduced = if sliced {
         dict.clone().execute_until::<Sparse>(&mut ctx)?
     } else {
         dict.optimize()?
     };
     assert!(reduced.is::<Sparse>(), "{}", reduced.display_tree());
+
     let mut expected = [None; 8];
     for (position, code) in [1, 3, 6].into_iter().zip(patch_codes) {
         expected[position] = code.and_then(|code| [Some(10), None][usize::from(code)]);
     }
     let expected = PrimitiveArray::from_option_iter(expected[range].iter().copied());
+
     assert_arrays_eq!(reduced, expected, &mut ctx);
     assert_arrays_eq!(dict, expected, &mut ctx);
     Ok(())
@@ -66,6 +71,7 @@ fn sparse_struct_uses_empty_nonnullable_list_defaults() -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let list = ListArray::try_new(
         buffer![7i32, 8, 9].into_array(),
         buffer![0u32, 2, 3].into_array(),
@@ -79,6 +85,7 @@ fn sparse_struct_uses_empty_nonnullable_list_defaults() -> VortexResult<()> {
             PrimitiveArray::from_option_iter([Some(10i32), None]).into_array(),
         ),
     ])?;
+
     let codes = Sparse::try_new(
         buffer![1u32, 3].into_array(),
         PrimitiveArray::new(buffer![0u8, 1], Validity::AllValid).into_array(),
@@ -87,16 +94,20 @@ fn sparse_struct_uses_empty_nonnullable_list_defaults() -> VortexResult<()> {
         &mut ctx,
     )?;
     let dict = DictArray::try_new(codes.into_array(), values.into_array())?.into_array();
+
     let reduced = dict.optimize()?;
     assert!(reduced.is::<Sparse>(), "{}", reduced.display_tree());
     let actual = reduced.execute::<StructArray>(&mut ctx)?;
     assert!(actual.unmasked_field(0).is::<Sparse>());
+
+    // Null struct rows still need valid empty defaults in their non-nullable list child.
     let expected_lists = ListArray::try_new(
         buffer![7i32, 8, 9].into_array(),
         buffer![0u32, 0, 2, 2, 3, 3].into_array(),
         Validity::NonNullable,
         &mut ctx,
     )?;
+
     assert_arrays_eq!(actual.unmasked_field(0), expected_lists, &mut ctx);
     assert_arrays_eq!(
         actual,
@@ -121,6 +132,7 @@ fn nonnull_fill_keeps_dictionary() -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let codes = Sparse::try_new(
         buffer![2u32].into_array(),
         PrimitiveArray::new(buffer![1u8], Validity::AllValid).into_array(),
@@ -130,6 +142,7 @@ fn nonnull_fill_keeps_dictionary() -> VortexResult<()> {
     )?;
     let dict =
         DictArray::try_new(codes.into_array(), buffer![10i32, 20].into_array())?.into_array();
+
     assert!(dict.optimize()?.is::<vortex_array::arrays::Dict>());
     assert_arrays_eq!(
         dict,
@@ -144,6 +157,7 @@ fn unsupported_sparse_type_is_not_rewritten() -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let codes = Sparse::try_new(
         buffer![1u32].into_array(),
         PrimitiveArray::new(buffer![0u8], Validity::AllValid).into_array(),
@@ -152,9 +166,11 @@ fn unsupported_sparse_type_is_not_rewritten() -> VortexResult<()> {
         &mut ctx,
     )?
     .into_array();
+
     let values =
         ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 1).into_array();
     let dict = DictArray::try_new(codes.clone(), values)?.into_array();
+
     assert!(codes.reduce_parent(&dict, 0)?.is_none());
     Ok(())
 }
