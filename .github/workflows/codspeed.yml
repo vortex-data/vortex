@@ -80,11 +80,12 @@ jobs:
     runs-on: >-
       ${{ contains(fromJSON(needs.plan-codspeed.outputs.active), matrix.shard)
           && github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
-        if: env.SHARD_ACTIVE == 'true' && github.repository == 'vortex-data/vortex'
+        if: env.SHARD_ACTIVE == 'true' && runner.environment == 'self-hosted'
         with:
           sccache: s3
       - name: Select shard
@@ -109,7 +110,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         if: steps.shard.outputs.active == 'true'
         with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "true"
       - parallel:
           - uses: ./.github/actions/system-info
             if: steps.shard.outputs.active == 'true'
@@ -177,6 +178,7 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-codspeed-simulation/tag=bench-codspeed-python', github.run_id)
           || 'ubuntu-latest' }}
     env:
@@ -190,13 +192,13 @@ jobs:
       UV_PYTHON: "3.13"
     steps:
       - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
+        if: runner.environment == 'self-hosted'
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
         with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "true"
       - uses: ./.github/actions/system-info
       # As in `bench-codspeed`, the CodSpeed action's setup runs alongside the build, and its
       # command waits for the build to report an exit status.
@@ -237,7 +239,10 @@ jobs:
   # Compile on smaller VMs from the same CPU family as the measurement hosts. Globally
   # enabled features also affect build scripts, so the build host must support them.
   bench-codspeed-cpu-features-build:
-    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
+    if: >-
+      github.event.pull_request.draft != true &&
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false
       matrix: &cpu-feature-matrix
@@ -329,7 +334,9 @@ jobs:
   # Only measurements need metal. Reuse the build matrix to keep each artifact paired
   # with the matching CPU family, image, and benchmark-name filter.
   bench-codspeed-cpu-features:
-    if: github.repository == 'vortex-data/vortex'
+    if: >-
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: [bench-codspeed-cpu-features-build]
     strategy:
       fail-fast: false
@@ -386,6 +393,7 @@ jobs:
     needs: [changes]
     if: >-
       !cancelled() && github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       needs.changes.outputs.run-cuda-benchmarks == 'true'
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
@@ -440,7 +448,9 @@ jobs:
           if-no-files-found: error
 
   bench-codspeed-cuda:
-    if: github.repository == 'vortex-data/vortex'
+    if: >-
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: [bench-codspeed-cuda-build]
     name: "Benchmark with Codspeed (CUDA)"
     timeout-minutes: 60

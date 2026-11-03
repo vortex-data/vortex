@@ -21,15 +21,18 @@ inputs:
     default: "29.3"
     required: false
   enable-sccache:
-    description: "Should sccache be enabled."
+    description: "Should sccache be enabled. Only applies on self-hosted runners."
     required: false
     default: "false"
 
 runs:
   using: "composite"
+  # The prebuild path relies on our self-hosted runner image. Key on the runner rather
+  # than the repository, so fork pull requests that run on GitHub-hosted runners take
+  # the fallback path.
   steps:
     - name: Resolve toolchain config
-      if: github.repository == 'vortex-data/vortex'
+      if: runner.environment == 'self-hosted'
       id: toolchain-config
       shell: bash
       run: |
@@ -41,13 +44,13 @@ runs:
         TOOLCHAIN_OVERRIDE: ${{ inputs.toolchain }}
 
     - name: Check for rustup
-      if: github.repository == 'vortex-data/vortex'
+      if: runner.environment == 'self-hosted'
       id: check-rustup
       shell: bash
       run: echo "exists=$(command -v rustup &> /dev/null && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
 
     - name: Install Rust
-      if: github.repository == 'vortex-data/vortex' && steps.check-rustup.outputs.exists != 'true'
+      if: runner.environment == 'self-hosted' && steps.check-rustup.outputs.exists != 'true'
       uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
       with:
         toolchain: ${{ steps.toolchain-config.outputs.toolchain }}
@@ -55,7 +58,7 @@ runs:
         components: ${{ inputs.components }}
 
     - name: Reconcile prebuilt Rust installation
-      if: github.repository == 'vortex-data/vortex' && steps.check-rustup.outputs.exists == 'true'
+      if: runner.environment == 'self-hosted' && steps.check-rustup.outputs.exists == 'true'
       shell: bash
       run: |
         TOOLCHAIN_FOUND=false
@@ -106,7 +109,7 @@ runs:
         TARGETS: ${{ inputs.targets }}
 
     - name: Reconcile mold installation
-      if: github.repository == 'vortex-data/vortex' && runner.os == 'Linux'
+      if: runner.environment == 'self-hosted' && runner.os == 'Linux'
       shell: bash
       run: |
         if ! command -v mold >/dev/null; then
@@ -115,7 +118,7 @@ runs:
         fi
 
     - name: Check protoc installation
-      if: github.repository == 'vortex-data/vortex' && runner.os == 'Linux'
+      if: runner.environment == 'self-hosted' && runner.os == 'Linux'
       id: check-protoc
       shell: bash
       run: |
@@ -132,12 +135,12 @@ runs:
         protoc_version: ${{ inputs.protoc-version }}
 
     - name: Install sccache
-      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
+      if: runner.environment == 'self-hosted' && inputs.enable-sccache == 'true'
       uses: ./.github/actions/setup-sccache
 
     # Prebuild path: configure the bundled (or fallback-installed) sccache.
     - name: Configure sccache timeout
-      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
+      if: runner.environment == 'self-hosted' && inputs.enable-sccache == 'true'
       shell: bash
       run: |
         mkdir -p ~/.config/sccache
@@ -145,7 +148,7 @@ runs:
 
     # Applies to Cargo and CMake invocations in opted-in upstream jobs.
     - name: Enable compiler caching
-      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
+      if: runner.environment == 'self-hosted' && inputs.enable-sccache == 'true'
       shell: bash
       run: |
         sccache --start-server
@@ -153,9 +156,9 @@ runs:
         echo "CMAKE_C_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
         echo "CMAKE_CXX_COMPILER_LAUNCHER=sccache" >> "$GITHUB_ENV"
 
-    # Fallback path: full setup for forks
+    # Fallback path: full setup on GitHub-hosted runners (forks and fork pull requests)
     - name: Full Rust setup
-      if: github.repository != 'vortex-data/vortex'
+      if: runner.environment != 'self-hosted'
       uses: ./.github/actions/setup-rust
       with:
         repo-token: ${{ inputs.repo-token }}

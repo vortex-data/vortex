@@ -28,19 +28,20 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-wheel-build', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
         with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "true"
       - name: Rust Dependency Cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0  # v2
         with:
@@ -75,7 +76,11 @@ jobs:
         working-directory: vortex-python/
 
   check-java-publish-build:
-    if: github.event.pull_request.draft != true
+    # Both matrix entries need self-hosted runners, so skip forks and fork pull requests.
+    if: >-
+      github.event.pull_request.draft != true &&
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -89,7 +94,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -102,7 +107,7 @@ jobs:
               java-version: "17"
           - uses: ./.github/actions/setup-prebuild
             with:
-              enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+              enable-sccache: "true"
           - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
       - name: Install cargo-zigbuild
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
@@ -123,18 +128,19 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-xsmall/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
         with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "true"
       - name: Install cargo-edit
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

@@ -36,6 +36,7 @@ jobs:
           - suite: tests
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-large/volume=200gb/image=ubuntu26-full-x64-pre-v2/tag=rust-coverage-suite-{1}', github.run_id, matrix.suite)
           || 'ubuntu-latest' }}
     env:
@@ -48,7 +49,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -113,12 +114,13 @@ jobs:
       id-token: write
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -158,6 +160,7 @@ jobs:
     name: "Rust tests (${{ matrix.sanitizer }})"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
@@ -176,7 +179,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -238,12 +241,13 @@ jobs:
       RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-ffi-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -287,6 +291,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/tag=rust-miri', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
@@ -297,7 +302,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7

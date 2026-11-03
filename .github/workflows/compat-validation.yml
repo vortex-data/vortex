@@ -25,19 +25,20 @@ jobs:
   compat-test:
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=compat-validation', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-prebuild
         with:
-          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+          enable-sccache: "true"
       - name: Run compat tests
         run: |
           MODE="${{ inputs.mode || 'last' }}"

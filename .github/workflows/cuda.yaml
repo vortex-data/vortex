@@ -55,6 +55,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
@@ -93,6 +94,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
@@ -152,6 +154,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
@@ -195,6 +198,7 @@ jobs:
     needs: [changes]
     if: >-
       always() && github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30

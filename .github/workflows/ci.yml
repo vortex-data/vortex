@@ -37,13 +37,14 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
@@ -112,6 +113,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
@@ -121,7 +123,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -158,7 +160,10 @@ jobs:
 
   python-cuda-test:
     name: "Python CUDA (test)"
-    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
+    if: >-
+      github.event.pull_request.draft != true &&
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
@@ -199,12 +204,13 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -228,6 +234,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
@@ -247,7 +254,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -264,7 +271,7 @@ jobs:
           git status --porcelain
           test -z "$(git status --porcelain)"
       - name: sccache stats
-        if: always() && github.repository == 'vortex-data/vortex'
+        if: always() && runner.environment == 'self-hosted'
         run: sccache --show-stats
 
   check-min-deps:
@@ -273,12 +280,13 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -293,6 +301,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
           || 'ubuntu-latest' }}
     env:
@@ -300,7 +309,7 @@ jobs:
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -317,12 +326,13 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -377,7 +387,7 @@ jobs:
             core.setFailed(`Lint failed: ${failed.join(', ')}`);
 
       - name: sccache stats
-        if: always() && github.repository == 'vortex-data/vortex'
+        if: always() && runner.environment == 'self-hosted'
         run: sccache --show-stats
 
   rust-lint-no-default:
@@ -386,12 +396,13 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -412,12 +423,13 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
           || 'windows-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -505,7 +517,7 @@ jobs:
           PY
 
       - name: sccache stats
-        if: always() && github.repository == 'vortex-data/vortex'
+        if: always() && runner.environment == 'self-hosted'
         run: sccache --show-stats
 
       - name: Alert incident.io
@@ -521,7 +533,8 @@ jobs:
     needs: duckdb-mirror
     if: >-
       github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
-      github.repository == 'vortex-data/vortex'
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
@@ -558,7 +571,10 @@ jobs:
   # AVX-512 on the avx2 entry) is detected.
   rust-test-cpu-features:
     name: "Rust tests (cpu-features, ${{ matrix.config.name }})"
-    if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
+    if: >-
+      github.event.pull_request.draft != true &&
+      github.repository == 'vortex-data/vortex' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -607,13 +623,14 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -657,13 +674,14 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -686,12 +704,13 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -800,7 +819,7 @@ jobs:
               unset RUSTC_WRAPPER CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
               python3 -m unittest discover -s vortex-ffi/cmake/tests -v
       - name: Show C++ API compiler cache statistics
-        if: "!cancelled() && github.repository == 'vortex-data/vortex'"
+        if: "!cancelled() && runner.environment == 'self-hosted'"
         run: sccache --show-stats
       - name: Run C++ tests
         if: "!cancelled()"
@@ -828,13 +847,14 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - parallel:
           - uses: runs-on/action@v2
-            if: github.repository == 'vortex-data/vortex'
+            if: runner.environment == 'self-hosted'
             with:
               sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
