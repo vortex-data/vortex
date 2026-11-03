@@ -261,6 +261,12 @@ driver_api! {
     fn cuMemHostAlloc(pointer: *mut *mut c_void, bytes: usize, flags: c_uint);
     fn cuMemFreeHost(pointer: *mut c_void);
     fn cuPointerGetAttribute(data: *mut c_void, attribute: CUpointer_attribute, pointer: CUdeviceptr);
+    fn cuPointerGetAttributes(
+        count: c_uint,
+        attributes: *mut CUpointer_attribute,
+        data: *mut *mut c_void,
+        pointer: CUdeviceptr,
+    );
     fn cuMemPoolSetAttribute(
         pool: CUmemoryPool,
         attribute: CUmemPool_attribute,

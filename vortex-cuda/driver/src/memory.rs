@@ -978,19 +978,24 @@ pub trait HostSlice<T> {
 /// Copies read and write page-locked memory asynchronously, so the guard waits for them. The
 /// driver stages copies of pageable memory, which no longer read the slice once enqueued.
 fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
-    // The caller may be on a thread with no current CUDA context. Bind before querying,
-    // and keep binding errors separate: even INVALID_VALUE here says nothing about the pointer.
+    // The caller may be on a thread with no current CUDA context. A binding failure says
+    // nothing about the pointer, so record it and wait conservatively.
     if let Err(error) = stream.make_current() {
         stream.context().record_err::<()>(Err(error));
         return SyncOnDrop::wait_for(stream);
     }
 
     let mut memory_type: c_uint = 0;
-    // SAFETY: The context is current and the driver writes the memory type.
+    let mut attributes = [sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE];
+    let mut data = [(&raw mut memory_type).cast()];
+    // The plural API succeeds with a zero memory type for unregistered pageable pointers.
+    // The singular API returns INVALID_VALUE, which Compute Sanitizer reports even if handled.
+    // SAFETY: The context is current; both arrays have one entry and the output is writable.
     let result = unsafe {
-        sys::cuPointerGetAttribute(
-            (&raw mut memory_type).cast(),
-            sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
+        sys::cuPointerGetAttributes(
+            1,
+            attributes.as_mut_ptr(),
+            data.as_mut_ptr(),
             slice.as_ptr() as sys::CUdeviceptr,
         )
     }
@@ -1001,9 +1006,6 @@ fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
         // Wait before ending the borrow so the caller cannot free or modify memory still in use.
         Ok(()) if memory_type == sys::CU_MEMORYTYPE_HOST => SyncOnDrop::wait_for(stream),
         Ok(()) => SyncOnDrop::none(),
-        // INVALID_VALUE is expected for unregistered pageable pointers. It is the only
-        // query error that permits relying on pageable-memory staging instead of a wait.
-        Err(DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE)) => SyncOnDrop::none(),
         Err(error) => {
             // Context or driver failures do not establish that this memory is pageable.
             // HostSlice cannot return an error, so record it for the caller and wait conservatively.
@@ -1269,6 +1271,38 @@ impl CudaStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Run under Compute Sanitizer to also catch API errors from pageable-pointer probing.
+    #[test]
+    fn borrowed_host_slices_wait_only_for_pinned_memory() -> Result<(), DriverError> {
+        // SAFETY: Only probes for the driver library.
+        if !unsafe { sys::is_culib_present() } {
+            return Ok(());
+        }
+        let Ok(context) = CudaContext::new(0) else {
+            return Ok(());
+        };
+        let stream = context.new_stream()?;
+        let pageable = [0u8; 16];
+        let guard = borrowed(&pageable, &stream);
+        assert!(matches!(guard.pending, Pending::None));
+        drop(guard);
+
+        // SAFETY: The context is current, and the allocation is freed below.
+        let pointer = unsafe { crate::result::malloc_host(16, 0) }?;
+        // SAFETY: The allocation holds 16 writable bytes, initialized before creating the slice.
+        let pinned = unsafe {
+            pointer.cast::<u8>().write_bytes(0, 16);
+            std::slice::from_raw_parts(pointer.cast::<u8>(), 16)
+        };
+        let guard = borrowed(pinned, &stream);
+        let waits = matches!(guard.pending, Pending::Wait(waiting) if waiting.id() == stream.id());
+        drop(guard);
+        // SAFETY: No work or guard accesses the allocation anymore.
+        unsafe { crate::result::free_host(pointer) }?;
+        assert!(waits);
+        context.check_err()
+    }
 
     #[test]
     fn disarms_only_waits_for_the_synchronized_stream() -> Result<(), DriverError> {
