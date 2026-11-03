@@ -29,6 +29,7 @@ use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
 use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::sparse_selection;
+use crate::plan::physical::pipeline::DecodedSegments;
 use crate::segments::SegmentId;
 
 /// Decodes the whole of a scan's segment.
@@ -103,6 +104,8 @@ pub(crate) struct ScanSource {
     unread: Option<SegmentId>,
     /// The segment has been emitted.
     done: bool,
+    cache: Option<DecodedSegments>,
+    decoded: Option<ArrayRef>,
 }
 
 impl ScanSource {
@@ -111,6 +114,7 @@ impl ScanSource {
         slice: Option<Range<usize>>,
         filter: Option<Mask>,
         access_mode: AccessMode,
+        cache: Option<DecodedSegments>,
     ) -> Self {
         Self {
             unread: Some(plan.segment_id()),
@@ -119,6 +123,8 @@ impl ScanSource {
             filter,
             access_mode,
             done: false,
+            cache,
+            decoded: None,
         }
     }
 }
@@ -126,10 +132,17 @@ impl ScanSource {
 impl Source for ScanSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         if let Some(segment) = self.unread.take() {
+            self.decoded = self
+                .cache
+                .as_ref()
+                .and_then(|cache| cache.get(self.plan.to_plan()));
+            if self.decoded.is_some() {
+                return Ok(SourceReady::Ready);
+            }
             cx.request_read(segment);
             return Ok(SourceReady::Blocked(SourceBlocked::Io));
         }
-        Ok(if self.done || cx.has_bytes() {
+        Ok(if self.done || self.decoded.is_some() || cx.has_bytes() {
             SourceReady::Ready
         } else {
             SourceReady::Blocked(SourceBlocked::Io)
@@ -142,11 +155,30 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
-            .take_segment()
-            .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+        let array = match self.decoded.take() {
+            Some(array) => array,
+            None => {
+                let (_, bytes) = cx
+                    .take_segment()
+                    .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+                // Another chunk may have decoded the segment while this read was in flight.
+                match self
+                    .cache
+                    .as_ref()
+                    .and_then(|cache| cache.get(self.plan.to_plan()))
+                {
+                    Some(array) => array,
+                    None => {
+                        let array = decode(&self.plan, bytes, cx.session())?;
+                        if let Some(cache) = &self.cache {
+                            cache.insert(self.plan.to_plan(), array.clone());
+                        }
+                        array
+                    }
+                }
+            }
+        };
         self.done = true;
-        let array = decode(&self.plan, bytes, cx.session())?;
         Ok(Step::Final(select(
             array,
             self.slice.as_ref(),
