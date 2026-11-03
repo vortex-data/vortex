@@ -268,33 +268,15 @@ impl ArrowExtVTable for Rect {
 
     fn from_arrow_field(
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let (dimension, metadata) = if let Ok(box_meta) = field.try_extension_type::<BoxType>() {
-            (
-                box_meta.dimension().into(),
-                spatial_metadata_from_arrow(box_meta.metadata()),
-            )
-        } else {
-            if field.extension_type_name() != Some(BoxType::NAME) {
-                return Ok(None);
-            }
-            // Infer from field names, not the strict `box_dimension` check: a literal's fields may
-            // be nullable, which that check rejects.
-            let Ok(DType::Struct(fields, _)) =
-                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-            else {
-                return Ok(None);
-            };
-            let Some(dimension) = box_dimension_from_names(fields.names()) else {
-                return Ok(None);
-            };
-            (dimension, SpatialMetadata::default())
-        };
+        let box_meta = field.try_extension_type::<BoxType>()?;
 
+        let metadata = spatial_metadata_from_arrow(box_meta.metadata())
+            .with_dimension(box_meta.dimension().into());
         Ok(Some(ExtDType::try_with_vtable(
             Rect,
-            metadata.with_dimension(dimension),
+            metadata,
             field.is_nullable().into(),
         )?))
     }

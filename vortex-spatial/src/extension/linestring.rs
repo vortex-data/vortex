@@ -326,42 +326,20 @@ impl ArrowExtVTable for LineString {
 
     fn from_arrow_field(
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let (dimension, metadata) =
-            if let Ok(linestring_meta) = field.try_extension_type::<LineStringType>() {
-                vortex_ensure!(
-                    linestring_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.linestring with interleaved coordinates is not supported; \
+        let linestring_meta = field.try_extension_type::<LineStringType>()?;
+        vortex_ensure!(
+            linestring_meta.coord_type() == CoordType::Separated,
+            "geoarrow.linestring with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    linestring_meta.dimension().into(),
-                    spatial_metadata_from_arrow(linestring_meta.metadata()),
-                )
-            } else {
-                // Literal: peel the `List` layer to the coordinate struct and read its dimension from
-                // the field names (the canonical check rejects nullable coordinates).
-                if field.extension_type_name() != Some(LineStringType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(coords, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
+        let metadata = spatial_metadata_from_arrow(linestring_meta.metadata())
+            .with_dimension(linestring_meta.dimension().into());
         Ok(Some(ExtDType::try_with_vtable(
             LineString,
-            metadata.with_dimension(dimension),
+            metadata,
             field.is_nullable().into(),
         )?))
     }

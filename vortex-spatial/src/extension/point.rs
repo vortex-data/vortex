@@ -228,39 +228,20 @@ impl ArrowExtVTable for Point {
 
     fn from_arrow_field(
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let (dimension, metadata) = if let Ok(point_meta) = field.try_extension_type::<PointType>()
-        {
-            vortex_ensure!(
-                point_meta.coord_type() == CoordType::Separated,
-                "geoarrow.point with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
-            );
-            (
-                point_meta.dimension().into(),
-                spatial_metadata_from_arrow(point_meta.metadata()),
-            )
-        } else {
-            // Infer the dimension from the field names, not the canonical storage check: a literal's
-            // coordinate fields may be nullable, which that check rejects.
-            if field.extension_type_name() != Some(PointType::NAME) {
-                return Ok(None);
-            }
-            let Ok(DType::Struct(fields, _)) =
-                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-            else {
-                return Ok(None);
-            };
-            let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                return Ok(None);
-            };
-            (dimension, SpatialMetadata::default())
-        };
+        let point_meta = field.try_extension_type::<PointType>()?;
+        vortex_ensure!(
+            point_meta.coord_type() == CoordType::Separated,
+            "geoarrow.point with interleaved coordinates is not supported; \
+             re-encode with separated (struct) coordinates"
+        );
 
+        let metadata = spatial_metadata_from_arrow(point_meta.metadata())
+            .with_dimension(point_meta.dimension().into());
         Ok(Some(ExtDType::try_with_vtable(
             Point,
-            metadata.with_dimension(dimension),
+            metadata,
             field.is_nullable().into(),
         )?))
     }

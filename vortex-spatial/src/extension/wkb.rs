@@ -261,9 +261,7 @@ impl ArrowExtVTable for WellKnownBinary {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let Ok(wkb_meta) = field.try_extension_type::<WkbType>() else {
-            return Ok(None);
-        };
+        let wkb_meta = field.try_extension_type::<WkbType>()?;
 
         Ok(Some(ExtDType::try_with_vtable(
             WellKnownBinary,

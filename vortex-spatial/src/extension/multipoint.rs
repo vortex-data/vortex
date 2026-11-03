@@ -243,40 +243,20 @@ impl ArrowExtVTable for MultiPoint {
 
     fn from_arrow_field(
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<ExtDType<Self>>> {
-        let (dimension, metadata) =
-            if let Ok(multipoint_meta) = field.try_extension_type::<MultiPointType>() {
-                vortex_ensure!(
-                    multipoint_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.multipoint with interleaved coordinates is not supported; \
+        let multipoint_meta = field.try_extension_type::<MultiPointType>()?;
+        vortex_ensure!(
+            multipoint_meta.coord_type() == CoordType::Separated,
+            "geoarrow.multipoint with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    multipoint_meta.dimension().into(),
-                    spatial_metadata_from_arrow(multipoint_meta.metadata()),
-                )
-            } else {
-                if field.extension_type_name() != Some(MultiPointType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(coords, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
+        let metadata = spatial_metadata_from_arrow(multipoint_meta.metadata())
+            .with_dimension(multipoint_meta.dimension().into());
         Ok(Some(ExtDType::try_with_vtable(
             MultiPoint,
-            metadata.with_dimension(dimension),
+            metadata,
             field.is_nullable().into(),
         )?))
     }
