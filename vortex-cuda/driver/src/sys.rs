@@ -276,6 +276,11 @@ driver_api! {
     fn cuGetErrorString(error: CUresult, description: *mut *const c_char);
 }
 
+/// The cached library-loading or symbol-resolution error, loading the driver on first use.
+pub(crate) fn driver_load_error() -> Option<&'static str> {
+    driver().err()
+}
+
 /// The process-wide driver entry points, loaded on first use.
 fn driver() -> Result<&'static Driver, &'static str> {
     static DRIVER: OnceLock<Result<Driver, String>> = OnceLock::new();

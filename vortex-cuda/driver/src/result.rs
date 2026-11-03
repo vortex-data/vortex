@@ -47,6 +47,13 @@ impl DriverError {
 
 impl fmt::Debug for DriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(reason) = sys::driver_load_error() {
+            return write!(
+                f,
+                "DriverError({}, CUDA driver unavailable: {reason})",
+                self.0.0
+            );
+        }
         match self.error_name() {
             Ok(name) => write!(f, "DriverError({}, {})", self.0.0, name.to_string_lossy()),
             Err(_) => write!(f, "DriverError({})", self.0.0),
@@ -56,6 +63,9 @@ impl fmt::Debug for DriverError {
 
 impl fmt::Display for DriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(reason) = sys::driver_load_error() {
+            return write!(f, "CUDA driver unavailable: {reason}");
+        }
         match (self.error_name(), self.error_string()) {
             (Ok(name), Ok(description)) => write!(
                 f,
