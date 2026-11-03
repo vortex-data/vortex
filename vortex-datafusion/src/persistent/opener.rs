@@ -137,8 +137,7 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
-    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
-    /// partition only as far as the engine has not.
+    /// How many partitions the engine runs the scan on, used to scale its default read concurrency.
     pub partitions: usize,
     /// Startup work shared by every file opened on this execution partition.
     pub initial_chunks: Arc<AtomicUsize>,
@@ -467,15 +466,12 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
+                // Reads and downstream consumers can leave a partition waiting, so keep multiple
+                // chunk streams available per worker even when partitions fill the cores.
                 let workers = get_available_parallelism().unwrap_or(1);
-                let in_flight = scan_concurrency
-                    .map_or_else(
-                        || workers.div_ceil(partitions),
-                        |concurrency| concurrency.saturating_mul(workers),
-                    )
-                    .max(1);
+                let concurrency =
+                    scan_concurrency.unwrap_or_else(|| workers.div_ceil(partitions).max(1));
+                let in_flight = concurrency.saturating_mul(workers).max(1);
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle

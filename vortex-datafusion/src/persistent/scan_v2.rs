@@ -7,7 +7,7 @@
 //! opener composes the planners over a [`PreparedScan`] and hands the driver the first; the
 //! driver runs it and everything it emits on planning runs it owns: the root run stepped on
 //! `spawn_cpu` tasks as the stream is polled, each spawned chunk on a task of its own, or on the
-//! root run when the engine's partitions already fill the cores. Every read is a `spawn_io` task
+//! root run when its chunk concurrency is one. Every read is a `spawn_io` task
 //! of the file's segment source. The DataFusion thread polling the stream does no scan work
 //! itself.
 
