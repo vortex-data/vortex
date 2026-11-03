@@ -791,9 +791,19 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
 }
 
 /// `from_excluded_indices` must count each excluded position once: `[0, 0]` excludes a single row.
-#[test]
-fn from_excluded_indices_counts_duplicates_once() {
-    let mask = Mask::from_excluded_indices(3, [0, 0]);
-    assert_eq!(mask.true_count(), 2);
-    assert!(!Mask::from_excluded_indices(3, [0, 0, 0]).all_false());
+#[rstest]
+#[case::fewer_than_len(vec![0, 0], vec![1, 2])]
+#[case::equal_to_len(vec![0, 0, 0], vec![1, 2])]
+#[case::more_than_len(vec![0, 0, 0, 0], vec![1, 2])]
+#[case::non_adjacent(vec![2, 0, 2], vec![1])]
+#[case::all_excluded(vec![2, 0, 2, 1], vec![])]
+fn from_excluded_indices_counts_duplicates_once(
+    #[case] excluded: Vec<usize>,
+    #[case] included: Vec<usize>,
+) {
+    let mask = Mask::from_excluded_indices(3, excluded);
+    assert_eq!(mask.true_count(), included.len());
+    let expected = Mask::from_indices(3, included);
+    assert_eq!(mask, expected);
+    assert_eq!(mask.density(), expected.density());
 }
