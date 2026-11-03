@@ -252,6 +252,14 @@ fn test_fill_null(
     signed().into_array(),
     ConstantArray::new(1_000i64, 5).into_array(),
 )]
+#[case::constant_if_true(
+    ConstantArray::new(1_000i64, 5).into_array(),
+    signed().into_array(),
+)]
+#[case::nullable_if_false(
+    ConstantArray::new(1_000i64, 5).into_array(),
+    partially_valid().into_array(),
+)]
 #[case::widen_both(
     signed().into_array(),
     widen(buffer![1_000i16, 2, 300, -4, 5], PType::I64).into_array(),
