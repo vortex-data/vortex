@@ -8,7 +8,6 @@
 //! the DuckDB [`sqllogictest::AsyncDB`](duckdb::DuckDB) adapter and file
 //! discovery [`utils`].
 
-pub mod column_type;
 pub mod duckdb;
 pub mod normalize;
 pub mod scratch;
