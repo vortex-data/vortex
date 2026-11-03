@@ -42,6 +42,7 @@ use vortex_cuda_driver::DevicePtrMut;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_cuda_driver::sys::CUdevice_attribute;
+use vortex_cuda_driver::sys::CUevent_flags;
 
 #[cfg(target_os = "linux")]
 use self::direct::DirectFileReadBackend;
@@ -493,7 +494,9 @@ impl Drop for MappedFile {
         // decode and selection launch behind the scan's remaining copies.
         // Wait only for the copies queued so far, not for later work of other scans sharing the
         // pooled stream, which would delay this and every later release.
-        let copies = self.stream.record_event(None);
+        let copies = self.stream.record_event(Some(CUevent_flags(
+            CUevent_flags::CU_EVENT_BLOCKING_SYNC.0 | CUevent_flags::CU_EVENT_DISABLE_TIMING.0,
+        )));
         let stream = self.stream.clone();
         release_in_background(Box::new(move || {
             let copied = match copies {
