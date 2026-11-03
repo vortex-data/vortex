@@ -441,6 +441,10 @@ impl FileOpener for VortexOpener {
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
+                let narrow_unfiltered = native_filter.is_none()
+                    && scan_dtype
+                        .element_size()
+                        .is_some_and(|bytes| bytes > 0 && bytes <= 16);
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
                     &segment_sources,
@@ -453,7 +457,17 @@ impl FileOpener for VortexOpener {
                     .with_some_filter(native_filter);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
+                    let mut rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
+                    if narrow_unfiltered {
+                        // Small dimensions otherwise repeat planning for a few thousand rows on
+                        // every worker. Shared boundaries still assign every row exactly once.
+                        let boundary = |row: u64| {
+                            row.div_ceil(65_536)
+                                .saturating_mul(65_536)
+                                .min(vxf.row_count())
+                        };
+                        rows = boundary(rows.start)..boundary(rows.end);
+                    }
                     if rows.is_empty() {
                         return Ok(stream::empty().boxed());
                     }
@@ -1049,11 +1063,12 @@ mod tests {
         #[values(false, true)] scan_v2: bool,
         #[values(false, true)] warm_cache: bool,
         #[values(3, 8)] partitions: usize,
+        #[values(30_000, 150_000)] row_count: usize,
     ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "rows/file.vortex";
-        let values: Vec<Option<i32>> = (0..30_000).map(Some).collect();
-        let batch = record_batch!(("a", Int32, values)).unwrap();
+        let values: Vec<Option<i32>> = (0..i32::try_from(row_count)?).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values))?;
         let data_size =
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
         let file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -1093,31 +1108,19 @@ mod tests {
         assert_eq!(files.len(), partitions);
 
         let mut data = Vec::new();
+        let mut populated = 0;
         for file in files {
             let batches = opener
                 .open(file.clone())?
                 .await?
                 .try_collect::<Vec<_>>()
                 .await?;
-            if scan_v2 {
-                let bytes = file.range.as_ref().expect("partition has a byte range");
-                let rows = partition_row_range(
-                    u64::try_from(bytes.start)?..u64::try_from(bytes.end)?,
-                    data_size,
-                    batch.num_rows() as u64,
-                );
-                assert_eq!(
-                    concat_batches(&batch.schema(), &batches)?,
-                    batch.slice(
-                        usize::try_from(rows.start)?,
-                        usize::try_from(rows.end - rows.start)?,
-                    ),
-                );
-            }
+            populated += usize::from(!batches.is_empty());
             data.extend(batches);
         }
         assert_eq!(concat_batches(&batch.schema(), &data)?, batch);
         if scan_v2 {
+            assert_eq!(populated, row_count.div_ceil(65_536));
             assert!(opener.layout_readers.is_empty());
             assert!(opener.natural_splits.is_empty());
         }
