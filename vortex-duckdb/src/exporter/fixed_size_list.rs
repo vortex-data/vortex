@@ -215,7 +215,6 @@ mod tests {
         assert_nulls(vector, &[false, false, false]);
     }
 
-
     #[test]
     fn test_export_list_size_one() {
         // Create a FixedSizeListArray with list_size=1 (single element arrays).
