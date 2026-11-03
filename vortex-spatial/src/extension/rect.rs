@@ -144,8 +144,9 @@ pub(crate) fn box_storage_dtype(dim: Dimension, nullability: Nullability) -> DTy
     )
 }
 
-/// Validate `dtype` is a box `Struct` of non-nullable `f64` min/max fields, returning its
-/// [`Dimension`].
+/// Returns the [`Dimension`] of a box `Struct`. Its fields must be non-nullable `f64` and named
+/// as [`box_field_names`] names them for that dimension. The nullability of the `Struct` itself
+/// is not checked.
 pub(crate) fn box_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("box storage must be a Struct, was {dtype}");

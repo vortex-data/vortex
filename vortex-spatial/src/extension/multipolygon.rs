@@ -40,7 +40,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -103,8 +102,10 @@ pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullabilit
     DType::List(Arc::new(polygon), nullability)
 }
 
-/// Validate that `dtype` equals [`multipolygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Returns the [`Dimension`] of `List<List<List<coordinate-struct>>>` storage, with the
+/// coordinates checked as [`coordinate_dimension`] checks them. The nullability of the inner
+/// `List` levels and of the coordinate `Struct` is not checked, because a read compares the
+/// whole storage dtype with the declaration.
 pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(polygon, _) = dtype else {
         vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
@@ -115,15 +116,7 @@ pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multipolygon_storage_dtype(dimension, dtype.nullability()),
-        "multipolygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);

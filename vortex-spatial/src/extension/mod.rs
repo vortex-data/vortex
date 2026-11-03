@@ -710,7 +710,7 @@ mod tests {
         #[case] storage: DType,
     ) {
         let result = vtable.deserialize(&[], storage.clone());
-        assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
+        assert!(result.is_err_and(|error| error.to_string().contains(&format!(", got {storage}"))));
     }
 
     /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
@@ -728,7 +728,7 @@ mod tests {
 
         let result = DType::from_proto(&serialized, &spatial_session());
         assert!(result.is_err_and(|error| error.to_string().contains(
-            "linestring storage can be nullable only at its outer List\n  left: list({x=f64, y=f64}?)\n right: list({x=f64, y=f64})"
+            "linestring storage must be list({x=f64, y=f64}), got list({x=f64, y=f64}?)"
         )));
         Ok(())
     }

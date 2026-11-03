@@ -152,8 +152,9 @@ impl Display for Coordinate {
     }
 }
 
-/// Validate that `dtype` is a coordinate struct of non-nullable `f64` fields, returning its
-/// [`Dimension`]. Any of the four GeoArrow dimensions validates.
+/// Returns the [`Dimension`] of a coordinate `Struct`. Its fields must be non-nullable `f64` and
+/// named for one of the four GeoArrow dimensions. The nullability of the `Struct` itself is not
+/// checked.
 pub(crate) fn coordinate_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("coordinate storage must be a Struct, was {dtype}");

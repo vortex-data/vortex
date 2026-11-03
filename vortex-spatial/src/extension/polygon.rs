@@ -46,7 +46,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -108,8 +107,10 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
     DType::List(Arc::new(ring), nullability)
 }
 
-/// Validate that `dtype` equals [`polygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Returns the [`Dimension`] of `List<List<coordinate-struct>>` storage, with the coordinates
+/// checked as [`coordinate_dimension`] checks them. The nullability of the inner `List` and of
+/// the coordinate `Struct` is not checked, because a read compares the whole storage dtype with
+/// the declaration.
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
         vortex_bail!("polygon storage must be a List of rings, was {dtype}");
@@ -117,15 +118,7 @@ pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        polygon_storage_dtype(dimension, dtype.nullability()),
-        "polygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
