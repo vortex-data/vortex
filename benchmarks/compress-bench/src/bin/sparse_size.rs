@@ -77,6 +77,33 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", out.encoding_id());
         return Ok(());
     }
+    if mode == "struct-sparse" {
+        // Sparse-encode each top-level group struct with a null fill, so everything underneath
+        // holds only the rows where the group is present. In-memory nbytes, not a file.
+        use vortex::array::VortexSessionExecute;
+        use vortex::array::arrays::StructArray;
+        use vortex::array::arrays::struct_::StructArrayExt;
+        let mut ctx = SESSION.create_execution_ctx();
+        let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
+        let array = parquet_to_vortex_chunks(PathBuf::from(args.next().unwrap())).await?.into_array();
+        let st = array.execute::<StructArray>(&mut ctx)?;
+        let (mut default_total, mut sparse_total) = (0u64, 0u64);
+        for field in st.iter_unmasked_fields() {
+            let col = field.clone().execute::<vortex::array::Canonical>(&mut ctx)?.into_array();
+            default_total += btr.compress(&col, &mut ctx)?.nbytes();
+            let enc = Sparse::encode(&col, None, &mut ctx)?;
+            let s = enc.as_opt::<Sparse>().ok_or_else(|| anyhow::anyhow!("not sparse: {}", enc.encoding_id()))?;
+            let p = s.patches();
+            let idx = btr.compress(p.indices(), &mut ctx)?;
+            let vals = btr.compress(p.values(), &mut ctx)?;
+            if sparse_total == 0 {
+                println!("{}", Sparse::try_new(idx.clone(), vals.clone(), col.len(), s.fill_scalar().clone(), &mut ctx)?.into_array().display_tree());
+            }
+            sparse_total += idx.nbytes() + vals.nbytes();
+        }
+        println!("default nbytes={default_total} struct-sparse nbytes={sparse_total}");
+        return Ok(());
+    }
     if mode == "probe" {
         return probe(&args.next().unwrap()).await;
     }
