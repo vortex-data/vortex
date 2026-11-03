@@ -134,14 +134,8 @@ impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
             .map(|ext_dtype| ext_dtype.storage_dtype())
     }
 
-    /// The arguments of the storage aggregate `A`.
-    ///
-    /// `A` shares this aggregate's options, return and partial dtypes, and its input dtype is
-    /// borrowed from the extension dtype, so this allocates nothing.
-    fn storage_args<'a>(
-        &self,
-        args: AggregateArgs<'a, A::Options>,
-    ) -> VortexResult<AggregateArgs<'a, A::Options>> {
+    /// Resolve the dtypes of the storage aggregate `A` over the storage dtype of `args.dtype`.
+    fn storage_dtypes(&self, args: AggregateArgs<'_, A::Options>) -> VortexResult<AggregateDTypes> {
         let dtype = self.storage_dtype(args.dtype).ok_or_else(|| {
             vortex_err!(
                 "Aggregate function {} expects extension type {}, got {}",
@@ -150,7 +144,7 @@ impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
                 args.dtype
             )
         })?;
-        Ok(AggregateArgs { dtype, ..args })
+        AggregateDTypes::try_new(&self.aggregate, args.options, dtype.clone())
     }
 
     /// Accumulate a storage batch into `state` through an [`Accumulator`] of `A`, so that the
@@ -208,7 +202,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
     }
 
     fn empty_partial(&self, args: AggregateArgs<'_, Self::Options>) -> VortexResult<Self::Partial> {
-        self.aggregate.empty_partial(self.storage_args(args)?)
+        let storage_dtypes = self.storage_dtypes(args)?;
+        self.aggregate
+            .empty_partial(storage_dtypes.args(args.options))
     }
 
     fn partial_from_scalar(
@@ -216,8 +212,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
+        let storage_dtypes = self.storage_dtypes(args)?;
         self.aggregate
-            .partial_from_scalar(self.storage_args(args)?, scalar)
+            .partial_from_scalar(storage_dtypes.args(args.options), scalar)
     }
 
     fn merge_partials(
@@ -226,8 +223,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
+        let storage_dtypes = self.storage_dtypes(args)?;
         self.aggregate
-            .merge_partials(self.storage_args(args)?, first, second)
+            .merge_partials(storage_dtypes.args(args.options), first, second)
     }
 
     fn to_scalar(
@@ -235,7 +233,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
-        self.aggregate.to_scalar(self.storage_args(args)?, partial)
+        let storage_dtypes = self.storage_dtypes(args)?;
+        self.aggregate
+            .to_scalar(storage_dtypes.args(args.options), partial)
     }
 
     fn is_saturated(
@@ -243,8 +243,10 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> bool {
-        self.storage_args(args)
-            .is_ok_and(|args| self.aggregate.is_saturated(args, partial))
+        self.storage_dtypes(args).is_ok_and(|storage_dtypes| {
+            self.aggregate
+                .is_saturated(storage_dtypes.args(args.options), partial)
+        })
     }
 
     /// Unwrap extension arrays to their storage before decoding, so the storage accumulator sees
@@ -259,7 +261,13 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         let Some(array) = batch.as_opt::<Extension>() else {
             return Ok(false);
         };
-        self.accumulate_storage(self.storage_args(args)?, state, array.storage_array(), ctx)?;
+        let storage_dtypes = self.storage_dtypes(args)?;
+        self.accumulate_storage(
+            storage_dtypes.args(args.options),
+            state,
+            array.storage_array(),
+            ctx,
+        )?;
         Ok(true)
     }
 
@@ -270,7 +278,8 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let args = self.storage_args(args)?;
+        let storage_dtypes = self.storage_dtypes(args)?;
+        let args = storage_dtypes.args(args.options);
         match batch {
             Columnar::Canonical(Canonical::Extension(array)) => {
                 self.accumulate_storage(args, state, array.storage_array(), ctx)
@@ -301,7 +310,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         states: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        self.aggregate.finalize(self.storage_args(args)?, states)
+        let storage_dtypes = self.storage_dtypes(args)?;
+        self.aggregate
+            .finalize(storage_dtypes.args(args.options), states)
     }
 
     fn finalize_scalar(
@@ -309,8 +320,9 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
+        let storage_dtypes = self.storage_dtypes(args)?;
         self.aggregate
-            .finalize_scalar(self.storage_args(args)?, partial)
+            .finalize_scalar(storage_dtypes.args(args.options), partial)
     }
 }
 
