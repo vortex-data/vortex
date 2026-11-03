@@ -8,6 +8,7 @@
 
 use std::ops::RangeInclusive;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -22,7 +23,7 @@ use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::scalar::Scalar;
+use crate::scalar::PValue;
 
 impl WidenArray {
     /// Stores `array` as a `Widen` over the smallest integer type with the same signedness that
@@ -73,7 +74,17 @@ fn narrow_values(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<
 
     // An array without valid values fits any type, and the bounds `0..=0` select the 1-byte type.
     let bounds = match min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())? {
-        Some(bounds) => integer_value(&bounds.min)?..=integer_value(&bounds.max)?,
+        Some(bounds) => {
+            let [min, max] = [bounds.min, bounds.max].map(|bound| {
+                bound
+                    .as_primitive()
+                    .pvalue()
+                    .and_then(PValue::as_i128)
+                    .vortex_expect("min_max of an integer array returns non-null integer extrema")
+            });
+
+            min..=max
+        }
         None => 0..=0,
     };
     let Some(stored_ptype) = smallest_integer_ptype(bounds, ptype.is_signed_int())
@@ -104,14 +115,5 @@ pub(in crate::arrays::widen) fn smallest_integer_ptype(
         let min_ptype = PType::min_unsigned_ptype_for_value(u64::try_from(min).ok()?);
         let max_ptype = PType::min_unsigned_ptype_for_value(u64::try_from(max).ok()?);
         Some(min_ptype.max_unsigned_ptype(max_ptype))
-    }
-}
-
-/// Returns the value of a non-null integer scalar of at most 64 bits.
-pub(in crate::arrays::widen) fn integer_value(scalar: &Scalar) -> VortexResult<i128> {
-    if scalar.dtype().is_signed_int() {
-        i64::try_from(scalar).map(i128::from)
-    } else {
-        u64::try_from(scalar).map(i128::from)
     }
 }

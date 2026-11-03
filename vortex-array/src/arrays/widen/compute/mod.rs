@@ -31,6 +31,7 @@ mod slice;
 mod take;
 mod zip;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -40,7 +41,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -69,29 +69,30 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 pub(super) fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
-) -> VortexResult<Option<PType>> {
+) -> Option<PType> {
     let (DType::Primitive(values_ptype, _), DType::Primitive(logical_ptype, _)) =
         (array.values().dtype(), array.dtype())
     else {
-        return Ok(None);
+        return None;
     };
     if !scalar.dtype().eq_ignore_nullability(array.dtype()) {
-        return Ok(None);
+        return None;
     }
     if scalar.is_null() {
-        return Ok(Some(*values_ptype));
+        return Some(*values_ptype);
     }
 
-    let value = integer_value(scalar)?;
-    let Some(scalar_ptype) = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())
-    else {
-        return Ok(None);
-    };
+    let value = scalar
+        .as_primitive()
+        .pvalue()
+        .and_then(PValue::as_i128)
+        .vortex_expect("the non-null scalar has the Widen's integer dtype");
+    let scalar_ptype = smallest_integer_ptype(value..=value, logical_ptype.is_signed_int())?;
 
     if scalar_ptype.byte_width() > values_ptype.byte_width() {
-        Ok(Some(scalar_ptype))
+        Some(scalar_ptype)
     } else {
-        Ok(Some(*values_ptype))
+        Some(*values_ptype)
     }
 }
 

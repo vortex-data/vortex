@@ -25,12 +25,12 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::cast_keeping_nullability;
 use crate::arrays::widen::compute::wrap_values;
-use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::NumericOperator;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::execute_numeric;
@@ -162,9 +162,15 @@ fn valid_value_interval(
         return Ok(None);
     };
 
-    Ok(Some(
-        integer_value(&bounds.min)?..=integer_value(&bounds.max)?,
-    ))
+    let [min, max] = [bounds.min, bounds.max].map(|bound| {
+        bound
+            .as_primitive()
+            .pvalue()
+            .and_then(PValue::as_i128)
+            .vortex_expect("min_max of an integer array returns non-null integer extrema")
+    });
+
+    Ok(Some(min..=max))
 }
 
 /// Returns the smallest interval that holds `lhs operator rhs` for every value of `lhs` and every
