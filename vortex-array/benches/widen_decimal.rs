@@ -3,11 +3,11 @@
 
 //! Compute on decimal `Widen` arrays and canonical arrays with the same values.
 //!
-//! The cases cover precision 18 over precision 9, precision 10 over precision 5, and precision 38
-//! over precision 18, all at scale 2. The precision 5 values fit in `i16`, but require `i32` to
-//! represent their full decimal domain. Each iteration shares value buffers and builds fresh arrays
-//! so cached statistics cannot remove the operation's work. `Widen` buffers are selected once with
-//! [`WidenArray::encode_decimal`], outside the timed region.
+//! Execution measures the widening copy from `i32` to `i64` and from `i64` to `i128`. Filtering
+//! compares each `Widen` with its canonical input, since it can filter the narrow child first.
+//! Canonical execution is omitted because it only returns the existing array. Each iteration shares
+//! value buffers and builds fresh arrays so cached statistics cannot remove the operation's work.
+//! [`WidenArray::encode_decimal`] selects the child buffers outside the timed region.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -22,25 +22,18 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::min_max;
-use vortex_array::aggregate_fn::fns::sum;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Widen;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::widen::WidenArraySlotsExt;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -75,7 +68,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<MemorySession>()
 });
 
-const LEN: usize = 32_768;
+// Keep per-row work below 1 ms in CodSpeed CPU simulation, including later kernels.
+const LEN: usize = 4_096;
 const SCALE: i8 = 2;
 
 #[derive(Clone, Copy, Debug)]
@@ -89,11 +83,6 @@ const CASES: &[Case] = &[
     Case {
         precision: 18,
         child_precision: 9,
-        input: Input::Canonical,
-    },
-    Case {
-        precision: 10,
-        child_precision: 5,
         input: Input::Canonical,
     },
     Case {
@@ -124,6 +113,16 @@ fn cases() -> Vec<Case> {
         .collect()
 }
 
+fn widen_cases() -> Vec<Case> {
+    CASES
+        .iter()
+        .map(|&case| Case {
+            input: Input::Widen,
+            ..case
+        })
+        .collect()
+}
+
 impl fmt::Display for Case {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -146,10 +145,9 @@ impl Case {
 
     fn values(self) -> Values {
         let (minimum, maximum) = match self.child_precision {
-            5 => (10_000, 32_767),
             9 => (-999_999_999, 999_999_999),
             18 => (-999_999_999_999_999_999, 999_999_999_999_999_999),
-            _ => unreachable!("CASES contains only child precisions 5, 9, and 18"),
+            _ => unreachable!("CASES contains only child precisions 9 and 18"),
         };
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -186,31 +184,6 @@ impl Case {
             DecimalType::I64 => Values::I64(child.buffer::<i64>()),
             _ => unreachable!("the benchmark child precisions require i32 or i64"),
         }
-    }
-
-    fn constant(self, value: i64) -> ArrayRef {
-        let scalar = Scalar::decimal(value.into(), self.decimal_dtype(), Nullability::NonNullable);
-        ConstantArray::new(scalar, LEN).into_array()
-    }
-
-    /// Returns a constant that splits the values, so `compare_constant` is not uniform.
-    ///
-    /// The precision 5 values lie in `10_000..=32_767`, so 0 would be below all of them. The other
-    /// ranges are symmetric about zero, so 0 splits them.
-    fn in_range(self) -> i64 {
-        if self.child_precision == 5 { 20_000 } else { 0 }
-    }
-
-    fn out_of_range(self) -> i64 {
-        10i64.pow(u32::from(self.child_precision))
-    }
-
-    fn cast_target(self) -> DType {
-        let precision = if self.precision == 38 { 76 } else { 38 };
-        DType::Decimal(
-            DecimalDType::new(precision, SCALE),
-            Nullability::NonNullable,
-        )
     }
 }
 
@@ -262,49 +235,6 @@ fn execute_canonical(array: VortexResult<ArrayRef>, ctx: &mut ExecutionCtx) -> C
 }
 
 #[divan::bench(args = cases())]
-fn compare_constant(bencher: Bencher, case: Case) {
-    let values = case.values();
-    bench_case(
-        bencher,
-        || (values.array(case), case.constant(case.in_range())),
-        |(array, constant), ctx| execute_canonical(array.binary(constant, Operator::Lt), ctx),
-    );
-}
-
-#[divan::bench(args = cases())]
-fn compare_constant_out_of_range(bencher: Bencher, case: Case) {
-    let values = case.values();
-    bench_case(
-        bencher,
-        || (values.array(case), case.constant(case.out_of_range())),
-        |(array, constant), ctx| execute_canonical(array.binary(constant, Operator::Lt), ctx),
-    );
-}
-
-#[divan::bench(args = cases())]
-fn sum(bencher: Bencher, case: Case) {
-    let values = case.values();
-    bench_case(
-        bencher,
-        || values.array(case),
-        |array, ctx| sum::sum(&array, ctx).vortex_expect("the benchmark decimal sum is valid"),
-    );
-}
-
-#[divan::bench(args = cases())]
-fn min_max(bencher: Bencher, case: Case) {
-    let values = case.values();
-    bench_case(
-        bencher,
-        || values.array(case),
-        |array, ctx| {
-            min_max::min_max(&array, ctx, NumericalAggregateOpts::default())
-                .vortex_expect("the benchmark decimal extrema are valid")
-        },
-    );
-}
-
-#[divan::bench(args = cases())]
 fn filter(bencher: Bencher, case: Case) {
     let values = case.values();
     let mut rng = StdRng::seed_from_u64(1);
@@ -316,22 +246,12 @@ fn filter(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = cases())]
+#[divan::bench(args = widen_cases())]
 fn execute(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
         bencher,
         || values.array(case),
         |array, ctx| execute_canonical(Ok(array), ctx),
-    );
-}
-
-#[divan::bench(args = cases())]
-fn cast_widen(bencher: Bencher, case: Case) {
-    let values = case.values();
-    bench_case(
-        bencher,
-        || values.array(case),
-        |array, ctx| execute_canonical(array.cast(case.cast_target()), ctx),
     );
 }
