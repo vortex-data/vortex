@@ -620,15 +620,15 @@ impl PooledFileReadAt {
         let Some(mapped) = &self.mapped else {
             return Ok(None);
         };
-        let Some(range) = mapped.cached_range(offset, length) else {
-            return Ok(None);
-        };
         // Start the target at the source's offset within 16 bytes so the copy moves aligned
         // words. Staged reads serve offsets at which that would break the requested alignment.
-        let pad = range.start % 16;
+        let pad = (offset % 16) as usize;
         if !pad.is_multiple_of(alignment.as_usize()) {
             return Ok(None);
         }
+        let Some(range) = mapped.cached_range(offset, length) else {
+            return Ok(None);
+        };
         let output = mapped.stream.device_alloc::<u8>(pad + length)?;
         // The job owns the mapping and output until its copies are queued, even if cancelled.
         let mapped = Arc::clone(mapped);
