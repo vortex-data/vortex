@@ -424,6 +424,8 @@ jobs:
           - name: Setup (Windows)
             run: |
               echo "C:\rust\cargo\bin" >> $env:GITHUB_PATH
+              $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+              echo "CARGO_HOME=$cargoHome" >> $env:GITHUB_ENV
       - parallel:
           - uses: ./.github/actions/setup-prebuild
             with:
@@ -431,6 +433,27 @@ jobs:
           - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
             with:
               python-version: "3.11"
+          - name: Restore Cargo registry
+            id: cargo-registry
+            uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+            with:
+              path: |
+                ${{ env.CARGO_HOME }}/registry/index
+                ${{ env.CARGO_HOME }}/registry/cache
+                ${{ env.CARGO_HOME }}/git/db
+                ${{ env.CARGO_HOME }}/git/checkouts
+              key: cargo-registry-v1-windows-x64-${{ hashFiles('Cargo.lock') }}
+              restore-keys: cargo-registry-v1-windows-x64-
+
+      - name: Assemblers emit reproducible code
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $ml64 = & $vswhere -latest -products * -find "VC\Tools\MSVC\**\bin\Hostx64\x64\ml64.exe" |
+            Sort-Object -Descending | Select-Object -First 1
+          if (-not $ml64) { throw "ml64.exe not found" }
+          echo "VORTEX_ML64=$ml64" >> $env:GITHUB_ENV
+          echo "CC_MASM_ASM_x86_64_pc_windows_msvc=$env:pythonLocation\python.exe $env:GITHUB_WORKSPACE\scripts\ml64_reproducible.py" >> $env:GITHUB_ENV
+          echo "NASMENV=--reproducible" >> $env:GITHUB_ENV
 
       - name: Rust Tests (Windows)
         id: tests
@@ -450,6 +473,17 @@ jobs:
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
             --exclude gpu-scan-cli
+
+      - name: Save Cargo registry
+        if: ${{ !cancelled() && steps.cargo-registry.outputs.cache-hit != 'true' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ${{ env.CARGO_HOME }}/registry/index
+            ${{ env.CARGO_HOME }}/registry/cache
+            ${{ env.CARGO_HOME }}/git/db
+            ${{ env.CARGO_HOME }}/git/checkouts
+          key: ${{ steps.cargo-registry.outputs.cache-primary-key }}
 
       # The test outputs fill the default disk, and the wheel build cannot reuse
       # them: it uses other RUSTFLAGS and its own target directory.
