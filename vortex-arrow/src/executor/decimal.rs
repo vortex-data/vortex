@@ -89,11 +89,12 @@ fn to_arrow_decimal32(
             Buffer::from_trusted_len_iter(values.buffer::<i16>().into_iter().map(|x| x.as_()))
         }
         DecimalType::I32 => values.buffer::<i32>(),
-        DecimalType::I64 => narrow_values(values.buffer::<i64>(), &validity)?,
-        DecimalType::I128 => narrow_values(values.buffer::<i128>(), &validity)?,
-        DecimalType::I256 => {
-            narrow_values(values.buffer::<vortex_array::dtype::i256>(), &validity)?
-        }
+        DecimalType::I64 => narrow_values::<i64, i32>(values.buffer::<i64>(), &validity)?,
+        DecimalType::I128 => narrow_values::<i128, i32>(values.buffer::<i128>(), &validity)?,
+        DecimalType::I256 => narrow_values::<vortex_array::dtype::i256, i32>(
+            values.buffer::<vortex_array::dtype::i256>(),
+            &validity,
+        )?,
     };
 
     Ok(Arc::new(
@@ -124,10 +125,11 @@ fn to_arrow_decimal64(
             Buffer::from_trusted_len_iter(values.buffer::<i32>().into_iter().map(|x| x.as_()))
         }
         DecimalType::I64 => values.buffer::<i64>(),
-        DecimalType::I128 => narrow_values(values.buffer::<i128>(), &validity)?,
-        DecimalType::I256 => {
-            narrow_values(values.buffer::<vortex_array::dtype::i256>(), &validity)?
-        }
+        DecimalType::I128 => narrow_values::<i128, i64>(values.buffer::<i128>(), &validity)?,
+        DecimalType::I256 => narrow_values::<vortex_array::dtype::i256, i64>(
+            values.buffer::<vortex_array::dtype::i256>(),
+            &validity,
+        )?,
     };
 
     Ok(Arc::new(
@@ -161,9 +163,10 @@ fn to_arrow_decimal128(
             Buffer::from_trusted_len_iter(values.buffer::<i64>().into_iter().map(|x| x.as_()))
         }
         DecimalType::I128 => values.buffer::<i128>(),
-        DecimalType::I256 => {
-            narrow_values(values.buffer::<vortex_array::dtype::i256>(), &validity)?
-        }
+        DecimalType::I256 => narrow_values::<vortex_array::dtype::i256, i128>(
+            values.buffer::<vortex_array::dtype::i256>(),
+            &validity,
+        )?,
     };
 
     Ok(Arc::new(
