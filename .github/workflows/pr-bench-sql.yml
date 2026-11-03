@@ -17,6 +17,14 @@ on:
         required: false
         type: string
         default: "pr"
+      profile_run_id:
+        required: false
+        type: string
+        default: ""
+      profile_source_sha:
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       matrix_preset:
@@ -30,6 +38,17 @@ on:
           - "pr-all"
           - "pr-full"
           - "scan-v2"
+          - "scan-v2-profile"
+      profile_run_id:
+        description: "Existing scan comparison run supplying profile binaries"
+        required: false
+        type: string
+        default: ""
+      profile_source_sha:
+        description: "Exact source SHA in the profile binary build manifest"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -38,7 +57,7 @@ permissions:
 
 jobs:
   sql:
-    if: inputs.matrix_preset != 'scan-v2'
+    if: inputs.matrix_preset != 'scan-v2' && inputs.matrix_preset != 'scan-v2-profile'
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
@@ -52,3 +71,15 @@ jobs:
     with:
       head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
       base_ref: ${{ github.event.pull_request.base.sha || 'origin/develop' }}
+
+  scan-profile:
+    if: inputs.matrix_preset == 'scan-v2-profile'
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/scan-v2-profile.yml
+    secrets: inherit
+    with:
+      source_run_id: ${{ inputs.profile_run_id }}
+      source_sha: ${{ inputs.profile_source_sha }}
