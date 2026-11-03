@@ -12,6 +12,7 @@ use jiff::tz::TimeZone;
 use prost::Message;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -285,7 +286,10 @@ fn replace(
         TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value)),
         TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
     }
-    .map_err(|e| vortex_err!("replace_time_zone() cannot convert {value}{unit}: {e}"))?;
+    .map_err(|error| {
+        VortexError::from(error)
+            .with_context(format!("replace_time_zone() cannot convert {value}{unit}"))
+    })?;
     // Keeping the same timezone does not introduce a new ambiguity to reject.
     if source == target && policy == "raise" {
         return Ok(Some(value));
@@ -315,6 +319,7 @@ fn replace(
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -582,6 +587,11 @@ mod tests {
             .and_then(|array| array.execute::<Canonical>(&mut ctx));
         let error = result.unwrap_err();
         assert!(error.to_string().contains("cannot convert"), "{error}");
+        assert!(
+            error
+                .source()
+                .is_some_and(|source| source.is::<jiff::Error>())
+        );
 
         let control = ExtensionArray::new(
             Timestamp::new(unit, Nullability::Nullable).erased(),
