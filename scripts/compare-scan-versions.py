@@ -185,7 +185,7 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
         "| --- | ---: | --- | --- |",
     ]
     if not summary["complete"]:
-        lines.extend(["**INCOMPLETE: failed queries are excluded; these ratios do not describe the full suite.**", ""])
+        lines[2:2] = ["**INCOMPLETE: failed queries are excluded; these ratios do not describe the full suite.**", ""]
     for engine, data in summary["engines"].items():
         cells = []
         for label in ("head_v2_vs_base_v2", "head_v2_vs_head_v1"):
