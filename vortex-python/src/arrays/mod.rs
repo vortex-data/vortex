@@ -227,7 +227,7 @@ impl ArrowExport {
                 Some(target_field) => target_field,
                 None => session()
                     .arrow()
-                    .to_arrow_field("", chunked_array.dtype())?,
+                    .default_arrow_export_field(chunked_array.dtype())?,
             };
 
             let chunks = chunked_array
