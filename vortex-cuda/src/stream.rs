@@ -249,7 +249,11 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<CUresu
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
         //  is closed and sends will fail.
         if let Err(_e) = tx.try_send(status) {
-            warn!(error = ?_e, "register_stream_callback send failed due to error");
+            warn!(
+                status = status.0,
+                error = ?_e,
+                "CUDA stream callback receiver unavailable"
+            );
         }
     }
 
