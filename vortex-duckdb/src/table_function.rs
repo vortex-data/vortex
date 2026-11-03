@@ -185,6 +185,8 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    /// Field of the scan's struct that carries the packed (file, row) key, if projected.
+    pub(crate) row_id_field: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
 
@@ -318,6 +320,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     let Projection {
         projection,
         file_row_number_column_pos,
+        row_id_field,
     } = if bind_data.aggregates.is_empty() {
         let input = ProjectionInput {
             column_ids,
@@ -361,6 +364,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        row_id_field,
         scan_v2: crate::scan_v2(),
     })
 }
