@@ -41,12 +41,14 @@ use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::selection::Selection;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use crate::VortexAccessPlan;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
@@ -492,6 +494,14 @@ impl FileSource for VortexSource {
         if config.file_compression_type.is_compressed() {
             return Ok(None);
         }
+
+        // `None` keeps the file groups as planned, so each file is read whole by one partition.
+        if every_file_has_sparse_selection(config) {
+            return Ok(None);
+        }
+
+        // Otherwise behave like DataFusion's default, which an override cannot call: split large
+        // files into byte ranges spread across `target_partitions`.
         let Some(file_groups) = FileGroupPartitioner::new()
             .with_target_partitions(target_partitions)
             .with_repartition_file_min_size(repartition_file_min_size)
@@ -625,6 +635,40 @@ impl FileSource for VortexSource {
     }
 }
 
+/// Whether an external index has picked at most [`SPARSE_SELECTION_MAX_ROWS`] rows of every
+/// file in the scan.
+///
+/// Splitting such a file into byte ranges makes every partition open it and plan a scan, only for
+/// most of them to find none of the selected rows in their range.
+fn every_file_has_sparse_selection(config: &FileScanConfig) -> bool {
+    config
+        .file_groups
+        .iter()
+        .flat_map(|group| group.files())
+        .all(|file| {
+            file.extensions
+                .get::<VortexAccessPlan>()
+                .and_then(VortexAccessPlan::selection)
+                .is_some_and(is_sparse_selection)
+        })
+}
+
+/// Selections of at most this many rows (one batch) are read by a single partition: opening the
+/// file once per byte range costs more than reading them. Larger selections scattered across the
+/// file still gain from splitting it across partitions.
+const SPARSE_SELECTION_MAX_ROWS: u64 = 8_192;
+
+/// Whether `selection` includes at most [`SPARSE_SELECTION_MAX_ROWS`] rows.
+fn is_sparse_selection(selection: &Selection) -> bool {
+    match selection {
+        Selection::IncludeByIndex(_) | Selection::IncludeRoaring(_) => {
+            // The total row count only matters for exclusion selections.
+            selection.row_count(u64::MAX) <= SPARSE_SELECTION_MAX_ROWS
+        }
+        Selection::All | Selection::ExcludeByIndex(_) | Selection::ExcludeRoaring(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::Ordering;
@@ -634,6 +678,7 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_datasource::PartitionedFile;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -646,6 +691,8 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::buffer::Buffer;
+    use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
@@ -769,6 +816,40 @@ mod tests {
             &opener.expression_converter,
             &expression_converter
         ));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::no_access_plan(None, true)]
+    #[case::sparse_selection(Some(10), false)]
+    #[case::one_batch_selection(Some(SPARSE_SELECTION_MAX_ROWS), false)]
+    #[case::dense_selection(Some(SPARSE_SELECTION_MAX_ROWS + 1), true)]
+    fn repartition_splits_files_unless_selection_is_sparse(
+        #[case] selected_rows: Option<u64>,
+        #[case] expect_split: bool,
+    ) -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let source = Arc::new(sort_test_source(schema));
+
+        let mut file = PartitionedFile::new("data.vortex", 1 << 30);
+        if let Some(rows) = selected_rows {
+            let indices = StrictSortedBuffer::try_new(Buffer::from_iter(0..rows))?;
+            file.extensions.insert(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(indices)),
+            );
+        }
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::clone(&source) as _,
+        )
+        .with_file(file)
+        .build();
+
+        let repartitioned = source.repartitioned(4, 1 << 20, None, &config)?;
+        assert_eq!(repartitioned.is_some(), expect_split);
+        if let Some(config) = repartitioned {
+            assert_eq!(config.file_groups.len(), 4);
+        }
         Ok(())
     }
 
