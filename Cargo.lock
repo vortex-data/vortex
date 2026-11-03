@@ -11823,6 +11823,7 @@ dependencies = [
  "vortex-array",
  "vortex-arrow",
  "vortex-json",
+ "vortex-tensor",
  "vortex-utils",
 ]
 
