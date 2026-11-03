@@ -153,8 +153,7 @@ jobs:
     uses: ./.github/workflows/pr-bench-sql.yml
     secrets: inherit
     with:
-      # TEMPORARY (measurement only, do not merge): restore to "pr".
-      matrix_preset: "job-datafusion"
+      matrix_preset: "pr"
 
   remove-sql-compact-label:
     runs-on: ubuntu-latest
