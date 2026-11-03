@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -17,6 +18,17 @@ from pathlib import Path
 from typing import Any
 
 VARIANTS = ("base-v2", "head-v2", "head-v1")
+
+
+def binary_provenance(binary: Path, commit: str) -> dict[str, str]:
+    build = json.loads((binary.parent / "build-manifest.json").read_text(encoding="utf-8"))
+    if build["commit"] != commit:
+        raise ValueError(f"Wrong build revision for {binary}: {build['commit']} != {commit}")
+    with binary.open("rb") as executable:
+        digest = hashlib.file_digest(executable, "sha256").hexdigest()
+    if build["binaries"][binary.name] != digest:
+        raise ValueError(f"Binary hash does not match its build manifest: {binary}")
+    return {"commit": commit, "sha256": digest}
 
 
 def write_json(path: Path, value: object) -> None:
@@ -75,7 +87,7 @@ def measurement(path: Path, *, query: int, engine: str, commit: str, iterations:
     if int(name.rsplit("_q", 1)[1]) != query:
         raise ValueError(f"Wrong query in {path}: {name}")
     if record["commit_id"] != commit:
-        raise ValueError(f"Wrong binary commit in {path}: {record['commit_id']} != {commit}")
+        raise ValueError(f"Wrong measurement checkout in {path}: {record['commit_id']} != {commit}")
     if record["target"] != {"engine": engine, "format": "vortex"} or record["unit"] != "ns":
         raise ValueError(f"Unexpected measurement target or unit in {path}")
     samples = record["all_runtimes"]
@@ -241,6 +253,7 @@ def main() -> None:
         "affinity": sorted(os.sched_getaffinity(0)),
         "binaries": {},
         "queries": {},
+        "checkout_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     }
     rows: list[dict[str, Any]] = []
     for engine in engines:
@@ -254,6 +267,7 @@ def main() -> None:
             manifest["binaries"][f"{label}-{engine}"] = {
                 "path": str(binary),
                 "bytes": binary.stat().st_size,
+                **binary_provenance(binary, args.base_sha if label == "base" else args.head_sha),
                 "elf_notes": subprocess.check_output(["readelf", "-n", str(binary)], text=True),
             }
             discover = command(binary, args.suite, options, engine, args.threads, 2) + ["--print-queries"]
@@ -304,7 +318,7 @@ def main() -> None:
                         stem.with_suffix(".jsonl"),
                         query=query,
                         engine=engine,
-                        commit=args.base_sha if revision == "base" else args.head_sha,
+                        commit=manifest["checkout_commit"],
                         iterations=args.iterations,
                         warmup=args.warmup,
                     )

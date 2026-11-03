@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -82,12 +83,26 @@ def test_interval_retains_process_level_variation(comparison: ModuleType):
     assert high >= 1.1
 
 
+def test_rejects_mismatched_build_revision_and_executable(comparison: ModuleType, tmp_path: Path):
+    binary = tmp_path / "duckdb-bench"
+    binary.write_bytes(b"executable")
+    build = {"commit": "base-sha", "binaries": {binary.name: hashlib.sha256(binary.read_bytes()).hexdigest()}}
+    (tmp_path / "build-manifest.json").write_text(json.dumps(build), encoding="utf-8")
+    assert comparison.binary_provenance(binary, "base-sha")["commit"] == "base-sha"
+    with pytest.raises(ValueError, match="Wrong build revision"):
+        comparison.binary_provenance(binary, "head-sha")
+    binary.write_bytes(b"different executable")
+    with pytest.raises(ValueError, match="Binary hash"):
+        comparison.binary_provenance(binary, "base-sha")
+
+
 def test_runs_each_engine_and_scan_version_with_the_expected_binary(
     comparison: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     program = f"""#!{sys.executable}
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 if '--print-queries' in sys.argv:
@@ -103,7 +118,8 @@ version = 1 if arg('--scan-v1') == 'true' else 2
 duration = 150 if revision == 'base' else 100 if version == 2 else 200
 samples = [9000, 8000] + [duration] * (int(arg('--iterations')) - 2)
 record = dict(name=f'tpch_q{{int(arg("--queries")):02}}/{{engine}}:vortex-file-compressed',
-              commit_id=revision + '-sha', target=dict(engine=engine, format='vortex'),
+              commit_id=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              target=dict(engine=engine, format='vortex'),
               unit='ns', all_runtimes=samples)
 Path(arg('-o')).write_text(json.dumps(record))
 """
@@ -115,6 +131,13 @@ Path(arg('-o')).write_text(json.dumps(record))
             binary = directory / f"{engine}-bench"
             binary.write_text(program, encoding="utf-8")
             binary.chmod(0o755)
+        build = {
+            "commit": revision + "-sha",
+            "binaries": {
+                binary.name: hashlib.sha256(binary.read_bytes()).hexdigest() for binary in directory.iterdir()
+            },
+        }
+        (directory / "build-manifest.json").write_text(json.dumps(build), encoding="utf-8")
     check_output = subprocess.check_output
 
     def with_elf_notes(args: list[str], *, text: bool, env: dict[str, str] | None = None) -> str:
