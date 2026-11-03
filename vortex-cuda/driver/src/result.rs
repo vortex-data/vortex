@@ -28,7 +28,7 @@ impl DriverError {
         self.describe(sys::cuGetErrorString)
     }
 
-    /// The static string that `describe`, either `cuGetErrorName` or `cuGetErrorString`, writes.
+    /// Returns the static error name or description written by `describe`.
     fn describe(
         &self,
         describe: unsafe fn(CUresult, *mut *const c_char) -> CUresult,
