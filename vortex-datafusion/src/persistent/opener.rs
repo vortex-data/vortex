@@ -1145,7 +1145,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn v2_bounds_arrow_batches(
+    async fn v2_bounds_narrow_arrow_batches(
         #[values(0, 2)] scan_concurrency: usize,
         #[values(false, true)] filtered: bool,
     ) -> anyhow::Result<()> {

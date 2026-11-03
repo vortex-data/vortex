@@ -47,6 +47,7 @@ type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>
 
 const INITIAL_CHUNK_ROWS: u64 = 8192;
 const MAX_ARROW_BATCH_ROWS: usize = 65_536;
+const MAX_ARROW_ROW_BYTES: usize = 16;
 
 /// Claims a partition's startup budget across its files, without duplicating their rows.
 pub(crate) fn initial_ranges(rows: Range<u64>, remaining: &AtomicUsize) -> Vec<Range<u64>> {
@@ -299,7 +300,15 @@ fn chunk_stream(
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
                     let len = batch.array.len();
-                    if len <= MAX_ARROW_BATCH_ROWS {
+                    // Narrow values and their casts benefit from a small working set. Wider
+                    // conversions retain stored boundaries to amortize their setup cost.
+                    let split = len > MAX_ARROW_BATCH_ROWS
+                        && batch
+                            .array
+                            .dtype()
+                            .element_size()
+                            .is_some_and(|bytes| (1..=MAX_ARROW_ROW_BYTES).contains(&bytes));
+                    if !split {
                         let batch = map(batch.array);
                         let failed = batch.is_err();
                         if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
