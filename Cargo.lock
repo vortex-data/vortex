@@ -2198,6 +2198,7 @@ dependencies = [
  "mimalloc",
  "parking_lot",
  "parquet 59.3.2",
+ "rand 0.10.3",
  "regex",
  "rstest",
  "serde",

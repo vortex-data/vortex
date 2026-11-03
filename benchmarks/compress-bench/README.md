@@ -63,6 +63,56 @@ cargo run -p compress-bench --profile release_debug
 cargo run -p compress-bench --profile release_debug -- --threads 1
 ```
 
+## Sparse-wide baseline
+
+`sparse-write-bench` is a focused, synthetic Vortex benchmark that needs no downloads. It measures
+complete serialized file sizes and in-memory write times with the default production compressor.
+It is a separate, manually invoked runner; the existing compression CI workload is unchanged.
+
+```bash
+cargo run -p compress-bench --bin sparse-write-bench --profile release_debug -- \
+  --ingest-output /tmp/sparse-write-baseline.jsonl
+# Quicker smoke run, including round-trip checks for every output:
+cargo run -p compress-bench --bin sparse-write-bench -- \
+  --rows 10000 --groups 10 --iterations 1
+```
+
+Defaults are 100,000 source rows, 100 mutually exclusive groups, three fields per group, seed 42,
+one runtime worker, and three timed iterations after one warmup. Each row has exactly one present
+group. Fields hold random integers in `[0, 1_000_000)`, or lists of three such integers. Cases are:
+
+- `flat-runs`: nullable integer fields with clustered group presence.
+- `nested-runs`: the integer fields under four nullable struct levels.
+- `lists-runs`: the same nesting with list fields.
+- `lists-shuffled`: list groups scattered across rows; present-only payloads match `lists-runs`.
+- `nested-child-nulls`: nested integers with genuine child nulls in 10% of present values.
+
+Select cases with `--cases nested-runs,lists-shuffled`. `--rows` must be divisible by `--groups`.
+`--fields`, `--seed`, `--threads`, and `--iterations` are also configurable. Hold these settings and
+the machine constant when comparing commits.
+
+Each case compares four layouts, reporting the sum of all file sizes and sequential write times:
+
+| Layout | Contents |
+| --- | --- |
+| `wide` | One file containing every group and all source rows. |
+| `split-all-rows` | One file per group, retaining absent rows and their nulls. |
+| `shredded-present-rows` | One file per group containing only its present rows. |
+| `shredded-with-row-ids` | Present-only files plus a `__row_id` column preserving original positions. |
+
+Present-only files omit information about absent rows; the row-ID variant accounts for the cost
+of retaining those positions. `wide_over_layout` is the wide file's byte size divided by the
+layout's total byte size. Throughput uses source rows, regardless of layout. Timings include the
+default writer, compression, and serialization to memory, including per-file overhead. They
+exclude data generation, statistic-cache resets, disk I/O, and output decoding. Every warmup file
+is read back and checked for matching length, dtype, values, and nulls outside the timer; serialized
+sizes must remain stable across iterations.
+
+CSV output reports median write time. `--ingest-output` emits the existing V3 `compression_size`
+and `compression_time` JSONL records, with the layout in `dataset_variant`, all iteration timings,
+and best-of-N time following the existing ingestion convention. Dataset keys include the case,
+shape, seed, and worker count, allowing each subsequent fix to be measured against this baseline.
+
 ## GPU decompression
 
 `--gpu-decompress` is opt-in, requires the `cuda` feature, and restricts the suite to the
