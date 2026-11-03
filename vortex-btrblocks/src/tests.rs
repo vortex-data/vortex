@@ -32,6 +32,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
+use vortex_datetime_parts::DateTimeParts;
 #[cfg(feature = "zstd")]
 use vortex_edition::EDITION_DECLARATIONS;
 #[cfg(feature = "zstd")]
@@ -107,6 +108,30 @@ fn test_default_compressor_roundtrip() -> VortexResult<()> {
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert!(compressed.nbytes() < input.nbytes());
+
+    Ok(())
+}
+
+#[rstest]
+#[case::seconds(TimeUnit::Seconds)]
+#[case::milliseconds(TimeUnit::Milliseconds)]
+fn test_extreme_timestamps_roundtrip(#[case] unit: TimeUnit) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let input = TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter((0..2048i64).map(|i| match i % 3 {
+            0 => i64::MAX - i,
+            1 => i64::MIN + i,
+            _ => 1_700_000_000 + i,
+        }))
+        .into_array(),
+        unit,
+        None,
+    )
+    .into_array();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<DateTimeParts>());
 
     Ok(())
 }
