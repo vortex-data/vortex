@@ -42,7 +42,7 @@ LIMIT 100;
 421232.85 Books romance 0 1
 379106.62 Books reference 0 2
 306214.64 Books fiction 0 3
-258518.3 Books business 0 4
+258518.30 Books business 0 4
 256653.72 Books entertainments 0 5
 213941.94 Books mystery 0 6
 211831.89 Books travel 0 7
@@ -59,7 +59,7 @@ LIMIT 100;
 815248.18 Children newborn 0 1
 751605.88 Children infants 0 2
 745666.41 Children school-uniforms 0 3
-601017 Children toddlers 0 4
+601017.00 Children toddlers 0 4
 480846.33 Electronics televisions 0 1
 360255.95 Electronics dvd/vcr players 0 2
 277986.02 Electronics stereo 0 3
@@ -86,7 +86,7 @@ LIMIT 100;
 189443.33 Home curtains/drapes 0 8
 162492.93 Home blinds/shades 0 9
 151887.52 Home mattresses 0 10
-142348.5 Home accent 0 11
+142348.50 Home accent 0 11
 70727.84 Home kids 0 12
 57065.55 Home wallpaper 0 13
 55487.17 Home glassware 0 14
@@ -95,10 +95,10 @@ LIMIT 100;
 351199.09 Jewelry costume 0 1
 333668.53 Jewelry gold 0 2
 323268.97 Jewelry bracelets 0 3
-313728.8 Jewelry jewelry boxes 0 4
+313728.80 Jewelry jewelry boxes 0 4
 239481.52 Jewelry pendants 0 5
 227233.52 Jewelry estate 0 6
-205545.7 Jewelry diamonds 0 7
+205545.70 Jewelry diamonds 0 7
 178286.89 Jewelry loose stones 0 8
 131261.85 Jewelry birdal 0 9
 129692.96 Jewelry womens watch 0 10
@@ -115,7 +115,7 @@ LIMIT 100;
 965068.68 Music pop 0 1
 860723.18 Music country 0 2
 784460.08 Music rock 0 3
-609174.1 Music classical 0 4
+609174.10 Music classical 0 4
 875865.07 Shoes athletic 0 1
 859300.67 Shoes mens 0 2
 799042.73 Shoes kids 0 3

@@ -45,6 +45,6 @@ LIMIT 100 ;
 3001002 amalgexporti #2 448 eingeseese 10902.96
 3002002 importoexporti #2 597 ationn stanti 8801.39
 6011004 amalgbrand #4 9 n st 8780.54
-8014007 edu packmaxi #7 350 barantipri 7615.9
+8014007 edu packmaxi #7 350 barantipri 7615.90
 3004001 edu packexporti #1 119 n stoughtought 4538.77
 4003001 exportiedu pack #1 659 n stantically 4516.21

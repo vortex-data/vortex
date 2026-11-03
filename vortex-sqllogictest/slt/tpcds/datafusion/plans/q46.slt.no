@@ -69,8 +69,8 @@ logical_plan
 16)------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 17)--------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_coupon_amt, ss_net_profit]
 18)--------------------------------Projection: date_dim.d_date_sk
-19)----------------------------------Filter: (date_dim.d_dow = Int32(6) OR date_dim.d_dow = Int32(0)) AND (date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001))
-20)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow = Int32(6) OR date_dim.d_dow = Int32(0), date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
+19)----------------------------------Filter: date_dim.d_dow IN ([Int32(6), Int32(0)]) AND date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])
+20)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow IN ([Int32(6), Int32(0)]), date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])]
 21)----------------------------Projection: store.s_store_sk
 22)------------------------------Filter: store.s_city = Utf8View("Fairview") OR store.s_city = Utf8View("Midway")
 23)--------------------------------TableScan: store projection=[s_store_sk, s_city], partial_filters=[store.s_city = Utf8View("Fairview") OR store.s_city = Utf8View("Midway")]
@@ -99,5 +99,5 @@ physical_plan
 15)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_customer_sk@1, ss_hdemo_sk@2, ss_addr_sk@3, ss_ticket_number@5, ss_coupon_amt@6, ss_net_profit@7]
 16)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_city@22 = Fairview OR s_city@22 = Midway
 17)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_customer_sk@2, ss_hdemo_sk@3, ss_addr_sk@4, ss_store_sk@5, ss_ticket_number@6, ss_coupon_amt@7, ss_net_profit@8]
-18)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: (d_dow@7 = 6 OR d_dow@7 = 0) AND (d_year@6 = 1999 OR d_year@6 = 2000 OR d_year@6 = 2001)
+18)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dow@7 IN (SET) ([6, 0]) AND d_year@6 IN (SET) ([1999, 2000, 2001])
 19)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_coupon_amt, ss_net_profit], file_type=vortex

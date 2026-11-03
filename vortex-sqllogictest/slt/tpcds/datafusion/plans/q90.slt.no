@@ -73,8 +73,8 @@ logical_plan
 40)------------------Filter: web_page.wp_char_count >= Int32(5000) AND web_page.wp_char_count <= Int32(5200)
 41)--------------------TableScan: web_page projection=[wp_web_page_sk, wp_char_count], partial_filters=[web_page.wp_char_count >= Int32(5000), web_page.wp_char_count <= Int32(5200)]
 physical_plan
-01)SortExec: TopK(fetch=100), expr=[am_pm_ratio@0 ASC NULLS LAST], preserve_partitioning=[false]
-02)--ProjectionExec: expr=[CASE WHEN pmc@1 = 0 THEN NULL ELSE CAST(amc@0 AS Decimal128(15, 4)) / CAST(pmc@1 AS Decimal128(15, 4)) END as am_pm_ratio]
+01)ProjectionExec: expr=[CASE WHEN pmc@1 = 0 THEN NULL ELSE CAST(amc@0 AS Decimal128(15, 4)) / CAST(pmc@1 AS Decimal128(15, 4)) END as am_pm_ratio]
+02)--GlobalLimitExec: skip=0, fetch=100
 03)----CrossJoinExec
 04)------ProjectionExec: expr=[count(Int64(1))@0 as amc]
 05)--------AggregateExec: mode=Final, gby=[], aggr=[count(Int64(1))]

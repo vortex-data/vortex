@@ -44,4 +44,4 @@ WHERE s_store_sk = ss_store_sk
                                                            AND ca_state IN ('VA', 'TX', 'MS')
                                                            AND ss_net_profit BETWEEN 50 AND 250)) ;
 ----
-60 3583.075 3392.125 6784.25
+60 3583.075000 3392.125000 6784.25
