@@ -32,7 +32,7 @@ impl std::fmt::Debug for CudaModule {
 
 impl Drop for CudaModule {
     fn drop(&mut self) {
-        self.context.record_err(self.context.bind_to_thread());
+        self.context.record_err(self.context.make_current());
         // SAFETY: Unloaded once, after every function referencing it was dropped.
         self.context
             .record_err(unsafe { sys::cuModuleUnload(self.module) }.result());
