@@ -46,10 +46,11 @@ fn parts_follow_splits(
 #[case::disabled(0)]
 #[case::prefix_and_bulk(2)]
 #[case::entire_file_initial(16)]
-fn reserved_work_returns_selected_rows_once(
+fn reserved_and_queued_work_return_selected_rows_once(
     #[case] initial: usize,
     #[values(false, true)] sparse: bool,
     #[values(false, true)] dynamic: bool,
+    #[values(false, true)] reserve_all: bool,
 ) -> VortexResult<()> {
     let array = (0..100_000i64).collect::<PrimitiveArray>().into_array();
     let file = RUNTIME.block_on(async {
@@ -77,15 +78,21 @@ fn reserved_work_returns_selected_rows_once(
         None,
         "test",
     )?);
-    // Reserve every assignment before workers execute, as DuckDB can under its global lock.
+    // Reserve assignments as DuckDB can under its global lock. Two workers leave the rest
+    // queued so each run can admit more work while its earlier roots are still active.
     let mut reserved = Vec::new();
     while let Some(work) = scan.take_work(true) {
         reserved.push(work);
+        if !reserve_all && reserved.len() == 2 {
+            break;
+        }
     }
-    assert!(scan.take_work(true).is_none());
-    assert_eq!(scan.progress(), 100.0);
+    if reserve_all {
+        assert!(scan.take_work(true).is_none());
+        assert_eq!(scan.progress(), 100.0);
+    }
     if !sparse && initial == 0 {
-        assert_eq!(reserved.len(), 4);
+        assert_eq!(reserved.len(), if reserve_all { 4 } else { 2 });
     }
     let mut actual = std::thread::scope(|scope| -> VortexResult<Vec<i64>> {
         let handles: Vec<_> = reserved
