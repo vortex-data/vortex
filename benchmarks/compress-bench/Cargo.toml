@@ -34,7 +34,9 @@ serde_json = { workspace = true }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 vortex = { workspace = true }
+vortex-btrblocks = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
