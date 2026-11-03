@@ -91,6 +91,11 @@ def _llms(app: Sphinx) -> str:
         lines += [f"- [{_title(app, doc)}]({_url(app, doc)})" for doc in dict.fromkeys(_toctree_order(app, section))]
         lines.append("")
     lines += [
+        "## Benchmarks and project",
+        "",
+        "- [Benchmark results](https://bench.vortex.dev/llms.txt): every benchmark and how it is measured",
+        "- [Vortex homepage](https://vortex.dev/llms.txt): what Vortex is, how to install it, and its results",
+        "",
         "## Optional",
         "",
         f"- [Full text of the documentation]({base}/llms-full.txt)",
