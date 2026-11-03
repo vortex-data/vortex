@@ -12,6 +12,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 
@@ -75,17 +77,7 @@ impl Scalar {
                     .as_bool()
                     .value()
                     .vortex_expect("null scalars are handled above");
-                // Matches the bool array cast: true is one, false is zero.
-                Ok(match_each_native_ptype!(*ptype, |T| {
-                    Scalar::primitive(
-                        if value {
-                            <T as One>::one()
-                        } else {
-                            <T as Zero>::zero()
-                        },
-                        *nullability,
-                    )
-                }))
+                Ok(cast_bool_to_primitive(value, *ptype, *nullability))
             }
             DType::Primitive(..) => self.as_primitive().cast(target_dtype),
             DType::Decimal(..) => self.as_decimal().cast(target_dtype),
@@ -115,4 +107,18 @@ impl Scalar {
         Self::try_new(dtype.as_nullable(), value)
             .vortex_expect("Casting to nullable should always succeed")
     }
+}
+
+/// Casts `value` to `ptype` like the bool array cast: true is one, false is zero.
+fn cast_bool_to_primitive(value: bool, ptype: PType, nullability: Nullability) -> Scalar {
+    match_each_native_ptype!(ptype, |T| {
+        Scalar::primitive(
+            if value {
+                <T as One>::one()
+            } else {
+                <T as Zero>::zero()
+            },
+            nullability,
+        )
+    })
 }
