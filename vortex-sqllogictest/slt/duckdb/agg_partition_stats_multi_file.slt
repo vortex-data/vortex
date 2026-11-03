@@ -45,6 +45,17 @@ SELECT a FROM '${WORK_DIR}/reordered_*.vortex' ORDER BY a;
 1
 2
 
+query II
+SELECT * FROM '${WORK_DIR}/reordered_*.vortex' ORDER BY a;
+----
+1 100
+2 200
+
+query II
+SELECT b + 1, a FROM '${WORK_DIR}/reordered_*.vortex' WHERE b >= 150 AND a < 3;
+----
+201 2
+
 query TT
 EXPLAIN SELECT max(a), min(b) FROM '${WORK_DIR}/reordered_*.vortex';
 ----

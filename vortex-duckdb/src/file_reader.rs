@@ -15,11 +15,18 @@ use vortex::array::arrays::Chunked;
 use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::array::scalar_fn::fns::dynamic::DynamicExprUpdates;
+use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex::expr::BoundExpression;
+use vortex::expr::root;
+use vortex::expr::select;
+use vortex::expr::traversal::NodeExt;
+use vortex::expr::traversal::Transformed;
+use vortex::expr::traversal::TraversalOrder;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
@@ -225,15 +232,22 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     if global.scan_v2 {
         let state = file.scan_state();
         let splits = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
-            .with_projection(global.projection.clone())
-            .with_some_filter(global.filter.filter.clone())
+            .with_projection(file_expression(&global.projection, state.reader.dtype())?)
+            .with_some_filter(
+                global
+                    .filter
+                    .filter
+                    .as_ref()
+                    .map(|filter| file_expression(filter, state.reader.dtype()))
+                    .transpose()?,
+            )
             .full_file_splits()?;
         let dynamic = global
             .filter
             .filter
             .as_ref()
             .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
+        let scan = FileScan::try_new(v2_builder(state, global)?, &splits, dynamic)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -242,9 +256,16 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 
     let reader = Arc::clone(file.reader());
     let filter = &global.filter;
+    let dtype = reader.dtype();
+    let projection = file_expression(&global.projection, dtype)?;
+    let bound_filter = filter
+        .filter
+        .as_ref()
+        .map(|filter| file_expression(filter, dtype))
+        .transpose()?;
     let builder = ScanBuilder::new(SESSION.clone(), reader)
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
+        .with_projection(projection)
+        .with_some_filter(bound_filter)
         .with_selection(filter.row_selection.clone());
     let scan = builder.prepare()?;
     let mut splits: Vec<Split> = scan
@@ -261,17 +282,47 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 }
 
 /// The V2 scan of the file's rows that the scan's row range and selection keep.
-fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
+fn v2_builder(state: &FileScanState, global: &GlobalState) -> VortexResult<V2ScanBuilder> {
     let filter = &global.filter;
     let row_count = state.reader.row_count();
     let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
         range.start.min(row_count)..range.end.min(row_count)
     });
-    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
+    let dtype = state.scan_file.layout.dtype();
+    Ok(V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
+        .with_projection(file_expression(&global.projection, dtype)?)
+        .with_some_filter(
+            filter
+                .filter
+                .as_ref()
+                .map(|filter| file_expression(filter, dtype))
+                .transpose()?,
+        )
         .with_selection(filter.row_selection.clone())
-        .with_row_range(rows)
+        .with_row_range(rows))
+}
+
+/// Files can store columns in a different order from the first file that bound the query.
+/// Preserve the query's root schema, including its output order, over the file's actual root.
+fn file_expression(expression: &BoundExpression, dtype: &DType) -> VortexResult<BoundExpression> {
+    if expression.is_root_bound_to(dtype) {
+        return Ok(expression.clone());
+    }
+    Ok(expression
+        .clone()
+        .transform_down(|node| {
+            if node.is_root() {
+                Ok(Transformed {
+                    value: select(node.dtype().as_struct_fields().names().clone(), root())
+                        .bind(dtype)?,
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                })
+            } else {
+                Ok(Transformed::no(node))
+            }
+        })?
+        .into_inner())
 }
 
 /// What a thread's split yields next.
