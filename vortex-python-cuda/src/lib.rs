@@ -489,7 +489,7 @@ fn _debug_arrow_device_array_capsule_summary<'py>(
     };
 
     let summary = PyDict::new(py);
-    summary.set_item("schema_live", schema.release.is_some())?;
+    summary.set_item("schema_live", schema.release().is_some())?;
     summary.set_item("array_live", device_array.array.release.is_some())?;
     summary.set_item("is_cuda", device_array.device_type == ARROW_DEVICE_CUDA)?;
     summary.set_item("device_type", device_array.device_type)?;
@@ -516,13 +516,13 @@ fn _debug_consume_arrow_device_array_capsules(
 
     let schema_ref = unsafe { schema_ptr.as_mut() };
     let device_array_ref = unsafe { device_array_ptr.as_mut() };
-    let schema_had_release = schema_ref.release.is_some();
+    let schema_had_release = schema_ref.release().is_some();
     let array_had_release = device_array_ref.array.release.is_some();
 
     release_schema(schema_ref);
     release_device_array(device_array_ref);
 
-    let schema_release_cleared = schema_ref.release.is_none();
+    let schema_release_cleared = schema_ref.release().is_none();
     let array_release_cleared = device_array_ref.array.release.is_none();
 
     set_capsule_name(&schema, USED_ARROW_SCHEMA_CAPSULE_NAME)?;

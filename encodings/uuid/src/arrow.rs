@@ -737,7 +737,7 @@ mod tests {
         let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ids)])?;
 
         let reader = RecordBatchIterator::new([Ok(batch)], schema);
-        let stream = ffi_stream::ArrowArrayStreamReader::try_new(
+        let stream = ffi_stream::RecordBatchStreamReader::try_new(
             ffi_stream::FFI_ArrowArrayStream::new(Box::new(reader)),
         )?;
 

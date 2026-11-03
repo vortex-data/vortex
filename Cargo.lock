@@ -50,12 +50,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
 name = "alloc-stdlib"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
 dependencies = [
- "alloc-no-stdlib",
+ "alloc-no-stdlib 2.0.4",
+]
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
 ]
 
 [[package]]
@@ -258,6 +273,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d965156f2220e94dcf676e04322b7b0b41c97e85cb3e1c365b8e56d0f70be999"
+dependencies = [
+ "arrow-arith 60.1.0",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-cast 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-ord 60.1.0",
+ "arrow-row 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
+ "arrow-string 60.1.0",
+]
+
+[[package]]
 name = "arrow-arith"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -295,6 +328,20 @@ dependencies = [
  "arrow-buffer 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
+ "chrono",
+ "num-traits",
+]
+
+[[package]]
+name = "arrow-arith"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca16fdd1daeb1eccefb42df52ec65448ef33eec72488598675d46dfa9ce58923"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
  "chrono",
  "num-traits",
 ]
@@ -346,6 +393,24 @@ dependencies = [
  "arrow-schema 59.3.2",
  "chrono",
  "chrono-tz",
+ "half",
+ "hashbrown 0.17.1",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "arrow-array"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f3d22a41d3df78b71df0b685af219ae3a94188ab98d6fb29c958eb55c3247f4"
+dependencies = [
+ "ahash",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "chrono",
  "half",
  "hashbrown 0.17.1",
  "libc",
@@ -414,6 +479,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-buffer"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bd46a530bc1a8e763102fc36c1dc0f51f3ffa150c78e7f5658ccb54b1458ade"
+dependencies = [
+ "bytes",
+ "half",
+ "num-bigint 0.5.1",
+ "num-traits",
+]
+
+[[package]]
 name = "arrow-cast"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,7 +501,7 @@ dependencies = [
  "arrow-data 56.2.1",
  "arrow-schema 56.2.1",
  "arrow-select 56.2.1",
- "atoi",
+ "atoi 2.0.0",
  "base64 0.22.1",
  "chrono",
  "comfy-table",
@@ -446,7 +523,7 @@ dependencies = [
  "arrow-ord 58.4.1",
  "arrow-schema 58.4.1",
  "arrow-select 58.4.1",
- "atoi",
+ "atoi 2.0.0",
  "base64 0.22.1",
  "chrono",
  "comfy-table",
@@ -468,7 +545,7 @@ dependencies = [
  "arrow-ord 59.3.2",
  "arrow-schema 59.3.2",
  "arrow-select 59.3.2",
- "atoi",
+ "atoi 2.0.0",
  "base64 0.23.1",
  "chrono",
  "comfy-table",
@@ -476,6 +553,38 @@ dependencies = [
  "lexical-core",
  "num-traits",
  "ryu",
+]
+
+[[package]]
+name = "arrow-cast"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baa83a0752814a1922d5ee75032524ca9bbfb7f60ee35a67ed4ab8b275260aaf"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-ord 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
+ "atoi 3.1.1",
+ "base64 0.23.1",
+ "chrono",
+ "half",
+ "lexical-core",
+ "num-traits",
+ "ryu",
+]
+
+[[package]]
+name = "arrow-cmp"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1913e57a64fbf2c4502fa6d54b547d6a1ae59e3146cbc15321d47468c937abd1"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-schema 60.1.0",
 ]
 
 [[package]]
@@ -547,6 +656,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-data"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "415b7fbc4cf56b080bb5677a4ae74211b5c79e571ed37a1d547633ec07f3b43b"
+dependencies = [
+ "arrow-buffer 60.1.0",
+ "arrow-schema 60.1.0",
+ "half",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "arrow-ipc"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -590,6 +712,20 @@ dependencies = [
  "flatbuffers",
  "lz4_flex 0.14.0",
  "zstd 0.13.4",
+]
+
+[[package]]
+name = "arrow-ipc"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45f3e766bccf5a0cb57a5de52a4cba450dea5171547c2cb5939b486d08887cba"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
+ "flatbuffers",
 ]
 
 [[package]]
@@ -682,6 +818,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-ord"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c58f2ae6dd1480fc413f7320a547e39dcc499c23d4f36ca19572b685811e6e4"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-cmp",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
+]
+
+[[package]]
 name = "arrow-row"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -721,6 +871,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-row"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68f9db8345b0638416d3b56d117d262d13070fdef788c6d75b53a180215c477e"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "half",
+]
+
+[[package]]
 name = "arrow-schema"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -742,6 +905,16 @@ name = "arrow-schema"
 version = "59.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e87acb0c6bf6237fca7a50d7b51e801c98a18a5fe6f3bb34f7d77b85ca165388"
+dependencies = [
+ "serde_core",
+ "serde_json",
+]
+
+[[package]]
+name = "arrow-schema"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de2c8e714b466404cdc1189e89f892426efea614d938e16c15518c340cd43ba3"
 dependencies = [
  "bitflags 2.13.2",
  "serde_core",
@@ -791,6 +964,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrow-select"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5af3f6656c5f2c6944f93d9a357a7f204c93d5f349385a44cf46c4a26fbcf30"
+dependencies = [
+ "ahash",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-cmp",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "num-traits",
+]
+
+[[package]]
 name = "arrow-string"
 version = "56.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -835,6 +1023,23 @@ dependencies = [
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
  "arrow-select 59.3.2",
+ "memchr",
+ "num-traits",
+ "regex",
+ "regex-syntax",
+]
+
+[[package]]
+name = "arrow-string"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab1be9306b9a413b5b004e2a5a19caac728870d76e8891b351f040d554c93862"
+dependencies = [
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
  "memchr",
  "num-traits",
  "regex",
@@ -1046,6 +1251,15 @@ name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f28d99ec8bfea296261ca1af174f24225171fea9664ba9003cbebee704810528"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "atoi"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d12c37257553c19e9aee6cba77814fdc9e07844abfc8b3a2c377cd920ee5a993"
 dependencies = [
  "num-traits",
 ]
@@ -1715,9 +1929,20 @@ version = "8.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5cc91aac060a7a1e25823bdccbfb6af1875b88f17c6daac97894eed8207166b3"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor",
+ "alloc-no-stdlib 2.0.4",
+ "alloc-stdlib 0.2.4",
+ "brotli-decompressor 5.0.3",
+]
+
+[[package]]
+name = "brotli"
+version = "9.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "627b7cfb0578f0eafce087a90fcd40add1231900b69e4d4de2d456260a4f5d81"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib 0.3.0",
+ "brotli-decompressor 6.2.0",
 ]
 
 [[package]]
@@ -1726,8 +1951,18 @@ version = "5.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
 dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
+ "alloc-no-stdlib 2.0.4",
+ "alloc-stdlib 0.2.4",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34c6783f42c21c952ad7112b354f0ba2f10760e9decea5b1b60523d6e270faaf"
+dependencies = [
+ "alloc-no-stdlib 3.0.0",
+ "alloc-stdlib 0.3.0",
 ]
 
 [[package]]
@@ -2184,10 +2419,10 @@ name = "compress-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 59.3.2",
- "arrow-ipc 59.3.2",
- "arrow-schema 59.3.2",
- "arrow-select 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-ipc 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
  "async-trait",
  "bytes",
  "clap",
@@ -2197,7 +2432,7 @@ dependencies = [
  "lance-bench",
  "mimalloc",
  "parking_lot",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "regex",
  "rstest",
  "serde",
@@ -4831,8 +5066,8 @@ dependencies = [
 
 [[package]]
 name = "geoarrow"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
  "geoarrow-array",
  "geoarrow-schema",
@@ -4840,12 +5075,12 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-array"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-schema 60.1.0",
  "geo-traits",
  "geoarrow-schema",
  "num-traits",
@@ -4855,10 +5090,10 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-cast"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "geo-traits",
  "geoarrow-array",
  "geoarrow-schema",
@@ -4867,10 +5102,10 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-schema"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "geo-traits",
  "serde",
  "serde_json",
@@ -8130,7 +8365,7 @@ dependencies = [
  "arrow-schema 56.2.1",
  "arrow-select 56.2.1",
  "base64 0.22.1",
- "brotli",
+ "brotli 8.0.4",
  "bytes",
  "chrono",
  "flate2",
@@ -8164,7 +8399,7 @@ dependencies = [
  "arrow-schema 58.4.1",
  "arrow-select 58.4.1",
  "base64 0.22.1",
- "brotli",
+ "brotli 8.0.4",
  "bytes",
  "chrono",
  "flate2",
@@ -8197,7 +8432,7 @@ dependencies = [
  "arrow-schema 59.3.2",
  "arrow-select 59.3.2",
  "base64 0.23.1",
- "brotli",
+ "brotli 8.0.4",
  "bytes",
  "chrono",
  "flate2",
@@ -8218,48 +8453,81 @@ dependencies = [
 ]
 
 [[package]]
-name = "parquet-variant"
-version = "59.3.2"
+name = "parquet"
+version = "60.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d0085fde95ccfae0b8d703acd1245bda8855a0bf996eba848e8e2f9995f8606"
+checksum = "806eaa0f1c0436dcb43bee8e6a82bf2efff90521a60172f8281cb9ef577b43a4"
 dependencies = [
- "arrow 59.3.2",
- "arrow-schema 59.3.2",
+ "ahash",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-ipc 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
+ "base64 0.23.1",
+ "brotli 9.1.1",
+ "bytes",
+ "chrono",
+ "flate2",
+ "futures",
+ "half",
+ "hashbrown 0.17.1",
+ "lz4_flex 0.14.0",
+ "num-bigint 0.5.1",
+ "num-integer",
+ "num-traits",
+ "object_store 0.14.2",
+ "seq-macro",
+ "simdutf8",
+ "snap",
+ "tokio",
+ "twox-hash",
+ "zstd 0.14.3",
+]
+
+[[package]]
+name = "parquet-variant"
+version = "60.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd190b833203e27e585c1f07e6ab1abbf353336688202ce036ecd8b7bc18259"
+dependencies = [
+ "arrow-schema 60.1.0",
  "chrono",
  "half",
  "indexmap 2.14.2",
- "num-traits",
  "simdutf8",
  "uuid",
 ]
 
 [[package]]
 name = "parquet-variant-compute"
-version = "59.3.2"
+version = "60.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1f9036efdea8177c84895f409a442e3960a8ccc642792760d8d48415542bb3a"
+checksum = "ca43d38e0b3f91d177150fc72c86af888dcbd3c3d93888c2a2fbc95721200d89"
 dependencies = [
- "arrow 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow 60.1.0",
+ "arrow-schema 60.1.0",
  "chrono",
  "half",
  "indexmap 2.14.2",
+ "num-traits",
  "parquet-variant",
  "parquet-variant-json",
- "serde_json",
  "uuid",
 ]
 
 [[package]]
 name = "parquet-variant-json"
-version = "59.3.2"
+version = "60.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50ae7a6fdff86cdd5075653039b62e2ba674b0aae9228022cd74dc9cf71d7353"
+checksum = "dadd517b64ce5b9a7160130f6ded8eed81a20ef8cec8e3e2458165f5195701ec"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "base64 0.23.1",
  "chrono",
  "parquet-variant",
+ "ryu",
  "serde_json",
  "uuid",
 ]
@@ -10294,7 +10562,7 @@ dependencies = [
  "futures",
  "indicatif",
  "mimalloc",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "regex",
  "tabled",
  "tokio",
@@ -10999,7 +11267,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efe811ce4c7cf7877d6ed51e057fe6e89bb3f7d53eae8cf3a43bce9ba4c70d6c"
 dependencies = [
- "arrow 59.3.2",
+ "arrow 60.1.0",
  "tpcdsgen",
 ]
 
@@ -11015,7 +11283,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04ff3310b8912141795ea51adbabb4f790ec5a389157acfc494b6f50aff1d402"
 dependencies = [
- "arrow 59.3.2",
+ "arrow 60.1.0",
  "tpchgen",
 ]
 
@@ -11317,12 +11585,12 @@ name = "vortex"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "fastlanes 0.7.2",
  "mimalloc",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "rand 0.10.3",
  "serde_json",
  "tokio",
@@ -11388,7 +11656,7 @@ dependencies = [
  "allocator-api2",
  "arbitrary",
  "arcref",
- "arrow-buffer 59.3.2",
+ "arrow-buffer 60.1.0",
  "bytes",
  "cfg-if",
  "codspeed-divan-compat",
@@ -11454,11 +11722,11 @@ dependencies = [
 name = "vortex-arrow"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-cast 59.3.2",
- "arrow-data 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-cast 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "mimalloc",
@@ -11482,11 +11750,11 @@ name = "vortex-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 59.3.2",
- "arrow-cast 59.3.2",
- "arrow-ipc 59.3.2",
- "arrow-schema 59.3.2",
- "arrow-select 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-cast 60.1.0",
+ "arrow-ipc 60.1.0",
+ "arrow-schema 60.1.0",
+ "arrow-select 60.1.0",
  "async-trait",
  "bytes",
  "bzip2",
@@ -11509,7 +11777,7 @@ dependencies = [
  "object_store 0.13.2",
  "parking_lot",
  "parquet 56.2.1",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "rand 0.10.3",
  "regex",
  "reqwest 0.13.5",
@@ -11588,7 +11856,7 @@ name = "vortex-buffer"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
- "arrow-buffer 59.3.2",
+ "arrow-buffer 60.1.0",
  "bitvec",
  "bytes",
  "codspeed-divan-compat",
@@ -11649,13 +11917,13 @@ dependencies = [
 name = "vortex-compat"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-select 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-select 60.1.0",
  "base16ct",
  "bytes",
  "clap",
  "futures",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
@@ -11697,11 +11965,11 @@ dependencies = [
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
- "arrow-arith 59.3.2",
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-cast 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-arith 60.1.0",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-cast 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -11725,7 +11993,7 @@ dependencies = [
 name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "async-channel",
  "async-trait",
  "bindgen",
@@ -11773,7 +12041,7 @@ dependencies = [
 name = "vortex-cuda-ffi"
 version = "0.1.0"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "cbindgen",
  "futures",
  "tempfile",
@@ -11797,8 +12065,8 @@ name = "vortex-datafusion"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "async-trait",
  "datafusion 55.2.0",
  "datafusion-catalog 55.2.0",
@@ -11936,7 +12204,7 @@ dependencies = [
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "flatbuffers",
  "jiff",
  "object_store 0.13.2",
@@ -11990,8 +12258,8 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "async-fs",
  "bytes",
  "cbindgen",
@@ -12014,8 +12282,8 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "async-channel",
  "async-trait",
  "bytes",
@@ -12164,9 +12432,9 @@ dependencies = [
 name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-data 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
  "async-fs",
  "async-lock",
  "async-trait",
@@ -12191,8 +12459,8 @@ dependencies = [
 name = "vortex-json"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "prost 0.14.4",
  "vortex-array",
  "vortex-arrow",
@@ -12207,8 +12475,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arcref",
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "async-channel",
  "async-lock",
  "async-stream",
@@ -12313,9 +12581,9 @@ dependencies = [
 name = "vortex-parquet-variant"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-schema 60.1.0",
  "chrono",
  "parquet-variant",
  "parquet-variant-compute",
@@ -12357,9 +12625,9 @@ dependencies = [
 name = "vortex-python"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-data 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-data 60.1.0",
+ "arrow-schema 60.1.0",
  "async-lock",
  "bytes",
  "futures",
@@ -12393,7 +12661,7 @@ version = "0.1.0"
 name = "vortex-python-cuda"
 version = "0.1.0"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.1.0",
  "bytes",
  "pyo3",
  "vortex",
@@ -12405,9 +12673,9 @@ dependencies = [
 name = "vortex-row"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-row 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-row 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -12489,8 +12757,8 @@ dependencies = [
 name = "vortex-spatial"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "geo",
  "geo-traits",
@@ -12540,8 +12808,8 @@ dependencies = [
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "half",
  "itertools 0.14.0",
@@ -12564,8 +12832,8 @@ dependencies = [
 name = "vortex-test-e2e-cuda"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "futures",
  "vortex",
  "vortex-cuda",
@@ -12576,8 +12844,8 @@ name = "vortex-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-schema 60.1.0",
  "clap",
  "console_error_panic_hook",
  "crossterm",
@@ -12589,7 +12857,7 @@ dependencies = [
  "humansize",
  "indicatif",
  "itertools 0.14.0",
- "parquet 59.3.2",
+ "parquet 60.1.0",
  "ratatui",
  "ratzilla",
  "serde",
@@ -12616,9 +12884,9 @@ dependencies = [
 name = "vortex-uuid"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
+ "arrow-schema 60.1.0",
  "rstest",
  "uuid",
  "vortex-array",
@@ -12632,9 +12900,9 @@ dependencies = [
 name = "vortex-web-wasm"
 version = "0.1.0"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-ipc 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.1.0",
+ "arrow-ipc 60.1.0",
+ "arrow-schema 60.1.0",
  "console_error_panic_hook",
  "futures",
  "js-sys",

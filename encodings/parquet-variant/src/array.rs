@@ -140,9 +140,12 @@ impl ParquetVariant {
         let metadata = session
             .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
 
+        // Arrow may declare `value` non-nullable yet leave nulls under rows where the variant
+        // itself is null, so import it as nullable whenever it physically contains nulls.
+        let value_column = arrow_variant.value_column();
         let value = Some(session.from_arrow_array(
-            ArrowArrayRef::clone(arrow_variant.value_column()),
-            value_nullable,
+            ArrowArrayRef::clone(value_column),
+            value_nullable || value_column.null_count() > 0,
         )?);
 
         let typed_value = arrow_variant
