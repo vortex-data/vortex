@@ -58,11 +58,11 @@ use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
-use vortex::expr::traversal::TraversalOrder;
 use vortex::expr::var;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -194,6 +194,39 @@ pub(crate) fn raw_projection(
     Ok((pack(scan_columns, Nullability::NonNullable), schema))
 }
 
+/// Split `projection` with `converter`, pushing lambdas down only with the whole projection.
+///
+/// Lambda parameters are numbered after the projection's input columns, so a lambda left for
+/// DataFusion over a scan output that the split reshaped fails or reads the wrong column (#10215).
+/// Such a split is replaced with one that pushes nothing down.
+pub(crate) fn split_projection_with_lambdas(
+    converter: &dyn ExpressionConverter,
+    projection: ProjectionExprs,
+    input_schema: &Schema,
+    output_schema: &Schema,
+) -> DFResult<ProcessedProjection> {
+    let processed = converter.split_projection(projection.clone(), input_schema, output_schema)?;
+    if !contains_lambda(&processed.leftover_projection)?
+        || processed.leftover_projection == projection
+    {
+        return Ok(processed);
+    }
+    converter.no_pushdown_projection(projection, input_schema)
+}
+
+/// Whether any expression in `projection` contains a lambda.
+fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
+    for projection_expr in projection.iter() {
+        if projection_expr
+            .expr
+            .exists(|node| Ok(node.downcast_ref::<df_expr::LambdaExpr>().is_some()))?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Why an expression was not converted.
 enum Unconverted {
     /// A valid expression that Vortex cannot evaluate; it stays in DataFusion.
@@ -227,13 +260,14 @@ pub struct DefaultExpressionConverter {
     /// `FixedSizeBinary[16]`) convert correctly instead of hitting the static,
     /// non-plugin-aware `DType::from_arrow`.
     session: VortexSession,
+    /// Whether this converts a lambda's body, over the struct of the lambda's inputs, where a
+    /// parameter `x` reads the field `$.x`. Elsewhere a lambda parameter is unsupported.
+    lambda_body: bool,
 }
 
 impl Default for DefaultExpressionConverter {
     fn default() -> Self {
-        Self {
-            session: VortexSession::default(),
-        }
+        Self::new(VortexSession::default())
     }
 }
 
@@ -241,7 +275,10 @@ impl DefaultExpressionConverter {
     /// Create a converter that resolves Arrow extension types using `session`'s
     /// dtype registry.
     pub fn new(session: VortexSession) -> Self {
-        Self { session }
+        Self {
+            session,
+            lambda_body: false,
+        }
     }
 
     /// Resolve an Arrow field through the session registry; unknown types are unsupported.
@@ -359,7 +396,10 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
-            return Ok(var(variable.name()));
+            if !self.lambda_body {
+                return Err(Unconverted::Unsupported);
+            }
+            return Ok(get_item(variable.name(), root()));
         }
 
         if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
@@ -684,8 +724,8 @@ impl DefaultExpressionConverter {
     /// Converts `array_transform` to `list_transform`.
     ///
     /// The lambda's body may read only its one parameter, the element: a body that reads a column
-    /// stays in DataFusion. The body is converted over the struct of the lambda's inputs, so
-    /// [`converted_dtype`] can type its parameter.
+    /// stays in DataFusion. The body is converted over the struct of the lambda's inputs, as Vortex
+    /// binds it, and its reads of that struct then become reads of the parameter.
     fn convert_array_transform(
         &self,
         function: &HigherOrderFunctionExpr,
@@ -697,7 +737,7 @@ impl DefaultExpressionConverter {
                 exec_datafusion_err!("array_transform requires a list and a lambda").into(),
             );
         };
-        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+        let Some(lambda) = wrapped_lambda(lambda) else {
             return Err(Unconverted::Unsupported);
         };
         let [param] = lambda.params() else {
@@ -717,8 +757,15 @@ impl DefaultExpressionConverter {
             StructFields::from_iter([(param.as_str(), element.as_ref().clone())]),
             Nullability::NonNullable,
         );
-        let body = self.convert_expr(lambda.body(), schema, &inputs)?;
-        let lambda = Lambda::new([param.as_str()], body).map_err(|_| Unconverted::Unsupported)?;
+        let body_converter = Self {
+            session: self.session.clone(),
+            lambda_body: true,
+        };
+        // DataFusion also types the body against the outer schema: a lambda variable carries its
+        // own field.
+        let body = body_converter.convert_expr(lambda.body(), schema, &inputs)?;
+        let lambda = Lambda::new([param.as_str()], read_params(body)?)
+            .map_err(|_| Unconverted::Unsupported)?;
         Ok(list_transform(list, lambda))
     }
 
@@ -778,22 +825,43 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
 }
 
 /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
-/// The dtype of `expr` over `input_dtype`. In a lambda's body, `input_dtype` is the struct of the
-/// lambda's inputs and a parameter `@x` reads its field `x`.
 fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
-    expr.clone()
-        .transform_down(|node| {
-            Ok(match &node {
-                Expression::Variable(name) => Transformed {
-                    value: get_item(name.clone(), root()),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                },
-                _ => Transformed::no(node),
-            })
-        })
-        .and_then(|expr| expr.into_inner().return_dtype(input_dtype))
+    expr.return_dtype(input_dtype)
         .map_err(|_| Unconverted::Unsupported)
+}
+
+/// The lambda argument of a higher-order function, under any single-child wrappers, as DataFusion
+/// finds it.
+fn wrapped_lambda(expr: &Arc<dyn PhysicalExpr>) -> Option<&df_expr::LambdaExpr> {
+    let mut current = expr;
+    loop {
+        if let Some(lambda) = current.downcast_ref::<df_expr::LambdaExpr>() {
+            return Some(lambda);
+        }
+        if current.is::<HigherOrderFunctionExpr>() {
+            return None;
+        }
+        match current.children().as_slice() {
+            [child] => current = *child,
+            _ => return None,
+        }
+    }
+}
+
+/// Turns a converted lambda body's reads of the struct of its inputs, `$.x`, into reads of its
+/// parameters, `@x`: the inverse of binding a [`Lambda`]. A lambda in the body is a function's
+/// options, which this leaves alone.
+fn read_params(body: Expression) -> Conversion<Expression> {
+    body.transform_down(|node| {
+        if let Some(name) = node.as_opt::<GetItem>()
+            && node.child(0).is_root()
+        {
+            return Ok(Transformed::yes(var(name.clone())));
+        }
+        Ok(Transformed::no(node))
+    })
+    .map(Transformed::into_inner)
+    .map_err(|_| Unconverted::Unsupported)
 }
 
 /// How a supported DataFusion cast is converted.

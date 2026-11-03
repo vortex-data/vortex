@@ -144,6 +144,7 @@ use super::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
+use crate::convert::exprs::split_projection_with_lambdas;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
 
@@ -881,7 +882,12 @@ impl DataSource for VortexDataSource {
             scan_projection,
             scan_reference_schema,
             leftover_projection,
-        } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
+        } = split_projection_with_lambdas(
+            converter.as_ref(),
+            projection.clone(),
+            input_schema,
+            &projected_schema,
+        )?;
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.

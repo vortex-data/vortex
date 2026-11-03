@@ -16,7 +16,6 @@ use datafusion_common::ScalarValue;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
-use datafusion_common::tree_node::TreeNode;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -25,7 +24,6 @@ use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
-use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -79,6 +77,7 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
+use crate::convert::exprs::split_projection_with_lambdas;
 use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
@@ -436,19 +435,12 @@ impl FileOpener for VortexOpener {
                     leftover_projection: projection,
                 }
             } else if projection_pushdown {
-                let has_lambda = contains_lambda(&projection)?;
-                let processed = expr_converter.split_projection(
-                    projection.clone(),
+                split_projection_with_lambdas(
+                    expr_converter.as_ref(),
+                    projection,
                     &this_file_schema,
                     output_schema.as_ref(),
-                )?;
-                // A lambda left for DataFusion fails or reads the wrong column over the scan's
-                // output (#10215), so lambdas are pushed down only with the whole projection.
-                if has_lambda && contains_lambda(&processed.leftover_projection)? {
-                    expr_converter.no_pushdown_projection(projection, &this_file_schema)?
-                } else {
-                    processed
-                }
+                )?
             } else {
                 expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };
@@ -752,19 +744,6 @@ impl NaturalSplits {
             assignment_bytes,
         }
     }
-}
-
-/// Whether any expression in `projection` contains a lambda.
-fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
-    for projection_expr in projection.iter() {
-        if projection_expr
-            .expr
-            .exists(|node| Ok(node.downcast_ref::<LambdaExpr>().is_some()))?
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// Returns the scan cache other partitions of `path` are planning with, or registers a new one.

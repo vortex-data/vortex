@@ -2360,9 +2360,52 @@ fn test_native_array_transform(
     assert_native_matches(expr, batch)
 }
 
-/// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`
+/// `100 / x` never sees the zero under a null list, as DataFusion drops the values under nulls.
 #[test]
-fn test_native_nested_array_transform() -> anyhow::Result<()> {
+fn test_native_array_transform_skips_values_under_null_lists() -> anyhow::Result<()> {
+    let lists = ListArray::try_new(
+        Arc::new(Field::new("item", DataType::Int64, true)),
+        OffsetBuffer::from_lengths([2, 1, 1]),
+        Arc::new(Int64Array::from(vec![1, 2, 0, 4])),
+        Some(NullBuffer::from(vec![true, false, true])),
+    )?;
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        |x| {
+            Ok(Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(100)))),
+                DFOperator::Divide,
+                x,
+            )))
+        },
+        &schema,
+    )?;
+    expr.evaluate(&batch)?;
+    assert_native_matches(expr, batch)
+}
+
+/// DataFusion runs a lambda argument that a rewrite wrapped, here in `NOT`, without the wrapper.
+#[test]
+fn test_native_wrapped_array_transform() -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let xs: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("xs", 0));
+    let expr = array_transform_expr(Arc::clone(&xs), "x", 1, plus_one_body, &schema)?;
+    let lambda = Arc::clone(expr.children()[1]);
+    let expr = expr.with_new_children(vec![xs, df_expr::not(lambda)?])?;
+    assert_native_matches(expr, batch)
+}
+
+/// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`, and the same with the
+/// inner parameter also named `x`, shadowing the outer one.
+#[rstest]
+#[case::distinct("y")]
+#[case::shadowed("x")]
+fn test_native_nested_array_transform(#[case] inner_param: &str) -> anyhow::Result<()> {
     let inner = ListArray::from_iter_primitive::<Int64Type, _, _>([
         Some(vec![Some(1), None]),
         Some(vec![]),
@@ -2381,7 +2424,7 @@ fn test_native_nested_array_transform() -> anyhow::Result<()> {
         Arc::new(df_expr::Column::new("xss", 0)),
         "x",
         1,
-        |x| array_transform_expr(x, "y", 2, is_not_null_body, &schema),
+        |x| array_transform_expr(x, inner_param, 2, is_not_null_body, &schema),
         &schema,
     )?;
     assert_native_matches(expr, batch)
@@ -2415,21 +2458,7 @@ fn test_array_transform_reading_outside_falls_back(#[case] nested: bool) -> DFRe
             Arc::new(df_expr::Column::new("xss", 0)),
             "x",
             3,
-            |x| {
-                array_transform_expr(
-                    Arc::clone(&x),
-                    "y",
-                    4,
-                    |y| {
-                        Ok(Arc::new(df_expr::BinaryExpr::new(
-                            Arc::new(df_expr::IsNotNullExpr::new(y)),
-                            DFOperator::And,
-                            Arc::new(df_expr::IsNotNullExpr::new(x)),
-                        )))
-                    },
-                    &schema,
-                )
-            },
+            |x| array_transform_expr(Arc::clone(&x), "y", 4, |_| Ok(x), &schema),
             &schema,
         )?
     } else {
