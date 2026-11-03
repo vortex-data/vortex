@@ -35,35 +35,53 @@ pub struct ExtDType<V: ExtVTable> {
     vtable: V,
     /// The extension dtype metadata.
     metadata: V::Metadata,
-    /// The underlying storage dtype.
+    /// The storage dtype, derived from the metadata: the declaration of
+    /// [`ExtVTable::storage_dtype`] with the nullability of this dtype at the top level.
+    ///
+    /// [`try_with_vtable`](Self::try_with_vtable) sets it, and
+    /// [`with_nullability`](Self::with_nullability) keeps it with a new top-level nullability
+    /// instead of asking for the declaration again. It is cached so that
+    /// [`storage_dtype`](Self::storage_dtype()) can return a reference.
     storage_dtype: DType,
 }
 
 /// Convenience implementation for zero-sized VTables (or VTables that implement `Default`).
 impl<V: ExtVTable + Default> ExtDType<V> {
-    /// Creates a new extension dtype with the given metadata and storage dtype.
-    pub fn try_new(metadata: V::Metadata, storage_dtype: DType) -> VortexResult<Self> {
-        Self::try_with_vtable(V::default(), metadata, storage_dtype)
+    /// Creates a new extension dtype with the given metadata and nullability, as
+    /// [`try_with_vtable`](Self::try_with_vtable) does.
+    pub fn try_new(metadata: V::Metadata, nullability: Nullability) -> VortexResult<Self> {
+        Self::try_with_vtable(V::default(), metadata, nullability)
     }
 }
 
 #[expect(clippy::same_name_method)]
 impl<V: ExtVTable> ExtDType<V> {
-    /// Creates a new extension dtype with the given metadata and storage dtype.
+    /// Creates a new extension dtype with the given metadata and nullability.
+    ///
+    /// The storage dtype is the one that [`ExtVTable::storage_dtype`] declares for `metadata`, with
+    /// `nullability` at the top level.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if [`ExtVTable::validate_metadata`] rejects `metadata`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `nullability` is non-nullable and the declared storage dtype has no non-nullable
+    /// form, such as [`DType::Null`] or an extension dtype over it.
     pub fn try_with_vtable(
         vtable: V,
         metadata: V::Metadata,
-        storage_dtype: DType,
+        nullability: Nullability,
     ) -> VortexResult<Self> {
-        let this = Self {
+        V::validate_metadata(&metadata)?;
+        let storage_dtype = V::storage_dtype(&metadata).with_nullability(nullability);
+
+        Ok(Self {
             vtable,
             metadata,
             storage_dtype,
-        };
-
-        V::validate_dtype(&this)?;
-
-        Ok(this)
+        })
     }
 
     /// Returns the identifier of the extension type.
@@ -88,8 +106,7 @@ impl<V: ExtVTable> ExtDType<V> {
 
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     ///
-    /// This does not validate the dtype again, because [`ExtVTable::validate_dtype`] must not
-    /// depend on the top-level nullability of the storage dtype.
+    /// The metadata does not change, so this does not validate it again.
     pub fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
         Self {
             vtable: self.vtable.clone(),
