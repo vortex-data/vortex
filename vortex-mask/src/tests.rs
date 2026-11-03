@@ -789,3 +789,11 @@ fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
         assert_eq!(it.len(), mask.len() - 1);
     }
 }
+
+/// `from_excluded_indices` must count each excluded position once: `[0, 0]` excludes a single row.
+#[test]
+fn from_excluded_indices_counts_duplicates_once() {
+    let mask = Mask::from_excluded_indices(3, [0, 0]);
+    assert_eq!(mask.true_count(), 2);
+    assert!(!Mask::from_excluded_indices(3, [0, 0, 0]).all_false());
+}
