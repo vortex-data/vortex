@@ -19,6 +19,7 @@ use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ffi::c_uint;
 use std::ffi::c_void;
+use std::fmt;
 use std::sync::OnceLock;
 
 use libloading::Library;
@@ -294,15 +295,40 @@ driver_api! {
     fn cuGetErrorString(error: CUresult, description: *mut *const c_char);
 }
 
+/// Distinguishes an unavailable library from an incompatible library that opened successfully.
+#[derive(Debug)]
+pub(crate) enum DriverLoadError {
+    LibraryUnavailable,
+    MissingSymbol(String),
+}
+
+impl fmt::Display for DriverLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LibraryUnavailable => {
+                write!(
+                    f,
+                    "none of [{}] could be loaded",
+                    DRIVER_LIBRARIES.join(", ")
+                )
+            }
+            Self::MissingSymbol(reason) => f.write_str(reason),
+        }
+    }
+}
+
+/// The cached library-loading or symbol-resolution error, loading the driver on first use.
+pub(crate) fn driver_load_error() -> Option<&'static DriverLoadError> {
+    driver().err()
+}
+
 /// The process-wide driver entry points, loaded on first use.
-fn driver() -> Result<&'static Driver, &'static str> {
-    static DRIVER: OnceLock<Result<Driver, String>> = OnceLock::new();
+fn driver() -> Result<&'static Driver, &'static DriverLoadError> {
+    static DRIVER: OnceLock<Result<Driver, DriverLoadError>> = OnceLock::new();
     DRIVER
         .get_or_init(|| {
-            let library = open_library()
-                .ok_or_else(|| format!("none of {DRIVER_LIBRARIES:?} could be loaded"))?;
-            Driver::load(library)
+            let library = open_library().ok_or(DriverLoadError::LibraryUnavailable)?;
+            Driver::load(library).map_err(DriverLoadError::MissingSymbol)
         })
         .as_ref()
-        .map_err(String::as_str)
 }

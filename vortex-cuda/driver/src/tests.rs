@@ -13,16 +13,49 @@ use crate::HostSlice;
 use crate::SyncOnDrop;
 use crate::sys;
 
-/// A context and two streams, or `None` without a CUDA device.
+/// A context and two streams, or `None` without a CUDA driver or device.
+///
+/// Any other failure fails the test, rather than passing it without running it.
 fn streams() -> Option<(Arc<CudaContext>, Arc<CudaStream>, Arc<CudaStream>)> {
-    // SAFETY: Only probes for the driver library.
-    if !unsafe { sys::is_culib_present() } {
+    if !driver_available(sys::driver_load_error()) {
         return None;
     }
-    let context = CudaContext::new(0).ok()?;
-    let first = context.new_stream().ok()?;
-    let second = context.new_stream().ok()?;
+    let context = match CudaContext::new(0) {
+        Ok(context) => context,
+        Err(DriverError(sys::CUresult::CUDA_ERROR_NO_DEVICE)) => return None,
+        Err(error) => panic!("CUDA initialization failed: {error}"),
+    };
+    let first = context.new_stream().expect("stream");
+    let second = context.new_stream().expect("stream");
     Some((context, first, second))
+}
+
+fn driver_available(error: Option<&sys::DriverLoadError>) -> bool {
+    match error {
+        None => true,
+        Some(sys::DriverLoadError::LibraryUnavailable) => false,
+        Some(error) => panic!("CUDA driver loading failed: {error}"),
+    }
+}
+
+#[test]
+fn missing_driver_skips_tests() {
+    assert!(!driver_available(Some(
+        &sys::DriverLoadError::LibraryUnavailable
+    )));
+}
+
+#[test]
+fn loaded_driver_runs_tests() {
+    assert!(driver_available(None));
+}
+
+#[test]
+#[should_panic(expected = "CUDA driver loading failed: cuMemAllocAsync: undefined symbol")]
+fn missing_driver_symbol_fails_tests() {
+    driver_available(Some(&sys::DriverLoadError::MissingSymbol(
+        "cuMemAllocAsync: undefined symbol".to_owned(),
+    )));
 }
 
 #[test]
