@@ -33,10 +33,10 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 const BENCH_ARGS: &[(usize, TimeUnit)] = &[
-    (65_536, TimeUnit::Seconds),
-    (65_536, TimeUnit::Milliseconds),
-    (65_536, TimeUnit::Microseconds),
-    (65_536, TimeUnit::Nanoseconds),
+    (8_192, TimeUnit::Seconds),
+    (8_192, TimeUnit::Milliseconds),
+    (8_192, TimeUnit::Microseconds),
+    (8_192, TimeUnit::Nanoseconds),
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -64,10 +64,8 @@ fn split(bencher: Bencher, args: (usize, TimeUnit)) {
         .bench_values(|(array, mut ctx)| split_temporal(array, &mut ctx).unwrap())
 }
 
-const EXTREME_ARGS: &[(usize, TimeUnit)] = &[
-    (65_536, TimeUnit::Seconds),
-    (65_536, TimeUnit::Milliseconds),
-];
+const EXTREME_ARGS: &[(usize, TimeUnit)] =
+    &[(8_192, TimeUnit::Seconds), (8_192, TimeUnit::Milliseconds)];
 
 #[divan::bench(args = EXTREME_ARGS)]
 fn split_extreme(bencher: Bencher, args: (usize, TimeUnit)) {
