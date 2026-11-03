@@ -16,6 +16,13 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // A value conversion can fail on an unreferenced dictionary entry. Only change outer
+        // nullability unless every value is referenced; its validity is checked below.
+        if !array.has_all_values_referenced() && array.dtype().as_nullable() != dtype.as_nullable()
+        {
+            return Ok(None);
+        }
+
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable() && !array.values().validity()?.definitely_no_nulls() {
@@ -238,6 +245,38 @@ mod tests {
             .execute::<Canonical>(ctx)?;
 
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i8, 1, 1]), ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_with_unreferenced_values_preserves_nullability_rewrite() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(
+            buffer![1u8, 1, 1].into_array(),
+            buffer![1000i64, 1].into_array(),
+        )?
+        .into_array();
+
+        let nullable = dict.cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
+        assert!(nullable.is::<Dict>());
+        let non_nullable = nullable.cast(DType::Primitive(PType::I64, Nullability::NonNullable))?;
+        assert!(non_nullable.is::<Dict>());
+
+        assert_arrays_eq!(non_nullable, PrimitiveArray::from_iter([1i64, 1, 1]), ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_cast_dict_rejects_referenced_out_of_range_value() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
+        let casted = dict
+            .into_array()
+            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?;
+
+        assert!(casted.is::<Dict>());
+        let error = casted.execute::<Canonical>(ctx).unwrap_err();
+        assert!(error.to_string().contains("value exceeds target range"));
         Ok(())
     }
 }
