@@ -182,8 +182,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Execute the expression over the input arguments.
     ///
     /// Superseded by [`execute_step`](Self::execute_step). Vortex only calls this method through
-    /// the default `execute_step`, so a function that implements `execute_step` never has
-    /// `execute` called and should implement it with [`vortex_panic!`].
+    /// the default `execute_step`. A function that implements `execute_step` either implements
+    /// `execute` with [`vortex_panic!`], or keeps its logic here and calls it from `execute_step`
+    /// once [`require_input!`](crate::require_input) has its inputs in the form it needs.
     ///
     /// [`vortex_panic!`]: vortex_error::vortex_panic
     ///

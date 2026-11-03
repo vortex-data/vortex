@@ -17,7 +17,6 @@ pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -30,8 +29,8 @@ use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
-use crate::matcher::Matcher;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -47,8 +46,8 @@ use crate::scalar_fn::fns::operators::Operator;
 pub mod boolean;
 pub use boolean::BooleanExecuteAdaptor;
 pub use boolean::BooleanKernel;
+use boolean::constant_boolean;
 pub(crate) use boolean::execute_boolean;
-use boolean::execute_boolean_step;
 pub use boolean::kleene_boolean_buffer_scalar;
 pub use boolean::kleene_boolean_buffers;
 mod compare;
@@ -180,38 +179,27 @@ impl ScalarFnVTable for Binary {
 
     fn execute(
         &self,
-        _op: &Operator,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        vortex_panic!("Binary implements execute_step, so execute is never called")
-    }
-
-    fn execute_step(
-        &self,
         op: &Operator,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ScalarFnExecutionResult> {
+    ) -> VortexResult<ArrayRef> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
 
-        if let Operator::And | Operator::Or = op {
-            return execute_boolean_step(lhs, rhs, *op, ctx);
+        match op {
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq, ctx),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq, ctx),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt, ctx),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
+            Operator::And => execute_boolean(lhs, rhs, Operator::And, ctx),
+            Operator::Or => execute_boolean(lhs, rhs, Operator::Or, ctx),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div, ctx),
         }
-
-        // A null constant operand decides a comparison or arithmetic result on its own.
-        let null_operand = |array: &ArrayRef| array.as_constant().is_some_and(|s| s.is_null());
-        if !null_operand(&lhs) && !null_operand(&rhs) {
-            if !AnyColumnar::matches(&lhs) {
-                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
-            }
-            if !AnyColumnar::matches(&rhs) {
-                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(1));
-            }
-        }
-
-        execute_operator(&lhs, &rhs, *op, ctx).map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(
@@ -331,6 +319,32 @@ impl ScalarFnVTable for Binary {
         ))
     }
 
+    fn execute_step(
+        &self,
+        op: &Operator,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
+        // A constant operand that decides the result, such as `false AND x` or `x < null`, spares
+        // executing the other operand.
+        let decided = match op {
+            Operator::And | Operator::Or => {
+                lhs.is_empty() || constant_boolean(&lhs, &rhs, *op)?.is_some()
+            }
+            _ => [&lhs, &rhs]
+                .iter()
+                .any(|array| array.as_constant().is_some_and(|scalar| scalar.is_null())),
+        };
+        if !decided {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
+        }
+        self.execute(op, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
     fn is_strict(&self, operator: &Operator) -> bool {
         !matches!(operator, Operator::And | Operator::Or)
     }
@@ -348,29 +362,6 @@ impl ScalarFnVTable for Binary {
                 | Operator::And
                 | Operator::Or
         )
-    }
-}
-
-/// Executes `op` over operands that are columnar, or that decide the result on their own.
-fn execute_operator(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    op: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    match op {
-        Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq, ctx),
-        Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq, ctx),
-        Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt, ctx),
-        Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte, ctx),
-        Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt, ctx),
-        Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte, ctx),
-        Operator::And => execute_boolean(lhs.clone(), rhs.clone(), Operator::And, ctx),
-        Operator::Or => execute_boolean(lhs.clone(), rhs.clone(), Operator::Or, ctx),
-        Operator::Add => execute_numeric(lhs, rhs, NumericOperator::Add, ctx),
-        Operator::Sub => execute_numeric(lhs, rhs, NumericOperator::Sub, ctx),
-        Operator::Mul => execute_numeric(lhs, rhs, NumericOperator::Mul, ctx),
-        Operator::Div => execute_numeric(lhs, rhs, NumericOperator::Div, ctx),
     }
 }
 

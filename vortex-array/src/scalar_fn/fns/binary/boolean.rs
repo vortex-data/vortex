@@ -13,7 +13,6 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -32,10 +31,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
-use crate::matcher::Matcher;
 use crate::scalar::BoolScalar;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
@@ -146,30 +143,8 @@ pub(crate) fn execute_boolean(
     Ok(result)
 }
 
-/// One iterative step of a Kleene boolean operation.
-///
-/// Answers from constants first, so an operand that decides the result, such as `false AND`,
-/// spares executing the other one. Otherwise asks for each operand as columnar in turn.
-pub(crate) fn execute_boolean_step(
-    lhs: ArrayRef,
-    rhs: ArrayRef,
-    op: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ScalarFnExecutionResult> {
-    if lhs.is_empty() || constant_boolean(&lhs, &rhs, op)?.is_some() {
-        return execute_boolean(lhs, rhs, op, ctx).map(ScalarFnExecutionResult::done);
-    }
-    if !AnyColumnar::matches(&lhs) {
-        return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
-    }
-    if !AnyColumnar::matches(&rhs) {
-        return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(1));
-    }
-    execute_boolean(lhs, rhs, op, ctx).map(ScalarFnExecutionResult::done)
-}
-
 /// Handles boolean operations where at least one operand is a constant array.
-fn constant_boolean(
+pub(super) fn constant_boolean(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: Operator,

@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -28,6 +27,7 @@ use crate::arrays::VarBinView;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::optimizer::ArrayOptimizer;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -120,18 +120,9 @@ impl ScalarFnVTable for FillNull {
     fn execute(
         &self,
         _options: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        vortex_panic!("FillNull implements execute_step, so execute is never called")
-    }
-
-    fn execute_step(
-        &self,
-        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ScalarFnExecutionResult> {
+    ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let fill_value = args.get(1)?;
         // Parent kernels decline a fill that is not already constant. Materialize it here so a
@@ -153,7 +144,7 @@ impl ScalarFnVTable for FillNull {
             let dtype = input
                 .dtype()
                 .with_nullability(fill_value.dtype().nullability());
-            return Ok(ScalarFnExecutionResult::done(Canonical::empty(&dtype)));
+            return Ok(Canonical::empty(&dtype).into_array());
         };
 
         vortex_ensure!(
@@ -167,17 +158,31 @@ impl ScalarFnVTable for FillNull {
                 // kernels get a chance before we decode the input.
                 return FillNull::try_new(input, fill_value)?
                     .into_array()
-                    .optimize_ctx(ctx.session())
-                    .map(ScalarFnExecutionResult::done);
+                    .optimize_ctx(ctx.session());
             }
-            return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
+            let input = input.execute::<ArrayRef>(ctx)?;
+            return Ok(FillNull::try_new(input, fill_value)?.into_array());
         };
 
         match columnar {
             ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, fill_scalar, ctx),
             ColumnarView::Constant(constant) => fill_null_constant(constant, fill_scalar),
         }
-        .map(ScalarFnExecutionResult::done)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // Only once the fill is constant: `execute` materializes a lazy fill first, so the input's
+        // FillNull kernels can still apply before the input is decoded.
+        if args.get(1)?.is::<Constant>() {
+            require_input!(args, 0 => AnyColumnar);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(

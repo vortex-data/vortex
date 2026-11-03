@@ -16,7 +16,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -34,8 +33,8 @@ use crate::arrays::varbinview::ResolvedViews;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::display::ExprDisplay;
-use crate::matcher::Matcher;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -165,11 +164,14 @@ impl ScalarFnVTable for Like {
 
     fn execute(
         &self,
-        _options: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_panic!("Like implements execute_step, so execute is never called")
+        let child = args.get(0)?;
+        let pattern = args.get(1)?;
+
+        execute_like(&child, &pattern, *options, ctx)
     }
 
     fn execute_step(
@@ -178,21 +180,17 @@ impl ScalarFnVTable for Like {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
-        let child = args.get(0)?;
-        let pattern = args.get(1)?;
-
         // A null pattern decides every row without reading the input.
-        let null_pattern = pattern.as_constant().is_some_and(|p| p.is_null());
-        if !null_pattern && !child.is_empty() {
-            if !AnyColumnar::matches(&child) {
-                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
-            }
-            if !AnyColumnar::matches(&pattern) {
-                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(1));
-            }
+        if !args
+            .get(1)?
+            .as_constant()
+            .is_some_and(|pattern| pattern.is_null())
+        {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
         }
-
-        execute_like(&child, &pattern, *options, ctx).map(ScalarFnExecutionResult::done)
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

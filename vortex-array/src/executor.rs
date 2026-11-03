@@ -921,6 +921,25 @@ macro_rules! require_child {
     }};
 }
 
+/// The scalar function counterpart of [`require_child!`]: require that input `$idx` of `$args`
+/// matches `$M`. If it does not, early-returns a
+/// [`ScalarFnExecutionResult`](crate::scalar_fn::ScalarFnExecutionResult) asking the executor to
+/// execute that input until it matches, so the function is stepped again with the executed input.
+///
+/// ```ignore
+/// require_input!(args, 0 => AnyColumnar);
+/// ```
+#[macro_export]
+macro_rules! require_input {
+    ($args:expr, $idx:expr => $M:ty) => {
+        if !<$M as $crate::matcher::Matcher>::matches(&$args.get($idx)?) {
+            return Ok($crate::scalar_fn::ScalarFnExecutionResult::execute_input::<
+                $M,
+            >($idx));
+        }
+    };
+}
+
 /// Like [`require_child!`], but for optional children. If the child is `None`, this is a no-op.
 /// If the child is `Some` but does not match `$M`, early-returns an [`ExecutionResult`] requesting
 /// execution of child `$idx`.
