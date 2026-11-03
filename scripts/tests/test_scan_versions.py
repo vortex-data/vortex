@@ -96,17 +96,19 @@ def test_rejects_mismatched_build_revision_and_executable(comparison: ModuleType
         comparison.binary_provenance(binary, "base-sha")
 
 
+@pytest.mark.parametrize("failure_mode", [None, "exit", "timeout"])
 def test_runs_each_engine_and_scan_version_with_the_expected_binary(
-    comparison: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    comparison: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_mode: str | None
 ):
     program = f"""#!{sys.executable}
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 import sys
 if '--print-queries' in sys.argv:
-    print('1\\n2')
+    print('1\\n2\\n3')
     raise SystemExit()
 def arg(name):
     return sys.argv[sys.argv.index(name) + 1]
@@ -114,6 +116,10 @@ if os.environ.get('CI') == 'true' and ('--runner' not in sys.argv or arg('--runn
     raise SystemExit('benchmark runner must not be unknown in CI; pass --runner')
 revision = Path(__file__).parent.name
 engine = Path(__file__).name.removesuffix('-bench')
+if os.environ.get('FAIL_QUERY') == arg('--queries') and engine == 'duckdb':
+    if os.environ.get('FAIL_MODE') == 'timeout':
+        time.sleep(2)
+    raise SystemExit('intentional query failure')
 version = 1 if arg('--scan-v1') == 'true' else 2
 duration = 150 if revision == 'base' else 100 if version == 2 else 200
 samples = [9000, 8000] + [duration] * (int(arg('--iterations')) - 2)
@@ -124,6 +130,9 @@ record = dict(name=f'tpch_q{{int(arg("--queries")):02}}/{{engine}}:vortex-file-c
 Path(arg('-o')).write_text(json.dumps(record))
 """
     monkeypatch.setenv("CI", "true")
+    if failure_mode:
+        monkeypatch.setenv("FAIL_QUERY", "2")
+        monkeypatch.setenv("FAIL_MODE", failure_mode)
     for revision in ("base", "head"):
         directory = tmp_path / revision
         directory.mkdir()
@@ -175,18 +184,30 @@ Path(arg('-o')).write_text(json.dumps(record))
             "2",
             "--output-dir",
             str(output),
+            "--query-timeout",
+            "0.5" if failure_mode == "timeout" else "300",
         ],
     )
-    comparison.main()
+    if failure_mode:
+        with pytest.raises(SystemExit) as failure:
+            comparison.main()
+        assert failure.value.code == 1
+    else:
+        comparison.main()
     rows = json.loads((output / "measurements.json").read_text(encoding="utf-8"))
-    assert len(rows) == 12
+    assert len(rows) == (15 if failure_mode else 18)
     for row in rows:
         revision, version = row["variant"].split("-")
         assert Path(row["command"][0]).parent.name == revision
         flag = row["command"].index("--scan-v1")
         assert row["command"][flag + 1] == str(version == "v1").lower()
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert summary["complete"] is True
+    assert summary["complete"] is (failure_mode is None)
+    assert [row["query"] for row in summary["engines"]["duckdb"]["queries"]] == ([1, 3] if failure_mode else [1, 2, 3])
+    assert [row["query"] for row in summary["engines"]["datafusion"]["queries"]] == [1, 2, 3]
+    assert len(summary["failures"]) == (1 if failure_mode else 0)
+    if failure_mode:
+        assert "INCOMPLETE" in (output / "summary.md").read_text(encoding="utf-8")
     for engine in ("duckdb", "datafusion"):
         comparisons = summary["engines"][engine]["comparisons"]
         assert comparisons["head_v2_vs_base_v2"]["ratio"] == pytest.approx(2 / 3)

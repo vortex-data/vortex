@@ -148,6 +148,19 @@ jobs:
         with:
           name: scan-comparison-base-binaries
           path: target/scan-comparison/base
+      - name: Place inputs and DuckDB spill files on local NVMe
+        env:
+          CASE_ID: ${{ matrix.id }}
+        run: |
+          data_root="$RUNNER_TEMP/scan-comparison-data"
+          if [[ -d /mnt/ephemeral ]]; then
+            data_root=/mnt/ephemeral/scan-comparison-data
+          fi
+          data_dir="$data_root/$GITHUB_RUN_ID/$CASE_ID"
+          sudo install -d -o "$(id -u)" -g "$(id -g)" "$data_dir" "$data_dir/target"
+          ln -s "$GITHUB_WORKSPACE/Cargo.lock" "$data_dir/Cargo.lock"
+          echo "COMPARISON_DATA_DIR=$data_dir" >> "$GITHUB_ENV"
+          echo "COMPARISON_DATA_URL=file://$data_dir/" >> "$GITHUB_ENV"
       - name: Prepare shared benchmark files
         env:
           SUITE: ${{ matrix.suite }}
@@ -158,7 +171,9 @@ jobs:
           if [[ -n "$SCALE" ]]; then
             options+=(--opt "scale-factor=$SCALE")
           fi
-          target/scan-comparison/head/data-gen "$SUITE" --formats vortex "${options[@]}"
+          options+=(--opt "remote-data-dir=$COMPARISON_DATA_URL")
+          cd "$COMPARISON_DATA_DIR"
+          "$GITHUB_WORKSPACE/target/scan-comparison/head/data-gen" "$SUITE" --formats vortex "${options[@]}"
       - name: Prepare benchmark CPUs
         run: sudo bash scripts/setup-benchmark.sh
       - name: Compare base V2, head V2 and head V1 sequentially
@@ -175,7 +190,8 @@ jobs:
           bash scripts/bench-taskset.sh python3 scripts/compare-scan-versions.py "$SUITE" \
             --base-dir target/scan-comparison/base --head-dir target/scan-comparison/head \
             --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
-            --iterations 7 --warmup 2 --rounds 2 --output-dir scan-comparison-results "${options[@]}"
+            --iterations 7 --warmup 2 --rounds 2 --query-timeout 300 \
+            --opt "remote-data-dir=$COMPARISON_DATA_URL" --output-dir scan-comparison-results "${options[@]}"
       - name: Publish comparison summary
         if: always()
         run: |

@@ -184,13 +184,20 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
         "| Engine | Queries | Head V2 / base V2 (95% interval) | Head V2 / head V1 (95% interval) |",
         "| --- | ---: | --- | --- |",
     ]
+    if not summary["complete"]:
+        lines.extend(["**INCOMPLETE: failed queries are excluded; these ratios do not describe the full suite.**", ""])
     for engine, data in summary["engines"].items():
         cells = []
         for label in ("head_v2_vs_base_v2", "head_v2_vs_head_v1"):
+            if label not in data["comparisons"]:
+                cells.append("No complete pairs")
+                continue
             value = data["comparisons"][label]
             low, high = value["interval_95"]
             cells.append(f"{value['ratio']:.3f} ({low:.3f}–{high:.3f}), {value['verdict']}")
-        lines.append(f"| {engine} | {len(data['queries'])} | {' | '.join(cells)} |")
+        lines.append(f"| {engine} | {len(data['queries'])}/{len(manifest['queries'][engine])} | {' | '.join(cells)} |")
+    for failure in summary.get("failures", []):
+        lines.append(f"\nFailed {failure['engine']} Q{failure['query']} {failure['variant']}: {failure['error']}")
     for engine, data in summary["engines"].items():
         lines.extend(
             [
@@ -211,6 +218,23 @@ def markdown(summary: dict[str, Any], manifest: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def completed_comparison(
+    rows: list[dict[str, Any]], manifest: dict[str, Any], failures: list[dict[str, Any]]
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"complete": not failures, "engines": {}, "failures": failures}
+    for engine, expected in manifest["queries"].items():
+        failed = {failure["query"] for failure in failures if failure["engine"] == engine}
+        queries = [query for query in expected if query not in failed]
+        kept = [row for row in rows if row["engine"] == engine and row["query"] in queries]
+        if queries:
+            data = summarize(kept, [engine], queries, manifest["rounds"])["engines"][engine]
+        else:
+            data = {"queries": [], "comparisons": {}}
+        data["failed_queries"] = sorted(failed)
+        result["engines"][engine] = data
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("suite", choices=("tpch", "tpcds", "clickbench"))
@@ -224,12 +248,17 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=7)
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument(
+        "--query-timeout", type=float, default=300, help="Seconds per query process before recording a failure"
+    )
     parser.add_argument("--threads", type=int, default=len(os.sched_getaffinity(0)))
     parser.add_argument("--opt", action="append", default=[])
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     if not 0 <= args.warmup < args.iterations or args.rounds < 1 or args.threads < 1:
         parser.error("Require 0 <= warmup < iterations and positive rounds/threads")
+    if not math.isfinite(args.query_timeout) or args.query_timeout <= 0:
+        parser.error("Require a positive finite query timeout")
     engines = args.engines.split(",")
     if len(set(engines)) != len(engines) or not set(engines) <= {"duckdb", "datafusion"}:
         parser.error("Engines must be unique members of duckdb,datafusion")
@@ -248,6 +277,7 @@ def main() -> None:
         "iterations": args.iterations,
         "warmup": args.warmup,
         "rounds": args.rounds,
+        "query_timeout_seconds": args.query_timeout,
         "threads": args.threads,
         "options": options,
         "affinity": sorted(os.sched_getaffinity(0)),
@@ -256,6 +286,8 @@ def main() -> None:
         "checkout_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
     }
     rows: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    failed_queries: set[tuple[str, int]] = set()
     for engine in engines:
         binaries = {
             "base": args.base_dir.resolve() / f"{engine}-bench",
@@ -284,6 +316,8 @@ def main() -> None:
         write_json(output / "manifest.json", manifest)
         for turn in range(args.rounds):
             for index, query in enumerate(queries):
+                if (engine, query) in failed_queries:
+                    continue
                 start = index % len(VARIANTS)
                 order = VARIANTS[start:] + VARIANTS[:start]
                 if turn % 2:
@@ -310,10 +344,31 @@ def main() -> None:
                     log_path = stem.with_suffix(".log")
                     try:
                         with log_path.open("w", encoding="utf-8") as log:
-                            subprocess.run(cmd, env=envs[revision], stdout=log, stderr=subprocess.STDOUT, check=True)
-                    except subprocess.CalledProcessError:
+                            subprocess.run(
+                                cmd,
+                                env=envs[revision],
+                                stdout=log,
+                                stderr=subprocess.STDOUT,
+                                check=True,
+                                timeout=args.query_timeout,
+                            )
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
                         print(log_path.read_text(encoding="utf-8")[-8000:], flush=True)
-                        raise
+                        failures.append(
+                            {
+                                "engine": engine,
+                                "query": query,
+                                "round": turn,
+                                "variant": variant,
+                                "error": str(error),
+                                "log": str(log_path),
+                                "command": cmd,
+                            }
+                        )
+                        failed_queries.add((engine, query))
+                        write_json(output / "failures.json", failures)
+                        print(f"FAILED {engine} q{query}; continuing with other queries", flush=True)
+                        break
                     value = measurement(
                         stem.with_suffix(".jsonl"),
                         query=query,
@@ -333,11 +388,13 @@ def main() -> None:
     query_sets = list(manifest["queries"].values())
     if any(queries != query_sets[0] for queries in query_sets):
         raise ValueError("Engines enumerate different query sets; report them separately")
-    summary = summarize(rows, engines, query_sets[0], args.rounds)
+    summary = completed_comparison(rows, manifest, failures)
     write_json(output / "summary.json", summary)
     report = markdown(summary, manifest)
     (output / "summary.md").write_text(report, encoding="utf-8")
     print(report, flush=True)
+    if failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
