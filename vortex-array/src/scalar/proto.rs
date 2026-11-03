@@ -511,10 +511,19 @@ fn list_from_proto(
         }
         DType::Map(map, _) => {
             let entry_dtype = map.entries_dtype();
-            v.values
+            let entries = v
+                .values
                 .iter()
-                .map(|entry| ScalarValue::from_proto(entry, &entry_dtype, session))
-                .collect::<VortexResult<Vec<_>>>()?
+                .map(|entry| {
+                    let entry = ScalarValue::from_proto(entry, &entry_dtype, session)?;
+                    Scalar::validate(&entry_dtype, entry.as_ref())?;
+                    Ok(entry)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(ScalarValue::List(ScalarListValue::from_values(
+                &entry_dtype,
+                entries,
+            )));
         }
         _ => vortex_bail!("expected a tuple-backed dtype for ListValue, got {dtype}"),
     };

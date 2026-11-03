@@ -44,6 +44,7 @@ use crate::dtype::Nullability;
 use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
+use crate::scalar::ListValue;
 use crate::scalar::Scalar;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`OffsetBuilderPType`]
@@ -200,7 +201,12 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// This method extends the value builder with the provided values and records
     /// the offset and size of the new list.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let Some(elements) = value.list_value() else {
+        self.append_list_value(value.list_value())
+    }
+
+    /// Appends a list given by its value, or a null list for `None`.
+    pub(crate) fn append_list_value(&mut self, value: Option<&ListValue>) -> VortexResult<()> {
+        let Some(elements) = value else {
             // If `elements` is `None`, then the `value` is a null value.
             vortex_ensure!(
                 self.dtype.is_nullable(),

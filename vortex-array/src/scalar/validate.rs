@@ -19,6 +19,7 @@ use crate::dtype::UnionVariants;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::list_value::is_map_entries_dtype;
 use crate::scalar::list_value::normalize_list_values;
 
 impl Scalar {
@@ -80,18 +81,8 @@ impl Scalar {
             (DType::FixedSizeList(elem_dtype, size, _), ScalarValue::List(list)) => {
                 list.len() == *size as usize && list.element_dtype() == elem_dtype.as_ref()
             }
-            (DType::Map(map, _), ScalarValue::Tuple(entries)) => {
-                let key_dtype = map.key_dtype();
-                let value_dtype = map.value_dtype();
-
-                entries.iter().all(|entry| match entry {
-                    Some(ScalarValue::Tuple(values)) => {
-                        values.len() == 2
-                            && Self::is_compatible(&key_dtype, values[0].as_ref())
-                            && Self::is_compatible(&value_dtype, values[1].as_ref())
-                    }
-                    _ => false,
-                })
+            (DType::Map(map, _), ScalarValue::List(entries)) => {
+                is_map_entries_dtype(map, entries.element_dtype())
             }
             (DType::Struct(fields, _), ScalarValue::Tuple(values)) => {
                 values.len() == fields.nfields()
@@ -280,8 +271,17 @@ impl Scalar {
 
     /// Validates map entries and adds their positions to storage validation errors.
     fn validate_map(map: &MapDType, value: &ScalarValue) -> VortexResult<()> {
+        if let ScalarValue::List(entries) = value {
+            vortex_ensure!(
+                is_map_entries_dtype(map, entries.element_dtype()),
+                "map dtype with entries {} got entries of {}",
+                map.entries_dtype(),
+                entries.element_dtype(),
+            );
+            return Ok(());
+        }
         let ScalarValue::Tuple(entries) = value else {
-            vortex_bail!("map dtype expected Tuple value, got {value}");
+            vortex_bail!("map dtype expected List or Tuple value, got {value}");
         };
         let key_dtype = map.key_dtype();
         let value_dtype = map.value_dtype();
@@ -358,7 +358,7 @@ mod tests {
     use crate::scalar::UnionValue;
 
     /// The fast check in `is_compatible` must accept exactly what `validate_detailed` accepts,
-    /// except a list in the legacy tuple form, which only the detailed check accepts so that
+    /// except a list or map in the legacy tuple form, which only the detailed check accepts so that
     /// scalar construction can convert it.
     #[test]
     fn fast_and_detailed_checks_agree() -> VortexResult<()> {
@@ -378,6 +378,7 @@ mod tests {
             MapDType::try_new(i32_dtype.clone(), DType::Bool(Nullable), false)?,
             NonNullable,
         );
+        let map_entries_dtype = map_dtype.as_map_opt().unwrap().entries_dtype();
         let union_dtype = DType::Union(
             UnionVariants::try_new(["int"].into(), vec![i32_dtype.clone()], vec![3])?,
             NonNullable,
@@ -488,6 +489,19 @@ mod tests {
                 tuple(vec![tuple(vec![None, None])]),
                 false,
             ),
+            (
+                map_dtype.clone(),
+                list(
+                    &map_entries_dtype,
+                    vec![tuple(vec![i32_value(), Some(ScalarValue::Bool(true))])],
+                ),
+                true,
+            ),
+            (
+                map_dtype.clone(),
+                list(&i32_dtype, vec![i32_value()]),
+                false,
+            ),
             (map_dtype, tuple(vec![tuple(vec![i32_value()])]), false),
             (
                 struct_dtype.clone(),
@@ -532,8 +546,10 @@ mod tests {
         ];
 
         for (dtype, value, expected) in &cases {
-            let legacy_list = matches!(dtype, DType::List(..) | DType::FixedSizeList(..))
-                && matches!(value, Some(ScalarValue::Tuple(_)));
+            let legacy_list = matches!(
+                dtype,
+                DType::List(..) | DType::FixedSizeList(..) | DType::Map(..)
+            ) && matches!(value, Some(ScalarValue::Tuple(_)));
             assert_eq!(
                 Scalar::validate_detailed(dtype, value.as_ref()).is_ok(),
                 *expected,

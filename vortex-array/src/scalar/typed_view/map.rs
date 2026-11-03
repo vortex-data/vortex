@@ -13,19 +13,26 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
+use crate::arrays::Struct;
+use crate::arrays::struct_::StructSlots;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
+use crate::scalar::ListValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::list_value::ValueReader;
 
 /// A scalar value representing an ordered sequence of map key/value entries.
 ///
 /// Map keys are non-null and each entry has exactly one key and one value. Duplicate keys are
 /// preserved because map logical types do not enforce key uniqueness.
+///
+/// The entries are held as a [`ListValue`] of the map's `{key, value}` entry structs.
 #[derive(Debug, Clone, Copy)]
 pub struct MapScalar<'a> {
     dtype: &'a DType,
-    entries: Option<&'a [Option<ScalarValue>]>,
+    entries: Option<&'a ListValue>,
 }
 
 impl Display for MapScalar<'_> {
@@ -72,7 +79,7 @@ impl<'a> MapScalar<'a> {
 
         Ok(Self {
             dtype,
-            entries: value.map(ScalarValue::as_tuple),
+            entries: value.map(ScalarValue::as_list),
         })
     }
 
@@ -93,7 +100,7 @@ impl<'a> MapScalar<'a> {
     /// Returns the number of entries, or zero for a null map.
     #[inline]
     pub fn len(&self) -> usize {
-        self.entries.map_or(0, <[Option<ScalarValue>]>::len)
+        self.entries.map_or(0, ListValue::len)
     }
 
     /// Returns whether the map has no entries or is null.
@@ -108,21 +115,52 @@ impl<'a> MapScalar<'a> {
         self.entries.is_none()
     }
 
+    /// Returns the map's entries as a list value of `{key, value}` structs, or `None` when the map
+    /// is null.
+    #[inline]
+    pub fn list_value(&self) -> Option<&'a ListValue> {
+        self.entries
+    }
+
+    /// Returns the map's entries as an array of `{key, value}` structs, or `None` when the map is
+    /// null.
+    ///
+    /// This costs no copy: a map scalar holds its entries as an array.
+    #[inline]
+    pub fn entries_array(&self) -> Option<&'a ArrayRef> {
+        self.entries.map(ListValue::elements)
+    }
+
     /// Returns the entry at `index`, or `None` when the map is null or the index is out of bounds.
     pub fn entry(&self, index: usize) -> Option<(Scalar, Scalar)> {
-        let values = self.entries?.get(index)?.as_ref()?.as_tuple();
-        Some(self.entry_scalars(values))
+        let entries = self.entries.filter(|entries| index < entries.len())?;
+        Some(match entry_columns(entries.elements()) {
+            Some((keys, values)) => (
+                self.key_scalar(ValueReader::new(keys).value_at(index)),
+                self.value_scalar(ValueReader::new(values).value_at(index)),
+            ),
+            None => self.entry_scalars(entries.value_at(index)),
+        })
     }
 
     /// Iterates over `(key, value)` entries. A null map yields no entries.
     pub fn entries(&self) -> impl Iterator<Item = (Scalar, Scalar)> + '_ {
-        self.entries.into_iter().flatten().map(|entry| {
-            self.entry_scalars(
-                entry
-                    .as_ref()
-                    .vortex_expect("map entry is non-null")
-                    .as_tuple(),
-            )
+        let len = self.len();
+        let mut columns = self
+            .entries
+            .and_then(|entries| entry_columns(entries.elements()))
+            .map(|(keys, values)| (ValueReader::new(keys), ValueReader::new(values)));
+        (0..len).map(move |index| match columns.as_mut() {
+            // The keys and values are read from their own columns, without a struct per entry.
+            Some((keys, values)) => (
+                self.key_scalar(keys.value_at(index)),
+                self.value_scalar(values.value_at(index)),
+            ),
+            None => self.entry_scalars(
+                self.entries
+                    .vortex_expect("a non-empty map has entries")
+                    .value_at(index),
+            ),
         })
     }
 
@@ -156,45 +194,52 @@ impl<'a> MapScalar<'a> {
             );
         }
 
-        let Some(entries) = self.entries else {
+        if self.entries.is_none() {
             vortex_bail!(
                 "Cannot cast null map {} to {dtype}: Scalar::cast should handle nulls first",
                 self.dtype
             );
-        };
+        }
 
         let target_key = target.key_dtype();
         let target_value = target.value_dtype();
-        let entries = entries
-            .iter()
-            .map(|entry| {
-                let (key, value) = self.entry_scalars(
-                    entry
-                        .as_ref()
-                        .vortex_expect("map entry is non-null")
-                        .as_tuple(),
-                );
-                Ok(Some(ScalarValue::Tuple(vec![
-                    key.cast(&target_key)?.into_value(),
-                    value.cast(&target_value)?.into_value(),
-                ])))
-            })
+        let entries = self
+            .entries()
+            .map(|(key, value)| Ok((key.cast(&target_key)?, value.cast(&target_value)?)))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Scalar::try_new(dtype.clone(), Some(ScalarValue::Tuple(entries)))
+        Scalar::try_map(dtype.clone(), entries)
     }
 
-    fn entry_scalars(&self, values: &[Option<ScalarValue>]) -> (Scalar, Scalar) {
-        let key = values.first().vortex_expect("map entry has a key").clone();
-        let value = values.get(1).vortex_expect("map entry has a value").clone();
-
-        // SAFETY: MapScalar only views a Scalar that has passed Scalar::validate, which enforces
-        // the entry shape and the key/value dtypes.
-        (
-            unsafe { Scalar::new_unchecked(self.map_dtype().key_dtype(), key) },
-            unsafe { Scalar::new_unchecked(self.map_dtype().value_dtype(), value) },
-        )
+    fn key_scalar(&self, key: Option<ScalarValue>) -> Scalar {
+        // SAFETY: the key was read from the map's key column, of the map's key dtype.
+        unsafe { Scalar::new_unchecked(self.map_dtype().key_dtype(), key) }
     }
+
+    fn value_scalar(&self, value: Option<ScalarValue>) -> Scalar {
+        // SAFETY: the value was read from the map's value column, of the map's value dtype.
+        unsafe { Scalar::new_unchecked(self.map_dtype().value_dtype(), value) }
+    }
+
+    fn entry_scalars(&self, entry: Option<ScalarValue>) -> (Scalar, Scalar) {
+        let entry = entry.vortex_expect("map entry is non-null").into_tuple();
+        let mut entry = entry.into_iter();
+        let key = entry.next().vortex_expect("map entry has a key");
+        let value = entry.next().vortex_expect("map entry has a value");
+        (self.key_scalar(key), self.value_scalar(value))
+    }
+}
+
+/// The key and value columns of a map's entries, when they are a struct array.
+fn entry_columns(entries: &ArrayRef) -> Option<(&ArrayRef, &ArrayRef)> {
+    if !entries.is::<Struct>() {
+        return None;
+    }
+    let slots = entries.slots();
+    Some((
+        slots[StructSlots::FIELDS_OFFSET].as_ref()?,
+        slots[StructSlots::FIELDS_OFFSET + 1].as_ref()?,
+    ))
 }
 
 #[cfg(test)]

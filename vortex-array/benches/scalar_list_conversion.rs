@@ -26,12 +26,14 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -154,6 +156,40 @@ fn struct_dict_list_array(list_size: usize) -> ArrayRef {
     ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array()
 }
 
+/// `map<u32, i64>` with `list_size` entries per row.
+fn map_array(list_size: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
+    let len = NUM_ROWS * list_size;
+    let keys = (0..len as u32)
+        .map(|i| i % list_size as u32)
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let values = (0..len as i64).collect::<Buffer<i64>>().into_array();
+    let entries = StructArray::try_new(
+        FieldNames::from(["key", "value"]),
+        [keys, values],
+        len,
+        Validity::NonNullable,
+    )
+    .unwrap()
+    .into_array();
+    let offsets = (0..NUM_ROWS as u32)
+        .map(|i| i * list_size as u32)
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let sizes = std::iter::repeat_n(list_size as u32, NUM_ROWS)
+        .collect::<Buffer<u32>>()
+        .into_array();
+    let entries = ListViewArray::new(entries, offsets, sizes, Validity::NonNullable, &mut ctx);
+    let map_dtype = MapDType::try_new(
+        DType::Primitive(PType::U32, Nullability::NonNullable),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+        false,
+    )
+    .unwrap();
+    MapArray::new(map_dtype, entries).into_array()
+}
+
 fn f32_fsl_array(list_size: usize) -> ArrayRef {
     let elements = PrimitiveArray::from_iter((0..NUM_ROWS * list_size).map(|i| i as f32));
     FixedSizeListArray::new(
@@ -235,6 +271,18 @@ fn array_to_scalar_list_struct_dict(bencher: Bencher, list_size: usize) {
 }
 
 #[divan::bench(args = LIST_SIZES)]
+fn array_to_scalar_map(bencher: Bencher, list_size: usize) {
+    let array = map_array(list_size);
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            for i in 0..NUM_READS {
+                divan::black_box(array.execute_scalar(i * 3 % NUM_ROWS, ctx).unwrap());
+            }
+        });
+}
+
+#[divan::bench(args = LIST_SIZES)]
 fn array_to_scalar_fsl_f32(bencher: Bencher, list_size: usize) {
     let array = f32_fsl_array(list_size);
     bencher
@@ -274,6 +322,43 @@ fn scalar_to_array_list_utf8(bencher: Bencher, list_size: usize) {
 #[divan::bench(args = LIST_SIZES)]
 fn scalar_to_array_list_nested(bencher: Bencher, list_size: usize) {
     bench_constant_canonical(bencher, read_rows(&nested_list_array(list_size)));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn scalar_to_array_map(bencher: Bencher, list_size: usize) {
+    bench_constant_canonical(bencher, read_rows(&map_array(list_size)));
+}
+
+/// Appends map scalars to a map builder.
+#[divan::bench(args = LIST_SIZES)]
+fn scalar_to_array_map_builder_append(bencher: Bencher, list_size: usize) {
+    let scalars = read_rows(&map_array(list_size));
+    let dtype = scalars[0].dtype().clone();
+    bencher.bench(|| {
+        let mut builder =
+            builder_with_capacity_in(&dtype, scalars.len(), BufferAllocatorRef::static_ref());
+        for scalar in &scalars {
+            builder.append_scalar(scalar).unwrap();
+        }
+        divan::black_box(builder.finish())
+    });
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn eq_map_scalar(bencher: Bencher, list_size: usize) {
+    let lhs = read_rows(&map_array(list_size)).swap_remove(0);
+    let rhs = read_rows(&map_array(list_size)).swap_remove(0);
+    bencher.bench(|| divan::black_box(&lhs) == divan::black_box(&rhs));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn map_scalar_entries(bencher: Bencher, list_size: usize) {
+    let scalar = read_rows(&map_array(list_size)).swap_remove(0);
+    bencher.bench(|| {
+        for entry in scalar.as_map().entries() {
+            divan::black_box(entry);
+        }
+    });
 }
 
 #[divan::bench(args = LIST_SIZES)]

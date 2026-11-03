@@ -481,7 +481,12 @@ fn partial_cmp_non_null_scalar_values(
             partial_cmp_tuple_values(dtype, lhs, rhs)
         }
         (ScalarValue::List(lhs), ScalarValue::List(rhs)) => {
-            let element_dtype = list_element_dtype(dtype)?;
+            // A map compares as the list of its `{key, value}` entry structs.
+            let entries_dtype = map_entries_dtype(dtype);
+            let element_dtype = match &entries_dtype {
+                Some(entries_dtype) => entries_dtype,
+                None => list_element_dtype(dtype)?,
+            };
             lhs.partial_cmp_with(rhs, |lhs, rhs| {
                 partial_cmp_scalar_values(element_dtype, lhs, rhs)
             })
@@ -506,9 +511,19 @@ fn partial_cmp_non_null_scalar_values(
     }
 }
 
-/// Returns `true` for a list or fixed-size list dtype, looking through extensions.
+/// Returns `true` for a dtype whose values are [`ScalarValue::List`]: a list, fixed-size list or
+/// map, looking through extensions.
 fn is_list_dtype(dtype: &DType) -> bool {
-    list_element_dtype(dtype).is_some()
+    list_element_dtype(dtype).is_some() || map_entries_dtype(dtype).is_some()
+}
+
+/// The entries struct dtype of a map dtype, looking through extensions.
+fn map_entries_dtype(dtype: &DType) -> Option<DType> {
+    match dtype {
+        DType::Map(map_dtype, _) => Some(map_dtype.entries_dtype()),
+        DType::Extension(ext_dtype) => map_entries_dtype(ext_dtype.storage_dtype()),
+        _ => None,
+    }
 }
 
 /// The element dtype of a list or fixed-size list dtype, looking through extensions.
@@ -533,8 +548,6 @@ fn partial_cmp_tuple_values(
             partial_cmp_list_values(element_dtype, lhs, rhs)
         }
         DType::Struct(fields, _) => partial_cmp_struct_values(fields, lhs, rhs),
-        // A map compares as the list of its `{key, value}` entry structs.
-        DType::Map(map_dtype, _) => partial_cmp_list_values(&map_dtype.entries_dtype(), lhs, rhs),
         DType::Extension(ext_dtype) => {
             partial_cmp_tuple_values(ext_dtype.storage_dtype(), lhs, rhs)
         }

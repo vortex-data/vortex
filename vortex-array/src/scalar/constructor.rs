@@ -204,7 +204,25 @@ impl Scalar {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Self::try_new(dtype, Some(ScalarValue::Tuple(entries)))
+        let list = ListValue::from_values(&map.entries_dtype(), entries);
+        Self::try_new(dtype, Some(ScalarValue::List(list)))
+    }
+
+    /// Creates a non-null map [`Scalar`] of `dtype` whose entries are the rows of `entries`, an
+    /// array of the map's `{key, value}` entry structs.
+    ///
+    /// The entries are kept as an array, as [`Self::list_from_array`] keeps a list's elements.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `dtype` is not a map, or `entries` is not of its entries dtype.
+    pub fn map_from_entries_array(
+        dtype: DType,
+        entries: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let list = ListValue::try_from_array(entries, ctx)?;
+        Self::try_new(dtype, Some(ScalarValue::List(list)))
     }
 
     /// Creates a non-null list [`Scalar`] whose elements are the rows of `elements`.

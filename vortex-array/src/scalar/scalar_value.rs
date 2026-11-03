@@ -35,15 +35,16 @@ pub enum ScalarValue {
     Utf8(BufferString),
     /// A binary (byte array) value.
     Binary(ByteBuffer),
-    /// The elements of a list or fixed-size list, held as one array that is canonical at
+    /// The elements of a list or fixed-size list, or the `{key, value}` entries of a map, held as
+    /// one array that is canonical at
     /// the top level.
     List(ListValue),
     /// A tuple of potentially null scalar values.
     ///
-    /// Used as the underlying representation for map and struct scalars.
+    /// Used as the underlying representation for struct scalars.
     ///
-    /// A list or fixed-size list scalar built from a `Tuple` is converted to [`ScalarValue::List`]
-    /// when the scalar is constructed.
+    /// A list, fixed-size list or map scalar built from a `Tuple` is converted to
+    /// [`ScalarValue::List`] when the scalar is constructed.
     Tuple(Vec<Option<ScalarValue>>),
     /// A present union value carrying its selected type ID and raw child value.
     Union(UnionValue),
@@ -68,7 +69,10 @@ impl ScalarValue {
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
             DType::List(edt, _) => Self::List(ListValue::from_values(edt, std::iter::empty())),
-            DType::Map(..) => Self::Tuple(vec![]),
+            DType::Map(map, _) => Self::List(ListValue::from_values(
+                &map.entries_dtype(),
+                std::iter::empty(),
+            )),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size)
                     .map(|_| Self::try_zero_value(edt).map(Some))
@@ -120,7 +124,10 @@ impl ScalarValue {
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
             DType::List(edt, _) => Self::List(ListValue::from_values(edt, std::iter::empty())),
-            DType::Map(..) => Self::Tuple(vec![]),
+            DType::Map(map, _) => Self::List(ListValue::from_values(
+                &map.entries_dtype(),
+                std::iter::empty(),
+            )),
             DType::FixedSizeList(edt, size, _) => {
                 let elements = (0..*size)
                     .map(|_| Self::try_default_value(edt))

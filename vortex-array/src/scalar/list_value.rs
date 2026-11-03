@@ -48,6 +48,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
+use crate::dtype::MapDType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -488,24 +489,46 @@ pub(crate) fn retype_list_values(dtype: &DType, value: ScalarValue) -> VortexRes
                 })
                 .collect::<VortexResult<_>>()?,
         )),
-        (DType::Map(map_dtype, _), ScalarValue::Tuple(entries)) => {
-            let entry_dtype = map_dtype.entries_dtype();
-            Ok(ScalarValue::Tuple(
-                entries
-                    .into_iter()
-                    .map(|entry| {
-                        entry
-                            .map(|entry| retype_list_values(&entry_dtype, entry))
-                            .transpose()
-                    })
-                    .collect::<VortexResult<_>>()?,
-            ))
+        (DType::Map(map_dtype, _), ScalarValue::List(entries)) => {
+            let entries_dtype = map_dtype.entries_dtype();
+            if entries.element_dtype() == &entries_dtype {
+                return Ok(ScalarValue::List(entries));
+            }
+            let values = entries
+                .values()
+                .map(|entry| {
+                    entry
+                        .map(|entry| retype_list_values(&entries_dtype, entry))
+                        .transpose()
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            Ok(ScalarValue::List(ListValue::from_values(
+                &entries_dtype,
+                values,
+            )))
         }
         (DType::Extension(ext_dtype), value) => {
             retype_list_values(ext_dtype.storage_dtype(), value)
         }
         (_, value) => Ok(value),
     }
+}
+
+/// Returns `true` if `dtype` is the `{key, value}` entries struct of `map_dtype`, without building
+/// that struct dtype.
+pub(crate) fn is_map_entries_dtype(map_dtype: &MapDType, dtype: &DType) -> bool {
+    let DType::Struct(fields, Nullability::NonNullable) = dtype else {
+        return false;
+    };
+    if fields.nfields() != 2 {
+        return false;
+    }
+    let mut names = fields.names().iter();
+    let mut dtypes = fields.field_dtypes();
+    names.next().is_some_and(|name| name.as_ref() == "key")
+        && names.next().is_some_and(|name| name.as_ref() == "value")
+        && dtypes.next() == Some(&map_dtype.key_dtype())
+        && dtypes.next() == Some(&map_dtype.value_dtype())
 }
 
 /// Returns `true` if a canonical builder exists for `dtype`.
@@ -706,18 +729,18 @@ pub(crate) fn normalize_list_values(dtype: &DType, value: &mut ScalarValue) {
         }
         DType::Map(map_dtype, _) => {
             if let ScalarValue::Tuple(entries) = value {
-                let key_dtype = map_dtype.key_dtype();
-                let value_dtype = map_dtype.value_dtype();
-                for entry in entries.iter_mut().flatten() {
-                    if let ScalarValue::Tuple(kv) = entry {
-                        if let Some(Some(key)) = kv.get_mut(0) {
-                            normalize_list_values(&key_dtype, key);
+                // A map holds its entries as a list of `{key, value}` structs.
+                let entries_dtype = map_dtype.entries_dtype();
+                let entries = std::mem::take(entries);
+                *value = ScalarValue::List(ListValue::from_values(
+                    &entries_dtype,
+                    entries.into_iter().map(|mut entry| {
+                        if let Some(entry) = entry.as_mut() {
+                            normalize_list_values(&entries_dtype, entry);
                         }
-                        if let Some(Some(value)) = kv.get_mut(1) {
-                            normalize_list_values(&value_dtype, value);
-                        }
-                    }
-                }
+                        entry
+                    }),
+                ));
             }
         }
         DType::Union(variants, _) => {
@@ -886,16 +909,21 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;
     use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListView;
     use crate::arrays::ListViewArray;
+    use crate::arrays::Map;
+    use crate::arrays::MapArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::listview::ListViewArraySlotsExt;
+    use crate::arrays::map::MapArraySlotsExt;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
+    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
@@ -1106,6 +1134,82 @@ mod tests {
             .execute::<Canonical>(&mut ctx)?
             .into_array();
         assert_arrays_eq!(expanded, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A map row keeps its entries as an array, and reads, compares, serializes and expands by
+    /// value like the same map built from scalars.
+    #[test]
+    fn map_scalar_keeps_entries_as_array() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let map_dtype = MapDType::try_new(
+            DType::Primitive(PType::U32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            false,
+        )?;
+        let entries = StructArray::try_new(
+            FieldNames::from(["key", "value"]),
+            [
+                PrimitiveArray::from_iter([9u32, 1, 2]).into_array(),
+                VarBinViewArray::from_iter_nullable_str([Some("x"), Some("one"), None])
+                    .into_array(),
+            ],
+            3,
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let entries = ListViewArray::try_new(
+            entries,
+            PrimitiveArray::from_iter([1u32]).into_array(),
+            PrimitiveArray::from_iter([2u32]).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        let array = MapArray::try_new(map_dtype.clone(), entries)?.into_array();
+
+        let read = array.execute_scalar(0, &mut ctx)?;
+        assert!(matches!(read.value(), Some(ScalarValue::List(_))));
+        let dtype = DType::Map(map_dtype, Nullability::NonNullable);
+        let built = Scalar::try_map(
+            dtype.clone(),
+            [
+                (
+                    Scalar::primitive(1u32, Nullability::NonNullable),
+                    Scalar::utf8("one", Nullability::Nullable),
+                ),
+                (
+                    Scalar::primitive(2u32, Nullability::NonNullable),
+                    Scalar::null(DType::Utf8(Nullability::Nullable)),
+                ),
+            ],
+        )?;
+        assert_eq!(read, built);
+        assert_eq!(hash_of(&read), hash_of(&built));
+        assert_eq!(read.as_map().entry(1), built.as_map().entry(1));
+        assert_eq!(
+            read.as_map().entries().collect::<Vec<_>>(),
+            built.as_map().entries().collect::<Vec<_>>()
+        );
+
+        let bytes = ScalarValue::to_proto_bytes::<Vec<u8>>(read.value());
+        let decoded = Scalar::try_new(
+            dtype,
+            ScalarValue::from_proto_bytes(&bytes, read.dtype(), &SESSION)?,
+        )?;
+        assert_eq!(decoded, built);
+
+        let entries_array = read.as_map().entries_array().unwrap().clone();
+        let expanded = ConstantArray::new(read, 2)
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert!(ArrayRef::ptr_eq(
+            expanded.as_::<Map>().entries().as_::<ListView>().elements(),
+            &entries_array
+        ));
+        for row in 0..2 {
+            assert_eq!(expanded.execute_scalar(row, &mut ctx)?, built);
+        }
         Ok(())
     }
 

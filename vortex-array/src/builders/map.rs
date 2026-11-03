@@ -100,13 +100,8 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> MapBuilder<O, S> {
             return Ok(());
         }
 
-        let entry_dtype = self.map_dtype.entries_dtype();
-        let entries = value
-            .entries()
-            .map(|(key, value)| Scalar::struct_(entry_dtype.clone(), vec![key, value]))
-            .collect();
-        let entries = Scalar::list(Arc::new(entry_dtype), entries, self.dtype.nullability());
-        self.entries_builder.append_value(entries.as_list())
+        // A map scalar already holds its entries as an array of entry structs.
+        self.entries_builder.append_list_value(value.list_value())
     }
 
     /// Finishes the builder directly into a [`MapArray`].
