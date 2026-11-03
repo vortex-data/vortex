@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use futures::future::join_all;
 use futures::future::try_join_all;
 use futures::try_join;
@@ -95,7 +95,7 @@ impl From<Item> for FieldName {
 pub struct StructReader {
     layout: StructLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
+    lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
 
     /// For a non-nullable struct, pack(f: $.f, ...) for every f in struct
@@ -139,14 +139,14 @@ impl StructReader {
         dtypes.extend(struct_dt.fields());
         names.extend(struct_dt.names().iter().map(|x| Arc::clone(x.inner())));
 
-        let lazy_children = LazyReaderChildren::new(
+        let lazy_children = Arc::new(LazyReaderChildren::new(
             Arc::clone(layout.children()),
             dtypes,
             names,
             Arc::clone(&segment_source),
             session.clone(),
             ctx,
-        );
+        ));
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = expanded_struct_root(layout.dtype(), struct_dt)?;
@@ -331,7 +331,17 @@ impl StructReader {
                 let dtype = fields
                     .field_by_index(idx)
                     .ok_or_else(|| vortex_err!("Field index {idx} out of bounds"))?;
-                Ok((idx, BoundExpression::new_root(dtype)))
+                Ok(DirectField {
+                    name: fields
+                        .field_name(idx)
+                        .ok_or_else(|| vortex_err!("Field index {idx} out of bounds"))?
+                        .clone(),
+                    child: self
+                        .layout
+                        .slot_to_child(idx + 1)
+                        .vortex_expect("struct field slot is always present"),
+                    expr: BoundExpression::new_root(dtype),
+                })
             })
             .try_collect()?;
         Ok(Some(DirectProjection { names, fields }))
@@ -344,34 +354,31 @@ impl StructReader {
         row_range: &Range<u64>,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let field_futs: Vec<_> = direct
-            .fields
-            .iter()
-            .map(|(idx, expr)| {
-                self.field_reader_by_index(*idx)?
-                    .projection_evaluation(row_range, expr, mask_fut.clone())
-                    .map_err(|err| {
-                        err.with_context(format!(
-                            "While evaluating projection of field {}",
-                            self.struct_fields()
-                                .field_name(*idx)
-                                .vortex_expect("field index is in bounds")
-                        ))
-                    })
-            })
-            .try_collect()?;
-        let names = direct.names.clone();
-        let handle = (field_futs.len() >= PARALLEL_FIELDS_THRESHOLD)
+        let handle = (direct.fields.len() >= PARALLEL_FIELDS_THRESHOLD)
             .then(|| self.session.try_handle())
             .flatten();
+        let fields = match handle {
+            Some(handle) => evaluate_fields_in_parallel(
+                &handle,
+                &self.lazy_children,
+                &direct.fields,
+                row_range,
+                &mask_fut,
+            ),
+            None => {
+                let field_futs: Vec<_> = direct
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        project_field(&self.lazy_children, field, row_range, mask_fut.clone())
+                    })
+                    .try_collect()?;
+                try_join_all(field_futs).boxed()
+            }
+        };
+        let names = direct.names.clone();
 
         Ok(async move {
-            let fields = async move {
-                match handle {
-                    Some(handle) => evaluate_fields_in_parallel(&handle, field_futs).await,
-                    None => try_join_all(field_futs).await,
-                }
-            };
             let (fields, mask) = try_join!(fields, mask_fut)?;
             Ok(
                 StructArray::try_new(names, fields, mask.true_count(), Validity::NonNullable)?
@@ -388,30 +395,64 @@ const PARALLEL_FIELDS_THRESHOLD: usize = 128;
 /// The minimum number of fields read by each runtime task of a parallel direct projection.
 const MIN_FIELDS_PER_TASK: usize = 32;
 
-/// Evaluate the field futures of a wide struct in groups spawned on the runtime.
+/// Start reading one field of a direct projection.
+fn project_field(
+    lazy_children: &LazyReaderChildren,
+    field: &DirectField,
+    row_range: &Range<u64>,
+    mask: MaskFuture,
+) -> VortexResult<ArrayFuture> {
+    lazy_children
+        .get(field.child)?
+        .projection_evaluation(row_range, &field.expr, mask)
+        .map_err(|err| {
+            err.with_context(format!(
+                "While evaluating projection of field {}",
+                field.name
+            ))
+        })
+}
+
+/// Read the fields of a wide struct in groups spawned on the runtime.
 ///
-/// Field futures decode their arrays when polled, so joining thousands of them in a single task
-/// decodes every column of a split on one thread.
-async fn evaluate_fields_in_parallel(
+/// Each task creates the readers of its fields and decodes their arrays, so neither happens for
+/// every column of a split on a single thread.
+fn evaluate_fields_in_parallel(
     handle: &Handle,
-    field_futs: Vec<ArrayFuture>,
-) -> VortexResult<Vec<ArrayRef>> {
+    lazy_children: &Arc<LazyReaderChildren>,
+    fields: &[DirectField],
+    row_range: &Range<u64>,
+    mask: &MaskFuture,
+) -> BoxFuture<'static, VortexResult<Vec<ArrayRef>>> {
     let parallelism = get_available_parallelism().unwrap_or(1);
-    let ntasks = (field_futs.len() / MIN_FIELDS_PER_TASK).clamp(1, parallelism * 4);
-    let group_size = field_futs.len().div_ceil(ntasks);
+    let ntasks = (fields.len() / MIN_FIELDS_PER_TASK).clamp(1, parallelism * 4);
+    let group_size = fields.len().div_ceil(ntasks);
 
-    let mut field_futs = field_futs.into_iter();
-    let tasks: Vec<_> = iter::from_fn(|| {
-        let group: Vec<_> = field_futs.by_ref().take(group_size).collect();
-        (!group.is_empty()).then(|| handle.spawn(try_join_all(group)))
-    })
-    .collect();
+    let tasks: Vec<_> = fields
+        .chunks(group_size)
+        .map(|group| {
+            let group = group.to_vec();
+            let lazy_children = Arc::clone(lazy_children);
+            let row_range = row_range.clone();
+            let mask = mask.clone();
+            handle.spawn(async move {
+                let field_futs: Vec<_> = group
+                    .iter()
+                    .map(|field| project_field(&lazy_children, field, &row_range, mask.clone()))
+                    .try_collect()?;
+                try_join_all(field_futs).await
+            })
+        })
+        .collect();
 
-    let mut fields = Vec::with_capacity(tasks.len() * group_size);
-    for group in join_all(tasks).await {
-        fields.extend(group?);
+    async move {
+        let mut fields = Vec::with_capacity(tasks.len() * group_size);
+        for group in join_all(tasks).await {
+            fields.extend(group?);
+        }
+        Ok(fields)
     }
-    Ok(fields)
+    .boxed()
 }
 
 fn expanded_struct_root(
@@ -595,8 +636,19 @@ enum Partitioned {
 struct DirectProjection {
     /// The output field names.
     names: FieldNames,
-    /// The struct field index for each output field, with the root expression it is read with.
-    fields: Vec<(usize, BoundExpression)>,
+    /// The struct field read for each output field.
+    fields: Vec<DirectField>,
+}
+
+/// A struct field read by a [`DirectProjection`].
+#[derive(Clone)]
+struct DirectField {
+    /// The name of the struct field.
+    name: FieldName,
+    /// The index of the field's child layout.
+    child: usize,
+    /// The root expression the field is read with.
+    expr: BoundExpression,
 }
 
 impl LayoutReader for StructReader {
@@ -623,7 +675,17 @@ impl LayoutReader for StructReader {
             validity_ref.register_splits(field_mask, split_range, splits)?;
         }
 
+        let children = self.layout.children();
         self.layout.matching_fields(field_mask, |mask, idx| {
+            // An indivisible field only registers the end of the range, which is pushed below,
+            // so its reader need not be created.
+            let child = self
+                .layout
+                .slot_to_child(idx + 1)
+                .vortex_expect("struct field slot is always present");
+            if children.child_is_indivisible(child) {
+                return Ok(());
+            }
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], split_range, splits)
         })?;
