@@ -469,12 +469,13 @@ impl FileOpener for VortexOpener {
                 }
                 // Unless set, chunks run beside each other only as far as the engine's partitions
                 // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
+                let workers = get_available_parallelism().unwrap_or(1);
+                let in_flight = scan_concurrency
+                    .map_or_else(
+                        || workers.div_ceil(partitions),
+                        |concurrency| concurrency.saturating_mul(workers),
+                    )
+                    .max(1);
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
@@ -496,7 +497,7 @@ impl FileOpener for VortexOpener {
                 );
                 let root = scan_planner(Arc::clone(&scan), bulk_start..scan.rows().end);
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let driver = ScanDriver::new(handle, in_flight, has_output_ordering);
                 Ok(driver.run(scan, root, initial, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -844,6 +845,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use arrow_array::record_batch;
     use arrow_schema::Field;
@@ -866,7 +868,8 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use datafusion_common::Statistics;
     use datafusion_common::arrow::compute::concat_batches;
-    use datafusion_common::arrow::compute::sort;
+    use datafusion_common::arrow::compute::sort_to_indices;
+    use datafusion_common::arrow::compute::take_record_batch;
     use datafusion_common::assert_batches_eq;
     use datafusion_common::stats::Precision;
     use datafusion_datasource::file::FileSource;
@@ -883,6 +886,8 @@ mod tests {
     use itertools::Itertools;
     use object_store::ObjectStore;
     use object_store::memory::InMemory;
+    use object_store::throttle::ThrottleConfig;
+    use object_store::throttle::ThrottledStore;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::VortexSessionExecute;
@@ -1147,16 +1152,35 @@ mod tests {
     async fn startup_and_bulk_keep_filtered_selected_rows_once(
         #[values(0, 2)] initial_chunks: usize,
         #[values(false, true)] roaring: bool,
+        #[values(0, 1)] scan_concurrency: usize,
     ) -> anyhow::Result<()> {
-        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
-        let batch = record_batch!(("a", Int32, (0..150_000).collect::<Vec<_>>()))?;
+        // Delay payload reads so one root can retire while another still waits for IO.
+        let object_store = Arc::new(ThrottledStore::new(
+            InMemory::new(),
+            ThrottleConfig {
+                wait_get_per_call: Duration::from_millis(10),
+                ..Default::default()
+            },
+        )) as Arc<dyn ObjectStore>;
+        let payload = |row: u32| {
+            u64::from(row)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                .rotate_left(row % 64)
+        };
+        let batch = record_batch!(
+            ("a", UInt32, (0..150_000).collect::<Vec<_>>()),
+            ("b", UInt64, (0..150_000).map(payload).collect::<Vec<_>>())
+        )?;
         let schema = batch.schema();
         let size =
             write_arrow_to_vortex(Arc::clone(&object_store), "startup.vortex", batch).await?;
         let table_schema = TableSchema::from(Arc::clone(&schema));
-        let filter = logical2physical(&col("a").gt(lit(10)), table_schema.table_schema());
+        let filter = logical2physical(&col("a").gt(lit(10_u32)), table_schema.table_schema());
+        let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.file_schema());
         let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.projection = projection;
         opener.scan_v2 = true;
+        opener.scan_concurrency = Some(scan_concurrency);
         opener.initial_chunks = Arc::new(AtomicUsize::new(initial_chunks));
         let indices = vec![3, 17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999];
         let selection = if roaring {
@@ -1166,16 +1190,20 @@ mod tests {
         };
         let file = PartitionedFile::new("startup.vortex".to_string(), size)
             .with_extension(VortexAccessPlan::default().with_selection(selection));
-        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        let batches = tokio::time::timeout(
+            Duration::from_secs(5),
+            opener.open(file)?.await?.try_collect::<Vec<_>>(),
+        )
+        .await??;
         assert_eq!(opener.initial_chunks.load(Ordering::Relaxed), 0);
         let actual = concat_batches(&schema, &batches)?;
-        let actual =
-            RecordBatch::try_new(Arc::clone(&schema), vec![sort(actual.column(0), None)?])?;
-        let expected = record_batch!((
-            "a",
-            Int32,
-            [17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999]
-        ))?;
+        let order = sort_to_indices(actual.column(0), None, None)?;
+        let actual = take_record_batch(&actual, &order)?;
+        let expected_rows = [17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999];
+        let expected = record_batch!(
+            ("a", UInt32, expected_rows.to_vec()),
+            ("b", UInt64, expected_rows.map(payload).to_vec())
+        )?;
         assert_arrays_eq!(
             SESSION.arrow().from_arrow_record_batch(actual, &schema)?,
             SESSION.arrow().from_arrow_record_batch(expected, &schema)?,
