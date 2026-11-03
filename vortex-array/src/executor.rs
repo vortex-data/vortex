@@ -932,7 +932,7 @@ macro_rules! require_child {
 #[macro_export]
 macro_rules! require_input {
     ($args:expr, $idx:expr => $M:ty) => {
-        if !<$M as $crate::matcher::Matcher>::matches(&$args.get($idx)?) {
+        if !$args.input_matches($idx, <$M as $crate::matcher::Matcher>::matches)? {
             return Ok($crate::scalar_fn::ScalarFnExecutionResult::execute_input::<
                 $M,
             >($idx));

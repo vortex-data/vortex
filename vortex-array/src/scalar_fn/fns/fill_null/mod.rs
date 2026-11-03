@@ -178,7 +178,7 @@ impl ScalarFnVTable for FillNull {
     ) -> VortexResult<ScalarFnExecutionResult> {
         // Only once the fill is constant: `execute` materializes a lazy fill first, so the input's
         // FillNull kernels can still apply before the input is decoded.
-        if args.get(1)?.is::<Constant>() {
+        if args.input_matches(1, |fill| fill.is::<Constant>())? {
             require_input!(args, 0 => AnyColumnar);
         }
         self.execute(options, args, ctx)

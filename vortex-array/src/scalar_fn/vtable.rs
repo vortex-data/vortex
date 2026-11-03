@@ -590,6 +590,14 @@ pub trait ExecutionArgs {
 
     /// Returns the row count of the execution scope.
     fn row_count(&self) -> usize;
+
+    /// Whether the input at the given index satisfies `predicate`.
+    ///
+    /// Implementations that hold their inputs override this to test the input in place, without
+    /// the clone [`get`](Self::get) makes, since it runs on every scalar function execution step.
+    fn input_matches(&self, index: usize, predicate: fn(&ArrayRef) -> bool) -> VortexResult<bool> {
+        Ok(predicate(&self.get(index)?))
+    }
 }
 
 /// The result of a single [`ScalarFnVTable::execute_step`].
@@ -669,6 +677,17 @@ impl ExecutionArgs for VecExecutionArgs {
 
     fn row_count(&self) -> usize {
         self.row_count
+    }
+
+    fn input_matches(&self, index: usize, predicate: fn(&ArrayRef) -> bool) -> VortexResult<bool> {
+        let input = self.inputs.get(index).ok_or_else(|| {
+            vortex_err!(
+                "Input index {} out of bounds (num_inputs={})",
+                index,
+                self.inputs.len()
+            )
+        })?;
+        Ok(predicate(input))
     }
 }
 

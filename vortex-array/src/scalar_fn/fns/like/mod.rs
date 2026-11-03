@@ -181,11 +181,11 @@ impl ScalarFnVTable for Like {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
         // A null pattern decides every row without reading the input.
-        if !args
-            .get(1)?
-            .as_constant()
-            .is_some_and(|pattern| pattern.is_null())
-        {
+        if !args.input_matches(1, |pattern| {
+            pattern
+                .as_constant()
+                .is_some_and(|pattern| pattern.is_null())
+        })? {
             require_input!(args, 0 => AnyColumnar);
             require_input!(args, 1 => AnyColumnar);
         }

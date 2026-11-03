@@ -144,7 +144,7 @@ pub(crate) fn execute_boolean(
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
-pub(super) fn constant_boolean(
+fn constant_boolean(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: Operator,

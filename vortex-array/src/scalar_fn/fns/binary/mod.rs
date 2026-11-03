@@ -23,12 +23,14 @@ use vortex_session::registry::CachedId;
 use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::Constant;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::proto::expr as pb;
 use crate::require_input;
 use crate::scalar_fn::Arity;
@@ -46,7 +48,6 @@ use crate::scalar_fn::fns::operators::Operator;
 pub mod boolean;
 pub use boolean::BooleanExecuteAdaptor;
 pub use boolean::BooleanKernel;
-use boolean::constant_boolean;
 pub(crate) use boolean::execute_boolean;
 pub use boolean::kleene_boolean_buffer_scalar;
 pub use boolean::kleene_boolean_buffers;
@@ -325,19 +326,25 @@ impl ScalarFnVTable for Binary {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnExecutionResult> {
-        let lhs = args.get(0)?;
-        let rhs = args.get(1)?;
-        // A constant operand that decides the result, such as `false AND x` or `x < null`, spares
-        // executing the other operand.
-        let decided = match op {
-            Operator::And | Operator::Or => {
-                lhs.is_empty() || constant_boolean(&lhs, &rhs, *op)?.is_some()
-            }
-            _ => [&lhs, &rhs]
-                .iter()
-                .any(|array| array.as_constant().is_some_and(|scalar| scalar.is_null())),
-        };
-        if !decided {
+        let columnar = |idx| args.input_matches(idx, AnyColumnar::matches);
+        let ready = (columnar(0)? && columnar(1)?)
+            // A constant operand can decide the result, such as `false AND x` or `x < null`, so
+            // `execute` does not need the other operand executed.
+            || match op {
+                Operator::And | Operator::Or => {
+                    let constant = |idx| args.input_matches(idx, |array| array.is::<Constant>());
+                    constant(0)? || constant(1)?
+                }
+                _ => {
+                    let null = |idx| {
+                        args.input_matches(idx, |array| {
+                            array.as_constant().is_some_and(|scalar| scalar.is_null())
+                        })
+                    };
+                    null(0)? || null(1)?
+                }
+            };
+        if !ready {
             require_input!(args, 0 => AnyColumnar);
             require_input!(args, 1 => AnyColumnar);
         }
