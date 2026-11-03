@@ -77,8 +77,16 @@ impl ExtVTable for FixedShapeTensor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::extension::storage_gives_equality;
+    use vortex_array::dtype::extension::storage_gives_order;
     use vortex_error::VortexResult;
 
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
@@ -118,5 +126,20 @@ mod tests {
         #[case] metadata: VortexResult<FixedShapeTensorMetadata>,
     ) -> VortexResult<()> {
         assert_roundtrip(&metadata?)
+    }
+
+    /// The storage lists of `vortex-array` name tensors by ID, so this fails if the ID changes.
+    #[test]
+    fn storage_gives_equality_but_not_order() -> VortexResult<()> {
+        let element = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let storage = DType::FixedSizeList(Arc::new(element), 6, Nullability::NonNullable);
+        let metadata = FixedShapeTensorMetadata::new(vec![2, 3]);
+        let dtype =
+            DType::Extension(ExtDType::<FixedShapeTensor>::try_new(metadata, storage)?.erased());
+
+        assert!(storage_gives_equality(&dtype));
+        assert!(!storage_gives_order(&dtype));
+
+        Ok(())
     }
 }

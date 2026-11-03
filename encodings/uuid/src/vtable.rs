@@ -131,6 +131,8 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::extension::storage_gives_equality;
+    use vortex_array::dtype::extension::storage_gives_order;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
@@ -315,6 +317,19 @@ mod tests {
 
         let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
         assert_eq!(result, v4_uuid);
+        Ok(())
+    }
+
+    /// The storage lists of `vortex-array` name UUIDs by ID, so this fails if the ID changes.
+    #[test]
+    fn storage_gives_equality_and_order() -> VortexResult<()> {
+        let storage_dtype = uuid_storage_dtype(Nullability::NonNullable);
+        let ext_dtype = ExtDType::<Uuid>::try_new(UuidMetadata::default(), storage_dtype)?;
+        let dtype = DType::Extension(ext_dtype.erased());
+
+        assert!(storage_gives_equality(&dtype));
+        assert!(storage_gives_order(&dtype));
+
         Ok(())
     }
 

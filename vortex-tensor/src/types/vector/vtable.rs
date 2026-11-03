@@ -54,6 +54,8 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::extension::storage_gives_equality;
+    use vortex_array::dtype::extension::storage_gives_order;
     use vortex_error::VortexResult;
 
     use crate::types::vector::Vector;
@@ -122,6 +124,18 @@ mod tests {
         assert!(bytes.is_empty());
         let deserialized = vtable.deserialize_metadata(&bytes)?;
         assert_eq!(deserialized, EmptyMetadata);
+        Ok(())
+    }
+
+    /// The storage lists of `vortex-array` name vectors by ID, so this fails if the ID changes.
+    #[test]
+    fn storage_gives_equality_but_not_order() -> VortexResult<()> {
+        let storage = vector_storage_dtype(PType::F32, 128, Nullability::NonNullable);
+        let dtype = DType::Extension(ExtDType::<Vector>::try_new(EmptyMetadata, storage)?.erased());
+
+        assert!(storage_gives_equality(&dtype));
+        assert!(!storage_gives_order(&dtype));
+
         Ok(())
     }
 }

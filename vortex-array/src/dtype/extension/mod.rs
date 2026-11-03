@@ -13,6 +13,8 @@
 //! extension plugins in a session before deserializing data that may reference them.
 //!
 //! Scalar functions and aggregates declare how they use extension operands with [`ExtensionUse`].
+//! [`storage_gives_equality`] and [`storage_gives_order`] answer whether a dtype takes the equality
+//! and the order of its values from its storage.
 //!
 //! ## File layout convention
 //!
@@ -44,6 +46,9 @@ pub use matcher::*;
 
 mod extension_use;
 pub use extension_use::*;
+
+mod storage_semantics;
+pub use storage_semantics::*;
 use vortex_session::registry::Id;
 
 /// A unique identifier for an extension type
