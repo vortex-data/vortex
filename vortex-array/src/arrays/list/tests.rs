@@ -27,6 +27,8 @@ use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType::I32;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -1224,4 +1226,18 @@ fn test_compact_sliced(
     );
     assert_arrays_eq!(rebuilt, list, &mut ctx);
     Ok(())
+}
+
+#[test]
+fn try_new_ignores_forged_offsets_statistics() {
+    let mut ctx = SESSION.create_execution_ctx();
+    let elements = buffer![1i32, 2, 3, 4].into_array();
+    let offsets = buffer![0i32, 1000, 2].into_array();
+    offsets.statistics().set(Stat::IsSorted, Precision::exact(true));
+    offsets.statistics().set(Stat::Min, Precision::exact(0i32));
+    offsets.statistics().set(Stat::Max, Precision::exact(4i32));
+
+    let result = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx);
+
+    assert!(result.is_err_and(|err| err.to_string().contains("sorted")));
 }
