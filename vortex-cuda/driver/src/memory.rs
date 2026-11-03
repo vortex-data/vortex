@@ -799,6 +799,12 @@ pub trait DevicePtr<T>: DeviceSlice<T> {
     /// The device pointer for reading on `stream`, which first waits for earlier writes.
     ///
     /// Drop the guard after the read is enqueued.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream` belongs to a different underlying CUDA context than the allocation,
+    /// even on the same device. Different streams and context wrappers sharing the same CUDA
+    /// context are supported.
     fn device_ptr<'a>(&'a self, stream: &'a CudaStream) -> (sys::CUdeviceptr, SyncOnDrop<'a>);
 }
 
@@ -807,6 +813,12 @@ pub trait DevicePtrMut<T>: DeviceSlice<T> {
     /// The device pointer for writing on `stream`, which first waits for earlier accesses.
     ///
     /// Drop the guard after the write is enqueued.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream` belongs to a different underlying CUDA context than the allocation,
+    /// even on the same device. Different streams and context wrappers sharing the same CUDA
+    /// context are supported.
     fn device_ptr_mut<'a>(
         &'a mut self,
         stream: &'a CudaStream,
