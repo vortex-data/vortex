@@ -279,12 +279,13 @@ fn replace(
     }
     // Convert first so the same-timezone shortcut cannot pass values outside jiff's range through.
     let timestamp = match unit {
-        TimeUnit::Seconds => JiffTimestamp::from_second(value)?,
-        TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value)?,
-        TimeUnit::Microseconds => JiffTimestamp::from_microsecond(value)?,
-        TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value))?,
+        TimeUnit::Seconds => JiffTimestamp::from_second(value),
+        TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value),
+        TimeUnit::Microseconds => JiffTimestamp::from_microsecond(value),
+        TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value)),
         TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
-    };
+    }
+    .map_err(|e| vortex_err!("replace_time_zone() cannot convert {value}{unit}: {e}"))?;
     // Keeping the same timezone does not introduce a new ambiguity to reject.
     if source == target && policy == "raise" {
         return Ok(Some(value));
@@ -561,7 +562,7 @@ mod tests {
         #[case] unit: TimeUnit,
         #[case] value: i64,
         #[values(None, Some("America/New_York"))] target: Option<&str>,
-    ) {
+    ) -> VortexResult<()> {
         let input = ExtensionArray::new(
             Timestamp::new(unit, Nullability::Nullable).erased(),
             PrimitiveArray::from_option_iter([Some(0i64), Some(value)]).into_array(),
@@ -579,6 +580,18 @@ mod tests {
             .into_array()
             .apply(&expr)
             .and_then(|array| array.execute::<Canonical>(&mut ctx));
-        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("cannot convert"), "{error}");
+
+        let control = ExtensionArray::new(
+            Timestamp::new(unit, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter([Some(0i64)]).into_array(),
+        );
+        control
+            .into_array()
+            .apply(&expr)?
+            .execute::<Canonical>(&mut ctx)?;
+
+        Ok(())
     }
 }
