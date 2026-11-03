@@ -655,13 +655,6 @@ impl DefaultExpressionConverter {
         let [input] = scalar_fn.args() else {
             return Err(exec_datafusion_err!("array_sum requires exactly one argument").into());
         };
-        // Nested lists coerce to lists of `Float64` lists, which `list_sum` cannot add.
-        let (DataType::List(field) | DataType::LargeList(field)) = input.data_type(schema)? else {
-            return Err(Unconverted::Unsupported);
-        };
-        if *field.data_type() != DataType::Float64 {
-            return Err(Unconverted::Unsupported);
-        }
         let list = self.convert_expr(input, schema, input_dtype)?;
         Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
