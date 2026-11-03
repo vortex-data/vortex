@@ -75,6 +75,8 @@ use crate::Sparse;
 use crate::SparseExt;
 use crate::SparseParts;
 
+mod lists;
+
 /// The pieces every string decode of a sparse array starts from: the offset-resolved patch
 /// indices and canonical patch values, plus the fill value's bytes (`None` for a null fill).
 struct SparseStringParts {
@@ -389,6 +391,10 @@ fn execute_sparse_lists(
         .clone()
         .downcast::<ListView>()
         .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+
+    if fill_list.is_empty() {
+        return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
+    }
 
     // Each gap between patches is appended as one constant array, whose canonical form points
     // every view at a single copy of the fill value, so a gap costs the fill value's elements once
