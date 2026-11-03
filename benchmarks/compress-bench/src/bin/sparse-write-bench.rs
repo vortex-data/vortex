@@ -161,7 +161,9 @@ async fn run(args: &Args) -> Result<()> {
             &dataset,
             None,
             CompressOp::Compress,
-            runs.iter().map(|run| run.as_nanos() as u64).collect(),
+            runs.iter()
+                .map(|run| u64::try_from(run.as_nanos()))
+                .collect::<Result<Vec<_>, _>>()?,
         ));
     }
     if let Some(path) = &args.ingest_output {
@@ -188,8 +190,9 @@ fn make_fixture(args: &Args, case: Case) -> Result<ArrayRef> {
             .enumerate()
             .filter_map(|(row, &id)| (id == group).then_some(row))
             .collect();
-        let present =
-            Mask::from_buffer(BitBuffer::from_iter(group_ids.iter().map(|&id| id == group)));
+        let present = Mask::from_buffer(BitBuffer::from_iter(
+            group_ids.iter().map(|&id| id == group),
+        ));
         let group_validity = Validity::from_mask(present.clone(), Nullability::Nullable);
         let mut fields = Vec::new();
         for field in 0..args.fields {
@@ -273,7 +276,10 @@ async fn measure(array: &ArrayRef, iterations: usize) -> Result<(u64, Vec<Durati
             file_bytes = output.size;
             verify(&output, array).await?;
         } else {
-            ensure!(file_bytes == output.size, "serialized size changed between iterations");
+            ensure!(
+                file_bytes == output.size,
+                "serialized size changed between iterations"
+            );
             runs.push(elapsed);
         }
         black_box(output);
