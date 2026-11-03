@@ -51,8 +51,6 @@ where
         return Ok(None);
     };
 
-    // Stored values are not guaranteed to fit the precision (for example, when read from a
-    // file), so return an error instead of panicking.
     let min_scalar = Scalar::try_decimal(min.into(), decimal_dtype, NonNullable)?;
     let max_scalar = if min == max {
         min_scalar.clone()
