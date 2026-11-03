@@ -46,6 +46,7 @@ use vortex_cuda_driver::sys::CUevent_flags;
 
 #[cfg(target_os = "linux")]
 use self::direct::DirectFileReadBackend;
+use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaSession;
 use crate::pinned::PinnedByteBufferPool;
@@ -680,8 +681,10 @@ impl VortexReadAt for PooledFileReadAt {
         async move { backend.size() }.boxed()
     }
 
-    /// Reads at device allocations' alignment of 256 bytes, which covers every requested
-    /// alignment the CUDA buffers support.
+    /// Reads into device memory and checks the returned address against the requested alignment.
+    ///
+    /// Returns an error if the address does not satisfy the requested alignment. Requests above
+    /// CUDA's guaranteed 256-byte allocation alignment succeed when the address satisfies them.
     fn read_at(
         &self,
         offset: u64,
@@ -694,8 +697,18 @@ impl VortexReadAt for PooledFileReadAt {
                 offset.checked_add(u64::try_from(length)?).is_some(),
                 "file read range overflow: offset={offset}, length={length}"
             );
+
+            let check_alignment = |buffer: BufferHandle| -> VortexResult<BufferHandle> {
+                let address = buffer.cuda_device_ptr()?;
+                vortex_ensure!(
+                    address.is_multiple_of(alignment.as_usize() as u64),
+                    "Vortex CUDA file read returned device address {address:#x}, which is not aligned to {alignment} bytes"
+                );
+                Ok(buffer)
+            };
+
             if let Some(buffer) = reader.read_mapped(offset, length, alignment).await? {
-                return Ok(buffer);
+                return check_alignment(buffer);
             }
 
             // Staged chunks copy only their requested bytes, leaving out any padding direct I/O
@@ -708,6 +721,7 @@ impl VortexReadAt for PooledFileReadAt {
                     .map_ok(move |read| (start, read))
             }))
             .buffer_unordered(DEFAULT_FILE_CONCURRENCY);
+
             while let Some((start, read)) = reads.try_next().await? {
                 let end = start + read.requested_range.len();
                 read.buffer.copy_to_device(
@@ -716,9 +730,9 @@ impl VortexReadAt for PooledFileReadAt {
                     &mut output.slice_mut(start..end),
                 )?;
             }
-            Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-                output,
-            )?)))
+            let buffer = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?));
+
+            check_alignment(buffer)
         }
         .boxed()
     }
