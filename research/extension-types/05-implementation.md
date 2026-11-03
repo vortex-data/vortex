@@ -16,8 +16,8 @@ phases 2 to 4 use hardcoded lists of types (X35).
 
 | Phase | Content | Depends on |
 | --- | --- | --- |
-| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and three fixes outside part 4: the `Timestamp` range (#10953), the spatial nested nullability (EXT-N2), and imports that fail on nested nulls (X29) | Nothing |
-| 1 | The storage declaration: `storage_dtype`, `validate_metadata`, strict reads, the move of storage facts into the metadata, and `ExtensionArray::new_unchecked` | U4 and U5, both merged. The strict reads also need the spatial fix |
+| 0 | Urgent fixes U1 to U8, the path-consistency test helper, and four fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), and imports that fail on nested nulls (X29) | Nothing |
+| 1 | The storage declaration: `storage_dtype`, `validate_metadata`, strict reads, the move of storage facts into the metadata, and `ExtensionArray::new_unchecked` | U4 and U5, both merged, and the spatial validator fix SN1 |
 | 2 | Declarations with hardcoded opt-ins: `ExtensionUse` with `None`, `Structural` and `Specific`, `extension_use` on both vtables, and the hardcoded lists of X35. Then the declarations of the built-in functions, by family. Nothing reads them yet, so behavior does not change. U9 can land at any time | Nothing |
 | 3 | Typing: the check that rejects every call that answers `None` | 0 (U1, U2), 2 |
 | 4 | Statistics: readers ignore min and max of types outside the order list, and writers drop the storage fallback | 2 for the readers, 3 for the writers |
@@ -27,8 +27,9 @@ phases 2 to 4 use hardcoded lists of types (X35).
 | Claims | [#11115](https://github.com/vortex-data/vortex/issues/11115): `Claim`, `DType::holds`, `ExtVTable::claims` and the claims of the types. Then `ExtensionUse::Storage`, `ResultMapping`, the generic storage rewrite, and the storage paths that replace the hardcoded lists | 1 for the claims, 3 for the storage paths |
 
 Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on 2026-11-02 and
-2026-10-30. Its strict reads wait for the spatial fix (see "Order constraints", items 3 and 6). The
-Arrow export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
+2026-10-30. Its storage declaration includes the strict reads, so it waits for the spatial fix
+(see "Order constraints", items 3 and 6). The Arrow export with metadata is part of phase 7, but it
+lands in phase 0, before U1. Phase 2 adds
 declarations that nothing reads yet, so it can start at any time. U9 changes only the results of
 the composite aggregates, which only tests use. Phase 3 is the critical step: it turns on typing,
 and from then on extension types are opaque. Phases 4 and 5 build on it. Phase 6 runs in parallel
@@ -46,7 +47,7 @@ check to `try_new`.
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-02. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
+2026-11-03. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
@@ -67,23 +68,24 @@ flowchart TD
         AX["AX Arrow export with metadata, from phase 7<br/>X24"]
         U1["U1 no storage casts"]
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::open
-        SN1["SN1 spatial validators and importers<br/>EXT-N2"]
-        SN2["SN2 other importers fail on nested nulls<br/>X29"]
+        V10["V10 Date display fallback<br/>EXT-V10"]
+        SN1["SN1 spatial validators reject nullable nested levels<br/>EXT-N2"]
+        DP["DP dictionary peel before the Arrow importers"]
+        SN2["SN2 Arrow importers of known types convert or fail<br/>X29"]
     end
     PC --> U2
     U2 -->|"item 1, lands together"| DF
     PC --> U1
     AX -.->|"item 2"| U1
+    DP --> SN2
 
     subgraph PH1["Phase 1"]
-        SD["SD storage declaration<br/>storage_dtype, validate_metadata, facts in metadata"]
-        SR["SR strict reads<br/>declared storage equals stored storage"]
+        SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata"]
         NU["NU new_unchecked, validate_array, conformance harness"]
     end
     U4 -->|"item 3"| SD
     U5 --> SD
-    SD --> SR
-    SN1 -.->|"item 6"| SR
+    SN1 -.->|"item 6"| SD
     SD --> NU
 
     subgraph PH2["Phase 2"]
@@ -135,6 +137,7 @@ flowchart TD
     subgraph PH7["Phase 7"]
         BD1["BD1 converters for DuckDB, Python and JNI"]
         BD3["BD3 typed array view and developer guide"]
+        DS["DS DataFusion physical schema for extension dtypes"]
     end
 
     subgraph CLAIMS["Claims, #11115"]
@@ -174,7 +177,7 @@ flowchart TD
         LP3["LP3 DateTimeParts under the wrapper"]
         LP4["LP4 registration without silent replacement<br/>EXT-R2"]
     end
-    CF["Constant fold of ext_storage<br/>#11056"]:::open -.-> LP2
+    CF["Constant fold of ext_storage<br/>#11056"]:::merged -.-> LP2
     SP3 -.->|"replaces the X32 rule"| LP3
 
     subgraph OTHER["Open PRs to coordinate with"]
@@ -235,10 +238,11 @@ breaks something that works today. Those parts must land together, or in a fixed
      aggregation when binding fails is not checked. SP4 later switches it to the claims.
 5. A change of `PartialOrd` for `Scalar` (XQ8) lands with the typing check of phase 3, or after it.
    Today `min` and `max` merge partial results with `vortex_expect`, so an earlier change can panic.
-6. The spatial nullability fix (EXT-N2) lands before the strict reads of phase 1 (X29). Its PR first
-   checks whether any version of Vortex wrote a spatial dtype with a nullable nested level, for
-   example through a GeoArrow import. If one did, phase 1 adds a read plugin for that form, because
-   strict reads reject it.
+6. The spatial validator fix SN1 (EXT-N2) lands before the storage declaration SD, which makes
+   reads strict (X29). `validate_dtype` runs on every read, so SN1 already makes these spatial
+   reads strict. A check on 2026-11-03 found that no Vortex producer wrote a spatial dtype with a
+   nullable nested level. Only storage that a user builds by hand through the public Rust API can
+   have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
 7. The declarations of phase 2 (TY1 to TY4) land before the typing check of phase 3, or with it.
    The check rejects every call that answers `None`, so a family without its declaration stops
    working. For example, a compare of two `Timestamp` columns would fail when it is built.
@@ -260,21 +264,27 @@ implementations that they change into `vortex-aggregates`.
   merged `develop` again and kept the dtype check of U2 in the compare kernel. The PR received a
   review on 2026-11-03. The author's `94c7ead8a0` checks min/max on the widened days, reuses
   `parts.days` in `day_offset`, and converts through jiff before the same-zone `raise` shortcut. The
-  overflow reply only covers parts produced by `split`. Local review commits `ab81a788e5`,
+  overflow reply only covers parts produced by `split`. Review commits `ab81a788e5`,
   `24a7085f84`, and `df5feb4baa` address scalar overflow, the conversion error regression, and
   fixture/benchmark cleanups. With the maintainer's approval, `d6e73bd40e` removes the cached-bounds
-  fast path and its duplicate loop variants, test cases, and benchmark inputs. All four commits are
-  local and not pushed. The two benchmark runs and default-writer probe are in part 4. They support
+  fast path and its duplicate loop variants, test cases, and benchmark inputs. On 2026-11-03 the
+  maintainer pushed all four with four cleanup commits. The head is `7943b4e983`, and the PR waits
+  for an approval. The two benchmark runs and default-writer probe are in part 4. They support
   removing the fast path: the millisecond gain is 11 to 13%, but the tested writer passes no exact
-  bounds to `split_temporal`. Seconds gain nothing from caching. The final head `d6e73bd40e` versus
-  the PR's `develop` base `d8e7467f8b` shows a repeatable 12.9% millisecond split slowdown and no
-  slowdown in the other units. Part 4 records the two runs per revision, the table, and the checks.
-  All requested scoped checks passed.
-- Land the spatial fix (EXT-N2) in two PRs. The first makes the spatial validators require non-null
-  nested levels and the spatial Arrow importers convert or fail. The second makes the other Arrow
-  importers fail on data outside the domain instead of declining, for example the `Vector` importer
-  on null elements (X29). The first PR checks whether a file with nullable nested spatial levels
-  can exist, for example through a GeoArrow import.
+  bounds to `split_temporal`. Seconds gain nothing from caching. At `d6e73bd40e`, a comparison
+  with the PR's `develop` base `d8e7467f8b` shows a repeatable 12.9% millisecond split slowdown and
+  no slowdown in the other units. No run measured the pushed head `7943b4e983`. Part 4 records
+  the two runs per revision, the table, and the checks. All requested scoped checks passed.
+- Land the spatial fix (EXT-N2) in two PRs. SN1 makes the five list-based spatial validators
+  require non-null nested levels. SN2 makes every Arrow importer of a known type (spatial,
+  `Vector`, `Uuid` and `Json`) convert children that are marked nullable but hold no nulls, and
+  fail on data outside the domain instead of declining (X29).
+- SN2 builds on DP. Today a dictionary-encoded extension field imports only because its importer
+  declines it first, and the session then retries with the value type. DP peels the dictionary
+  before the importers run, so importers never see dictionaries and can fail. The result stays
+  `Dict(codes, Ext(values))`.
+- V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
+  `develop` (EXT-V10).
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
   the documentation of `validate_dtype` states that its result must not depend on the top-level
   nullability. #11012 merged in this form on 2026-11-02. An earlier version validated every dtype
@@ -293,11 +303,13 @@ implementations that they change into `vortex-aggregates`.
 - Add `validate_metadata(&Metadata) -> VortexResult<()>` with the default `Ok(())` (X28).
   `ExtDType::try_new` and the read path call it.
 - Change `deserialize_metadata` to take the stored storage dtype. On read, check that the declared
-  storage equals the stored storage exactly, including nested nullability (X29).
+  storage equals the stored storage exactly, including nested nullability (X29). This check lands
+  with the declaration in SD. Without it, an old form reads silently wrong, because
+  `Extension::deserialize` decodes the storage child with the declared dtype.
 - Move the facts that live only in the storage into the in-memory metadata: the element type and
-  dimension of `Vector`, the element type of `FixedShapeTensor`, and the dimension of `Point` and
-  `Rect`. The serialized bytes do not change. `ForeignExtDType` holds the raw bytes and the stored
-  storage dtype.
+  dimension of `Vector`, the element type of `FixedShapeTensor`, and the dimension of the seven
+  native spatial types. The serialized bytes do not change. `ForeignExtDType` holds the raw bytes
+  and the stored storage dtype.
 - Switch the constructors that take a storage dtype to the facts. The audit of 2026-10-30 found
   these sites at `d197efd007`: `vortex-tensor/src/types/vector/mod.rs:51-53`,
   `vortex-array/src/arrays/extension/array.rs:78-88`, `vortex-spatial/src/extension/mod.rs:264-275`
@@ -419,8 +431,11 @@ implementations that they change into `vortex-aggregates`.
 ## Phase 7: boundaries
 
 - Arrow and DataFusion: export a type without a plugin as storage with `ARROW:extension:name` and
-  `ARROW:extension:metadata`, and import Vortex IDs (X24). A storage-like target type no longer
-  leaks storage. This part can start at any time.
+  `ARROW:extension:metadata`, and import Vortex IDs (X24). U1 later stops the storage leak through
+  a storage-like target type. This part can start at any time.
+- DS: the DataFusion physical schema rejects extension dtypes inside List, FixedSizeList, Map,
+  ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
+  `Vector` columns. DS fixes it, once a regression test confirms the failure.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
   stop.
@@ -458,7 +473,7 @@ hardcoded lists of phases 2 to 4 with claims, so that a type outside the reposit
   `DType::holds`. Add the generic storage rewrite over `ReduceNode`, in the static optimizer and
   before kernel dispatch. It rewrites operands to `ext_storage`, or to the new `ext_storage_deep`
   for nested values, and applies the result mapping. Add the rule `ext_storage(Extension(s))` to
-  `s`, so the row path of `ext_storage` reads storage without a value check. #11056 adds the
+  `s`, so the row path of `ext_storage` reads storage without a value check. #11056 added the
   matching rule for a constant, which folds the literal side of the rewrite, for example
   `lit(5i64)`.
 - SP3 to SP5 switch each family from its hardcoded list to a `Storage` declaration, and remove its
@@ -491,7 +506,7 @@ kernel registry, and it closed without a merge.
   `Masked` and `Sparse` get a pushdown rule for elementwise, infallible and strict functions.
   `ScalarFnVTable` gets a constant-fold hook that `Constant` and the `Sparse` fill value use.
   `ext_storage` keeps only its constant hook and the unwrap rule of SP2.
-  [#11056](https://github.com/vortex-data/vortex/pull/11056) adds the constant case. Without the
+  [#11056](https://github.com/vortex-data/vortex/pull/11056) added the constant case. Without the
   rest, `ext_storage` over `Masked` decodes, and over `Sparse` with extension values it fails
   (probe R6).
 - Low priority: `DateTimeParts` as an `i64` encoding under the wrapper. Until then, the rule of X32
@@ -517,10 +532,10 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 | EXT-V3 | U7, merged in #11014 |
 | EXT-V4, EXT-V5, EXT-V8 | U5, merged in #11015 |
 | EXT-V9 | [#10953](https://github.com/vortex-data/vortex/pull/10953) (X31) |
-| EXT-V10 | A follow-up PR on `develop`, outside the phases. It gives the `Display` of `Date` the fallback of `Timestamp` |
+| EXT-V10 | V10, its own PR on `develop`. It gives the `Display` of `Date` the fallback of `Timestamp` |
 | EXT-V6 | Phase 6. The trait allows a type without a value check, so a type adds one only where its values have constraints |
 | EXT-N1 | U4 (merged in #11012) as the interim fix, and the storage declaration of phase 1 |
-| EXT-N2 | The spatial nullability PR, before the strict reads of phase 1 ("Order constraints", item 6) |
+| EXT-N2 | SN1 for the validators, before SD ("Order constraints", item 6), and SN2 for the Arrow importers |
 | EXT-S1 | The low-priority lift rule and the shared pushdown (X34). Code handles both shapes today, so no result is wrong |
 | EXT-S2 | The low-priority move of `DateTimeParts` under the wrapper. U2 fixed its compare kernel in #11016 |
 | EXT-S3 | #10953 |
@@ -562,7 +577,8 @@ scope.
 - Phases 0 to 3 and phase 5 change behavior, not the file format. The release notes must list the
   behavior changes from part 4 and from typing.
 - Phase 1 keeps the serialized metadata. Strict reads reject a stored storage dtype that differs
-  from the declaration, so the spatial fix checks old files first ("Order constraints", item 6).
+  from the declaration. No Vortex producer wrote a spatial dtype in another form ("Order
+  constraints", item 6).
 - Phase 4 keeps the format. Writers stop writing min and max for types outside the order list, and
   readers ignore such values in old files.
 - The claims of #11115 allow and reject the same calls as the hardcoded lists for the types in the

@@ -467,9 +467,9 @@ Terms:
   `TemporalMetadata::to_jiff` returns an error for values outside the range of jiff
   (`vortex-array/src/extension/datetime/matcher.rs:61-76`). `replace_time_zone` did not always
   reject those values: its same-zone `raise` shortcut returned them unchanged. The author's
-  commit `94c7ead8a0` on 2026-11-03 moves the jiff conversion before that shortcut. Local review
+  commit `94c7ead8a0` on 2026-11-03 moves the jiff conversion before that shortcut. The review
   commit `24a7085f84` adds conversion context and checks the specific error, with an in-range
-  control for both timezone targets. This review commit is local and not pushed.
+  control for both timezone targets. It is part of the pushed head `7943b4e983`.
 
 ### EXT-V10: `Date` Display panics on valid storage values
 
@@ -481,9 +481,10 @@ Terms:
   represent it. This follows from the source. No reproduction ran in this review.
 - **Expected:** Every accepted value must be safe to format. The display range must not reduce
   the storage range of `Date` (X31).
-- **Fix:** A follow-up PR based on `develop`: use `TimeUnit::to_jiff_span` and `checked_add`, then
-  print `{value}{unit}` if either fails. This follows the fallback pattern of `TimestampValue`. The
-  follow-up is not started and needs confirmation before implementation.
+- **Fix:** V10, its own PR on `develop`: use `TimeUnit::to_jiff_span` and `checked_add`, then print
+  `{value}{unit}` if either fails. This follows the fallback pattern that #10953 gives
+  `TimestampValue`. #10953 changes only `timestamp.rs`, so it does not fix this finding. The
+  maintainer confirmed V10 on 2026-11-03.
 
 ### EXT-N1: A nullability change can panic
 
@@ -524,12 +525,14 @@ Terms:
     it builds no nested spatial types.
 - **Expected:** GeoArrow allows nulls only at the outer level, and its inner fields SHOULD be marked
   non-nullable. Vortex follows it (X26).
-- **Status:** code. The Arrow import failure is inferred and did not run. Whether any version wrote
-  a file with nullable nested spatial storage is not checked.
-- **Fix:** The validators require non-null nested levels. The Arrow importers convert children that
-  are marked nullable but hold no nulls, and fail on nested nulls (X29). The PR first checks old
-  files, because strict reads reject the old form ("Order constraints", item 6, in
-  `../05-implementation.md`).
+- **Status:** code. The Arrow import failure is inferred and did not run. A check on 2026-11-03
+  found that no Vortex producer could write nullable nested spatial storage. Only storage that a
+  user builds by hand through the public Rust API can have it, from 0.85.0 on. Files from 0.75.0 to
+  0.84.0 use the older `vortex.geo.*` IDs.
+- **Fix:** SN1 makes the five list-based validators require non-null nested levels. `Point` and
+  `Rect` already do. `validate_dtype` runs on every read, so files in the other form stop reading,
+  which the maintainer accepted on 2026-11-03. SN2 makes the Arrow importers convert children that
+  are marked nullable but hold no nulls, and fail on nested nulls (X29).
 
 ### EXT-S1: A constant extension column has two shapes
 

@@ -348,7 +348,7 @@ The pushdown of functions through generic encodings is one shared mechanism, nex
 - `ScalarFnVTable` gets a constant-fold hook, for example `reduce_constant`. The `Constant`
   encoding and the `Sparse` fill value use it.
 - `ext_storage` owns only its constant hook and the unwrap rule `ext_storage(Extension(s))` to `s`.
-  PR [#11056](https://github.com/vortex-data/vortex/pull/11056) adds the constant case.
+  PR [#11056](https://github.com/vortex-data/vortex/pull/11056) added the constant case.
 
 Type-specific encodings are a separate question. `DateTimeParts` can move under the wrapper as an
 `i64` encoding, so that its compare kernel works on storage. The compressor then chooses it from

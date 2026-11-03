@@ -197,12 +197,13 @@ Three more PRs touch this work:
   in `replace_time_zone`. Two threads are fixed in code. The overflow reply applies to parts
   from `split`, but not to parts read from files or supplied to `DateTimeParts::try_new`.
 
-  Four separate review commits are ready locally on `ct/timestamp-full-range-review`:
-  `ab81a788e5` makes scalar reconstruction and part conversion fallible, `24a7085f84` checks the
-  `replace_time_zone` conversion error and an in-range control, and `df5feb4baa` restores the
-  extreme fixture, covers all six comparisons against an extreme constant, and removes dead
-  benchmark code. With the maintainer's approval, `d6e73bd40e` removes the cached-bounds fast path,
-  duplicate loop variants, and cache-only test and benchmark parameters. They are not pushed.
+  The maintainer added four review commits. `ab81a788e5` makes scalar reconstruction and part
+  conversion fallible, `24a7085f84` checks the `replace_time_zone` conversion error and an in-range
+  control, and `df5feb4baa` restores the extreme fixture, covers all six comparisons against an
+  extreme constant, and removes dead benchmark code. With the maintainer's approval, `d6e73bd40e`
+  removes the cached-bounds fast path, duplicate loop variants, and cache-only test and benchmark
+  parameters. On 2026-11-03 the maintainer pushed them with four cleanup commits. The PR head is
+  `7943b4e983`, and the PR waits for an approval.
   The hot `combine_parts` decode loop is unchanged, because its overflow risk predates this PR.
 
   `d6e73bd40e` removed the fast path after the following measurements and writer probe. At the
@@ -223,7 +224,7 @@ Three more PRs touch this work:
   but the tested writer cannot use it. Seconds are 3 to 5% slower with cached bounds.
   The temporary instrumentation and probe are removed.
 
-  The final local head `d6e73bd40e` was compared with the PR's `develop` base, `d8e7467f8b`,
+  The head `d6e73bd40e` was compared with the PR's `develop` base, `d8e7467f8b`,
   using the same final benchmark harness and inputs on both revisions. Two runs per revision
   used baseline/candidate/candidate/baseline order and at least two seconds per case. The table
   shows medians of the two run medians, in microseconds. The compiler was rustc 1.99.1 on
@@ -237,9 +238,10 @@ Three more PRs touch this work:
   | Nanoseconds | 30.70 | 30.66 | -0.1% |
 
   The millisecond slowdown repeats in both runs. The other units show no slowdown in this
-  comparison. These measurements cover the split, not file-write throughput. Extreme inputs
-  at the final head take 63.62 microseconds for seconds and 80.16 for milliseconds. They have
-  no valid baseline result because `develop` does not preserve their full-range days.
+  comparison. These measurements cover the split, not file-write throughput, and they ran at
+  `d6e73bd40e`, not at the pushed head `7943b4e983`. Extreme inputs at `d6e73bd40e` take 63.62
+  microseconds for seconds and 80.16 for milliseconds. They have no valid baseline result because
+  `develop` does not preserve their full-range days.
 
   Final checks passed: scoped Clippy with all targets, all features, and `-D warnings`, pinned
   formatting with `nightly-2026-09-10`, 218 DateTimeParts/BtrBlocks tests, and 159 targeted array
@@ -249,9 +251,10 @@ Three more PRs touch this work:
   over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
   types, and requested changes on 2026-10-30. The maintainer approved it the same day, because it
   only folds an `ext_storage` that the expression already holds (X33). It is the constant case of
-  X34. On 2026-11-02 it is open, and the request for changes still blocks it.
-- A spatial PR makes the validators require non-null nested levels and the Arrow importers fail on
-  nested nulls (EXT-N2, X26, X29). On 2026-11-02 it has no PR yet.
+  X34. It merged on 2026-11-03 as `194a9f92fd`.
+- Two PRs fix EXT-N2 (X26, X29). SN1 makes the spatial validators require non-null nested levels.
+  SN2 makes the Arrow importers of known types convert or fail. It builds on DP, which peels
+  dictionary fields before the importers run. On 2026-11-03 none of the three has a PR yet.
 
 Three PRs added or add mechanisms for extension semantics:
 
