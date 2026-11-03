@@ -7,7 +7,6 @@ use arrow_array::Array;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
-use arrow_array::FixedSizeListArray;
 use arrow_array::Int8Array;
 use arrow_array::Int32Array;
 use arrow_array::Int64Array;
@@ -23,7 +22,6 @@ use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
 use arrow_array::types::UInt32Type;
-use arrow_array::types::UInt64Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
@@ -2253,6 +2251,8 @@ fn test_native_array_sum(
         Some(vec![None, None]),
         None,
         Some(vec![Some(0), Some(3)]),
+        Some(vec![Some(i64::MAX), Some(i64::MAX)]),
+        Some(vec![Some(1 << 53), Some(1), Some(1)]),
     ]);
     let item = Arc::new(Field::new("item", element, true));
     let data_type = if large {
@@ -2261,17 +2261,6 @@ fn test_native_array_sum(
         DataType::List(item)
     };
     let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
-    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
-    assert_native_matches(expr, batch)
-}
-
-#[test]
-fn test_native_array_sum_fixed_size_list() -> anyhow::Result<()> {
-    let lists = FixedSizeListArray::from_iter_primitive::<Int32Type, _, _>(
-        [Some(vec![Some(1), Some(2)]), Some(vec![None, None]), None],
-        2,
-    );
-    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
     assert_native_matches(expr, batch)
 }
@@ -2302,25 +2291,13 @@ fn test_native_array_sum_nan() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Integer sums are exact and null on overflow, where DataFusion adds the elements as `Float64`.
-#[test]
-fn test_native_array_sum_integer_overflow_is_null() -> anyhow::Result<()> {
-    let values = vec![Some(u64::MAX), Some(1)];
-    let lists = ListArray::from_iter_primitive::<UInt64Type, _, _>([Some(values)]);
-    assert!(native_array_sum(Arc::new(lists))?.is_null());
-    Ok(())
-}
-
 #[rstest]
-#[case::decimal(DataType::Decimal128(10, 2))]
-#[case::utf8(DataType::Utf8)]
-#[case::nested(DataType::new_list(DataType::Int32, true))]
-fn test_array_sum_falls_back(#[case] element: DataType) -> DFResult<()> {
-    let schema = Schema::new(vec![Field::new(
-        "xs",
-        DataType::new_list(element, true),
-        true,
-    )]);
+#[case::decimal(DataType::new_list(DataType::Decimal128(10, 2), true))]
+#[case::utf8(DataType::new_list(DataType::Utf8, true))]
+#[case::nested(DataType::new_list(DataType::new_list(DataType::Int32, true), true))]
+#[case::fixed_size_list(DataType::new_fixed_size_list(DataType::Int32, 2, true))]
+fn test_array_sum_falls_back(#[case] list: DataType) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("xs", list, true)]);
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?;
     assert!(!converts(&expr, &schema)?);
     Ok(())

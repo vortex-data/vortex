@@ -36,7 +36,6 @@ use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::dtype::PType;
 use vortex::expr::Expression;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
@@ -207,10 +206,8 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Supported arithmetic is pushed down using Vortex semantics, including its checked
 /// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
-/// whereas DataFusion extracts the child without applying parent validity. `array_sum` over
-/// integer or boolean elements sums exactly and is null when the sum overflows, whereas
-/// DataFusion adds the elements as `Float64`. These differences are accepted for both filters
-/// and projections.
+/// whereas DataFusion extracts the child without applying parent validity. These differences
+/// are accepted for both filters and projections.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -648,8 +645,7 @@ impl DefaultExpressionConverter {
     ///
     /// DataFusion casts the list to `List<Float64>`, then adds each list's valid elements in
     /// order: an empty or all-null list sums to null and a NaN poisons the sum. `list_sum` with
-    /// `include_nans` adds float elements the same way, so the cast is dropped. Integer and
-    /// boolean elements are summed exactly and the sum is cast to `Float64`.
+    /// `include_nans` adds the cast elements the same way.
     fn convert_array_sum(
         &self,
         scalar_fn: &ScalarFunctionExpr,
@@ -659,30 +655,15 @@ impl DefaultExpressionConverter {
         let [input] = scalar_fn.args() else {
             return Err(exec_datafusion_err!("array_sum requires exactly one argument").into());
         };
+        // Nested lists coerce to lists of `Float64` lists, which `list_sum` cannot add.
         let (DataType::List(field) | DataType::LargeList(field)) = input.data_type(schema)? else {
             return Err(Unconverted::Unsupported);
         };
         if *field.data_type() != DataType::Float64 {
             return Err(Unconverted::Unsupported);
         }
-        let input = input
-            .downcast_ref::<df_expr::CastExpr>()
-            .map_or(input, |cast_expr| cast_expr.expr());
         let list = self.convert_expr(input, schema, input_dtype)?;
-        let (DType::List(element, _) | DType::FixedSizeList(element, ..)) =
-            converted_dtype(&list, input_dtype)?
-        else {
-            return Err(Unconverted::Unsupported);
-        };
-        let sum = list_sum_opts(list, NumericalAggregateOpts::include_nans());
-        match element.as_ref() {
-            DType::Primitive(ptype, _) if ptype.is_float() => Ok(sum),
-            DType::Bool(_) | DType::Primitive(..) => Ok(cast(
-                sum,
-                DType::Primitive(PType::F64, Nullability::Nullable),
-            )),
-            _ => Err(Unconverted::Unsupported),
-        }
+        Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
 
     fn convert_case_expr(
