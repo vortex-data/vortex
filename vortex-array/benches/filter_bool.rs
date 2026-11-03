@@ -296,7 +296,8 @@ fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = SIZES)]
+// The small case varies in simulation on unrelated PRs. The cause is unknown.
+#[divan::bench(args = if cfg!(codspeed) { &[100_000] } else { SIZES })]
 fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
@@ -316,7 +317,8 @@ fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = SIZES)]
+// The large case repeatedly makes system calls that simulation excludes from its measurement.
+#[divan::bench(args = if cfg!(codspeed) { &[10_000] } else { SIZES })]
 fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
