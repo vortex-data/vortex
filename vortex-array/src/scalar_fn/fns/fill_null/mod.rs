@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -34,6 +35,7 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -118,9 +120,18 @@ impl ScalarFnVTable for FillNull {
     fn execute(
         &self,
         _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_panic!("FillNull implements execute_step, so execute is never called")
+    }
+
+    fn execute_step(
+        &self,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ScalarFnExecutionResult> {
         let input = args.get(0)?;
         let fill_value = args.get(1)?;
         // Parent kernels decline a fill that is not already constant. Materialize it here so a
@@ -142,7 +153,7 @@ impl ScalarFnVTable for FillNull {
             let dtype = input
                 .dtype()
                 .with_nullability(fill_value.dtype().nullability());
-            return Ok(Canonical::empty(&dtype).into_array());
+            return Ok(ScalarFnExecutionResult::done(Canonical::empty(&dtype)));
         };
 
         vortex_ensure!(
@@ -156,16 +167,17 @@ impl ScalarFnVTable for FillNull {
                 // kernels get a chance before we decode the input.
                 return FillNull::try_new(input, fill_value)?
                     .into_array()
-                    .optimize_ctx(ctx.session());
+                    .optimize_ctx(ctx.session())
+                    .map(ScalarFnExecutionResult::done);
             }
-            let input = input.execute::<ArrayRef>(ctx)?;
-            return Ok(FillNull::try_new(input, fill_value)?.into_array());
+            return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
         };
 
         match columnar {
             ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, fill_scalar, ctx),
             ColumnarView::Constant(constant) => fill_null_constant(constant, fill_scalar),
         }
+        .map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(
@@ -247,6 +259,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
@@ -522,5 +535,19 @@ mod tests {
     fn test_display() {
         let expr = fill_null(get_item("value", root()), lit(0i32));
         assert_eq!(expr.to_string(), "vortex.fill_null($.value, 0i32)");
+    }
+
+    /// A scalar function input is executed through the executor before its nulls are filled.
+    #[test]
+    fn executes_non_columnar_input_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)])
+            .into_array()
+            .binary(ConstantArray::new(2i32, 3).into_array(), Operator::Gt)?;
+
+        let result = input.fill_null(Scalar::from(false))?;
+
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false, true]), &mut ctx);
+        Ok(())
     }
 }

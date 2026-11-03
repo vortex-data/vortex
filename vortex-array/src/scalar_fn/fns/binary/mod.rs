@@ -17,9 +17,11 @@ pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ScalarFnArray;
@@ -28,11 +30,13 @@ use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -44,6 +48,7 @@ pub mod boolean;
 pub use boolean::BooleanExecuteAdaptor;
 pub use boolean::BooleanKernel;
 pub(crate) use boolean::execute_boolean;
+use boolean::execute_boolean_step;
 pub use boolean::kleene_boolean_buffer_scalar;
 pub use boolean::kleene_boolean_buffers;
 mod compare;
@@ -175,27 +180,38 @@ impl ScalarFnVTable for Binary {
 
     fn execute(
         &self,
+        _op: &Operator,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_panic!("Binary implements execute_step, so execute is never called")
+    }
+
+    fn execute_step(
+        &self,
         op: &Operator,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ScalarFnExecutionResult> {
         let lhs = args.get(0)?;
         let rhs = args.get(1)?;
 
-        match op {
-            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq, ctx),
-            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq, ctx),
-            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt, ctx),
-            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
-            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
-            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
-            Operator::And => execute_boolean(lhs, rhs, Operator::And, ctx),
-            Operator::Or => execute_boolean(lhs, rhs, Operator::Or, ctx),
-            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
-            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
-            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),
-            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div, ctx),
+        if let Operator::And | Operator::Or = op {
+            return execute_boolean_step(lhs, rhs, *op, ctx);
         }
+
+        // A null constant operand decides a comparison or arithmetic result on its own.
+        let null_operand = |array: &ArrayRef| array.as_constant().is_some_and(|s| s.is_null());
+        if !null_operand(&lhs) && !null_operand(&rhs) {
+            if !AnyColumnar::matches(&lhs) {
+                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0));
+            }
+            if !AnyColumnar::matches(&rhs) {
+                return Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(1));
+            }
+        }
+
+        execute_operator(&lhs, &rhs, *op, ctx).map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(
@@ -335,6 +351,29 @@ impl ScalarFnVTable for Binary {
     }
 }
 
+/// Executes `op` over operands that are columnar, or that decide the result on their own.
+fn execute_operator(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    op: Operator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    match op {
+        Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq, ctx),
+        Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq, ctx),
+        Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt, ctx),
+        Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte, ctx),
+        Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt, ctx),
+        Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte, ctx),
+        Operator::And => execute_boolean(lhs.clone(), rhs.clone(), Operator::And, ctx),
+        Operator::Or => execute_boolean(lhs.clone(), rhs.clone(), Operator::Or, ctx),
+        Operator::Add => execute_numeric(lhs, rhs, NumericOperator::Add, ctx),
+        Operator::Sub => execute_numeric(lhs, rhs, NumericOperator::Sub, ctx),
+        Operator::Mul => execute_numeric(lhs, rhs, NumericOperator::Mul, ctx),
+        Operator::Div => execute_numeric(lhs, rhs, NumericOperator::Div, ctx),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -344,6 +383,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
@@ -748,6 +788,51 @@ mod tests {
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
             assert_arrays_eq!(array, BoolArray::from_iter([true, true, true]), &mut ctx);
         }
+        Ok(())
+    }
+
+    /// Comparisons over arithmetic, joined by `AND`: every input is a scalar function, so each
+    /// operator executes its inputs through the executor.
+    #[test]
+    fn executes_non_columnar_inputs_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let a = PrimitiveArray::from_iter([1i32, 5, 9, 12]).into_array();
+        let b = PrimitiveArray::from_iter([2i32, 2, 2, 2]).into_array();
+        let sum = a.binary(b.clone(), Operator::Add)?;
+        let difference = a.binary(b, Operator::Sub)?;
+        let ten = ConstantArray::new(10i32, 4).into_array();
+        let result = sum
+            .binary(ten.clone(), Operator::Gt)?
+            .binary(difference.binary(ten, Operator::Lt)?, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, true, false]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A constant `false` decides `AND` without executing the other operand, which here fails
+    /// when executed.
+    #[test]
+    fn deciding_constant_skips_other_operand() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let failing = PrimitiveArray::from_iter([1i32, 2, 3])
+            .into_array()
+            .binary(ConstantArray::new(0i32, 3).into_array(), Operator::Div)?
+            .binary(ConstantArray::new(1i32, 3).into_array(), Operator::Gt)?;
+        assert!(failing.clone().execute::<Canonical>(&mut ctx).is_err());
+
+        let result = ConstantArray::new(false, 3)
+            .into_array()
+            .binary(failing, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false]),
+            &mut ctx
+        );
         Ok(())
     }
 }
