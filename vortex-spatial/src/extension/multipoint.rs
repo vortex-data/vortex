@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -22,7 +21,6 @@ use geoarrow::datatypes::MultiPointType;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
@@ -274,24 +272,19 @@ impl ArrowImportVTable for MultiPoint {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
+        let Some(ext_dtype) = dtype
+            .as_extension_opt()
+            .filter(|ext| ext.is::<MultiPoint>())
+        else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !ext_dtype.is::<MultiPoint>()
-            || field.try_extension_type::<MultiPointType>().is_err()
-            || !matches!(array.data_type(), DataType::List(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, ext_dtype)
+            .map(ArrowImport::Imported)
     }
 }
 
