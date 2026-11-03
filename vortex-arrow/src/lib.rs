@@ -20,6 +20,7 @@ use vortex_session::VortexSession;
 
 pub mod convert;
 mod datum;
+mod declared_nullability;
 pub mod dtype;
 mod executor;
 mod iter;
