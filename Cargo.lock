@@ -12191,6 +12191,7 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "prost 0.14.4",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-edition",
