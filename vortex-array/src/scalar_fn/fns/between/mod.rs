@@ -10,9 +10,11 @@ pub use kernel::*;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -31,6 +33,7 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -323,24 +326,28 @@ impl ScalarFnVTable for Between {
 
     fn execute(
         &self,
+        _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_panic!("Between implements execute_step, so execute is never called")
+    }
+
+    fn execute_step(
+        &self,
         options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ScalarFnExecutionResult> {
         let arr = args.get(0)?;
-        let lower = args.get(1)?;
-        let upper = args.get(2)?;
-
-        // canonicalize the arr and we might be able to run a between kernels over that.
+        // Canonicalize the input, over which between kernels may run.
         if !arr.is_canonical() {
-            return arr.execute::<Canonical>(ctx)?.into_array().between(
-                lower,
-                upper,
-                options.clone(),
-            );
+            return Ok(ScalarFnExecutionResult::execute_input::<AnyCanonical>(0));
         }
 
-        between_canonical(&arr, &lower, &upper, options, ctx)
+        let lower = args.get(1)?;
+        let upper = args.get(2)?;
+        between_canonical(&arr, &lower, &upper, options, ctx).map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
