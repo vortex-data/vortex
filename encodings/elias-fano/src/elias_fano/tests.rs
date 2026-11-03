@@ -35,10 +35,12 @@ use vortex_session::registry::ReadContext;
 
 use super::EliasFano;
 use super::EliasFanoArray;
+use super::EliasFanoArrayExt;
 use super::array::EliasFanoArraySlotsExt;
 use super::array::EliasFanoSlots;
 use super::elias_fano_encode;
 use super::vtable::EliasFanoMetadata;
+use crate::unary_encode;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -109,6 +111,25 @@ fn test_roundtrip(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResul
     assert!(decoded.is::<EliasFano>());
     assert_arrays_eq!(decoded, expected, &mut ctx);
     test_array_consistency(&encoded, &mut ctx);
+    Ok(())
+}
+
+/// The tree the EF scheme builds, with `upper` as Unary, which `scalar_at` reads by select.
+#[rstest]
+#[case::example(vec![3, 4, 9])]
+#[case::duplicates(vec![2, 2, 2, 5, 5, 9])]
+#[case::squares((0..1000).map(|i| i * i).collect())]
+fn test_unary_upper(#[case] values: Vec<u64>) -> VortexResult<()> {
+    let ef = encode_as(PType::U64, &values)?
+        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?;
+    let mut ctx = SESSION.create_execution_ctx();
+    let counts = ef.upper().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let upper = unary_encode(counts.as_ref().as_::<Primitive>(), &mut ctx)?
+        .ok_or_else(|| vortex_err!("the counts did not encode"))?;
+    let array =
+        EliasFano::try_new(upper.into_array(), ef.lower().clone(), ef.lower_bits())?.into_array();
+    assert_arrays_eq!(array, primitive(PType::U64, &values), &mut ctx);
+    test_array_consistency(&array, &mut ctx);
     Ok(())
 }
 

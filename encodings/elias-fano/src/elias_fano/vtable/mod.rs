@@ -60,6 +60,10 @@ pub(super) struct EliasFanoMetadata {
 }
 
 /// The dtype of the `upper` child.
+///
+/// One bucket can hold every value, so a count can reach the array's length, which only a `u64`
+/// holds for every length. A wide logical dtype costs nothing: a `Unary` child stores the same bits
+/// whatever its dtype.
 const UPPER_DTYPE: DType = DType::Primitive(PType::U64, NonNullable);
 
 impl ArrayHash for EliasFanoData {
@@ -231,8 +235,8 @@ fn elias_fano_decode(array: &EliasFanoArray) -> VortexResult<PrimitiveArray> {
 /// `lower` child holds the low bits in order. For `[3, 4, 9]` with `lower_bits = 1`, `upper` is
 /// `[0, 1, 1, 0, 1]` and `lower` is `[1, 0, 1]`.
 ///
-/// This is the naive form: [`elias_fano_encode`](crate::elias_fano_encode) leaves both children
-/// uncompressed, and `scalar_at` decodes the whole array.
+/// [`elias_fano_encode`](crate::elias_fano_encode) leaves both children uncompressed, for the
+/// compressor to encode as `Unary` and `BitPacked`.
 ///
 /// There is no validity yet, which keeps the encoding simple. Adding it must stay backwards
 /// compatible, which an optional validity child allows, as in Bool: arrays written now have only

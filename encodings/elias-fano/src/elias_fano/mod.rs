@@ -3,7 +3,11 @@
 
 //! The [`EliasFano`] encoding: the array, its encoder, and the decode behind `execute`.
 
+// `array_slots` generates the slot accessors without docs.
+#[allow(missing_docs)]
 mod array;
+pub use array::EliasFanoArrayExt;
+pub use array::EliasFanoArraySlotsExt;
 pub use array::EliasFanoData;
 
 mod compress;

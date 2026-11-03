@@ -8,8 +8,9 @@
 //! values in any order. It is also meant to hold the bucket counts of [`EliasFano`].
 //!
 //! [`EliasFano`] stores a sorted, non-nullable unsigned column as two children: the number of
-//! values in each bucket of high bits, and the low bits of each value. For now,
-//! [`elias_fano_encode`] leaves both uncompressed.
+//! values in each bucket of high bits, and the low bits of each value. [`elias_fano_encode`]
+//! leaves both uncompressed, and the EF scheme in `vortex-btrblocks` encodes them as [`Unary`] and
+//! `BitPacked`.
 //!
 //! None of these encodings is in a file edition or registered by `vortex-file`, so the default
 //! writers reject them for now. [`initialize`] registers them in a session.
@@ -20,6 +21,8 @@ mod unary;
 
 pub use elias_fano::EliasFano;
 pub use elias_fano::EliasFanoArray;
+pub use elias_fano::EliasFanoArrayExt;
+pub use elias_fano::EliasFanoArraySlotsExt;
 pub use elias_fano::EliasFanoData;
 pub use elias_fano::elias_fano_encode;
 pub use unary::Unary;

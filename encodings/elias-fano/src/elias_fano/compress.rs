@@ -18,6 +18,9 @@ use super::vtable::EliasFanoArray;
 
 /// Encode `array` as an [`EliasFano`] array, leaving both children uncompressed.
 ///
+/// The children are left to the compressor: the EF scheme in `vortex-btrblocks` forces `upper`
+/// into [`Unary`](crate::Unary) and bit-packs `lower`.
+///
 /// Returns `None` when the dtype is not a non-nullable unsigned integer, or when the values are
 /// not sorted.
 pub fn elias_fano_encode(array: ArrayView<'_, Primitive>) -> VortexResult<Option<EliasFanoArray>> {
