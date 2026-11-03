@@ -113,7 +113,8 @@ impl WidenArray {
     /// We cache the range on the child as [`Stat::Min`] and [`Stat::Max`], keeping its exactness
     /// because enclosing bounds are not necessarily actual extrema. Scanning empty or all-null
     /// input yields no extrema to cache. Canonical-width storage ignores `known_range`.
-    /// An incorrect range or declared precision can cause incorrect results in later operations.
+    /// Supplied ranges are trusted, even when a narrowing copy checks the selected precision.
+    /// Incorrect ranges or declared precision can cause incorrect results in later operations.
     ///
     /// # Errors
     ///

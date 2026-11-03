@@ -256,8 +256,8 @@ impl DecimalData {
     ) -> VortexResult<Self> {
         Self::validate(&values, values_type)?;
 
-        // SAFETY: `validate` checks the buffer layout. Precision is trusted, as in other checked
-        // decimal constructors, and violations can produce incorrect results.
+        // SAFETY: `validate` checks the buffer layout. Values outside the declared precision can
+        // produce incorrect results, but do not affect memory safety.
         Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
     }
 
