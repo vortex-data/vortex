@@ -21,6 +21,8 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  # An exact version avoids depending on the upstream "latest" version index.
+  ZIG_VERSION: "0.17.0"
 
 jobs:
   python-wheel-build:
@@ -46,6 +48,8 @@ jobs:
         with:
           save-if: ${{ github.ref_name == 'develop' }}
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
@@ -104,6 +108,8 @@ jobs:
             with:
               enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
           - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
+            with:
+              version: ${{ env.ZIG_VERSION }}
       - name: Install cargo-zigbuild
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
