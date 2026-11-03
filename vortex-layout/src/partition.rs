@@ -53,9 +53,12 @@ pub(crate) fn scope_of(expr: &BoundExpression) -> Option<&DType> {
     expr.children().iter().find_map(scope_of)
 }
 
+/// Result of partitioning an expression over a plan.
+/// Partitioned expression may go into any partition, exactly one parttition,
+/// or may be unable to be placed in any partition.
 pub enum PartitionedExpression {
     /// If None, expression may go into any partition
-    /// If some, expression reference exactly one field from children
+    /// If Some, expression references exactly one field from children
     One(Option<FieldIndex>, BoundExpression),
     /// Expression references multiple fields from children
     Many(Partitions),
@@ -72,6 +75,12 @@ pub struct Partition {
     pub expr: BoundExpression,
 }
 
+/// Partition expression with respect to a plan on which this expression
+/// operates.
+///
+/// Example: if you have a Pack(a: a, b: b) plan and an expression
+/// $.a > 1 && $.b < 2, you can produce two partitions, one operating on
+/// $.a, other on $.b.
 pub fn partition_expression<Plan: PartitionedPlan>(
     expr: &BoundExpression,
     source: &Plan,

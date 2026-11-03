@@ -130,7 +130,7 @@ impl PartitionedPlan for RowIdx {
     type Slot = RowIdxSlot;
 }
 
-pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
+pub fn register_row_idx_partition_rules(session: &PartitionSession) {
     session.register_root_rule(
         &RowIdx,
         const { &PartitionRuleAdapter::new(RowIdxRootRule) },

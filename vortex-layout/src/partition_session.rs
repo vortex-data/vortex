@@ -13,8 +13,8 @@ use vortex_session::SessionVar;
 
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanVTable;
+use crate::plan::physical::register_pack_partition_rules;
 use crate::plan::physical::register_row_idx_partition_rules;
-use crate::plan::physical::register_struct_partition_rules;
 
 /// Positional index for a schema's field at some level.
 /// It's up to the plan to interpret its meaning.
@@ -36,7 +36,10 @@ pub struct NodeTouches<S = FieldIndex> {
 
 pub trait PartitionRule<Plan: PartitionedPlan>: Send + Sync {
     /// None if rule doesn't apply, otherwise list of slots node needs as well
-    /// as a combiner expression for these slots
+    /// as a combiner expression for these slots.
+    ///
+    /// See register_pack_partition_rules and register_row_idx_partition_rules
+    /// for examples
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<Plan::Slot>>>;
 }
 
@@ -113,7 +116,7 @@ impl Default for PartitionSession {
         let this = Self {
             rules: ArcSwapMap::default(),
         };
-        register_struct_partition_rules(&this);
+        register_pack_partition_rules(&this);
         register_row_idx_partition_rules(&this);
         this
     }
