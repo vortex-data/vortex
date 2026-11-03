@@ -253,8 +253,9 @@ impl CudaContext {
     ///
     /// # Safety
     ///
-    /// The driver takes no length and reads the image's own: `image` must be a complete cubin
-    /// or fatbin, or PTX text followed by a NUL byte.
+    /// `image` must contain a valid, complete cubin or fatbin, with all referenced data
+    /// within the slice, or PTX text with a terminating NUL byte within the slice.
+    /// The driver receives only a pointer, not the slice length.
     pub unsafe fn load_module(
         self: &Arc<Self>,
         image: &[u8],
