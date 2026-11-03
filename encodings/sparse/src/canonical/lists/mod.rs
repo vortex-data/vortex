@@ -26,7 +26,7 @@ use vortex_error::vortex_err;
 use super::sparse_validity;
 use crate::Sparse;
 
-/// Reconstructs row metadata around the compact patch lists.
+/// Expands sparse lists by constructing offsets over their existing elements.
 ///
 /// The caller has already made `values` contiguous and trimmed unused elements. Fill rows
 /// contribute no elements, so only offsets, sizes, and validity need to cover the full row domain.
@@ -44,6 +44,49 @@ pub(super) fn empty_fill(
         .execute::<PrimitiveArray>(ctx)?;
     let positions = positions.as_slice::<u64>();
 
+    if !can_use_native_list(positions, &values)? {
+        return empty_fill_as_views(patches, values, fill, len, nullability, ctx);
+    }
+
+    let list = list_from_list_view(values, ctx)?;
+
+    // Offsets change only after a patch row: a patch at p ends the preceding offset run
+    // at p + 1. The final run extends through the terminal offset at index len.
+    //
+    // Rows: [a,b], null, null, [c,d], null. Shared elements: [a,b,c,d].
+    //   run ends:        [1, 4, 6]
+    //   offset values:   [0, 2, 4]
+    //   decoded offsets: [0, 2, 2, 2, 4, 4]
+    let end = len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("sparse list offsets length overflow"))?;
+    let end = u64::try_from(end).map_err(|err| vortex_err!("sparse list offsets length: {err}"))?;
+    let ends: Buffer<u64> = positions
+        .iter()
+        .map(|position| position + 1)
+        .chain(std::iter::once(end))
+        .collect();
+
+    // Keep offsets as runs so consumers such as Arrow export can decode them in bulk,
+    // without rebuilding list elements or expanding offsets to one entry per output row here.
+    let offsets = RunEnd::try_new(
+        PrimitiveArray::new(ends, Validity::NonNullable).into_array(),
+        list.offsets().clone(),
+        ctx,
+    )?
+    .into_array();
+    let validity = sparse_validity(patches, fill, nullability, len, ctx)?;
+
+    // SAFETY: compact list offsets are sorted and bounded by the shared elements. The
+    // run ends produce exactly len + 1 offsets and the validity has len entries.
+    Ok(
+        unsafe { ListArray::new_unchecked(list.elements().clone(), offsets, validity) }
+            .into_array(),
+    )
+}
+
+/// Checks the two cases where the patch layout needs independent starting offsets and sizes.
+fn can_use_native_list(positions: &[u64], values: &ListViewArray) -> VortexResult<bool> {
     // A native List needs a terminal offset in the same type as its starting offsets. A view
     // can instead represent an end that exceeds that type, e.g. u8 offset 130 + size 130 = 260.
     let elements_len = u64::try_from(values.elements().len())
@@ -52,47 +95,19 @@ pub(super) fn empty_fill(
         .cast(values.offsets().dtype())
         .is_ok();
 
-    // Each patch must advance to the next compact list exactly once. Duplicate positions need
-    // last-patch-wins semantics instead, so they use the view-based fallback below.
-    if terminal_offset_fits && positions.windows(2).all(|pair| pair[0] < pair[1]) {
-        let list = list_from_list_view(values, ctx)?;
+    // Duplicate positions require the last patch to win, rather than consuming both lists.
+    Ok(terminal_offset_fits && positions.windows(2).all(|pair| pair[0] < pair[1]))
+}
 
-        // Offsets change only after a patch row: a patch at p ends the preceding offset run
-        // at p + 1. The final run extends through the terminal offset at index len.
-        //
-        // Patch positions [0, 3], compact offsets [0, 3, 6], output length 5:
-        //   run ends:        [1, 4, 6]
-        //   offset values:   [0, 3, 6]
-        //   decoded offsets: [0, 3, 3, 3, 6, 6]
-        let end = len
-            .checked_add(1)
-            .ok_or_else(|| vortex_err!("sparse list offsets length overflow"))?;
-        let end =
-            u64::try_from(end).map_err(|err| vortex_err!("sparse list offsets length: {err}"))?;
-        let ends: Buffer<u64> = positions
-            .iter()
-            .map(|position| position + 1)
-            .chain(std::iter::once(end))
-            .collect();
-
-        // Keep offsets as runs so consumers such as Arrow export can decode them in bulk,
-        // without rebuilding list elements or expanding offsets to one entry per output row here.
-        let offsets = RunEnd::try_new(
-            PrimitiveArray::new(ends, Validity::NonNullable).into_array(),
-            list.offsets().clone(),
-            ctx,
-        )?
-        .into_array();
-        let validity = sparse_validity(patches, fill, nullability, len, ctx)?;
-
-        // SAFETY: compact list offsets are sorted and bounded by the shared elements. The
-        // run ends produce exactly len + 1 offsets and the validity has len entries.
-        return Ok(
-            unsafe { ListArray::new_unchecked(list.elements().clone(), offsets, validity) }
-                .into_array(),
-        );
-    }
-
+/// Keeps shared elements and scatters view metadata for duplicate positions or narrow offsets.
+fn empty_fill_as_views(
+    patches: &Patches,
+    values: ListViewArray,
+    fill: &Scalar,
+    len: usize,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     // Scatter starting offsets and sizes independently. Fill rows get an empty view (0, 0),
     // and Sparse's existing patch handling makes the last patch win at repeated positions.
     // Keeping these as separate arrays also avoids overflowing a narrow terminal offset.
