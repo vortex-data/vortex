@@ -27,7 +27,6 @@ use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
-use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
 
 use self::ordering::AdaptiveOrder;
@@ -39,7 +38,6 @@ use super::SelectedRows;
 use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
-use super::projection::ProjectionMorsel;
 use super::projection::ProjectionPlanner;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
@@ -137,8 +135,7 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     Ok(true)
 }
 
-/// Evaluates a chunk's conjuncts over its selected rows. A single static predicate streams its
-/// completed pieces to projection; other filters hand off their combined mask.
+/// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.
 ///
 /// Dynamic pruning is refreshed before data prefetch. Each chunk takes an order from the shared
 /// cost estimates, occasionally exploring another order. A dynamic conjunct is revisited if its
@@ -152,8 +149,6 @@ pub(super) struct FilterPlanner {
     active: Option<ActiveConjunct>,
     dynamic: Vec<DynamicConjunct>,
     pieces: Vec<Mask>,
-    /// Dense input lets a single static predicate hand each completed piece to projection.
-    streamed_rows: Option<usize>,
     rechecks: RecheckStats,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -274,11 +269,6 @@ impl FilterPlanner {
             "v2 predicate order selected"
         );
         Self {
-            streamed_rows: (scan.access_mode() == AccessMode::Scan
-                && filter.predicates.len() == 1
-                && filter.dynamic_indices.is_empty()
-                && selected.mask.all_true())
-            .then_some(0),
             order,
             remaining: BitVec::from_elem(filter.predicates.len(), true),
             dynamic: filter
@@ -313,31 +303,8 @@ impl FilterPlanner {
                 AdaptorStep::Yield => PlannerOutput::Continue,
                 AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                 AdaptorStep::Piece(piece) => {
-                    let mask = piece_mask(&self.scan.session, piece)?;
-                    let output = if let Some(consumed) = &mut self.streamed_rows {
-                        let selected = self.selected.as_ref().vortex_expect("selected rows exist");
-                        let start = selected.scope.rows.start + *consumed as u64;
-                        *consumed += mask.len();
-                        if mask.all_false() {
-                            PlannerOutput::Continue
-                        } else {
-                            let piece = SelectedRows {
-                                scope: WorkScope {
-                                    file_ordinal: selected.scope.file_ordinal,
-                                    rows: start..start + mask.len() as u64,
-                                },
-                                mask: mask.clone(),
-                            };
-                            PlannerOutput::Morsel(
-                                piece.scope.clone(),
-                                Box::new(ProjectionMorsel::new(Arc::clone(&self.scan), piece)),
-                            )
-                        }
-                    } else {
-                        PlannerOutput::Continue
-                    };
-                    self.pieces.push(mask);
-                    output
+                    self.pieces.push(piece_mask(&self.scan.session, piece)?);
+                    PlannerOutput::Continue
                 }
             };
             if let Some(started) = started {
@@ -525,10 +492,6 @@ impl Planner for FilterPlanner {
         }
         if let Some(output) = self.advance_active()? {
             return Ok(output);
-        }
-        if self.streamed_rows.is_some() && self.remaining.none() {
-            self.selected = None;
-            return Ok(PlannerOutput::Done);
         }
         if self
             .selected

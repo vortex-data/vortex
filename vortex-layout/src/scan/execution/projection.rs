@@ -103,7 +103,7 @@ impl Planner for ProjectionPlanner {
 
 /// Projects selected rows in order, streaming scan pieces and gathering filtered random-access
 /// pieces into one batch. A selection that projects to no rows finishes without a batch.
-pub(super) struct ProjectionMorsel {
+struct ProjectionMorsel {
     scan: Arc<PreparedScan>,
     dtype: DType,
     selected: SelectedRows,
@@ -114,7 +114,7 @@ pub(super) struct ProjectionMorsel {
 
 impl ProjectionMorsel {
     /// Creates a morsel projecting `selected`.
-    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
+    fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
         Self {
             dtype: scan.projection.dtype().clone(),
             scan,

@@ -9,16 +9,13 @@ use std::sync::atomic::AtomicI32;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
-use std::time::Duration;
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_schema::Field;
-use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::stream;
 use rstest::rstest;
-use tokio::sync::Notify;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -839,14 +836,7 @@ async fn stored_batches_share_one_work_chunk(
     );
     let batches = run_batches(&scan, scan.rows().clone()).await?;
     assert_eq!(batches.len(), CHUNKS);
-    for (chunk, batch) in batches.iter().enumerate() {
-        let expected = if filtered {
-            (chunk * CHUNK_ROWS) as u64..((chunk + 1) * CHUNK_ROWS) as u64
-        } else {
-            scan.rows().clone()
-        };
-        assert_eq!(batch.scope.rows, expected);
-    }
+    assert!(batches.iter().all(|batch| batch.scope.rows == *scan.rows()));
     let arrays = batches
         .into_iter()
         .map(|batch| batch.array)
@@ -1188,104 +1178,6 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
-    Ok(())
-}
-
-struct GatedSegment {
-    inner: Arc<dyn SegmentSource>,
-    segment: SegmentId,
-    gate: Arc<Notify>,
-}
-
-impl SegmentSource for GatedSegment {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        let read = self.inner.request(id);
-        let gate = Arc::clone(&self.gate);
-        let gated = id == self.segment;
-        async move {
-            if gated {
-                gate.notified().await;
-            }
-            read.await
-        }
-        .boxed()
-    }
-}
-
-#[tokio::test]
-async fn projects_completed_filter_pieces_before_later_reads() -> VortexResult<()> {
-    let session = new_session().with_tokio();
-    let (segments, layout) = write(&session, table().as_ref()).await?;
-    let ints = layout.slot(1)?.ok_or_else(|| vortex_err!("ints missing"))?;
-    let later = ints.slot(1)?.ok_or_else(|| vortex_err!("chunk missing"))?;
-    let segment = later
-        .segment_ids()
-        .first()
-        .copied()
-        .ok_or_else(|| vortex_err!("segment missing"))?;
-    let gate = Arc::new(Notify::new());
-    let segments = Arc::new(GatedSegment {
-        inner: segments,
-        segment,
-        gate: Arc::clone(&gate),
-    }) as Arc<dyn SegmentSource>;
-    let projection = get_item("ints", root()).bind(layout.dtype())?;
-    let scan = Arc::new(
-        builder(&session, &segments, &layout)?
-            .with_projection(projection.clone())
-            .with_some_filter(Some(
-                gt(get_item("ints", root()), lit(0i32)).bind(layout.dtype())?,
-            ))
-            .prepare()?,
-    );
-    let io = scan.io();
-    let mut run = Run::new();
-    run.admit(
-        compose(&scan, scan.rows().clone()),
-        WorkScope {
-            file_ordinal: 0,
-            rows: scan.rows().clone(),
-        },
-        Arc::new(DemandOnlyIo(io.session())),
-    );
-    let first = tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            match run.advance()? {
-                Progress::Batch(batch) => return Ok(batch.array),
-                Progress::Spawn(scope, chunk) => {
-                    run.admit(chunk, scope, Arc::new(DemandOnlyIo(io.session())));
-                }
-                Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
-                Progress::RootDone(_) => {}
-                Progress::Idle => vortex_bail!("scan ended before producing a batch"),
-            }
-        }
-    })
-    .await
-    .map_err(|_| vortex_err!("first projection waited for a later predicate read"))??;
-    assert_arrays_eq!(
-        first.clone(),
-        PrimitiveArray::from_iter(1..i32::try_from(CHUNK_ROWS)?),
-        &mut session.create_execution_ctx()
-    );
-    gate.notify_one();
-    let mut arrays = vec![first];
-    loop {
-        match run.advance()? {
-            Progress::Batch(batch) => arrays.push(batch.array),
-            Progress::Spawn(scope, chunk) => {
-                run.admit(chunk, scope, Arc::new(DemandOnlyIo(io.session())));
-            }
-            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
-            Progress::RootDone(_) if run.live_roots() > 0 => {}
-            Progress::RootDone(_) | Progress::Idle => break,
-        }
-    }
-    assert_arrays_eq!(
-        ChunkedArray::try_new(arrays, projection.dtype().clone())?,
-        PrimitiveArray::from_iter(1..i32::try_from(CHUNKS * CHUNK_ROWS)?),
-        &mut session.create_execution_ctx()
-    );
     Ok(())
 }
 
