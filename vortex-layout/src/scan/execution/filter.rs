@@ -26,6 +26,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_session::VortexSession;
 
+use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::SelectedRows;
@@ -95,9 +96,26 @@ impl FilterPlans {
         })
     }
 
-    /// The pruning plans, run once over a scan's rows before its chunks are planned.
+    /// The pruning plans of every conjunct that has one.
+    #[cfg(test)]
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
+    }
+
+    /// The pruning plans worth running before a scan of `rows` rows.
+    ///
+    /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
+    /// pruning it first saves little and delays the chunk. Pruning a dynamic conjunct such as a
+    /// join's key bounds also proves its current predicate over the zones again. Without those
+    /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
+    /// SF10 was unchanged.
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+        let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
+        self.pruning
+            .iter()
+            .enumerate()
+            .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
+            .filter_map(|(_, plan)| plan.as_ref())
     }
 }
 
