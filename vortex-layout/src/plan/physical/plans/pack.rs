@@ -354,8 +354,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 .get(&ExactBoundExpr(expression.clone()))
                 .vortex_expect("Bound expression missing free-field annotations")
                 .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
+        let expanded = expand_struct_root(expression.clone(), child.dtype(), fields)?;
         let partitioned =
             partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
 
@@ -540,16 +539,23 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
     Ok(expression == &expanded_struct_root(input_dtype, fields)?)
 }
 
+/// `expression` over a struct of `fields`, its root replaced by the pack of every field and
+/// each field access or selection of the root by the fields it reads. Only a bare root costs a
+/// pack of every field, which a wide struct makes expensive.
 fn expand_struct_root(
     expression: BoundExpression,
-    expanded_root: &BoundExpression,
+    root_dtype: &DType,
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
+    let root = BoundExpression::new_root(root_dtype.clone());
+    let field_access = |index: usize| -> VortexResult<BoundExpression> {
+        BoundExpression::try_new(GetItem.bind(field_name(fields, index)?), [root.clone()])
+    };
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: expanded_struct_root(root_dtype, fields)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -571,7 +577,7 @@ fn expand_struct_root(
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
+                    value: field_access(index)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -585,9 +591,9 @@ fn expand_struct_root(
                         let index = fields
                             .find(name)
                             .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
+                        field_access(index)
                     })
-                    .collect();
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
                     value: bound_pack(names, children)?,
                     changed: true,
