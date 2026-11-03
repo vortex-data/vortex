@@ -29,7 +29,6 @@ use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoService;
-use vortex::io::request::IoSource;
 use vortex::io::runtime::Handle;
 use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
@@ -39,7 +38,6 @@ use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
-use vortex_utils::parallelism::get_available_parallelism;
 
 #[cfg(test)]
 mod tests;
@@ -97,7 +95,7 @@ pub(crate) fn scan_planner(scan: Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn
 /// Runs one partition's V2 scan on DataFusion's runtime.
 pub(crate) struct ScanDriver {
     handle: Handle,
-    /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
+    /// The scan's chunks run at once; at 1 they run on the scan's own run.
     concurrency: usize,
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
@@ -122,8 +120,8 @@ impl ScanDriver {
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
-        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        let in_flight = self.concurrency;
+        let inline = self.concurrency <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -146,7 +144,7 @@ impl ScanDriver {
                     &initial_handle,
                     scan_planner(Arc::clone(&initial_scan), rows),
                     scope,
-                    initial_io.session(),
+                    Arc::clone(&initial_io),
                     Arc::clone(&initial_map),
                 )
             })
@@ -162,7 +160,7 @@ impl ScanDriver {
                     &chunk_handle,
                     chunk,
                     scope,
-                    chunk_io.session(),
+                    Arc::clone(&chunk_io),
                     Arc::clone(&chunk_map),
                 ),
             })
@@ -295,13 +293,13 @@ fn chunk_stream(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn IoService>,
     map: MapBatch,
 ) -> BoxStream<'static, VortexResult<(u64, RecordBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit(root, scope, io.session());
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
@@ -313,7 +311,7 @@ fn chunk_stream(
                     }
                 }
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                    run.admit(child, scope, io.session());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),

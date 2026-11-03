@@ -39,10 +39,10 @@ const ZONES: usize = 1;
 /// Data alongside a legacy `vortex.stats` zone table, whose fields are named by [`Stat`] rather
 /// than by aggregate function.
 ///
-/// The optimizer rewrites it into a [`Zoned`] plan over the zone table converted to the aggregate
-/// schema, or into its data alone when a [`Zoned`] plan already summarises the same data; a plan
-/// that reads the data is then optimized to the data alone. Compiled unoptimized, it reads its
-/// data and prunes nothing.
+/// Beneath a pruning plan the optimizer rewrites it into a [`Zoned`] plan over the zone table
+/// converted to the aggregate schema, or into its data alone when a [`Zoned`] plan already
+/// summarises the same data; a plan that reads the data is optimized to the data alone. Compiled
+/// unoptimized, it reads its data and prunes nothing.
 #[derive(Clone, Debug)]
 pub struct LegacyStats;
 
@@ -156,28 +156,35 @@ impl PlanVTable for LegacyStats {
 /// A plan whose data is already [`Zoned`] keeps only that data: legacy stats are used only when no
 /// aggregate zone map summarises the same rows. A zero zone length, as older files may record, or
 /// a table with no stat an aggregate can stand for, leaves only the data too.
-#[derive(Debug)]
-pub(crate) struct LegacyStatsRule;
+fn to_zoned(plan: &LegacyStatsPlan) -> VortexResult<PlanRef> {
+    let data = plan.data_plan()?;
+    if plan.zone_len() == 0 || data.is::<Zoned>() {
+        return Ok(data);
+    }
+    let zones = plan.zones_plan()?;
+    let (aggregate_fns, conversion) =
+        legacy_stats_to_aggregates(plan.dtype(), zones.dtype(), plan.stats());
+    if aggregate_fns.is_empty() {
+        return Ok(data);
+    }
+    let zones = EvalPlan::try_new(conversion.bind(zones.dtype())?, zones)?.into_plan();
+    Ok(ZonedPlan::new(data, zones, plan.zone_len(), aggregate_fns).into_plan())
+}
 
-impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
+/// Replaces a legacy stats plan by its data, as [`ZonedDataRule`](super::ZonedDataRule) does for
+/// the [`Zoned`] plan it would convert to. A pruning plan over it is converted by
+/// [`ExpressionLegacyStatsRule`] before this runs, so the zone table is never lowered or
+/// converted only to be dropped.
+#[derive(Debug)]
+pub(crate) struct LegacyStatsDataRule;
+
+impl PlanReduceRule<LegacyStats> for LegacyStatsDataRule {
     fn reduce(
         &self,
         plan: &Plan<LegacyStats>,
         _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        let data = plan.data_plan()?;
-        if plan.zone_len() == 0 || data.is::<Zoned>() {
-            return Ok(Some(data));
-        }
-        let zones = plan.zones_plan()?;
-        let (aggregate_fns, conversion) =
-            legacy_stats_to_aggregates(plan.dtype(), zones.dtype(), plan.stats());
-        if aggregate_fns.is_empty() {
-            return Ok(Some(data));
-        }
-        let zones = EvalPlan::try_new(conversion.bind(zones.dtype())?, zones)?.into_plan();
-        let zoned = ZonedPlan::new(data, zones, plan.zone_len(), aggregate_fns);
-        Ok(Some(zoned.into_plan()))
+        plan.data_plan().map(Some)
     }
 }
 
@@ -194,16 +201,13 @@ impl PlanParentReduceRule<LegacyStats> for ExpressionLegacyStatsRule {
         child: &LegacyStatsPlan,
         parent: &Plan<Eval>,
         _child_idx: usize,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if !is_zone_pruning(parent)? {
             return Ok(None);
         }
-        let Some(converted) = LegacyStatsRule.reduce(child, session)? else {
-            return Ok(None);
-        };
         Ok(Some(
-            EvalPlan::try_new(parent.expression().clone(), converted)?.into_plan(),
+            EvalPlan::try_new(parent.expression().clone(), to_zoned(child)?)?.into_plan(),
         ))
     }
 }

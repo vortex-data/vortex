@@ -149,7 +149,6 @@ pub(super) struct FilterPlanner {
     order: ChunkOrder,
     active: Option<ActiveConjunct>,
     dynamic: Vec<DynamicConjunct>,
-    pieces: Vec<Mask>,
     rechecks: RecheckStats,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -173,7 +172,7 @@ struct ActiveConjunct {
     index: usize,
     version: Option<u64>,
     evaluation: Evaluation,
-    adaptor: ScanAdaptor,
+    mask: MaskScan,
     started: Option<Instant>,
     cpu_ns: u128,
 }
@@ -220,7 +219,7 @@ impl ActiveConjunct {
             index,
             version,
             evaluation,
-            adaptor: ScanAdaptor::new(pipeline, Arc::clone(&scan.locations)),
+            mask: MaskScan::from_pipeline(pipeline, &scan.locations),
             started,
             cpu_ns,
         })
@@ -287,7 +286,6 @@ impl FilterPlanner {
             selected: Some(selected),
             filter,
             active: None,
-            pieces: Vec::new(),
             rechecks: RecheckStats::default(),
             announced: false,
             next_hint: u32::MAX,
@@ -298,31 +296,27 @@ impl FilterPlanner {
         let Some(mut active) = self.active.take() else {
             return Ok(None);
         };
-        if active.adaptor.state() != State::Done {
-            let started = active.started.map(|_| Instant::now());
-            let output = match active.adaptor.compute()? {
-                AdaptorStep::Yield => PlannerOutput::Continue,
-                AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
-                AdaptorStep::Piece(piece) => {
-                    self.pieces.push(piece_mask(&self.scan.session, piece)?);
-                    PlannerOutput::Continue
-                }
-            };
-            if let Some(started) = started {
-                active.cpu_ns += started.elapsed().as_nanos();
-            }
-            self.active = Some(active);
-            return Ok(Some(output));
+        let started = active.started.map(|_| Instant::now());
+        let step = active.mask.compute(&self.scan.session)?;
+        if let Some(started) = started {
+            active.cpu_ns += started.elapsed().as_nanos();
         }
-        self.finish_active(active)?;
-        Ok(None)
+        match step {
+            MaskStep::Running(output) => {
+                self.active = Some(active);
+                Ok(Some(output))
+            }
+            MaskStep::Finished(result) => {
+                self.finish_active(active, result)?;
+                Ok(None)
+            }
+        }
     }
 
-    fn finish_active(&mut self, mut active: ActiveConjunct) -> VortexResult<()> {
+    fn finish_active(&mut self, mut active: ActiveConjunct, result: Mask) -> VortexResult<()> {
         let selected = self.selected.as_mut().vortex_expect("selected rows exist");
         let finished = active.started.map(|_| Instant::now());
         let input = selected.mask.true_count();
-        let result = Mask::concat(self.pieces.iter())?;
         vortex_ensure_eq!(result.len(), input);
         selected.mask = selected.mask.intersect_by_rank(&match active.evaluation {
             Evaluation::Prune => !result,
@@ -393,7 +387,6 @@ impl FilterPlanner {
                 );
             }
         }
-        self.pieces.clear();
         if matches!(active.evaluation, Evaluation::Prune) && !selected.mask.all_false() {
             // Trim newly excluded edge zones before compiling another predicate or prefetching
             // its data, including dictionary values living in a separate row domain.
@@ -463,15 +456,77 @@ pub(super) fn hint(
 }
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
-pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
+fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
     let mut ctx = session.create_execution_ctx();
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
+}
+
+/// A boolean plan running over one split, its pieces gathered into one mask.
+pub(super) struct MaskScan {
+    adaptor: ScanAdaptor,
+    pieces: Vec<Mask>,
+}
+
+/// What one [`MaskScan::compute`] produced.
+pub(super) enum MaskStep {
+    /// The scan is still running: its owner's compute returns this.
+    Running(PlannerOutput),
+    /// The mask over the split's selected rows, nulls as false.
+    Finished(Mask),
+}
+
+impl MaskScan {
+    pub(super) fn new(scan: &PreparedScan, plan: PlanRef, split: Split) -> VortexResult<Self> {
+        let pipeline = Scan::try_new(scan.session.clone(), plan, vec![split])?
+            .with_row_offset(scan.row_offset)
+            .with_value_cache(scan.values.clone());
+        Ok(Self::from_pipeline(pipeline, &scan.locations))
+    }
+
+    /// Runs an already configured `pipeline` to a mask.
+    fn from_pipeline(pipeline: Scan, locations: &Arc<[SegmentLocation]>) -> Self {
+        Self {
+            adaptor: ScanAdaptor::new(pipeline, Arc::clone(locations)),
+            pieces: Vec::new(),
+        }
+    }
+
+    /// The owner's state while the scan runs: once it has finished, its mask is ready to take.
+    pub(super) fn state(&self) -> State {
+        match self.adaptor.state() {
+            State::Done => State::NeedsCompute,
+            state => state,
+        }
+    }
+
+    pub(super) fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+        self.adaptor.set_io_result(request, result);
+    }
+
+    pub(super) fn compute(&mut self, session: &VortexSession) -> VortexResult<MaskStep> {
+        if self.adaptor.state() == State::Done {
+            // A single piece is already the mask; concatenating would copy its bits.
+            let mask = match self.pieces.as_slice() {
+                [mask] => mask.clone(),
+                pieces => Mask::concat(pieces.iter())?,
+            };
+            return Ok(MaskStep::Finished(mask));
+        }
+        Ok(MaskStep::Running(match self.adaptor.compute()? {
+            AdaptorStep::Yield => PlannerOutput::Continue,
+            AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+            AdaptorStep::Piece(piece) => {
+                self.pieces.push(piece_mask(session, piece)?);
+                PlannerOutput::Continue
+            }
+        }))
+    }
 }
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
         if let Some(active) = &mut self.active {
-            active.adaptor.set_io_result(request, result);
+            active.mask.set_io_result(request, result);
         }
     }
 }
@@ -482,8 +537,8 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some(active) if active.adaptor.state() != State::Done => active.adaptor.state(),
-            _ => State::NeedsCompute,
+            Some(active) => active.mask.state(),
+            None => State::NeedsCompute,
         }
     }
 

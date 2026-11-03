@@ -51,6 +51,26 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
         * ROW_BLOCK_SIZE
 }
 
+/// The fewest rows a filtered chunk is cut to so that more chunks can run at once.
+const MIN_FILTERED_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+
+/// The rows of a filtered chunk for a scan of `rows` running `concurrency` chunks at once: as
+/// large as `max_rows`, but small enough that every chunk the scan can run at once has rows to
+/// filter, and never below [`MIN_FILTERED_ROWS_PER_CHUNK`] unless `max_rows` is.
+pub(crate) fn filtered_rows_per_chunk(rows: u64, concurrency: usize, max_rows: usize) -> usize {
+    rows_per_concurrent_chunk(rows, concurrency)
+        .clamp(MIN_FILTERED_ROWS_PER_CHUNK.min(max_rows), max_rows)
+}
+
+/// `rows` split evenly over `concurrency` chunks, rounded up to the row grid.
+fn rows_per_concurrent_chunk(rows: u64, concurrency: usize) -> usize {
+    let per_chunk = rows.div_ceil(concurrency.max(1) as u64);
+    let blocks = per_chunk.div_ceil(ROW_BLOCK_SIZE as u64);
+    usize::try_from(blocks)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(ROW_BLOCK_SIZE)
+}
+
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
 pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
     if rows.is_empty() {

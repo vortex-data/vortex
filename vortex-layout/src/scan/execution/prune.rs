@@ -23,13 +23,11 @@ use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
 use super::PreparedScan;
-use super::adaptor::AdaptorStep;
-use super::adaptor::ScanAdaptor;
+use super::filter::MaskScan;
+use super::filter::MaskStep;
 use super::filter::hint;
-use super::filter::piece_mask;
 use super::filter::segments_read;
 use crate::plan::physical::PlanRef;
-use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 
 /// The planner a prune planner continues into, given the rows pruning kept, or `None` when
@@ -50,8 +48,7 @@ pub struct PrunePlanner {
     /// The rows no pruning plan has excluded yet, over `rows`.
     mask: Mask,
     pruning: IntoIter<PlanRef>,
-    active: Option<ScanAdaptor>,
-    pieces: Vec<Mask>,
+    active: Option<MaskScan>,
     active_started: Option<Instant>,
     active_cpu_ns: u128,
     announced: bool,
@@ -77,7 +74,6 @@ impl PrunePlanner {
             mask: Mask::new_true(len),
             pruning: pruning.into_iter(),
             active: None,
-            pieces: Vec::new(),
             active_started: None,
             active_cpu_ns: 0,
             announced: false,
@@ -89,8 +85,8 @@ impl PrunePlanner {
 
 impl IoConsumer for PrunePlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some(adaptor) = &mut self.active {
-            adaptor.set_io_result(request, result);
+        if let Some(pruning) = &mut self.active {
+            pruning.set_io_result(request, result);
         }
     }
 }
@@ -101,8 +97,8 @@ impl Planner for PrunePlanner {
             return State::Done;
         }
         match &self.active {
-            Some(adaptor) if adaptor.state() != State::Done => adaptor.state(),
-            _ => State::NeedsCompute,
+            Some(pruning) => pruning.state(),
+            None => State::NeedsCompute,
         }
     }
 
@@ -134,25 +130,18 @@ impl Planner for PrunePlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some(adaptor) = &mut self.active {
-            if adaptor.state() != State::Done {
-                let started = self.active_started.map(|_| Instant::now());
-                let output = match adaptor.compute()? {
-                    AdaptorStep::Yield => PlannerOutput::Continue,
-                    AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
-                    AdaptorStep::Piece(piece) => {
-                        self.pieces.push(piece_mask(&self.scan.session, piece)?);
-                        PlannerOutput::Continue
-                    }
-                };
-                if let Some(started) = started {
-                    self.active_cpu_ns += started.elapsed().as_nanos();
-                }
-                return Ok(output);
+        if let Some(pruning) = &mut self.active {
+            let started = self.active_started.map(|_| Instant::now());
+            let step = pruning.compute(&self.scan.session)?;
+            if let Some(started) = started {
+                self.active_cpu_ns += started.elapsed().as_nanos();
             }
+            let excluded = match step {
+                MaskStep::Running(output) => return Ok(output),
+                MaskStep::Finished(excluded) => excluded,
+            };
             let finished = self.active_started.map(|_| Instant::now());
             let input = self.mask.true_count();
-            let excluded = Mask::concat(self.pieces.iter())?;
             vortex_ensure_eq!(excluded.len(), input);
             self.mask = self.mask.intersect_by_rank(&!excluded);
             if let Some(finished) = finished {
@@ -171,7 +160,6 @@ impl Planner for PrunePlanner {
                 "v2 pruning plan evaluated"
             );
             self.active = None;
-            self.pieces.clear();
             self.pruned = true;
         }
         if self.mask.all_false() {
@@ -181,20 +169,18 @@ impl Planner for PrunePlanner {
         if let Some(plan) = self.pruning.next() {
             self.active_started = tracing::enabled!(tracing::Level::DEBUG).then(Instant::now);
             self.active_cpu_ns = 0;
-            let scan = Scan::try_new(
-                self.scan.session.clone(),
+            let pruning = MaskScan::new(
+                &self.scan,
                 plan,
-                vec![Split {
+                Split {
                     rows: self.rows.clone(),
                     mask: self.mask.clone(),
-                }],
-            )?
-            .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+                },
+            )?;
             if let Some(started) = self.active_started {
                 self.active_cpu_ns += started.elapsed().as_nanos();
             }
-            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.active = Some(pruning);
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.
