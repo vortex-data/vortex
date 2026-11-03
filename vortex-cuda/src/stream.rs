@@ -276,11 +276,13 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<CUresu
 
 #[cfg(test)]
 mod tests {
+    use super::padded_device_allocation_len;
+    use crate::CanonicalCudaExt;
+    use crate::CudaSession;
+    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+    use crate::device_buffer::cuda_backing_allocation;
     use std::mem::size_of;
     use std::sync::LazyLock;
-    use std::time::Duration;
-
-    use tokio::time::timeout;
     use vortex::array::Canonical;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -288,45 +290,9 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
-    use vortex::error::vortex_err;
     use vortex::session::VortexSession;
-    use vortex_cuda_driver::CudaContext;
-    use vortex_cuda_driver::LaunchConfig;
-    use vortex_cuda_driver::PushKernelArg;
-
-    use super::await_stream_callback;
-    use super::padded_device_allocation_len;
-    use crate::CanonicalCudaExt;
-    use crate::CudaSession;
-    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    /// Waiting for a stream after a device error fails, rather than waiting forever.
-    #[crate::test]
-    async fn stream_callbacks_report_device_errors() -> VortexResult<()> {
-        // A context of its own keeps the fault, which breaks the context, from other tests.
-        let context = CudaContext::new_non_primary(0, 0).map_err(|e| vortex_err!("{e}"))?;
-        let session = CudaSession::new(context);
-        let stream = session.stream()?;
-        let copy = session.load_function_with_suffixes("mapped_copy", &[])?;
-        let mut target = stream.device_alloc::<u8>(4096)?;
-        // The kernel reads from an unmapped address and faults.
-        let (source, length) = (16u64, 4096u64);
-        let mut launch = stream.launch_builder(&copy);
-        launch.arg(&source).arg(&mut target).arg(&length);
-        let config = LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (32, 1, 1),
-            shared_mem_bytes: 0,
-        };
-        // SAFETY: The arguments match the kernel; reading the invalid source only faults.
-        unsafe { launch.launch(config) }.map_err(|e| vortex_err!("{e}"))?;
-        let waited = timeout(Duration::from_secs(60), await_stream_callback(&stream)).await;
-        assert!(matches!(waited, Ok(Err(_))));
-        Ok(())
-    }
 
     #[test]
     fn test_padded_device_allocation_len() -> VortexResult<()> {

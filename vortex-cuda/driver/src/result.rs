@@ -271,8 +271,11 @@ pub mod stream {
         unsafe { sys::cuLaunchHostFunc(stream, Some(function), argument) }.result()
     }
 
-    /// Enqueues `callback` on `stream`, which the driver calls exactly once with the status of
-    /// the preceding work, even after a device error, unlike a host function.
+    /// Enqueues `callback` on `stream` with the status of the preceding work.
+    ///
+    /// After successful registration, the driver calls it exactly once, even after a device
+    /// error. Unlike a host function, it is not skipped on error, so it can reclaim resources
+    /// owned through `argument`.
     ///
     /// # Safety
     ///
