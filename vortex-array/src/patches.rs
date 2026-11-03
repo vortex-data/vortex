@@ -271,10 +271,10 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::aggregate_fn::fns::is_sorted::is_sorted;
+                use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
                 assert!(
-                    is_sorted(&indices, ctx).unwrap_or(false),
-                    "Patch indices must be sorted"
+                    is_strict_sorted(&indices, ctx).unwrap_or(false),
+                    "Patch indices must be strictly increasing"
                 );
             }
         }
@@ -350,7 +350,7 @@ impl Patches {
     /// Users have to assert that
     /// * Indices and values have the same length
     /// * Indices is an unsigned integer type
-    /// * Indices must be sorted
+    /// * Indices must be strictly increasing
     /// * Last value in indices is smaller than array_len
     pub unsafe fn new_unchecked(
         array_len: usize,
@@ -1518,6 +1518,22 @@ mod test {
         assert_eq!(read.search_index(0, &mut ctx)?, SearchResult::Found(0));
         assert_arrays_eq!(read.values(), sliced.values(), &mut ctx);
         Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "Patch indices must be strictly increasing")]
+    fn test_new_rejects_repeated_indices() {
+        let mut ctx = SESSION.create_execution_ctx();
+        Patches::new(
+            5,
+            0,
+            buffer![1u32, 1].into_array(),
+            buffer![10i32, 20].into_array(),
+            None,
+            &mut ctx,
+        )
+        .unwrap();
     }
 
     #[test]

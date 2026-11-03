@@ -44,7 +44,7 @@ pub(super) fn empty_fill(
         .execute::<PrimitiveArray>(ctx)?;
     let positions = positions.as_slice::<u64>();
 
-    if !can_use_native_list(positions, &values)? {
+    if !can_use_native_list(&values)? {
         return empty_fill_as_views(patches, values, fill, len, nullability, ctx);
     }
 
@@ -85,21 +85,18 @@ pub(super) fn empty_fill(
     )
 }
 
-/// Checks the two cases where the patch layout needs independent starting offsets and sizes.
-fn can_use_native_list(positions: &[u64], values: &ListViewArray) -> VortexResult<bool> {
+/// Checks whether the patch layout's terminal offset fits a native List's offsets.
+fn can_use_native_list(values: &ListViewArray) -> VortexResult<bool> {
     // A native List needs a terminal offset in the same type as its starting offsets. A view
     // can instead represent an end that exceeds that type, e.g. u8 offset 130 + size 130 = 260.
     let elements_len = u64::try_from(values.elements().len())
         .map_err(|err| vortex_err!("sparse list elements length: {err}"))?;
-    let terminal_offset_fits = Scalar::from(elements_len)
+    Ok(Scalar::from(elements_len)
         .cast(values.offsets().dtype())
-        .is_ok();
-
-    // Duplicate positions require the last patch to win, rather than consuming both lists.
-    Ok(terminal_offset_fits && positions.windows(2).all(|pair| pair[0] < pair[1]))
+        .is_ok())
 }
 
-/// Keeps shared elements and scatters view metadata for duplicate positions or narrow offsets.
+/// Keeps shared elements and scatters view metadata for narrow offsets.
 fn empty_fill_as_views(
     patches: &Patches,
     values: ListViewArray,
@@ -108,9 +105,8 @@ fn empty_fill_as_views(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // Scatter starting offsets and sizes independently. Fill rows get an empty view (0, 0),
-    // and Sparse's existing patch handling makes the last patch win at repeated positions.
-    // Keeping these as separate arrays also avoids overflowing a narrow terminal offset.
+    // Scatter starting offsets and sizes independently. Fill rows get an empty view (0, 0).
+    // Keeping these as separate arrays avoids overflowing a narrow terminal offset.
     let offsets = values.offsets();
     let offsets = Sparse::try_new_from_patches(
         patches.clone().map_values(|_| Ok(offsets.clone()))?,

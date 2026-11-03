@@ -243,11 +243,6 @@ where
     let mut previous = 0usize;
     for (patch, row) in indices.iter().enumerate() {
         let row = AsPrimitive::<usize>::as_(*row);
-        // The canonical decode scatters the patches in order, so of duplicate indices the
-        // last one wins; skip a patch that the next one lands on top of.
-        if patch + 1 < indices.len() && AsPrimitive::<usize>::as_(indices[patch + 1]) == row {
-            continue;
-        }
         vortex_ensure!(
             previous <= row && row < len,
             "Sparse patch indices must be ascending within the array length {len}"
@@ -393,16 +388,9 @@ fn execute_sparse_lists(
         .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
     // Keep the builder for at most one valid list: there is no repeated element gather to
-    // avoid, and constructing run-end offsets would add setup work. Duplicate positions still
-    // need the metadata path to preserve last-patch-wins semantics.
+    // avoid, and constructing run-end offsets would add setup work.
     let patch_validity = values.listview_validity().execute_mask(values.len(), ctx)?;
-    let use_shared_elements = patch_validity.true_count() > 1
-        || match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            indices
-                .as_slice::<I>()
-                .windows(2)
-                .any(|pair| pair[0] == pair[1])
-        });
+    let use_shared_elements = patch_validity.true_count() > 1;
 
     // Null lists also have no elements, so null and empty fills take the same path.
     if fill_list.is_empty() && use_shared_elements {
