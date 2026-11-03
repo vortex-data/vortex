@@ -10,6 +10,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -260,7 +261,7 @@ impl Scalar {
 
     /// Creates a new extension scalar wrapping the given storage value.
     pub fn extension<V: ExtVTable + Default>(options: V::Metadata, storage_scalar: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().clone())
+        let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().nullability())
             .vortex_expect("Failed to create extension dtype");
 
         Self::extension_ref(ext_dtype.erased(), storage_scalar)
@@ -283,7 +284,13 @@ impl Scalar {
     /// Returns an error if the storage dtype differs from the extension's storage dtype, or if
     /// the extension rejects the storage value. A null storage scalar requires a nullable dtype.
     pub fn try_extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> VortexResult<Self> {
-        vortex_ensure_eq!(ext_dtype.storage_dtype(), storage_scalar.dtype());
+        vortex_ensure!(
+            ext_dtype.storage_dtype() == storage_scalar.dtype(),
+            "{} storage must be {}, got {}",
+            ext_dtype.id(),
+            ext_dtype.storage_dtype(),
+            storage_scalar.dtype()
+        );
 
         Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
     }

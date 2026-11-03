@@ -3,7 +3,7 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::EmptyArrayData;
@@ -50,10 +50,12 @@ impl Array<Extension> {
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        vortex_ensure_eq!(
+        vortex_ensure!(
+            ext_dtype.storage_dtype() == storage_array.dtype(),
+            "{} storage must be {}, got {}",
+            ext_dtype.id(),
             ext_dtype.storage_dtype(),
-            storage_array.dtype(),
-            "Tried to create an `ExtensionArray` with an incompatible storage array"
+            storage_array.dtype()
         );
 
         let dtype = DType::Extension(ext_dtype);
@@ -81,7 +83,7 @@ impl Array<Extension> {
         storage_array: ArrayRef,
     ) -> VortexResult<Self> {
         let ext_dtype =
-            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().clone())?
+            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_array.dtype().nullability())?
                 .erased();
 
         Self::try_new(ext_dtype, storage_array)

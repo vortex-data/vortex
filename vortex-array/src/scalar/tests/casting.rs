@@ -30,7 +30,10 @@ mod tests {
     struct Apples;
 
     impl ExtVTable for Apples {
-        type Metadata = usize;
+        // The metadata is the storage dtype, so the tests can wrap any storage dtype. It is the
+        // nullable form of that dtype, because the extension dtype applies the top-level
+        // nullability.
+        type Metadata = DType;
         type NativeValue<'a> = &'a str;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -42,12 +45,16 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-            Ok(0)
+        fn deserialize_metadata(
+            &self,
+            _data: &[u8],
+            storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(storage_dtype.as_nullable())
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn storage_dtype(metadata: &Self::Metadata) -> DType {
+            metadata.clone()
         }
 
         fn unpack_native<'a>(
@@ -59,15 +66,17 @@ mod tests {
     }
 
     impl Apples {
-        fn new() -> ExtDType<Apples> {
-            ExtDType::try_new(0, DType::Primitive(PType::U16, Nullability::NonNullable))
-                .vortex_expect("valid apples dtype")
+        /// An `Apples` dtype over `storage_dtype`. Its metadata has the nullable form that a read
+        /// also builds, so a built and a read dtype are equal.
+        fn new(storage_dtype: DType) -> ExtDType<Apples> {
+            ExtDType::try_new(storage_dtype.as_nullable(), storage_dtype.nullability())
+                .vortex_expect("Apples accepts every storage dtype")
         }
     }
 
     #[test]
     fn cast_to_from_extension_types() {
-        let apples = Apples::new();
+        let apples = Apples::new(DType::Primitive(PType::U16, Nullability::NonNullable));
 
         let ext_dtype = DType::Extension(apples.clone().erased());
         let ext_scalar = Scalar::new(
@@ -135,9 +144,7 @@ mod tests {
         );
 
         // cast from *incompatible* storage type to extension
-        let apples_u8 =
-            ExtDType::<Apples>::try_new(0, DType::Primitive(PType::U8, Nullability::NonNullable))
-                .unwrap();
+        let apples_u8 = Apples::new(DType::Primitive(PType::U8, Nullability::NonNullable));
         let expected_dtype = &DType::Extension(apples_u8.erased());
         let result = storage_scalar.cast(expected_dtype);
         assert!(
@@ -308,8 +315,7 @@ mod tests {
 
     #[test]
     fn test_extension_dtype_requires_canonical_storage() -> VortexResult<()> {
-        let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let ext_dtype = ExtDType::<Apples>::try_new(0, storage_dtype)?;
+        let ext_dtype = Apples::new(DType::Primitive(PType::F16, Nullability::NonNullable));
 
         let f16_value = f16::from_f32(0.42);
         let dtype = DType::Extension(ext_dtype.erased());
@@ -353,7 +359,7 @@ mod tests {
             ]),
             Nullability::NonNullable,
         );
-        let ext_dtype = ExtDType::<Apples>::try_new(0, struct_dtype)?;
+        let ext_dtype = Apples::new(struct_dtype);
 
         let f16_value = f16::from_f32(1.5);
         let field_values = vec![

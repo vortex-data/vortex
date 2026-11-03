@@ -17,6 +17,7 @@ use vortex_session::registry::CachedId;
 
 use super::ExtDType;
 use super::ExtDTypePlugin;
+use super::ExtDTypeRef;
 use super::ExtId;
 use super::ExtVTable;
 use super::ForeignExtDType;
@@ -25,6 +26,8 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::ScalarValue;
@@ -160,6 +163,33 @@ fn null_extension() -> DType {
 fn test_read_of_storage_without_non_nullable_form(#[case] declared: DType, #[case] expected: &str) {
     let stored = DType::Primitive(PType::I32, NonNullable);
     let result = DeclaredStorage(declared).deserialize(&[], stored);
+    assert!(result.is_err_and(|error| error.to_string().contains(expected)));
+}
+
+/// [`ExtDType::try_with_vtable`] validates the metadata before it asks for the storage
+/// declaration, so a time unit that [`Date`] or [`Time`] does not support returns an error
+/// instead of a panic.
+#[rstest]
+#[case::date_seconds(
+    Date::try_new(TimeUnit::Seconds, NonNullable).map(ExtDType::erased),
+    "Date time unit must be days or milliseconds, got s"
+)]
+#[case::date_microseconds(
+    Date::try_new(TimeUnit::Microseconds, NonNullable).map(ExtDType::erased),
+    "Date time unit must be days or milliseconds, got µs"
+)]
+#[case::date_nanoseconds(
+    Date::try_new(TimeUnit::Nanoseconds, NonNullable).map(ExtDType::erased),
+    "Date time unit must be days or milliseconds, got ns"
+)]
+#[case::time_days(
+    Time::try_new(TimeUnit::Days, NonNullable).map(ExtDType::erased),
+    "Time time unit must be finer than days, got days"
+)]
+fn test_unsupported_time_unit_returns_error(
+    #[case] result: VortexResult<ExtDTypeRef>,
+    #[case] expected: &str,
+) {
     assert!(result.is_err_and(|error| error.to_string().contains(expected)));
 }
 
