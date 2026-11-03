@@ -254,51 +254,24 @@ impl ArrowImportVTable for MultiPolygon {
         *ARROW_MULTIPOLYGON
     }
 
-    /// Import a `geoarrow.multipolygon` field (matched by GeoArrow name). Accepts the full
-    /// `MultiPolygonType`, or a metadata-less literal (name only), inferring the dimension.
+    /// Import a `geoarrow.multipolygon` field (matched by GeoArrow name).
     fn from_arrow_field(
         &self,
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) =
-            if let Ok(multipolygon_meta) = field.try_extension_type::<MultiPolygonType>() {
-                vortex_ensure!(
-                    multipolygon_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.multipolygon with interleaved coordinates is not supported; \
+        let multipolygon_meta = field.try_extension_type::<MultiPolygonType>()?;
+        vortex_ensure!(
+            multipolygon_meta.coord_type() == CoordType::Separated,
+            "geoarrow.multipolygon with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    multipolygon_meta.dimension().into(),
-                    spatial_metadata_from_arrow(multipolygon_meta.metadata()),
-                )
-            } else {
-                // Literal: peel the three `List` layers to the coordinate struct and read its
-                // dimension from the field names (the canonical check rejects nullable coordinates).
-                if field.extension_type_name() != Some(MultiPolygonType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(polygon, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::List(ring, _) = polygon.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::List(coords, _) = ring.as_ref() else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
-        let storage_dtype = multipolygon_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype = multipolygon_storage_dtype(
+            multipolygon_meta.dimension().into(),
+            field.is_nullable().into(),
+        );
+        let metadata = spatial_metadata_from_arrow(multipolygon_meta.metadata());
         Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(MultiPolygon, metadata, storage_dtype)?.erased(),
         )))

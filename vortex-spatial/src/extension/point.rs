@@ -225,43 +225,22 @@ impl ArrowImportVTable for Point {
     }
 
     /// Import a `geoarrow.point` field as the [`Point`] dtype. Keyed off the standard GeoArrow name,
-    /// so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
-    /// `PointType` extension, or — for a metadata-less geometry literal — the name alone, inferring
-    /// the dimension from the coordinate field names.
+    /// so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here.
     fn from_arrow_field(
         &self,
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) = if let Ok(point_meta) = field.try_extension_type::<PointType>()
-        {
-            vortex_ensure!(
-                point_meta.coord_type() == CoordType::Separated,
-                "geoarrow.point with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
-            );
-            (
-                point_meta.dimension().into(),
-                spatial_metadata_from_arrow(point_meta.metadata()),
-            )
-        } else {
-            // Infer the dimension from the field names, not the canonical storage check: a literal's
-            // coordinate fields may be nullable, which that check rejects.
-            if field.extension_type_name() != Some(PointType::NAME) {
-                return Ok(None);
-            }
-            let Ok(DType::Struct(fields, _)) =
-                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-            else {
-                return Ok(None);
-            };
-            let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                return Ok(None);
-            };
-            (dimension, SpatialMetadata::default())
-        };
+        let point_meta = field.try_extension_type::<PointType>()?;
+        vortex_ensure!(
+            point_meta.coord_type() == CoordType::Separated,
+            "geoarrow.point with interleaved coordinates is not supported; \
+             re-encode with separated (struct) coordinates"
+        );
 
-        let storage_dtype = coordinate_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype =
+            coordinate_storage_dtype(point_meta.dimension().into(), field.is_nullable().into());
+        let metadata = spatial_metadata_from_arrow(point_meta.metadata());
         Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(Point, metadata, storage_dtype)?.erased(),
         )))

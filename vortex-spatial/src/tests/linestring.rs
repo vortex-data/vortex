@@ -68,6 +68,25 @@ fn import_interleaved_field_fails() {
     assert!(SESSION.arrow().from_arrow_field(&field).is_err());
 }
 
+/// A field in a layout that GeoArrow rejects fails to import instead of losing its CRS.
+#[test]
+fn import_list_view_field_fails() {
+    let field = linestring_field("geom", false, Some("EPSG:4326"));
+    let DataType::List(vertices) = field.data_type().clone() else {
+        panic!("expected List, got {}", field.data_type());
+    };
+    let field = field.with_data_type(DataType::ListView(vertices));
+
+    let err = SESSION
+        .arrow()
+        .from_arrow_field(&field)
+        .expect_err("a list view field must fail to import");
+    assert!(
+        err.to_string().contains("as geoarrow.linestring"),
+        "unexpected error: {err}"
+    );
+}
+
 /// A field imported to the LineString dtype and exported back carries the `geoarrow.linestring`
 /// extension over its `List` storage.
 #[test]
