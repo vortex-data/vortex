@@ -53,11 +53,7 @@ impl Display for ListScalar<'_> {
                     &""
                 };
 
-                write!(
-                    f,
-                    "{type_str}[{}]",
-                    (0..list.len()).map(|i| list.scalar_at(i)).format(", ")
-                )
+                write!(f, "{type_str}[{}]", list.scalars().format(", "))
             }
         }
     }
@@ -184,8 +180,7 @@ impl<'a> ListScalar<'a> {
     ///
     /// Returns None if the list is null.
     pub fn elements(&self) -> Option<Vec<Scalar>> {
-        self.list
-            .map(|list| (0..list.len()).map(|i| list.scalar_at(i)).collect_vec())
+        self.list.map(|list| list.scalars().collect_vec())
     }
 
     /// Casts the list to the target [`DType`].
@@ -238,8 +233,9 @@ impl<'a> ListScalar<'a> {
             return Scalar::try_new(dtype.clone(), Some(ScalarValue::List(list)));
         }
 
-        let elements = (0..list.len())
-            .map(|i| list.scalar_at(i).cast(target_element_dtype))
+        let elements = list
+            .scalars()
+            .map(|element| element.cast(target_element_dtype))
             .collect::<VortexResult<Vec<Scalar>>>()?;
         Scalar::try_new(
             dtype.clone(),

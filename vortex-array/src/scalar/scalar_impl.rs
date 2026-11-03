@@ -354,11 +354,7 @@ impl Scalar {
             DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
                 .list_value()
-                .map(|list| {
-                    (0..list.len())
-                        .map(|index| list.scalar_at(index).approx_nbytes())
-                        .sum::<usize>()
-                })
+                .map(|list| list.scalars().map(|scalar| scalar.approx_nbytes()).sum())
                 .unwrap_or_default(),
             DType::Map(..) => self
                 .as_map()

@@ -39,11 +39,13 @@ use crate::arrays::Null;
 use crate::arrays::NullArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
 use crate::arrays::VarBinView;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::extension::ExtensionSlots;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::struct_::StructSlots;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -293,6 +295,15 @@ impl ListValue {
         (0..self.len()).map(move |index| reader.value_at(index))
     }
 
+    /// Iterates the elements as scalars, reading them through one reader.
+    pub fn scalars(&self) -> impl ExactSizeIterator<Item = Scalar> + '_ {
+        let element_dtype = self.element_dtype();
+        self.values().map(move |value| {
+            // SAFETY: element values read from the elements array match its dtype.
+            unsafe { Scalar::new_unchecked(element_dtype.clone(), value) }
+        })
+    }
+
     /// Compares two lists element by element, then by length.
     ///
     /// Returns [`None`] if any pair of elements is incomparable.
@@ -331,8 +342,61 @@ impl PartialEq for ListValue {
         if let Some(eq) = fast_eq(self, other) {
             return eq;
         }
+        if self.all_valid
+            && other.all_valid
+            && let Some(eq) = struct_columns_eq(&self.elements, &other.elements)
+        {
+            return eq;
+        }
         self.values().eq(other.values())
     }
+}
+
+/// The field arrays of a struct array, borrowed for as long as the array.
+fn struct_fields(array: &ArrayRef) -> Option<impl ExactSizeIterator<Item = &ArrayRef>> {
+    if !array.is::<Struct>() {
+        return None;
+    }
+    let fields = array.slots().get(StructSlots::FIELDS_OFFSET..)?;
+    fields.iter().all(Option::is_some).then(|| {
+        fields
+            .iter()
+            .map(|field| field.as_ref().vortex_expect("checked above"))
+    })
+}
+
+/// Compares two arrays of non-null structs column by column, without assembling a value per row.
+///
+/// Returns [`None`] when either array is not a struct array.
+fn struct_columns_eq(lhs: &ArrayRef, rhs: &ArrayRef) -> Option<bool> {
+    let lhs_fields = struct_fields(lhs)?;
+    let rhs_fields = struct_fields(rhs)?;
+    if lhs_fields.len() != rhs_fields.len() {
+        return Some(false);
+    }
+    Some(
+        lhs_fields
+            .zip(rhs_fields)
+            .all(|(lhs, rhs)| columns_eq(lhs, rhs)),
+    )
+}
+
+/// Compares two equal-length columns by value.
+fn columns_eq(lhs: &ArrayRef, rhs: &ArrayRef) -> bool {
+    debug_assert_eq!(lhs.len(), rhs.len());
+    if ArrayRef::ptr_eq(lhs, rhs) {
+        return true;
+    }
+    if let (Some(l), Some(r)) = (lhs.as_opt::<Primitive>(), rhs.as_opt::<Primitive>())
+        && l.ptype() == r.ptype()
+        && !lhs.dtype().is_nullable()
+        && !rhs.dtype().is_nullable()
+    {
+        return l.buffer_handle().as_host().as_slice() == r.buffer_handle().as_host().as_slice();
+    }
+    let mut lhs_reader = ValueReader::new(lhs);
+    let mut rhs_reader = ValueReader::new(rhs);
+    (0..lhs.len()).all(|index| lhs_reader.value_at(index) == rhs_reader.value_at(index))
 }
 
 impl Eq for ListValue {}
@@ -789,7 +853,9 @@ enum ReaderKind<'a> {
     Utf8,
     Binary,
     /// The storage of an extension array, which holds the extension's values.
-    Extension(ArrayRef),
+    Extension(Box<ValueReader<'a>>),
+    /// One reader per field, so a struct value is assembled from its columns.
+    Struct(Vec<ValueReader<'a>>),
     Nested(Box<ExecutionCtx>),
 }
 
@@ -811,8 +877,12 @@ impl<'a> ValueReader<'a> {
                 DType::Utf8(_) => ReaderKind::Utf8,
                 _ => ReaderKind::Binary,
             }
-        } else if let Some(ext) = array.as_opt::<Extension>() {
-            ReaderKind::Extension(ext.storage_array().clone())
+        } else if array.is::<Extension>()
+            && let Some(Some(storage)) = array.slots().get(ExtensionSlots::STORAGE)
+        {
+            ReaderKind::Extension(Box::new(ValueReader::new(storage)))
+        } else if let Some(fields) = struct_fields(array) {
+            ReaderKind::Struct(fields.map(ValueReader::new).collect())
         } else {
             ReaderKind::Nested(Box::new(element_ctx()))
         };
@@ -882,7 +952,13 @@ impl<'a> ValueReader<'a> {
             ReaderKind::Binary => Some(ScalarValue::Binary(
                 array.as_::<VarBinView>().bytes_at(index),
             )),
-            ReaderKind::Extension(storage) => ValueReader::new(storage).value_at(index),
+            ReaderKind::Extension(storage) => storage.value_at(index),
+            ReaderKind::Struct(fields) => Some(ScalarValue::Tuple(
+                fields
+                    .iter_mut()
+                    .map(|field| field.value_at(index))
+                    .collect(),
+            )),
             ReaderKind::Nested(ctx) => array
                 .execute_scalar(index, ctx)
                 .vortex_expect("reading a canonical list element")
@@ -1124,6 +1200,22 @@ mod tests {
         assert_eq!(read, built);
         assert_eq!(hash_of(&read), hash_of(&built));
         assert_eq!(read.as_list().element(1), built.as_list().element(1));
+
+        // Field-by-field comparison still sees a single differing field value.
+        let different = Scalar::list(
+            Arc::new(element_dtype.clone()),
+            [20i64, 10, 10]
+                .into_iter()
+                .map(|a| {
+                    Scalar::struct_(
+                        element_dtype.clone(),
+                        vec![Scalar::primitive(a, Nullability::NonNullable)],
+                    )
+                })
+                .collect(),
+            Nullability::NonNullable,
+        );
+        assert_ne!(read, different);
 
         let expanded = ConstantArray::new(read, 2)
             .into_array()
