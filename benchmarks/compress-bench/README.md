@@ -84,34 +84,26 @@ group. Fields hold random integers in `[0, 1_000_000)`, or lists of three such i
 - `flat-runs`: nullable integer fields with clustered group presence.
 - `nested-runs`: the integer fields under four nullable struct levels.
 - `lists-runs`: the same nesting with list fields.
-- `lists-shuffled`: list groups scattered across rows; present-only payloads match `lists-runs`.
+- `lists-shuffled`: list groups scattered across rows, with the same per-group values as `lists-runs`.
 - `nested-child-nulls`: nested integers with genuine child nulls in 10% of present values.
 
 Select cases with `--cases nested-runs,lists-shuffled`. `--rows` must be divisible by `--groups`.
 `--fields`, `--seed`, `--threads`, and `--iterations` are also configurable. Hold these settings and
 the machine constant when comparing commits.
 
-Each case compares four layouts, reporting the sum of all file sizes and sequential write times:
+Each case writes one wide file containing every group and all rows. It reports the complete
+serialized byte size, median write time, and rows per second. These are absolute baseline
+measurements: follow-up changes can be compared against the same case and parameters across
+commits.
 
-| Layout | Contents |
-| --- | --- |
-| `wide` | One file containing every group and all source rows. |
-| `split-all-rows` | One file per group, retaining absent rows and their nulls. |
-| `shredded-present-rows` | One file per group containing only its present rows. |
-| `shredded-with-row-ids` | Present-only files plus a `__row_id` column preserving original positions. |
+Timings include the default writer, compression, and serialization to memory. They exclude data
+generation, statistic-cache resets, disk I/O, and output decoding. Each warmup file is read back
+and checked for matching length, dtype, values, and nulls outside the timer; serialized sizes
+must remain stable across iterations.
 
-Present-only files omit information about absent rows; the row-ID variant accounts for the cost
-of retaining those positions. `wide_over_layout` is the wide file's byte size divided by the
-layout's total byte size. Throughput uses source rows, regardless of layout. Timings include the
-default writer, compression, and serialization to memory, including per-file overhead. They
-exclude data generation, statistic-cache resets, disk I/O, and output decoding. Every warmup file
-is read back and checked for matching length, dtype, values, and nulls outside the timer; serialized
-sizes must remain stable across iterations.
-
-CSV output reports median write time. `--ingest-output` emits the existing V3 `compression_size`
-and `compression_time` JSONL records, with the layout in `dataset_variant`, all iteration timings,
-and best-of-N time following the existing ingestion convention. Dataset keys include the case,
-shape, seed, and worker count, allowing each subsequent fix to be measured against this baseline.
+`--ingest-output` emits the existing V3 `compression_size` and `compression_time` JSONL records,
+including all iteration timings and best-of-N time following the existing ingestion convention.
+Dataset keys include the case, shape, seed, and worker count.
 
 ## GPU decompression
 

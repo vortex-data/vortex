@@ -22,7 +22,6 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
@@ -31,7 +30,6 @@ use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
@@ -104,13 +102,6 @@ struct Args {
     ingest_output: Option<PathBuf>,
 }
 
-struct Fixture {
-    wide: ArrayRef,
-    split: Vec<ArrayRef>,
-    shredded: Vec<ArrayRef>,
-    shredded_with_ids: Vec<ArrayRef>,
-}
-
 fn main() -> Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
@@ -139,50 +130,39 @@ fn main() -> Result<()> {
 
 async fn run(args: &Args) -> Result<()> {
     let mut records = Vec::new();
-    println!("case,layout,files,file_bytes,wide_over_layout,median_write_ms,source_rows_per_second");
+    println!("case,file_bytes,median_write_ms,rows_per_second");
     for &case in &args.cases {
-        let fixture = make_fixture(args, case)?;
+        let array = make_fixture(args, case)?;
         let dataset = format!(
             "sparse-write/{case}/rows-{}-groups-{}-fields-{}-seed-{}-threads-{}",
             args.rows, args.groups, args.fields, args.seed, args.threads
         );
-        let mut wide_bytes = None;
-        for (layout, arrays) in [
-            ("wide", vec![fixture.wide.clone()]),
-            ("split-all-rows", fixture.split),
-            ("shredded-present-rows", fixture.shredded),
-            ("shredded-with-row-ids", fixture.shredded_with_ids),
-        ] {
-            let (file_bytes, runs, uncompressed_bytes) = measure(&arrays, args.iterations).await?;
-            let wide = *wide_bytes.get_or_insert(file_bytes);
-            let median = median(&runs);
-            println!(
-                "{case},{layout},{},{file_bytes},{:.4},{:.3},{:.0}",
-                arrays.len(),
-                wide as f64 / file_bytes as f64,
-                median.as_secs_f64() * 1000.0,
-                args.rows as f64 / median.as_secs_f64()
-            );
-            let timing = CompressionTimingMeasurement {
-                name: format!("compress time/{dataset}/{layout}"),
-                time: runs.iter().copied().min().context("no timed iterations")?,
-                format: Format::OnDiskVortex,
-            };
-            records.push(v3::compression_size_record(
-                &dataset,
-                Some(layout),
-                Format::OnDiskVortex,
-                file_bytes,
-                uncompressed_bytes,
-            ));
-            records.push(v3::compression_time_record(
-                &timing,
-                &dataset,
-                Some(layout),
-                CompressOp::Compress,
-                runs.iter().map(|run| run.as_nanos() as u64).collect(),
-            ));
-        }
+        let (file_bytes, runs, uncompressed_bytes) = measure(&array, args.iterations).await?;
+        let median = median(&runs);
+        println!(
+            "{case},{file_bytes},{:.3},{:.0}",
+            median.as_secs_f64() * 1000.0,
+            args.rows as f64 / median.as_secs_f64()
+        );
+        let timing = CompressionTimingMeasurement {
+            name: format!("compress time/{dataset}"),
+            time: runs.iter().copied().min().context("no timed iterations")?,
+            format: Format::OnDiskVortex,
+        };
+        records.push(v3::compression_size_record(
+            &dataset,
+            None,
+            Format::OnDiskVortex,
+            file_bytes,
+            uncompressed_bytes,
+        ));
+        records.push(v3::compression_time_record(
+            &timing,
+            &dataset,
+            None,
+            CompressOp::Compress,
+            runs.iter().map(|run| run.as_nanos() as u64).collect(),
+        ));
     }
     if let Some(path) = &args.ingest_output {
         v3::write_jsonl_to_path(path, &records)?;
@@ -190,7 +170,7 @@ async fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn make_fixture(args: &Args, case: Case) -> Result<Fixture> {
+fn make_fixture(args: &Args, case: Case) -> Result<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     let mut rng = StdRng::seed_from_u64(args.seed);
     let mut group_ids: Vec<usize> = (0..args.rows)
@@ -202,9 +182,6 @@ fn make_fixture(args: &Args, case: Case) -> Result<Fixture> {
     // Values use a separate RNG so shuffling changes only row positions, not the group payloads.
     let mut values_rng = StdRng::seed_from_u64(args.seed);
     let mut wide_fields = Vec::new();
-    let mut split = Vec::new();
-    let mut shredded = Vec::new();
-    let mut shredded_with_ids = Vec::new();
     for group in 0..args.groups {
         let positions: Vec<usize> = group_ids
             .iter()
@@ -265,38 +242,9 @@ fn make_fixture(args: &Args, case: Case) -> Result<Fixture> {
                 fields = vec![(name, child)];
             }
         }
-        let group_array = struct_from_fields(&fields)?;
-        let dense = group_array
-            .filter(present)?
-            .execute::<Canonical>(&mut ctx)?
-            .into_array();
-        let dense_struct = dense.clone().execute::<StructArray>(&mut ctx)?;
-        let mut with_ids: Vec<_> = dense_struct
-            .names()
-            .iter()
-            .map(ToString::to_string)
-            .zip(dense_struct.iter_unmasked_fields().cloned())
-            .collect();
-        with_ids.push((
-            "__row_id".into(),
-            PrimitiveArray::new(
-                Buffer::from_iter(positions.into_iter().map(|row| row as u32)),
-                Validity::NonNullable,
-            )
-            .into_array(),
-        ));
-        shredded_with_ids.push(struct_from_fields(&with_ids)?);
         wide_fields.extend(fields);
-        split.push(group_array);
-        shredded.push(dense);
     }
-    let wide = struct_from_fields(&wide_fields)?;
-    Ok(Fixture {
-        wide,
-        split,
-        shredded,
-        shredded_with_ids,
-    })
+    struct_from_fields(&wide_fields)
 }
 
 fn struct_from_fields(fields: &[(String, ArrayRef)]) -> Result<ArrayRef> {
@@ -309,36 +257,26 @@ fn struct_from_fields(fields: &[(String, ArrayRef)]) -> Result<ArrayRef> {
     .into_array())
 }
 
-async fn measure(arrays: &[ArrayRef], iterations: usize) -> Result<(u64, Vec<Duration>, u64)> {
-    let inputs: Vec<_> = arrays.iter().cloned().map(Uncompressed::Vortex).collect();
-    let mut ctx = SESSION.create_execution_ctx();
-    let uncompressed_bytes = arrays.iter().try_fold(0u64, |total, array| {
-        Ok::<_, anyhow::Error>(total + uncompressed_size_in_bytes(array, &mut ctx)? as u64)
-    })?;
+async fn measure(array: &ArrayRef, iterations: usize) -> Result<(u64, Vec<Duration>, u64)> {
+    let input = Uncompressed::Vortex(array.clone());
+    let uncompressed_bytes =
+        uncompressed_size_in_bytes(array, &mut SESSION.create_execution_ctx())? as u64;
     let mut runs = Vec::new();
     let mut file_bytes = 0;
     // One warmup includes round-trip verification, outside all timed iterations.
     for iteration in 0..=iterations {
-        for input in &inputs {
-            input.reset();
-        }
+        input.reset();
         let start = Instant::now();
-        let mut outputs = Vec::with_capacity(inputs.len());
-        for input in &inputs {
-            outputs.push(VortexCompressor.compress(input).await?);
-        }
+        let output = VortexCompressor.compress(&input).await?;
         let elapsed = start.elapsed();
-        let size = outputs.iter().map(|output| output.size).sum();
         if iteration == 0 {
-            file_bytes = size;
-            for (output, expected) in outputs.iter().zip(arrays) {
-                verify(output, expected).await?;
-            }
+            file_bytes = output.size;
+            verify(&output, array).await?;
         } else {
-            ensure!(file_bytes == size, "serialized size changed between iterations");
+            ensure!(file_bytes == output.size, "serialized size changed between iterations");
             runs.push(elapsed);
         }
-        black_box(outputs);
+        black_box(output);
     }
     Ok((file_bytes, runs, uncompressed_bytes))
 }
