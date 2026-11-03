@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal encoding and stored-value reads with valid child precision.
+//! Decimal encoding and conversion of legacy storage into canonical decimal leaves.
 //!
-//! Child precision depends on valid values and scale, not just storage width. For example,
-//! unscaled 127 fits `i8` but needs precision 3, whose canonical width is `i16`. Both entry points
-//! share child selection and cache its value range for later aggregates.
+//! The legacy `vortex.decimal` format stores integer width independently of logical precision.
+//! DecimalByteParts assembly can also produce such buffers, but we now require canonical
+//! `vortex.decimal` leaves to have a width determined and fixed by their precision.
 //!
-//! [`WidenArray::from_stored_decimal`] is the conversion boundary for legacy decimal storage and
-//! decoded DecimalByteParts buffers.
+//! In this new world, we can retain narrow storage as a [`WidenArray`] over a canonical child.
+//! Current [`WidenPlugin`] writes still use the legacy format, so this conversion can also apply
+//! to newly written data (which will happen until `Widen` is added to the `core` edition).
+//!
+//! We unify child selection in both encoding and legacy conversion because it has non-trivial
+//! logic: width alone does not determine a valid child dtype. For example, unscaled 127 fits `i8`
+//! but needs precision 3, whose canonical width is `i16`.
+//!
+//! [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
 
 use std::ops::RangeInclusive;
 
@@ -17,6 +24,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -44,10 +52,13 @@ use crate::validity::Validity;
 impl WidenArray {
     /// Stores a decimal array at the smallest precision that its valid values and scale allow.
     ///
-    /// The result keeps the input dtype and nullability. Empty and all-null arrays use the
-    /// precision required by the scale, or 1 for a non-positive scale. Returns the input unchanged
-    /// when the selected precision has the canonical width of the input dtype. The child records
-    /// the exact extrema of the valid values as its [`Stat::Min`] and [`Stat::Max`].
+    /// We keep the logical dtype and nullability by wrapping the narrower child in a
+    /// [`WidenArray`]. Reducing precision within the same storage width saves no space, so in that
+    /// case we return the input unchanged.
+    ///
+    /// Empty and all-null arrays have no values to constrain precision, but we still need to keep
+    /// the scale. They use precision 1 or the scale, whichever is greater. If a child is selected,
+    /// we cache any exact extrema as [`Stat::Min`] and [`Stat::Max`] for later aggregates.
     ///
     /// # Errors
     ///
@@ -58,7 +69,8 @@ impl WidenArray {
         let validity_mask = validity.execute_mask(array.len(), ctx)?;
         let child = match_each_decimal_value_type!(array.values_type(), |T| {
             let values_buffer = array.buffer::<T>();
-            let valid_value_range = scan_valid_range(values_buffer.as_slice(), &validity_mask);
+            let valid_value_range =
+                ValidRange::resolve(Precision::Absent, values_buffer.as_slice(), &validity_mask);
             narrowest_decimal_child(
                 &values_buffer,
                 &validity,
@@ -75,24 +87,32 @@ impl WidenArray {
         Ok(WidenArray::try_new(child.into_array(), array.dtype().clone())?.into_array())
     }
 
-    /// Reads stored decimal values as a canonical array or a [`WidenArray`].
+    /// Converts stored decimals into a canonical leaf or a [`WidenArray`] over one.
     ///
-    /// Keeps the dtype and validity in `parts`. Canonical-width storage is reused without reading
-    /// values, including device buffers. Its declared precision is trusted, and `known_range` is
-    /// ignored.
+    /// Legacy decimal readers and DecimalByteParts assembly can give us a buffer whose width does
+    /// not match the logical precision. We need a canonical leaf without changing the logical
+    /// dtype or widening narrow storage unnecessarily.
     ///
-    /// Other widths use host memory and select a child as [`Self::encode_decimal`] does. Validity
-    /// **must** be executable on the host. The child reuses matching stored widths.
-    /// Otherwise the values are copied to the selected width, with null slots zeroed on narrowing.
-    /// If no child is narrower than the logical dtype, the result is a canonical array.
+    /// If the width is already canonical, we trust the declared precision and reuse the buffer
+    /// without reading its values. This also lets device buffers stay on the device. Otherwise,
+    /// child selection follows [`Self::encode_decimal`], keeping the logical dtype and validity.
+    /// We reuse buffers at the selected width and convert other widths without rescaling.
+    /// Narrowing zeroes null slots.
     ///
-    /// For noncanonical storage, `known_range` controls child selection:
+    /// Scanning and conversion use CPU kernels, so noncanonical buffers are brought to the host.
+    /// Their validity **must** already be executable on the host because these kernels need a mask
+    /// to exclude null payloads.
     ///
-    /// - [`Precision::Absent`] scans and caches exact extrema on the selected child.
+    /// Readers and decoders may already know the range. For noncanonical storage, `known_range`
+    /// lets us reuse it:
+    ///
+    /// - [`Precision::Absent`] scans valid values to find their extrema.
     /// - [`Precision::Exact`] **must** give the actual minimum and maximum valid unscaled values.
     /// - [`Precision::Inexact`] **must** contain every valid unscaled value.
     ///
-    /// Supplied ranges retain their exactness in the child's [`Stat::Min`] and [`Stat::Max`].
+    /// We cache the range on the child as [`Stat::Min`] and [`Stat::Max`], keeping its exactness
+    /// because enclosing bounds are not necessarily actual extrema. Scanning empty or all-null
+    /// input yields no extrema to cache. Canonical-width storage ignores `known_range`.
     /// An incorrect range or declared precision can cause incorrect results in later operations.
     ///
     /// # Errors
@@ -116,9 +136,10 @@ impl WidenArray {
         DecimalData::validate(&values, values_type)?;
         let len = values.len() / values_type.byte_width();
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure!(
-                validity_len == len,
-                "Decimal validity must have one entry per value ({len}), got {validity_len}"
+            vortex_ensure_eq!(
+                validity_len,
+                len,
+                "Decimal validity must have one entry per value"
             );
         }
 
@@ -132,11 +153,7 @@ impl WidenArray {
         let mask = validity.execute_mask(len, ctx)?;
         match_each_decimal_value_type!(values_type, |T| {
             let values = Buffer::<T>::from_byte_buffer(values);
-            let range = match known_range {
-                Precision::Exact(extrema) => ValidRange::Exact(extrema),
-                Precision::Inexact(bounds) => ValidRange::Bounds(bounds),
-                Precision::Absent => scan_valid_range(values.as_slice(), &mask),
-            };
+            let range = ValidRange::resolve(known_range, values.as_slice(), &mask);
             widen_or_canonical(values, validity, &mask, range, decimal_dtype)
         })
     }
@@ -144,8 +161,10 @@ impl WidenArray {
 
 /// Chooses child precision from a valid-value range and the parent scale.
 ///
-/// Precision is at least 1 and at least the scale. An absent range represents empty or all-null
-/// input. Null payloads **must** be excluded from the range.
+/// We keep the parent scale so values do not need rescaling. The child precision must therefore
+/// be at least 1 and at least the scale. With empty or all-null input, these are the only
+/// constraints. Pass `None` for that case. Otherwise, null payloads **must** be excluded from the
+/// range.
 ///
 /// # Errors
 ///
@@ -175,7 +194,10 @@ pub(crate) fn smallest_decimal_dtype(
     vortex_bail!("Decimal range must fit {parent}, got {min} to {max}")
 }
 
-/// The range of the valid decimal values that selects a decimal child.
+/// Value bounds for choosing child precision and caching statistics.
+///
+/// Supplied bounds need not be actual extrema, so we keep their exactness when caching them.
+/// `Empty` means a scan found no valid values, rather than that statistics are unavailable.
 enum ValidRange {
     /// No value is valid.
     Empty,
@@ -186,6 +208,30 @@ enum ValidRange {
 }
 
 impl ValidRange {
+    /// Uses known bounds when available, otherwise scans valid values.
+    ///
+    /// Readers and decoders may already have bounds from their input statistics. Reusing them
+    /// avoids scanning the buffer again.
+    fn resolve<F: NativeDecimalType>(
+        known_range: Precision<RangeInclusive<i256>>,
+        values: &[F],
+        mask: &Mask,
+    ) -> Self {
+        match known_range {
+            Precision::Exact(extrema) => return Self::Exact(extrema),
+            Precision::Inexact(bounds) => return Self::Bounds(bounds),
+            Precision::Absent => {}
+        }
+
+        let Some((min, max)) = valid_range(values, mask) else {
+            return Self::Empty;
+        };
+        let min = min.to_i256().vortex_expect("every decimal value fits i256");
+        let max = max.to_i256().vortex_expect("every decimal value fits i256");
+
+        Self::Exact(min..=max)
+    }
+
     /// Returns the bounds that hold every valid value, or `None` when no value is valid.
     fn bounds(&self) -> Option<RangeInclusive<i256>> {
         match self {
@@ -193,21 +239,29 @@ impl ValidRange {
             Self::Exact(bounds) | Self::Bounds(bounds) => Some(bounds.clone()),
         }
     }
-}
 
-/// Scans valid values, keeping empty input distinct from supplied bounds.
-fn scan_valid_range<F: NativeDecimalType>(values: &[F], mask: &Mask) -> ValidRange {
-    match valid_range(values, mask) {
-        Some((min, max)) => {
-            let min = min.to_i256().vortex_expect("every decimal value fits i256");
-            let max = max.to_i256().vortex_expect("every decimal value fits i256");
-            ValidRange::Exact(min..=max)
-        }
-        None => ValidRange::Empty,
+    /// Caches bounds on the child so later aggregates can reuse them without another scan.
+    ///
+    /// The bounds **must** fit the child's selected precision.
+    fn cache_statistics(self, child: &DecimalArray) {
+        let extrema = match self {
+            Self::Empty => return,
+            Self::Exact(bounds) => Precision::Exact(bounds),
+            Self::Bounds(bounds) => Precision::Inexact(bounds),
+        };
+        let child_dtype = child.decimal_dtype();
+        let min = extrema
+            .clone()
+            .map(|bounds| decimal_stat(*bounds.start(), child_dtype));
+        let max = extrema.map(|bounds| decimal_stat(*bounds.end(), child_dtype));
+        child.statistics().set(Stat::Min, min);
+        child.statistics().set(Stat::Max, max);
     }
 }
 
-/// Wraps a narrower child in a [`WidenArray`], or copies to the logical canonical width.
+/// Wraps a narrower canonical child, or builds a leaf at the logical width.
+///
+/// The result must keep the logical dtype. Returning a narrow child directly would change it.
 ///
 /// `mask` **must** be the mask of `validity`.
 fn widen_or_canonical<F: NativeDecimalType>(
@@ -222,24 +276,16 @@ fn widen_or_canonical<F: NativeDecimalType>(
         return Ok(WidenArray::try_new(child.into_array(), dtype)?.into_array());
     }
 
-    let buffer = copy_to_canonical_width(values.as_slice(), mask, decimal_dtype)?;
-
-    let array = DecimalArray::try_new_handle(
-        buffer,
-        decimal_dtype.canonical_values_type(),
-        decimal_dtype,
-        validity,
-    )?;
+    let array = build_canonical_decimal(&values, &validity, mask, decimal_dtype)?;
 
     Ok(array.into_array())
 }
 
 /// Builds the narrowest canonical child, or returns `None` if no narrower width exists.
 ///
-/// Every valid value **must** lie in `range`, and `mask` **must** be the mask of `validity`.
+/// Reducing precision without changing width saves no space, so we return `None` in that case.
 ///
-/// Reuses storage at the selected width. Other widths use [`copy_to_canonical_width`]. The child
-/// caches `range` as its extrema, preserving exactness.
+/// Every valid value **must** lie in `range`, and `mask` **must** be the mask of `validity`.
 fn narrowest_decimal_child<F: NativeDecimalType>(
     values: &Buffer<F>,
     validity: &Validity,
@@ -253,31 +299,36 @@ fn narrowest_decimal_child<F: NativeDecimalType>(
         return Ok(None);
     }
 
-    // The copy helper allocates even at the same width, so reuse matching storage here.
-    let buffer = if F::DECIMAL_TYPE == child_type {
-        BufferHandle::new_host(values.clone().into_byte_buffer())
-    } else {
-        copy_to_canonical_width(values.as_slice(), mask, child_dtype)?
-    };
-
-    let child = DecimalArray::try_new_handle(buffer, child_type, child_dtype, validity.clone())?;
-
-    let extrema = match range {
-        ValidRange::Empty => return Ok(Some(child)),
-        ValidRange::Exact(bounds) => Precision::Exact(bounds),
-        ValidRange::Bounds(bounds) => Precision::Inexact(bounds),
-    };
-    let min = extrema
-        .clone()
-        .map(|bounds| decimal_stat(*bounds.start(), child_dtype));
-    let max = extrema.map(|bounds| decimal_stat(*bounds.end(), child_dtype));
-    child.statistics().set(Stat::Min, min);
-    child.statistics().set(Stat::Max, max);
+    let child = build_canonical_decimal(values, validity, mask, child_dtype)?;
+    range.cache_statistics(&child);
 
     Ok(Some(child))
 }
 
-/// Builds a statistic at the child's canonical width. `value` **must** fit its precision.
+/// Reuses storage at the dtype's canonical width, copying only when conversion is needed.
+///
+/// Every valid value **must** fit `decimal_dtype`, and `mask` **must** describe `validity`.
+fn build_canonical_decimal<F: NativeDecimalType>(
+    values: &Buffer<F>,
+    validity: &Validity,
+    mask: &Mask,
+    decimal_dtype: DecimalDType,
+) -> VortexResult<DecimalArray> {
+    let values_type = decimal_dtype.canonical_values_type();
+    let buffer = if F::DECIMAL_TYPE == values_type {
+        // The copy helper allocates even at the same width, so retain the existing buffer here.
+        BufferHandle::new_host(values.clone().into_byte_buffer())
+    } else {
+        copy_to_canonical_width(values.as_slice(), mask, decimal_dtype)?
+    };
+
+    DecimalArray::try_new_handle(buffer, values_type, decimal_dtype, validity.clone())
+}
+
+/// Represents a cached bound using the child dtype.
+///
+/// These statistics belong to the child, so their values need its canonical width rather than
+/// the logical parent's width. `value` **must** fit the child's precision.
 fn decimal_stat(value: i256, decimal_dtype: DecimalDType) -> ScalarValue {
     let value = DecimalValue::try_from_i256(value, decimal_dtype)
         .vortex_expect("the selected child precision contains its range bounds");
