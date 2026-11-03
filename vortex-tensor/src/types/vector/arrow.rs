@@ -7,19 +7,16 @@
 //! `FixedSizeList<float, N>` carrying the `vortex.tensor.vector` extension name on the field
 //! metadata. The element layout is identical on both sides, so the conversion is structural.
 
-use std::sync::Arc;
-
 use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
@@ -34,6 +31,7 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
 use crate::types::vector::Vector;
+use crate::types::vector::VectorMetadata;
 
 /// Arrow extension name used to identify [`Vector`] fields on the wire.
 pub const ARROW_VECTOR_EXTENSION_NAME: &str = "vortex.tensor.vector";
@@ -98,16 +96,12 @@ impl ArrowExtVTable for Vector {
             return Ok(None);
         }
 
-        let storage_dtype = DType::FixedSizeList(
-            Arc::new(session.from_arrow_field(elem.as_ref())?),
-            *list_size as u32,
-            field.is_nullable().into(),
-        );
-
+        let element_ptype = PType::try_from(&session.from_arrow_field(elem.as_ref())?)?;
+        let metadata = VectorMetadata::try_new(element_ptype, *list_size as u32)?;
         Ok(Some(ExtDType::try_with_vtable(
             Vector,
-            EmptyMetadata,
-            storage_dtype,
+            metadata,
+            field.is_nullable().into(),
         )?))
     }
 
@@ -139,7 +133,6 @@ mod tests {
     use arrow_array::Float32Array;
     use arrow_array::Int32Array;
     use arrow_schema::Field;
-    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
@@ -163,13 +156,9 @@ mod tests {
     const DIM: u32 = 3;
 
     fn vector_dtype(nullable: bool) -> DType {
-        let storage = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
-            DIM,
-            nullable.into(),
-        );
+        let metadata = VectorMetadata::try_new(PType::F32, DIM).expect("float elements");
         DType::Extension(
-            ExtDType::try_with_vtable(Vector, EmptyMetadata, storage)
+            ExtDType::try_with_vtable(Vector, metadata, nullable.into())
                 .expect("vector ext dtype")
                 .erased(),
         )

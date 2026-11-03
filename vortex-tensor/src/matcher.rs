@@ -10,7 +10,7 @@ use vortex_array::dtype::extension::Matcher;
 use crate::types::fixed_shape_tensor::AnyFixedShapeTensor;
 use crate::types::fixed_shape_tensor::FixedShapeTensorMatcherMetadata;
 use crate::types::vector::AnyVector;
-use crate::types::vector::VectorMatcherMetadata;
+use crate::types::vector::VectorMetadata;
 
 /// Matcher for any tensor-like extension type.
 ///
@@ -29,7 +29,7 @@ pub enum TensorMatch<'a> {
     /// A [`Vector`](crate::vector::Vector) extension type.
     ///
     /// Note that we store an owned type here wrapping (copyable) data from the dtype.
-    Vector(VectorMatcherMetadata),
+    Vector(VectorMetadata),
 }
 
 impl TensorMatch<'_> {
@@ -58,7 +58,6 @@ impl Matcher for AnyTensor {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
 
-        // Special logic for vectors to get convenience metadata (instead of `EmptyMetadata`).
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
             return Some(TensorMatch::Vector(metadata));
         }
