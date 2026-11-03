@@ -818,10 +818,18 @@ async fn primitive_column() -> VortexResult<()> {
 #[tokio::test]
 async fn stored_batches_share_one_work_chunk(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
+    #[values(false, true)] filtered: bool,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
-    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let filter = filtered
+        .then(|| gt(get_item("ints", root()), lit(0i32)).bind(layout.dtype()))
+        .transpose()?;
+    let scan = Arc::new(
+        builder(&session, &segments, &layout)?
+            .with_some_filter(filter)
+            .prepare()?,
+    );
     assert_eq!(
         row_chunks(scan.rows().clone(), scan.chunk_rows),
         vec![0..(CHUNKS * CHUNK_ROWS) as u64]
@@ -834,7 +842,9 @@ async fn stored_batches_share_one_work_chunk(
         .map(|batch| batch.array)
         .collect::<Vec<_>>();
     let expected = (0..CHUNKS)
-        .map(|chunk| table_chunk(chunk * CHUNK_ROWS))
+        .map(|chunk| {
+            table_chunk(chunk * CHUNK_ROWS)?.slice(usize::from(filtered && chunk == 0)..CHUNK_ROWS)
+        })
         .collect::<VortexResult<Vec<_>>>()?;
     assert_arrays_eq!(
         ChunkedArray::try_new(arrays, layout.dtype().clone())?,
