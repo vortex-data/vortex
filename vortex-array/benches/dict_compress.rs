@@ -31,9 +31,7 @@ fn main() {
     divan::main();
 }
 
-// CodSpeed measures a subset. Times scale linearly with length, and 2, 4 and 8 unique values time
-// alike, so CodSpeed keeps one length and one small dictionary. Lengths are sized to keep CodSpeed
-// simulation under 1ms per benchmark.
+// Lengths sized to keep CodSpeed simulation under 1ms per benchmark.
 const BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
     &[
         // length, unique_values

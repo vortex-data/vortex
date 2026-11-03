@@ -46,8 +46,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 // (length, run_step). The (4_000, 1024) point is left out: it flipped by 20% between runs of
 // identical code on more than 40 pull requests, and (10_000, 1024) and (10_000, 4096) keep long
 // runs covered.
-//
-// CodSpeed measures every run step at the longest length only: times scale with length.
 const BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
     &[
         (10_000, 4),
