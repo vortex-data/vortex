@@ -104,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
         println!("default nbytes={default_total} struct-sparse nbytes={sparse_total}");
         return Ok(());
     }
+    if mode == "roundtrip" {
+        roundtrip(&args.next().unwrap()).await?;
+        return Ok(());
+    }
     if mode == "probe" {
         return probe(&args.next().unwrap()).await;
     }
@@ -171,5 +175,62 @@ async fn probe(path: &str) -> anyhow::Result<()> {
     println!("sample nbytes={} validity={:?}", sample.clone().into_array().nbytes(), sample.clone().into_array().validity()?);
     let bp = vortex::encodings::fastlanes::bitpack_compress::bitpack_encode(&sample, 0, None, &mut ctx)?;
     println!("bitpacked(w=0) sample nbytes={}", bp.into_array().nbytes());
+    Ok(())
+}
+
+/// Builds the per-group struct-Sparse table, checks it equals the input logically, writes it as a
+/// single flat segment, reads it back, and checks again.
+async fn roundtrip(path: &str) -> anyhow::Result<()> {
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::struct_::StructArrayExt;
+    use vortex::array::stream::ArrayStreamExt;
+    use vortex::buffer::ByteBuffer;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_arrow::ArrowSessionExt;
+    let mut ctx = SESSION.create_execution_ctx();
+    let btr = BtrBlocksCompressorBuilder::from_session(&SESSION).build();
+    let original = parquet_to_vortex_chunks(PathBuf::from(path)).await?.into_array();
+    let st = original.clone().execute::<StructArray>(&mut ctx)?;
+    let mut fields = Vec::new();
+    for field in st.iter_unmasked_fields() {
+        let col = field.clone().execute::<vortex::array::Canonical>(&mut ctx)?.into_array();
+        let enc = Sparse::encode(&col, None, &mut ctx)?;
+        let s = enc.as_opt::<Sparse>().ok_or_else(|| anyhow::anyhow!("not sparse"))?;
+        let p = s.patches();
+        let idx = btr.compress(p.indices(), &mut ctx)?;
+        let vals = btr.compress(p.values(), &mut ctx)?;
+        fields.push(Sparse::try_new(idx, vals, col.len(), s.fill_scalar().clone(), &mut ctx)?.into_array());
+    }
+    let encoded = StructArray::try_new(st.names().clone(), fields, st.len(), st.validity()?)?.into_array();
+
+    let to_arrow = |a: ArrayRef, ctx: &mut ExecutionCtx| SESSION.arrow().execute_arrow(a, None, ctx);
+    let expected = to_arrow(original.clone(), &mut ctx)?;
+    let t = std::time::Instant::now();
+    let in_mem = to_arrow(encoded.clone(), &mut ctx)?;
+    println!("in-memory decode to arrow: {:?}, equal={}", t.elapsed(), in_mem.as_ref() == expected.as_ref());
+
+    let mut buf = Vec::new();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut std::io::Cursor::new(&mut buf), encoded.to_array_stream())
+        .await?;
+    println!("flat file with struct-sparse: {} bytes", buf.len());
+    let mut dbuf = Vec::new();
+    SESSION.write_options().write(&mut std::io::Cursor::new(&mut dbuf), original.to_array_stream()).await?;
+    let dfile = SESSION.open_options().open_buffer(ByteBuffer::from(dbuf))?;
+    for _ in 0..2 {
+        let t = std::time::Instant::now();
+        let read = dfile.scan()?.into_array_stream()?.read_all().await?;
+        let _a = to_arrow(read, &mut ctx)?;
+        println!("default file read + decode to arrow: {:?}", t.elapsed());
+    }
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let t = std::time::Instant::now();
+    let read = file.scan()?.into_array_stream()?.read_all().await?;
+    let read_arrow = to_arrow(read, &mut ctx)?;
+    println!("file read + decode to arrow: {:?}, equal={}", t.elapsed(), read_arrow.as_ref() == expected.as_ref());
     Ok(())
 }
