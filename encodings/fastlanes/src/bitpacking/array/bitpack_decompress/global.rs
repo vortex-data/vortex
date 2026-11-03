@@ -308,7 +308,6 @@ mod tests {
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
             0,
-            0,
             ctx.allocator(),
         );
         list.clone()
@@ -319,7 +318,6 @@ mod tests {
         let mut list_builder = ListBuilder::<u64>::with_capacity_in(
             Arc::clone(&element_dtype),
             Nullability::NonNullable,
-            0,
             0,
             ctx.allocator(),
         );
@@ -339,7 +337,6 @@ mod tests {
         let mut list_builder = ListBuilder::<u64>::with_capacity_in(
             element_dtype,
             Nullability::NonNullable,
-            0,
             0,
             vortex_buffer::BufferAllocatorRef::static_ref(),
         );

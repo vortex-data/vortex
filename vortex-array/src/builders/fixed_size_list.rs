@@ -13,7 +13,9 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ChunkedArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
@@ -171,7 +173,7 @@ impl FixedSizeListBuilder {
     /// elements builder.
     pub(crate) fn append_fixed_size_list_array(
         &mut self,
-        array: &FixedSizeListArray,
+        array: ArrayView<'_, FixedSizeList>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if array.is_empty() {
@@ -318,6 +320,11 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
+    fn reserve_chunks(&mut self, additional: usize) {
+        self.elements_builder.reserve_chunks(additional);
+        self.nulls.reserve_runs(additional);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);

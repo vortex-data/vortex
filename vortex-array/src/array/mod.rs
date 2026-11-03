@@ -125,9 +125,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns the array as a mutable reference to a generic [`Any`] trait object.
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
     /// Classifies the concrete vtable independently of its logical dtype or encoding ID.
     fn canonical_kind(&self) -> Option<CanonicalKind>;
 
@@ -294,10 +291,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 

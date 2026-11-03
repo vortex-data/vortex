@@ -14,6 +14,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -159,7 +161,7 @@ impl DecimalBuilder {
     /// storage type to the builder's type as needed.
     pub(crate) fn append_decimal_array(
         &mut self,
-        array: &DecimalArray,
+        array: ArrayView<'_, Decimal>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_decimal_value_type!(array.values_type(), |D| {
@@ -184,7 +186,18 @@ impl DecimalBuilder {
         let decimal_dtype = *self.decimal_dtype();
 
         delegate_fn!(self.values.take(), |T, values| {
-            DecimalArray::new::<T>(values.freeze(), decimal_dtype, validity)
+            assert!(
+                validity.maybe_len().is_none_or(|len| len == values.len()),
+                "validity of length {:?} does not cover the {} values appended",
+                validity.maybe_len(),
+                values.len()
+            );
+
+            // SAFETY: the values are this builder's own `Buffer<T>`, so they are aligned and a
+            // whole number of elements, and the assert above pairs an array-backed validity with
+            // exactly those values. Whether they fit the precision is the appender's business, as
+            // it is on the checked path, which does not verify it either.
+            unsafe { DecimalArray::new_unchecked::<T>(values.freeze(), decimal_dtype, validity) }
         })
     }
 
