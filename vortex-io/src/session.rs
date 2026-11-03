@@ -51,6 +51,11 @@ pub trait RuntimeSessionExt: SessionExt {
                 .clone()
     }
 
+    /// Returns a handle for this session's runtime, if one is configured.
+    fn try_handle(&self) -> Option<Handle> {
+        self.get::<RuntimeSession>().handle.clone()
+    }
+
     /// Configure the runtime session to use the application's Tokio runtime.
     ///
     /// For example, if the application is launched using `#[tokio::main]`.

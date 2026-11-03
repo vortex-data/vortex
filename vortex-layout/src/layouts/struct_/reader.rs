@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 use futures::FutureExt;
+use futures::future::join_all;
 use futures::future::try_join_all;
 use futures::try_join;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::StructArray;
@@ -47,10 +50,13 @@ use vortex_error::vortex_err;
 use vortex_expr::analysis::AnnotationFn;
 use vortex_expr::make_bound_free_field_annotator;
 use vortex_expr::transform::partition_bound;
+use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
@@ -355,9 +361,18 @@ impl StructReader {
             })
             .try_collect()?;
         let names = direct.names.clone();
+        let handle = (field_futs.len() >= PARALLEL_FIELDS_THRESHOLD)
+            .then(|| self.session.try_handle())
+            .flatten();
 
         Ok(async move {
-            let (fields, mask) = try_join!(try_join_all(field_futs), mask_fut)?;
+            let fields = async move {
+                match handle {
+                    Some(handle) => evaluate_fields_in_parallel(&handle, field_futs).await,
+                    None => try_join_all(field_futs).await,
+                }
+            };
+            let (fields, mask) = try_join!(fields, mask_fut)?;
             Ok(
                 StructArray::try_new(names, fields, mask.true_count(), Validity::NonNullable)?
                     .into_array(),
@@ -365,6 +380,38 @@ impl StructReader {
         }
         .boxed())
     }
+}
+
+/// The number of fields a direct projection reads before it spreads them over runtime tasks.
+const PARALLEL_FIELDS_THRESHOLD: usize = 128;
+
+/// The minimum number of fields read by each runtime task of a parallel direct projection.
+const MIN_FIELDS_PER_TASK: usize = 32;
+
+/// Evaluate the field futures of a wide struct in groups spawned on the runtime.
+///
+/// Field futures decode their arrays when polled, so joining thousands of them in a single task
+/// decodes every column of a split on one thread.
+async fn evaluate_fields_in_parallel(
+    handle: &Handle,
+    field_futs: Vec<ArrayFuture>,
+) -> VortexResult<Vec<ArrayRef>> {
+    let parallelism = get_available_parallelism().unwrap_or(1);
+    let ntasks = (field_futs.len() / MIN_FIELDS_PER_TASK).clamp(1, parallelism * 4);
+    let group_size = field_futs.len().div_ceil(ntasks);
+
+    let mut field_futs = field_futs.into_iter();
+    let tasks: Vec<_> = iter::from_fn(|| {
+        let group: Vec<_> = field_futs.by_ref().take(group_size).collect();
+        (!group.is_empty()).then(|| handle.spawn(try_join_all(group)))
+    })
+    .collect();
+
+    let mut fields = Vec::with_capacity(tasks.len() * group_size);
+    for group in join_all(tasks).await {
+        fields.extend(group?);
+    }
+    Ok(fields)
 }
 
 fn expanded_struct_root(
@@ -1248,6 +1295,58 @@ mod tests {
                 &mut ctx
             );
         }
+        Ok(())
+    }
+
+    /// Wide structs read their fields in tasks spawned on the session runtime.
+    #[test]
+    fn test_wide_struct_parallel_projection() -> VortexResult<()> {
+        let nfields = super::PARALLEL_FIELDS_THRESHOLD + 72;
+        let array = StructArray::from_fields(
+            &(0..nfields)
+                .map(|i| {
+                    let base = i32::try_from(i)?;
+                    Ok((
+                        format!("f{i}"),
+                        PrimitiveArray::from_iter([base, base + 1, base + 2]).into_array(),
+                    ))
+                })
+                .collect::<VortexResult<Vec<_>>>()?,
+        )?
+        .into_array();
+        let expected = array.clone();
+
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+        let result = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let expr = root().bind(reader.dtype())?;
+            reader
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::ready(Mask::from_iter([true, false, true])),
+                )?
+                .await
+        })?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = expected.filter(Mask::from_iter([true, false, true]))?;
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
