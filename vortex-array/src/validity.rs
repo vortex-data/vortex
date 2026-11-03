@@ -379,11 +379,11 @@ impl Validity {
         }
     }
 
-    /// Convert into a non-nullable variant, computing statistics if necessary.
+    /// Convert into a non-nullable variant, executing the validity array if necessary.
     ///
     /// Returns `None` when the array contains invalid values (so the cast cannot be performed),
-    /// either because it is [`Validity::AllInvalid`] or because the validity array's minimum is
-    /// `false`.
+    /// either because it is [`Validity::AllInvalid`] or because the validity array contains a
+    /// `false` value.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
@@ -391,16 +391,13 @@ impl Validity {
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
-            Self::Array(is_valid) => {
-                is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
-                    .vortex_expect("validity array must support min")
-                    .then(|| {
-                        // min true => all true
-                        Self::NonNullable
-                    })
-            }
+            // Read the validity values and do not use the statistics of the validity array.
+            // Statistics can come from untrusted input, for example a serialized file.
+            Self::Array(is_valid) => is_valid
+                .execute::<Mask>(ctx)
+                .vortex_expect("validity array must execute into a mask")
+                .all_true()
+                .then_some(Self::NonNullable),
         }
     }
 
@@ -636,6 +633,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::validity::BoolArray;
     use crate::validity::Validity;
 
@@ -830,5 +829,14 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
+    }
+
+    #[test]
+    fn into_non_nullable_ignores_forged_min_statistic() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let is_valid = BoolArray::from_iter([true, false, true]).into_array();
+        is_valid.statistics().set(Stat::Min, Precision::exact(true));
+
+        assert!(Validity::Array(is_valid).into_non_nullable(3, &mut ctx).is_none());
     }
 }

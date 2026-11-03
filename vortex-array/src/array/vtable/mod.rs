@@ -83,6 +83,9 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// This is called by [`Array::try_from_parts`](crate::Array::try_from_parts) before the array
     /// is published. Implementations should check dtype, length, slot count, child dtypes/lengths,
     /// metadata bounds, and any buffer shape invariants that unsafe accessors depend on.
+    ///
+    /// Do not read the statistics of the array or its children here. Statistics can come from
+    /// untrusted input, such as a serialized file, so an invariant must be checked on the data.
     fn validate(
         &self,
         data: &Self::TypedArrayData,
