@@ -17,6 +17,7 @@ use crate::duckdb::Vector;
 /// to avoid redundant conversions of the same array instances.
 /// We hold on to the `ArrayRef` to ensure that the key (ptr addr) doesn't get reused.
 pub struct ConversionCache {
+    pub(super) sparse_dictionaries: bool,
     pub(crate) dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
     pub(crate) values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub(crate) canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
@@ -25,9 +26,19 @@ pub struct ConversionCache {
 impl Default for ConversionCache {
     fn default() -> Self {
         Self {
+            sparse_dictionaries: false,
             dict_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
             values_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
             canonical_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
+        }
+    }
+}
+
+impl ConversionCache {
+    pub(crate) fn with_sparse_dictionaries() -> Self {
+        Self {
+            sparse_dictionaries: true,
+            ..Self::default()
         }
     }
 }

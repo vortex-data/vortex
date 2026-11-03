@@ -3,9 +3,12 @@
 
 //! Looking codes up in dictionary values.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 
 use super::UNBOUNDED;
@@ -20,8 +23,11 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::DEFAULT_CAPACITY;
+use crate::plan::physical::pipeline::PredicateCache;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::plan::physical::pipeline::sparse_selection;
 
 /// Wraps each batch of codes as a dictionary over the values, once the values inlet has ended.
 pub(crate) struct TakeSource {
@@ -30,6 +36,8 @@ pub(crate) struct TakeSource {
     values: Option<ArrayRef>,
     /// Where values joined from the inlet are kept for the split's later scans.
     cache: Option<ValueCache>,
+    access_mode: AccessMode,
+    predicate: Option<(BoundExpression, Arc<PredicateCache>)>,
 }
 
 const CODES: usize = 0;
@@ -38,12 +46,29 @@ const VALUES: usize = 1;
 impl TakeSource {
     /// A take over `values`, or over what its values inlet produces when `None`, keeping those
     /// in `cache`.
-    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>, cache: Option<ValueCache>) -> Self {
+    pub(crate) fn new(
+        plan: TakePlan,
+        values: Option<ArrayRef>,
+        cache: Option<ValueCache>,
+        access_mode: AccessMode,
+    ) -> Self {
         Self {
             plan,
             values,
             cache,
+            access_mode,
+            predicate: None,
         }
+    }
+
+    /// Evaluate a static predicate only for dictionary entries the codes reference.
+    pub(crate) fn with_predicate(
+        mut self,
+        expression: BoundExpression,
+        cache: Arc<PredicateCache>,
+    ) -> Self {
+        self.predicate = Some((expression, cache));
+        self
     }
 
     /// The batches inlet `inlet` holds: the values are taken whole, so they never block.
@@ -87,11 +112,25 @@ impl Operator for TakeSource {
         };
         Ok(match cx.inlet(CODES).take() {
             Some(codes) => {
-                // A sparse string projection can gather encoded values without decoding the
-                // whole dictionary. Keep sharing decoded values for small or dense takes.
-                let values = if (values.dtype().is_utf8() || values.dtype().is_binary())
+                if let Some((expression, cache)) = &self.predicate {
+                    let values = values.as_opt::<Shared>().map_or_else(
+                        || values.clone(),
+                        |shared| shared.current_array_ref().clone(),
+                    );
+                    return Ok(Step::Final(cache.evaluate(
+                        values,
+                        codes,
+                        expression,
+                        cx.exec(),
+                    )?));
+                }
+                // Sparse lookups keep encoded take kernels visible, including numeric kernels
+                // in random-access mode. Small and dense takes reuse whole-value conversions.
+                let values = if (self.access_mode == AccessMode::RandomAccess
+                    || values.dtype().is_utf8()
+                    || values.dtype().is_binary())
                     && values.len() >= 1024
-                    && codes.len().saturating_mul(16) < values.len()
+                    && sparse_selection(codes.len(), values.len())
                     && let Some(shared) = values.as_opt::<Shared>()
                 {
                     shared.current_array_ref().clone()

@@ -323,15 +323,22 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
     true
 }
 
+/// Whether new late-materialization plans should use V2's paired file and row key.
+#[unsafe(no_mangle)]
+pub extern "C" fn duckdb_reader_use_paired_row_ids() -> bool {
+    crate::scan_v2()
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_reader_initialize(
     global: *const c_void,
     file: *mut c_void,
+    file_index: u64,
     error: *mut cpp::duckdb_vx_error,
 ) -> bool {
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let file = unsafe { file.cast::<OpenFileReader>().as_mut() }.vortex_expect("null pointer");
-    try_or(error, || reader_initialize(file, global))
+    try_or(error, || reader_initialize(file, global, file_index))
 }
 
 #[unsafe(no_mangle)]

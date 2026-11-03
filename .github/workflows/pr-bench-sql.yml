@@ -29,6 +29,7 @@ on:
           - "pr-compact"
           - "pr-all"
           - "pr-full"
+          - "scan-v2"
 
 permissions:
   contents: read
@@ -37,8 +38,17 @@ permissions:
 
 jobs:
   sql:
+    if: inputs.matrix_preset != 'scan-v2'
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}
+
+  scan-comparison:
+    if: inputs.matrix_preset == 'scan-v2'
+    uses: ./.github/workflows/scan-v2-comparison.yml
+    secrets: inherit
+    with:
+      head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      base_ref: ${{ github.event.pull_request.base.sha || 'origin/develop' }}

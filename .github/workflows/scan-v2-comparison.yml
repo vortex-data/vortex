@@ -1,0 +1,193 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Paired Scan V2 Comparisons
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        required: true
+        type: string
+      base_ref:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: scan-v2-comparison-${{ inputs.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: base
+        name: Pin the comparison base
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          sha=$(git rev-parse --verify "${BASE_REF}^{commit}")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [base, head]
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge/image=ubuntu26-full-arm64-pre-v2/tag=scan-{1}/extras=s3-cache', github.run_id, matrix.revision)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ matrix.revision == 'base' && needs.resolve.outputs.base_sha || inputs.head_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - name: Build identical native benchmark targets
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --locked --bin data-gen --bin datafusion-bench --bin duckdb-bench --profile release_debug
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+          directory = Path("target/release_debug")
+          binaries = {}
+          for name in ("data-gen", "datafusion-bench", "duckdb-bench"):
+              with (directory / name).open("rb") as executable:
+                  binaries[name] = hashlib.file_digest(executable, "sha256").hexdigest()
+          manifest = {"commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                      "binaries": binaries}
+          (directory / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: scan-comparison-${{ matrix.revision }}-binaries
+          path: |
+            target/release_debug/data-gen
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            target/release_debug/build-manifest.json
+            target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+
+  bench:
+    needs: [resolve, build]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: tpch-10
+            suite: tpch
+            scale: "10.0"
+          - id: tpch-50
+            suite: tpch
+            scale: "50.0"
+          - id: tpcds-10
+            suite: tpcds
+            scale: "10.0"
+          - id: tpcds-50
+            suite: tpcds
+            scale: "50.0"
+          - id: clickbench
+            suite: clickbench
+            scale: ""
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag=scan-{1}/extras=s3-cache', github.run_id, matrix.id)
+          || 'ubuntu-latest' }}
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-cpu
+        if: github.repository == 'vortex-data/vortex'
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-duckdb
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: scan-comparison-head-binaries
+          path: target/scan-comparison/head
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: scan-comparison-base-binaries
+          path: target/scan-comparison/base
+      - name: Prepare shared benchmark files
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+        run: |
+          chmod +x target/scan-comparison/{head,base}/{data-gen,datafusion-bench,duckdb-bench}
+          options=()
+          if [[ -n "$SCALE" ]]; then
+            options+=(--opt "scale-factor=$SCALE")
+          fi
+          target/scan-comparison/head/data-gen "$SUITE" --formats vortex "${options[@]}"
+      - name: Prepare benchmark CPUs
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Compare base V2, head V2 and head V1 sequentially
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+          BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          options=()
+          if [[ -n "$SCALE" ]]; then
+            options+=(--scale-factor "$SCALE")
+          fi
+          bash scripts/bench-taskset.sh python3 scripts/compare-scan-versions.py "$SUITE" \
+            --base-dir target/scan-comparison/base --head-dir target/scan-comparison/head \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
+            --iterations 7 --warmup 2 --rounds 2 --output-dir scan-comparison-results "${options[@]}"
+      - name: Publish comparison summary
+        if: always()
+        run: |
+          if [[ -f scan-comparison-results/summary.md ]]; then
+            cat scan-comparison-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Comparison incomplete; see job logs and partial measurement artifacts." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: scan-comparison-${{ matrix.id }}
+          path: |
+            scan-comparison-results/
+            !scan-comparison-results/tmp/**

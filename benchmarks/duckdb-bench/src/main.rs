@@ -106,6 +106,10 @@ struct Args {
     /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     scan_v1: bool,
+
+    /// Initial 8K-row chunks per worker for V2 scans with a dynamic filter; zero disables.
+    #[arg(long, default_value_t = 0)]
+    dynamic_filter_initial_chunks: usize,
 }
 
 #[global_allocator]
@@ -117,6 +121,7 @@ fn main() -> anyhow::Result<()> {
     let opts = Opts::from(args.options);
 
     vortex_duckdb::set_scan_v2(!args.scan_v1);
+    vortex_duckdb::set_dynamic_filter_initial_chunks(args.dynamic_filter_initial_chunks);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
@@ -236,6 +241,7 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
+            tracing::debug!(query_idx, "benchmark query started");
             ctx.execute_query_result(query)
         },
     )?;
