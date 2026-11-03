@@ -70,6 +70,9 @@ typedef struct {
     bool has_null;
     // owned column type
     duckdb_logical_type type;
+    // TODO(myrrc) remove after https://github.com/duckdb/duckdb/pull/28099
+    // is merged
+    uint64_t row_count;
 } duckdb_column_statistics;
 
 // File-level statistics of a written Vortex file, for the DuckLake

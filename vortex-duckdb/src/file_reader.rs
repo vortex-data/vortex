@@ -160,7 +160,7 @@ impl OpenFileReader {
             .vortex_expect("file used after its scan state was released")
     }
 
-    fn reader(&self) -> &LayoutReaderRef {
+    pub(crate) fn reader(&self) -> &LayoutReaderRef {
         &self.scan_state().reader
     }
 
