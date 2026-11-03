@@ -1076,6 +1076,7 @@ struct BytesExtension;
 
 impl ExtVTable for BytesExtension {
     type Metadata = u8;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = &'a ScalarValue;
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1087,17 +1088,25 @@ impl ExtVTable for BytesExtension {
         Ok(vec![*metadata])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
         Ok(metadata[0])
     }
 
-    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(dtype.storage_dtype(), DType::FixedSizeList(..)),
-            "expected fixed-size list storage"
-        );
-        Ok(())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
+
+    fn storage_dtype(_metadata: &u8) -> DType {
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            16,
+            Nullability::NonNullable,
+        )
     }
 
     fn unpack_native<'a>(
@@ -1125,7 +1134,7 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     let chunked = ChunkedArray::try_new(chunks, elements_dtype)?.into_array();
     let elements = SliceArray::new(chunked, 16..2048).into_array();
     let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
-    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().clone())?.erased();
+    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().nullability())?.erased();
     let array = ExtensionArray::new(dtype, storage).into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 

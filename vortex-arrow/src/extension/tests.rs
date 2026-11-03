@@ -13,7 +13,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -63,12 +62,13 @@ struct Tagged<const PRESERVE_VORTEX: bool>;
 
 impl<const PRESERVE_VORTEX: bool> Tagged<PRESERVE_VORTEX> {
     fn dtype(tag: u8, nullable: bool) -> VortexResult<ExtDType<Self>> {
-        ExtDType::try_with_vtable(Self, tag, DType::Primitive(PType::I64, nullable.into()))
+        ExtDType::try_with_vtable(Self, tag, nullable.into())
     }
 }
 
 impl<const PRESERVE_VORTEX: bool> ExtVTable for Tagged<PRESERVE_VORTEX> {
     type Metadata = u8;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> Id {
@@ -80,7 +80,7 @@ impl<const PRESERVE_VORTEX: bool> ExtVTable for Tagged<PRESERVE_VORTEX> {
         Ok(if *tag == 0 { vec![] } else { vec![*tag] })
     }
 
-    fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, bytes: &[u8]) -> VortexResult<Self::StoredMetadata> {
         match bytes {
             [] => Ok(0),
             [tag] => Ok(*tag),
@@ -88,13 +88,22 @@ impl<const PRESERVE_VORTEX: bool> ExtVTable for Tagged<PRESERVE_VORTEX> {
         }
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            *ext_dtype.storage_dtype(),
-            DType::Primitive(PType::I64, ext_dtype.storage_dtype().nullability())
-        );
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
 
-        Ok(())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        // Tag 254 declares a different width to exercise metadata restoration mismatches.
+        let ptype = if *metadata == 254 {
+            PType::I32
+        } else {
+            PType::I64
+        };
+        DType::Primitive(ptype, false.into())
     }
 
     fn unpack_native<'a>(
@@ -298,5 +307,24 @@ fn raw_importer_must_preserve_dtype() -> VortexResult<()> {
             .contains("must preserve the dtype inferred from its field")
     );
 
+    Ok(())
+}
+
+#[test]
+fn preserved_metadata_must_declare_inferred_storage() -> VortexResult<()> {
+    let session = tagged_session::<true>();
+    let mut field = round_trip_field::<true>(7, false)?;
+    field
+        .metadata_mut()
+        .insert(VORTEX_EXTENSION_METADATA_KEY.to_owned(), "/g==".to_owned());
+    let error = session
+        .arrow()
+        .from_arrow_field(&field)
+        .expect_err("tag 254 declares i32 over inferred i64 storage");
+    let message = error.to_string();
+    assert!(
+        message.contains("storage must be i32, got i64"),
+        "{message}"
+    );
     Ok(())
 }
