@@ -8,6 +8,7 @@ mod delta;
 mod for_;
 mod rle;
 mod runend;
+mod runend_sequence;
 mod sequence;
 mod sparse;
 mod zigzag;
@@ -25,6 +26,7 @@ pub use pco::PcoScheme;
 pub use rle::IntRLEScheme;
 pub(crate) use rle::rle_compress;
 pub use runend::RunEndScheme;
+pub use runend_sequence::RunEndSequenceScheme;
 pub use sequence::SequenceScheme;
 pub use sparse::SparseScheme;
 // Re-export builtin schemes from vortex-compressor.
