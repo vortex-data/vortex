@@ -40,10 +40,16 @@ impl Drop for CudaModule {
 }
 
 impl CudaModule {
-    pub(crate) fn load(context: &Arc<CudaContext>, image: &[u8]) -> Result<Arc<Self>, DriverError> {
+    /// # Safety
+    ///
+    /// As for [`CudaContext::load_module`].
+    pub(crate) unsafe fn load(
+        context: &Arc<CudaContext>,
+        image: &[u8],
+    ) -> Result<Arc<Self>, DriverError> {
         context.bind_to_thread()?;
         let mut module = std::ptr::null_mut();
-        // SAFETY: The driver reads a complete image; fatbins and cubins carry their own size.
+        // SAFETY: The caller passes a complete image, which bounds what the driver reads.
         unsafe { sys::cuModuleLoadData(&raw mut module, image.as_ptr().cast()) }.result()?;
         Ok(Arc::new(Self {
             module,
