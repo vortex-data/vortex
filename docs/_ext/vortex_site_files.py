@@ -93,7 +93,7 @@ def _llms(app: Sphinx) -> str:
     lines += [
         "## Benchmarks and project",
         "",
-        "- [Benchmark results](https://bench.vortex.dev/llms.txt): every benchmark and how it is measured",
+        "- [Benchmark summaries](https://bench.vortex.dev/llms.txt): each benchmark group's rankings and the methodology",
         "- [Vortex homepage](https://vortex.dev/llms.txt): what Vortex is, how to install it, and its results",
         "",
         "## Optional",
