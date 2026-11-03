@@ -80,35 +80,31 @@ impl Drop for CudaContext {
 impl CudaContext {
     /// Retains the primary context of the device with `ordinal`.
     pub fn new(ordinal: usize) -> Result<Arc<Self>, DriverError> {
-        let device = Self::device(ordinal)?;
+        let (device, has_async_alloc) = Self::device(ordinal)?;
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the retained context.
         unsafe { sys::cuDevicePrimaryCtxRetain(&raw mut context, device) }.result()?;
-        Self::wrap(device, context, ordinal, true)
+        Self::wrap(device, has_async_alloc, context, ordinal, true)
     }
 
     /// Creates a context separate from the device's primary context, with `cuCtxCreate` flags.
     pub fn new_non_primary(ordinal: usize, flags: u32) -> Result<Arc<Self>, DriverError> {
-        let device = Self::device(ordinal)?;
+        let (device, has_async_alloc) = Self::device(ordinal)?;
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the created context.
         unsafe { sys::cuCtxCreate_v2(&raw mut context, flags, device) }.result()?;
-        Self::wrap(device, context, ordinal, false)
+        Self::wrap(device, has_async_alloc, context, ordinal, false)
     }
 
-    fn device(ordinal: usize) -> Result<sys::CUdevice, DriverError> {
+    /// The device with `ordinal`, and whether its allocations can be stream-ordered.
+    ///
+    /// Query capabilities before retaining or creating a context, so a query failure cannot
+    /// leak it. After acquisition, `wrap` establishes ownership before binding can fail.
+    fn device(ordinal: usize) -> Result<(sys::CUdevice, bool), DriverError> {
         result::init()?;
-        result::device::get(
+        let device = result::device::get(
             i32::try_from(ordinal).map_err(|_| DriverError(CUresult::CUDA_ERROR_INVALID_VALUE))?,
-        )
-    }
-
-    fn wrap(
-        device: sys::CUdevice,
-        context: sys::CUcontext,
-        ordinal: usize,
-        primary: bool,
-    ) -> Result<Arc<Self>, DriverError> {
+        )?;
         // SAFETY: `device` is valid.
         let pools = unsafe {
             result::device::get_attribute(
@@ -116,15 +112,26 @@ impl CudaContext {
                 sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED,
             )
         }?;
+        Ok((device, pools > 0))
+    }
+
+    fn wrap(
+        device: sys::CUdevice,
+        has_async_alloc: bool,
+        context: sys::CUcontext,
+        ordinal: usize,
+        primary: bool,
+    ) -> Result<Arc<Self>, DriverError> {
         let context = Arc::new(Self {
             device,
             context,
             ordinal,
-            has_async_alloc: pools > 0,
+            has_async_alloc,
             primary,
             error_state: AtomicU32::new(0),
             events: Mutex::new(Vec::new()),
         });
+        // On failure, dropping the context releases or destroys it.
         context.bind_to_thread()?;
         Ok(context)
     }
