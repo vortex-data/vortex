@@ -120,8 +120,7 @@ impl ArrowImportVTable for Json {
         }
 
         Ok(Some(DType::Extension(
-            ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(field.is_nullable().into()))?
-                .erased(),
+            ExtDType::<Json>::try_new(EmptyMetadata, field.is_nullable().into())?.erased(),
         )))
     }
 
@@ -193,7 +192,8 @@ mod tests {
             vortex_array::dtype::DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
-        let ext_dtype = ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+        let ext_dtype =
+            ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
 
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
 
@@ -261,7 +261,8 @@ mod tests {
         let storage = views
             .into_array()
             .take(PrimitiveArray::from_iter([0u32, 48]).into_array())?;
-        let ext_dtype = ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+        let ext_dtype =
+            ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().nullability())?.erased();
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
         let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
 

@@ -360,13 +360,9 @@ mod tests {
         use vortex_uuid::Uuid;
         use vortex_uuid::UuidMetadata;
 
-        let storage = VortexDType::FixedSizeList(
-            Arc::new(VortexDType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            Nullability::NonNullable,
-        );
         let uuid = VortexDType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), Nullability::NonNullable)?
+                .erased(),
         );
 
         let arrow = SESSION.arrow();
