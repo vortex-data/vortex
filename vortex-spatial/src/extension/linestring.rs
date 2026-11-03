@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -354,24 +353,19 @@ impl ArrowImportVTable for LineString {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
+        let Some(ext_dtype) = dtype
+            .as_extension_opt()
+            .filter(|ext| ext.is::<LineString>())
+        else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !ext_dtype.is::<LineString>()
-            || field.try_extension_type::<LineStringType>().is_err()
-            || !matches!(array.data_type(), DataType::List(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, ext_dtype)
+            .map(ArrowImport::Imported)
     }
 }
 
