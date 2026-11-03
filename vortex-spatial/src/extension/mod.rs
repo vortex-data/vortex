@@ -470,6 +470,8 @@ mod tests {
     use vortex_array::builders::builder_with_capacity_in;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_array::dtype::extension::ExtVTable;
@@ -823,7 +825,54 @@ mod tests {
         #[case] storage: DType,
     ) {
         let result = vtable.deserialize(&[], storage.clone());
-        assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
+        assert!(result.is_err_and(|error| error.to_string().contains(&format!(", got {storage}"))));
+    }
+
+    /// Malformed coordinate fields still reveal the dimension. The read error must show the
+    /// complete stored storage dtype and the declaration, including any enclosing lists.
+    #[rstest]
+    #[case::point(Point, 0)]
+    #[case::linestring(LineString, 1)]
+    #[case::multipoint(MultiPoint, 1)]
+    #[case::polygon(Polygon, 2)]
+    #[case::multilinestring(MultiLineString, 2)]
+    #[case::multipolygon(MultiPolygon, 3)]
+    #[case::rect(Rect, 0)]
+    fn read_reports_both_storage_dtypes(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] depth: usize,
+        #[values(
+            DType::Primitive(PType::F64, Nullability::Nullable),
+            DType::Primitive(PType::F32, Nullability::NonNullable)
+        )]
+        field_dtype: DType,
+    ) -> VortexResult<()> {
+        let mut expected = if vtable.id() == ExtVTable::id(&Rect) {
+            super::box_storage_dtype(Dimension::Xy, Nullability::NonNullable)
+        } else {
+            xy()
+        };
+        let DType::Struct(fields, nullability) = &expected else {
+            unreachable!("coordinate and box storage are structs");
+        };
+        let mut field_dtypes = fields.fields().collect::<Vec<_>>();
+        field_dtypes[0] = field_dtype;
+        let mut stored = DType::Struct(
+            StructFields::new(fields.names().clone(), field_dtypes),
+            *nullability,
+        );
+        for _ in 0..depth {
+            expected = list(expected);
+            stored = list(stored);
+        }
+
+        let message = format!("{} storage must be {expected}, got {stored}", vtable.id());
+        let error = vtable
+            .deserialize(&[], stored)
+            .expect_err("the coordinate field is invalid");
+        assert!(error.to_string().contains(&message), "{error}");
+
+        Ok(())
     }
 
     /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
@@ -841,7 +890,7 @@ mod tests {
 
         let result = DType::from_proto(&serialized, &spatial_session());
         assert!(result.is_err_and(|error| error.to_string().contains(
-            "linestring storage can be nullable only at its outer List\n  left: list({x=f64, y=f64}?)\n right: list({x=f64, y=f64})"
+            "linestring storage must be list({x=f64, y=f64}), got list({x=f64, y=f64}?)"
         )));
         Ok(())
     }

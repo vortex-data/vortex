@@ -44,7 +44,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -116,25 +115,18 @@ pub(crate) fn multilinestring_storage_dtype(dim: Dimension, nullability: Nullabi
     DType::List(Arc::new(line), nullability)
 }
 
-/// Validate that `dtype` equals [`multilinestring_storage_dtype`] for its [`Dimension`] and
-/// top-level nullability, and return that dimension. As in GeoArrow, only the outer `List` can be
-/// nullable.
+/// Infers the coordinate [`Dimension`] of `List<List<coordinate-struct>>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn multilinestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(line, _) = dtype else {
-        vortex_bail!("multilinestring storage must be a List of line strings, was {dtype}");
+        vortex_bail!("multilinestring storage must be a List of line strings, got {dtype}");
     };
     let DType::List(coords, _) = line.as_ref() else {
-        vortex_bail!("multilinestring line storage must be a List of coordinates, was {line}");
+        vortex_bail!("multilinestring line storage must be a List of coordinates, got {line}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multilinestring_storage_dtype(dimension, dtype.nullability()),
-        "multilinestring storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTILINESTRING: CachedId = CachedId::new(MultiLineStringType::NAME);

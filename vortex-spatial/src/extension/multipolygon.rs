@@ -45,7 +45,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -116,27 +115,21 @@ pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullabilit
     DType::List(Arc::new(polygon), nullability)
 }
 
-/// Validate that `dtype` equals [`multipolygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Infers the coordinate [`Dimension`] of `List<List<List<coordinate-struct>>>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(polygon, _) = dtype else {
-        vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
+        vortex_bail!("multipolygon storage must be a List of polygons, got {dtype}");
     };
     let DType::List(ring, _) = polygon.as_ref() else {
-        vortex_bail!("multipolygon polygon storage must be a List of rings, was {polygon}");
+        vortex_bail!("multipolygon polygon storage must be a List of rings, got {polygon}");
     };
     let DType::List(coords, _) = ring.as_ref() else {
-        vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
+        vortex_bail!("multipolygon ring storage must be a List of coordinates, got {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multipolygon_storage_dtype(dimension, dtype.nullability()),
-        "multipolygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);

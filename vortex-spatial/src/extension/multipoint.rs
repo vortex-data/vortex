@@ -45,7 +45,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -114,21 +113,15 @@ pub(crate) fn multipoint_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate that `dtype` equals [`multipoint_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Infers the coordinate [`Dimension`] of `List<coordinate-struct>` storage.
+///
+/// Checks the list nesting and delegates coordinate field-name inference to
+/// [`coordinate_dimension`]. Reads validate the complete storage dtype against the declaration.
 pub(crate) fn multipoint_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
-        vortex_bail!("multipoint storage must be a List of coordinates, was {dtype}");
+        vortex_bail!("multipoint storage must be a List of coordinates, got {dtype}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multipoint_storage_dtype(dimension, dtype.nullability()),
-        "multipoint storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTIPOINT: CachedId = CachedId::new(MultiPointType::NAME);

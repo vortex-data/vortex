@@ -47,7 +47,6 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -153,21 +152,14 @@ pub(crate) fn box_storage_dtype(dim: Dimension, nullability: Nullability) -> DTy
     )
 }
 
-/// Validate `dtype` is a box `Struct` of non-nullable `f64` min/max fields, returning its
-/// [`Dimension`].
+/// Returns the [`Dimension`] from a box `Struct`'s field names, as [`box_field_names`] names them.
+///
+/// Field dtypes and nullability are not checked. Reads compare the complete storage dtype with
+/// the declaration after recovering the dimension, so a mismatch reports both storage dtypes.
 pub(crate) fn box_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::Struct(fields, _) = dtype else {
-        vortex_bail!("box storage must be a Struct, was {dtype}");
+        vortex_bail!("box storage must be a Struct, got {dtype}");
     };
-    for (name, field) in fields.names().iter().zip(fields.fields()) {
-        vortex_ensure!(
-            matches!(
-                field,
-                DType::Primitive(PType::F64, Nullability::NonNullable)
-            ),
-            "box field {name} must be non-nullable f64, was {field}"
-        );
-    }
     box_dimension_from_names(fields.names())
         .ok_or_else(|| vortex_err!("not a valid geoarrow.box dimension: {:?}", fields.names()))
 }
