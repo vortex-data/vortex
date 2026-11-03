@@ -30,6 +30,11 @@ use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::validity::Validity;
 
+/// Creates an encoder with a fixed code width based on the value domain and dictionary length limit.
+///
+/// The bound includes a possible null entry, so nullable values may require wider codes even when
+/// few distinct values occur. [`super::dict_encode_with_constraints`] narrows the codes after
+/// encoding; callers using this encoder directly retain the selected width.
 pub fn primitive_dict_builder<T: NativePType>(
     nullability: Nullability,
     constraints: &DictConstraints,
