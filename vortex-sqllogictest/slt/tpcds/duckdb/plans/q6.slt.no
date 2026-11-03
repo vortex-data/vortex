@@ -790,39 +790,39 @@ logical_opt [
                                                                         "(i_category IS NOT DISTINCT FROM i_category)",
                                                                         "((1.2 * SUBQUERY) < CAST(i_current_price AS DOUBLE))"
                                                                     ],
-                                                                    "Estimated Cardinality": "10"
+                                                                    "Estimated Cardinality": "5"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": "",
-                                                            "Estimated Cardinality": "10"
+                                                            "Estimated Cardinality": "5"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Expressions": "#0",
-                                                    "Estimated Cardinality": "10"
+                                                    "Estimated Cardinality": "5"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "CTE Name": "__duckdb_delim_74",
                                             "Table Index": "74",
-                                            "Estimated Cardinality": "10"
+                                            "Estimated Cardinality": "5"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Groups": "ca_state",
                                     "Expressions": "count_star()",
-                                    "Estimated Cardinality": "9"
+                                    "Estimated Cardinality": "4"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": "(count_star() >= 10)",
-                            "Estimated Cardinality": "1"
+                            "Estimated Cardinality": "0"
                         }
                     }
                 ],
@@ -831,13 +831,13 @@ logical_opt [
                         "state",
                         "cnt"
                     ],
-                    "Estimated Cardinality": "1"
+                    "Estimated Cardinality": "0"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "1"
+            "Estimated Cardinality": "0"
         }
     }
 ]
@@ -1158,13 +1158,13 @@ physical_plan [
                                                                 "i_category IS NOT DISTINCT FROM i_category",
                                                                 "(1.2 * SUBQUERY) < CAST(i_current_price AS DOUBLE)"
                                                             ],
-                                                            "Estimated Cardinality": "10"
+                                                            "Estimated Cardinality": "5"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Projections": "#2",
-                                                    "Estimated Cardinality": "10"
+                                                    "Estimated Cardinality": "5"
                                                 }
                                             }
                                         ],
@@ -1172,26 +1172,26 @@ physical_plan [
                                             "CTE Name": "__duckdb_delim_74",
                                             "Table Index": "74",
                                             "Execution Mode": "PIPELINE_DEPENDENT",
-                                            "Estimated Cardinality": "10"
+                                            "Estimated Cardinality": "5"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Projections": "ca_state",
-                                    "Estimated Cardinality": "10"
+                                    "Estimated Cardinality": "5"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Groups": "#0",
                             "Aggregates": "count_star()",
-                            "Estimated Cardinality": "9"
+                            "Estimated Cardinality": "4"
                         }
                     }
                 ],
                 "extra_info": {
                     "Expression": "(count_star() >= 10)",
-                    "Estimated Cardinality": "1"
+                    "Estimated Cardinality": "0"
                 }
             }
         ],
@@ -1201,7 +1201,7 @@ physical_plan [
                 "cnt ASC",
                 "state ASC"
             ],
-            "Estimated Cardinality": "1"
+            "Estimated Cardinality": "0"
         }
     }
 ]
