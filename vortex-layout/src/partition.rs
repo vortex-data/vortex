@@ -54,7 +54,7 @@ pub(crate) fn scope_of(expr: &BoundExpression) -> Option<&DType> {
 }
 
 /// Result of partitioning an expression over a plan.
-/// Partitioned expression may go into any partition, exactly one parttition,
+/// Partitioned expression may go into any partition, exactly one partition,
 /// or may be unable to be placed in any partition.
 pub enum PartitionedExpression {
     /// If None, expression may go into any partition
