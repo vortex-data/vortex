@@ -308,6 +308,14 @@ impl<'a> SyncOnDrop<'a> {
             pending: Pending::Wait(stream),
         }
     }
+
+    /// Disarms a wait already satisfied by a successful synchronization of `stream`.
+    /// Other streams' waits and access/event recording must still run on drop.
+    fn disarm_wait_for(&mut self, stream: &CudaStream) {
+        if matches!(&self.pending, Pending::Wait(waiting) if waiting.id() == stream.id()) {
+            self.pending = Pending::None;
+        }
+    }
 }
 
 impl Drop for SyncOnDrop<'_> {
@@ -1194,7 +1202,7 @@ impl CudaStream {
         target: &mut Target,
     ) -> Result<(), DriverError> {
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
-        let (target, _record_target) = unsafe { target.stream_synced_mut_slice(self) };
+        let (target, mut record_target) = unsafe { target.stream_synced_mut_slice(self) };
         // The copied slice, not `HostSlice::len`, bounds the copy.
         assert!(target.len() >= source.len());
         let (pointer, _record) = source.device_ptr(self);
@@ -1209,8 +1217,10 @@ impl CudaStream {
                 self.cu_stream(),
             )
             .result()?;
-            sys::cuStreamSynchronize(self.cu_stream()).result()
+            sys::cuStreamSynchronize(self.cu_stream()).result()?;
         }
+        record_target.disarm_wait_for(self);
+        Ok(())
     }
 
     /// Copies `source` into `target` on this stream.
@@ -1241,5 +1251,37 @@ impl CudaStream {
         let mut target = unsafe { self.alloc(source.len()) }?;
         self.memcpy_dtod(source, &mut target)?;
         Ok(target)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disarms_only_waits_for_the_synchronized_stream() -> Result<(), DriverError> {
+        // SAFETY: Only probes for the driver library.
+        if !unsafe { sys::is_culib_present() } {
+            return Ok(());
+        }
+        let Ok(context) = CudaContext::new(0) else {
+            return Ok(());
+        };
+        let stream = context.new_stream()?;
+        let other = context.new_stream()?;
+        let event = context.new_event(None)?;
+        let mut wait = SyncOnDrop::wait_for(&stream);
+        let mut other_wait = SyncOnDrop::wait_for(&other);
+        let mut record = SyncOnDrop::record_event(&event, &stream);
+
+        stream.synchronize()?;
+        wait.disarm_wait_for(&stream);
+        other_wait.disarm_wait_for(&stream);
+        record.disarm_wait_for(&stream);
+        assert!(matches!(wait.pending, Pending::None));
+        assert!(matches!(other_wait.pending, Pending::Wait(_)));
+        assert!(matches!(record.pending, Pending::Event(..)));
+        drop((wait, other_wait, record));
+        context.check_err()
     }
 }

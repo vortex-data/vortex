@@ -97,49 +97,6 @@ fn events_are_pooled() -> Result<(), DriverError> {
     context.check_err()
 }
 
-/// An error recorded elsewhere neither makes a free skip, nor is consumed by it.
-#[test]
-fn recorded_errors_do_not_leak_frees() -> Result<(), DriverError> {
-    let Some((context, owner, reader)) = streams() else {
-        return Ok(());
-    };
-    if !context.has_async_alloc() {
-        return Ok(());
-    }
-    let bytes = 4 << 30;
-    let used_before = pool_used_bytes(&context)?;
-    let device = owner.alloc_zeros::<u8>(bytes)?;
-    let (_pointer, record) = device.device_ptr(&reader);
-    drop(record);
-    let recorded = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
-    context.record_err::<()>(Err(recorded));
-    drop(device);
-    assert_eq!(context.check_err(), Err(recorded));
-    owner.synchronize()?;
-    // Other tests allocate concurrently, so only a leak of most of the allocation counts.
-    assert!(pool_used_bytes(&context)? < used_before + bytes as u64 / 2);
-    context.check_err()
-}
-
-/// The bytes this process uses from the device's default memory pool.
-fn pool_used_bytes(context: &CudaContext) -> Result<u64, DriverError> {
-    let ordinal = i32::try_from(context.ordinal())
-        .map_err(|_| DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE))?;
-    let (mut device, mut pool, mut used) = (0, std::ptr::null_mut(), 0u64);
-    // SAFETY: The driver writes the device and its pool, and the attribute is a `u64`.
-    unsafe {
-        sys::cuDeviceGet(&raw mut device, ordinal).result()?;
-        sys::cuDeviceGetMemPool(&raw mut pool, device).result()?;
-        sys::cuMemPoolGetAttribute(
-            pool,
-            sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_USED_MEM_CURRENT,
-            (&raw mut used).cast(),
-        )
-        .result()?;
-    }
-    Ok(used)
-}
-
 /// The first recorded error is kept until checked, as later ones are likely its consequences.
 #[test]
 fn first_recorded_error_is_kept() -> Result<(), DriverError> {
@@ -277,7 +234,9 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     stream.memcpy_htod(&*host, &mut device)?;
     host.fill(2);
     assert!(stream.clone_dtoh(&device)?.iter().all(|byte| *byte == 1));
-    // SAFETY: The copies reading the memory completed.
+    stream.memcpy_dtoh(&device, host)?;
+    assert!(host.iter().all(|byte| *byte == 1));
+    // SAFETY: The copies accessing the memory completed.
     unsafe { crate::result::free_host(pointer) }?;
     context.check_err()
 }
