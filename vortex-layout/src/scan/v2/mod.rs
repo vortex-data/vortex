@@ -228,7 +228,7 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
-        let ranges = cache.ranges(|| segment_ranges(&file.locations));
+        let ranges = cache.ranges(|| segment_ranges(Arc::clone(&file.locations)));
         let values = cache.values();
         let rows = self.row_range.unwrap_or(0..row_count);
         let access_mode = self
