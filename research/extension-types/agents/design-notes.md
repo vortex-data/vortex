@@ -202,7 +202,7 @@ each argument, and no separate check runs at every depth. An order comparison of
 
 After the check, the storage rewrite removes every extension layer at every depth (section 4.3,
 X6). The kernel then sees only storage dtypes. So the extension branch of the nested comparator
-(`vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:229-233`) goes away in phase 3.
+(`vortex-array/src/scalar_fn/fns/binary/compare/nested.rs:229-233`) goes away in SP3.
 
 ### 3.5 Operations across dtypes
 
@@ -498,7 +498,7 @@ and two crates could register conflicting rules for one pair.
 - The type rules come from the dtype (X20). So the static optimizer finds them as well.
 - The executor applies the same rules before it dispatches a kernel. A lazy array that nobody
   optimized still gets the rewrite, so the row path and the array path agree (I6).
-- After phase 3, no generic kernel applies storage semantics. So a semantic call that reaches a
+- After SP3 to SP5, no generic kernel applies storage semantics. So a semantic call that reaches a
   generic kernel without a rewrite fails. A missing rule gives an error, never a wrong result.
 
 ### 4.6 Examples
@@ -589,9 +589,8 @@ sees the same partial dtype as today. For example, a zone map of a `Timestamp` c
 already wraps its result after each batch today
 (`vortex-array/src/aggregate_fn/fns/min_max/extension.rs:28-29` at `1d09649bbd`).
 
-U9 comes first (part 4). It adds the result mappings of the order aggregates and uses them in
-today's adapter, so that the composite aggregates return logical values before phase 3 removes
-them.
+U9 comes first (part 4). It wraps the results of today's adapter with a fixed mapping for `MinMax`
+and `IsSorted`, so that the composite aggregates return logical values before SP4 removes them.
 
 ## 5. Wrapping storage
 
@@ -712,10 +711,10 @@ read. An edition gates writes of the new form. `vortex-btrblocks/src/schemes/tem
 the encoding from the extension metadata, and compresses the storage child. The same applies to
 any future encoding for one extension type.
 
-Until that move, the compare PR of phase 3 adds a rule that sends
-`ext_storage(DateTimeParts) < lit` to the existing compare kernel (X32). `TemporalScheme` is in the default compressor list
-(`vortex-btrblocks/src/session.rs:97`), so without the rule, most timestamp compares would decode
-after the storage rewrite. The days part has a separate bug: the split wraps days past `i32::MAX`
+Until that move, the compare PR of #11115 (SP3) adds a rule that sends
+`ext_storage(DateTimeParts) < lit` to the existing compare kernel (X32). `TemporalScheme` is in the
+default compressor list (`vortex-btrblocks/src/session.rs:97`), so without the rule, most timestamp
+compares would decode after the storage rewrite. The days part has a separate bug: the split wraps days past `i32::MAX`
 (EXT-S3), which #10953 fixes.
 
 ### 6.5 Rewrites and generic encodings
@@ -754,7 +753,7 @@ The general form is one shared mechanism, next to #10748:
   per-function adaptors today (`vortex-array/src/arrays/constant/compute/rules.rs:23-30`). It and
   the fill value of `Sparse` use the hook.
 - **`ext_storage` owns two things:** its constant hook, and the unwrap rule
-  `ext_storage(Extension(s))` to `s` of phase 3.
+  `ext_storage(Extension(s))` to `s` of SP2.
 
 With #10748, `Extension(Dict(codes, values))` becomes `Dict(codes, Extension(values))`. The
 pushdown then gives `Dict(codes, ext_storage(Extension(values)))`, and the unwrap gives
@@ -772,10 +771,10 @@ pushdown. The lift rule stays as section 6.3 describes it.
   `c56ee8803b`), and `Min` accepts extension dtypes today.
 - **S2.** Types without `Ord` get no min and max. Writers drop the storage fallback of
   `aggregate_state_dtype` (`vortex-layout/src/layouts/zoned/schema.rs:177-188`) for min and max.
-  After phase 3, `Min` rejects every type without `Ord`, so without this change the fallback would
-  store whole JSON strings and WKB blobs. No legal filter can use those values, because a compare
-  on such a type is rejected. The null count stays. A type adds its own statistics through its own
-  aggregates, as the spatial bounding boxes of
+  After phase 3, `Min` rejects every type outside the order list of X35, and after SP4 every type
+  without `Ord`. Without this change, the fallback would store whole JSON strings and WKB blobs. No
+  legal filter can use those values, because a compare on such a type is rejected. The null count
+  stays. A type adds its own statistics through its own aggregates, as the spatial bounding boxes of
   [#10837](https://github.com/vortex-data/vortex/pull/10837) do.
 - **S3.** Readers ignore stored min and max of an extension column whose type does not claim `Ord`,
   in pruning and in the file statistics that reach engines. They log a warning once for each file
@@ -1139,12 +1138,12 @@ cases.
 
 ### 11.5 Order of work
 
-Change `PartialOrd` only together with, or after, the phase 3 change that rejects `min` and `max`
-for extension types without `Ord`. Today `min`, `max` and their variants merge partial results with
-`vortex_expect` on `partial_min` or `partial_max`. The sites are
-`vortex-array/src/aggregate_fn/fns/min/mod.rs:59`, `max/mod.rs:59`, `bounded_min/mod.rs:71`,
-`bounded_max/mod.rs:86` and `min_max/mod.rs:247`, `:252`. With the new order, a merge of two
-different `Json` maxima panics.
+Change `PartialOrd` only together with, or after, the typing check of phase 3, which rejects `min`
+and `max` for extension types outside the order list of X35, and later for types without `Ord`.
+Today `min`, `max` and their variants merge partial results with `vortex_expect` on `partial_min`
+or `partial_max`. The sites are `vortex-array/src/aggregate_fn/fns/min/mod.rs:59`,
+`max/mod.rs:59`, `bounded_min/mod.rs:71`, `bounded_max/mod.rs:86` and `min_max/mod.rs:247`,
+`:252`. With the new order, a merge of two different `Json` maxima panics.
 
 - `ChunkedArrayAggregate` merges one partial for each chunk
   (`vortex-array/src/arrays/chunked/compute/aggregate.rs:28-32`). So `max` over a chunked `Json`
@@ -1174,14 +1173,16 @@ under `vortex-array/src/aggregate_fn/fns/` live in the new `vortex-aggregates` c
 | 0, U6 | `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/scalar/validate.rs`, `vortex-array/src/scalar/scalar_impl.rs` |
 | 0, U7 | `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/scalar_value.rs` |
 | 0, U8 | `vortex-array/src/dtype/extension/erased.rs` |
-| 1 | The declaration: `vortex-array/src/dtype/extension/{vtable,typed,erased,foreign,plugin}.rs`, the metadata of `vortex-tensor/src/types/` and `vortex-spatial/src/extension/`, the constructor sites of section 9.3, `vortex-array/src/dtype/dtype_impl.rs` and `vortex-array/src/arrays/extension/compute/cast.rs` (NU6). The claims: `vortex-array/src/dtype/` (`Claim` and `DType::holds`), `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs` (`claims` and the check when a dtype is built), the claims of the types in `vortex-array/src/extension/datetime/`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/`, `vortex-json/src/dtype.rs` and `vortex-spatial/src/extension/`, `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`), `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
-| 2 | `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/vtable.rs`, a new module for `ExtensionUse` and `ResultMapping` |
-| 2, U9 | `vortex-array/src/aggregate_fn/storage_pushdown.rs`, `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted}/` |
-| 3 | `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/arrays/scalar_fn/vtable/mod.rs`, `vortex-array/src/aggregate_fn/{vtable,erased,accumulator,session,storage_pushdown}.rs`, `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/{binary,between,cast,zip,fill_null,list_contains}/`, `vortex-array/src/scalar_fn/fns/{case_when,dynamic,ext_storage}.rs`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/aggregate_fn/fns/min_max/extension.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-row/src/encoder.rs`, `encodings/uuid/src/lib.rs` |
-| 4 | `vortex-layout/src/layouts/zoned/{schema,writer}.rs`, `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs`, `vortex-expr/src/stats/rewrite/` (moved from `vortex-array` by #10734) |
+| 1 | The declaration: `vortex-array/src/dtype/extension/{vtable,typed,erased,foreign,plugin}.rs`, the metadata of `vortex-tensor/src/types/` and `vortex-spatial/src/extension/`, the constructor sites of section 9.3, `vortex-array/src/dtype/dtype_impl.rs` and `vortex-array/src/arrays/extension/compute/cast.rs` (NU6). Then `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`) and `vortex-array/src/compute/conformance/` |
+| 2 | `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/vtable.rs`, a new module for `ExtensionUse` and the hardcoded lists of X35, and the declarations in `vortex-array/src/scalar_fn/fns/{binary,between,zip,fill_null,list_contains}/`, `vortex-array/src/scalar_fn/fns/case_when.rs` and `vortex-array/src/aggregate_fn/fns/` |
+| 2, U9 | `vortex-array/src/aggregate_fn/storage_pushdown.rs` |
+| 3 | `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/arrays/scalar_fn/vtable/mod.rs`, `vortex-array/src/aggregate_fn/{vtable,erased,accumulator}.rs`, `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/scalar_fn/fns/dynamic.rs`, `vortex-layout/src/layouts/zoned/schema.rs` (the writers), `vortex-duckdb/src/table_function.rs` (aggregate pushdown) |
+| 4 | `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs` (the readers) |
 | 5 | `vortex-array/src/dtype/extension/vtable.rs` (`rules`), `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/extension/datetime/`, `vortex-duckdb/src/convert/expr.rs`, `vortex-datafusion/src/convert/exprs/mod.rs` |
 | 6 | `vortex-array/src/arrays/extension/array.rs`, `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/`, `vortex-array/src/builders/{extension,fixed_size_list,mod}.rs`, `vortex-array/src/dtype/extension/`, `vortex-array/src/extension/datetime/time.rs`, the Arrow, DuckDB, FFI and Python import paths |
 | 7 | `vortex-arrow/src/{session,dtype,scalar}.rs`, `vortex-arrow/src/executor/`, `vortex-duckdb/src/convert/`, `vortex-duckdb/src/exporter/`, `vortex-duckdb/src/{table_function,column_statistics}.rs`, `vortex-datafusion/src/convert/`, `vortex-python/src/scalar/`, `vortex-jni/src/writer.rs`, `docs/developer-guide/extending/extension-dtypes.md` |
+| Claims, CL1 to CL3 | `vortex-array/src/dtype/` (`Claim` and `DType::holds`), `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs` (`claims` and the check when a dtype is built), the claims of the types in `vortex-array/src/extension/datetime/`, `encodings/uuid/src/vtable.rs`, `vortex-tensor/src/types/`, `vortex-json/src/dtype.rs` and `vortex-spatial/src/extension/`, `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
+| Claims, SP1 to SP7 | The module of `ExtensionUse` (`Storage` and `ResultMapping`), `vortex-array/src/optimizer/`, `vortex-array/src/aggregate_fn/{session,storage_pushdown}.rs`, `vortex-array/src/scalar_fn/fns/ext_storage.rs`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/aggregate_fn/fns/min_max/extension.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-row/src/encoder.rs`, `encodings/uuid/src/lib.rs`, `vortex-expr/src/stats/rewrite/` (moved from `vortex-array` by #10734), `vortex-file/src/pruning.rs`, `vortex-duckdb/src/table_function.rs`, `vortex-duckdb/src/convert/` and `vortex-datafusion/src/convert/` |
 | Low priority, lift rule | `vortex-array/src/arrays/extension/compute/{rules,take}.rs`, `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/arrays/{constant,chunked,dict,masked,interleave}/`, `encodings/sparse/`, `encodings/runend/`, `vortex-edition/`. The shared mechanism of #10748 also touches `vortex-array/src/arrays/widen/` |
 | Low priority, shared pushdown | `vortex-array/src/arrays/{masked,constant}/compute/rules.rs`, `encodings/sparse/src/rules.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/scalar_fn/fns/ext_storage.rs` |
 | Low priority, `DateTimeParts` | `encodings/datetime-parts/`, `vortex-btrblocks/src/schemes/temporal.rs`, `vortex-edition/` |

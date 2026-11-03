@@ -190,6 +190,13 @@ on `values`. Every extension type inside one argument must hold the claim of tha
 of an argument that needs another claim becomes a separate argument, for example
 `sort_by(payload, get_item(row, "ts"))`.
 
+Opacity lands before the claims (X35). Until the claims land, the functions of group 2 answer
+`Specific` for hardcoded lists of types that match the claims of X16, and today's hand-written
+storage paths do the work for those types. Tracking issue
+[#11114](https://github.com/vortex-data/vortex/issues/11114) makes extension types opaque with
+these lists, and [#11115](https://github.com/vortex-data/vortex/issues/11115) replaces them with
+claims, `Storage` and the result mappings.
+
 ### Result mappings
 
 `Storage` carries the result mapping, so the compiler forces every function that runs on storage
@@ -247,8 +254,8 @@ When `AggregateDTypes::try_new` meets an extension input, it asks the type first
 A partial state stays in storage form in memory. It gets the logical form when it leaves the
 accumulator: `finalize`, `finalize_scalar` and `to_scalar` wrap, and `partial_from_scalar`
 unwraps. So consumers see the same partial dtype as today, and the cost is constant for each
-partial. The composite IDs and `register_storage_ordered` go away. U9 adds the result mappings
-first and uses them in today's adapter, so its results are right before the move.
+partial. The composite IDs and `register_storage_ordered` go away. U9 first wraps the results of
+today's adapter, so its results are right before the move.
 
 ### Operations across dtypes
 
@@ -345,9 +352,9 @@ The pushdown of functions through generic encodings is one shared mechanism, nex
 
 Type-specific encodings are a separate question. `DateTimeParts` can move under the wrapper as an
 `i64` encoding, so that its compare kernel works on storage. The compressor then chooses it from
-the extension metadata. This has low priority. Until then, the compare PR of phase 3 adds a rule
-that sends `ext_storage(DateTimeParts) < lit` to the existing `DateTimeParts` compare kernel (X32),
-so the compare does not decode.
+the extension metadata. This has low priority. Until then, the compare PR of #11115 (SP3) adds a
+rule that sends `ext_storage(DateTimeParts) < lit` to the existing `DateTimeParts` compare kernel
+(X32), so the compare does not decode.
 
 [`agents/design-notes.md`](agents/design-notes.md), section 6, has the details.
 

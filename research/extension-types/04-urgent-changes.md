@@ -6,8 +6,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # 4. Urgent changes
 
 These changes fix wrong results and panics. U1 to U8 do not depend on the design in part 3, and
-each one fits in a small PR with a regression test. U9 needs the declaration types of the design, so
-it lands in phase 2 of part 5. Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
+each one fits in a small PR with a regression test. U9 does not depend on the design either, and it
+can land at any time (X35). Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
 2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
 part are for that commit. U5 merged in #11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on
 2026-11-02. U1 and U9 have no PR yet.
@@ -142,18 +142,18 @@ accepts every `i64` (X31, EXT-V9).
 
 ## U9. Storage pushdown results
 
-U9 lands at the end of phase 2, after `ExtensionUse` and `ResultMapping` exist (X17, X19).
+U9 does not wait for `ResultMapping` (X35). `register_storage_ordered` wraps only `MinMax` and
+`IsSorted` (`vortex-array/src/aggregate_fn/session.rs:195-198` at `c7449d567a`), and each of them
+maps its result in a fixed way:
 
-- `MinMax`, `Min`, `Max`, `IsSorted`, `BoundedMin` and `BoundedMax` implement `extension_use`. Each
-  answers `Storage` with the `Ord` claim and a result mapping:
-  - `Min` and `Max` answer `Rewrap` with the input dtype.
-  - `MinMax` answers `Fields` with two `Rewrap`s.
-  - `IsSorted` answers `Keep`.
-  - `BoundedMin` and `BoundedMax` answer `Keep` over `Utf8` and `Binary` storage, where they can
-    truncate, and `Rewrap` over other storage.
-- `ExtensionStoragePushdown` applies the mapping of `A` to its results (X12). This changes
+- `MinMax` gives both fields the input dtype.
+- `IsSorted` keeps its `Bool` result.
+- `ExtensionStoragePushdown` applies this mapping to its results (X12). This changes
   `return_dtype`, `finalize` and `finalize_scalar`
-  (`vortex-array/src/aggregate_fn/storage_pushdown.rs:200`, `:299`, `:307`).
+  (`vortex-array/src/aggregate_fn/storage_pushdown.rs:200`, `:299`, `:307`). An inner aggregate
+  without a fixed mapping is an error when the adapter is built.
+- SP4 later replaces the fixed mapping with the result mappings of #11115, when it removes the
+  adapter.
 - Partial states stay in storage form in memory. `to_scalar` gives them the logical form, and
   `partial_from_scalar` removes it (X21). So a partial that leaves the adapter has the same dtype as
   a partial of plain `min_max`.
@@ -161,7 +161,7 @@ U9 lands at the end of phase 2, after `ExtensionUse` and `ResultMapping` exist (
 
 Visible change: `vortex.min_max[vortex.timestamp]` returns `Timestamp` values, like plain `min_max`.
 Only tests ask for the composite IDs today, so no other caller changes. The regression test compares
-the result of the adapter with the result of plain `min_max`. Phase 3 later moves the body of the
+the result of the adapter with the result of plain `min_max`. SP4 later moves the body of the
 adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
@@ -210,13 +210,14 @@ Three PRs added or add mechanisms for extension semantics:
 - [#10566](https://github.com/vortex-data/vortex/pull/10566) added `ExtensionStoragePushdown`, an
   aggregate adapter with a composite ID, and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
-  and `Uuid`. Both merged on 2026-10-20. U9 fixes its results. In phase 3, its body becomes the
+  and `Uuid`. Both merged on 2026-10-20. U9 fixes its results. In SP4, its body becomes the
   default storage path of aggregate binding, and its composite IDs go away (X10, X21).
 - [#10408](https://github.com/vortex-data/vortex/pull/10408) adds `between` pushdown for
   `AnyTemporal`. It is an open draft.
 
-Phase 3 turns the `between` pushdown into a `Storage` declaration, and it replaces the
-hand-written registrations of the adapter with the claims of the types.
+TY1 gives the `between` pushdown the hardcoded declaration of X35, and SP3 turns it into a
+`Storage` declaration. SP4 replaces the hand-written registrations of the adapter with the claims
+of the types.
 
 [#10769](https://github.com/vortex-data/vortex/pull/10769) (draft) moves the aggregate
 implementations into a new `vortex-aggregates` crate, including the tests of the storage pushdown.
@@ -226,4 +227,5 @@ The new extension types `Duration` ([#10467](https://github.com/vortex-data/vort
 and `Interval` ([#10468](https://github.com/vortex-data/vortex/pull/10468)) are open. Both edit
 the `AnyTemporal` matcher and the Arrow, DataFusion and DuckDB converters. U1, U2 and phase 5
 change the same code. `Duration` claims `Eq` and `Ord`, and `Interval` claims nothing until its PR
-decides what interval equality means (X16).
+decides what interval equality means (X16). Until the claims land, `Duration` joins both hardcoded
+lists of X35.

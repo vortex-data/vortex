@@ -33,6 +33,11 @@ That causes wrong results, panics, and code paths that disagree with each other.
   nullability, which is always the nullability of its storage. It owns its nested nullability.
   Each type declares its storage dtype from its metadata, and reads check the stored storage
   against that declaration. `Timestamp` accepts every `i64`.
+- A pass on 2026-11-03 split the work into two tracking issues.
+  [#11114](https://github.com/vortex-data/vortex/issues/11114) makes extension types opaque, with
+  hardcoded opt-ins for the types in the repository.
+  [#11115](https://github.com/vortex-data/vortex/issues/11115) adds the claims and the storage
+  paths that use them, and replaces the hardcoded opt-ins (X35).
 - A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
   wrapper. So code finds them without any knowledge of extension types.
 - [`../decisions.md`](../decisions.md) records which of these points are decided and which are

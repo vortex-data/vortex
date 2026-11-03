@@ -104,7 +104,7 @@ both paths. The cast rows stay until U1.
   [#10566](https://github.com/vortex-data/vortex/pull/10566) and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) add separate aggregates, such as
   `vortex.is_sorted[vortex.timestamp]`, that run on storage for `Date`, `Time`, `Timestamp` and
-  `Uuid`. Plain `is_sorted` and `min_max` do not use them. In phase 3, their computation becomes the
+  `Uuid`. Plain `is_sorted` and `min_max` do not use them. In SP4, their computation becomes the
   default storage path of the plain aggregates, and the separate IDs go away (X10, X21). The open
   draft
   [#10408](https://github.com/vortex-data/vortex/pull/10408) adds yet another opt-in for `between`.

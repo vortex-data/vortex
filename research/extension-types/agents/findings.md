@@ -338,7 +338,7 @@ Terms:
 - **Fix:** Return an error from these read paths (U3). Make `ExtensionArray::try_new` check values
   with a batch `validate_array`, and add `ExtensionArray::new_unchecked` for kernels
   (`design-notes.md`, section 8). Make the row path of `ext_storage` read the storage without a
-  value check (phase 3).
+  value check (SP2).
 
 ### EXT-V2: `Extension::validate` never checks the storage dtype
 
