@@ -23,6 +23,7 @@ use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 
 /// A type-erased aggregate function, pairing a vtable with bound options behind a trait object.
 ///
@@ -92,6 +93,12 @@ impl AggregateFnRef {
     /// Returns `None` if the input dtype is not supported by the aggregate function.
     pub fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         self.0.state_dtype(input_dtype)
+    }
+
+    /// Returns how this aggregate uses the extension dtypes in `input_dtype`. See
+    /// [`AggregateFnVTable::extension_use`].
+    pub fn extension_use(&self, input_dtype: &DType) -> ExtensionUse {
+        self.0.extension_use(input_dtype)
     }
 
     /// Create an accumulator for streaming aggregation.

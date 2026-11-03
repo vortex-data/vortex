@@ -31,6 +31,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::GroupedAccumulator;
 use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 
 /// An object-safe, sealed trait for bound aggregate function dispatch.
 ///
@@ -44,6 +45,7 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
     fn can_satisfy(&self, requested: &AggregateFnRef) -> AggregateFnSatisfaction;
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType>;
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType>;
+    fn extension_use(&self, input_dtype: &DType) -> ExtensionUse;
     fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef>;
 
@@ -121,6 +123,10 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
 
     fn state_dtype(&self, input_dtype: &DType) -> Option<DType> {
         V::partial_dtype(&self.vtable, &self.options, input_dtype)
+    }
+
+    fn extension_use(&self, input_dtype: &DType) -> ExtensionUse {
+        V::extension_use(&self.vtable, &self.options, input_dtype)
     }
 
     fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {

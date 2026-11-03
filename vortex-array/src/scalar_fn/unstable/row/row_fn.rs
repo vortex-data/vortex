@@ -17,6 +17,7 @@ use vortex_session::VortexSession;
 
 use super::visitor::RowVisitor;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 use crate::scalar_fn::ScalarFnId;
 
 /// A strict scalar function whose row kernel cannot produce null from valid inputs.
@@ -76,6 +77,19 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
         vortex_bail!("Expression {} is not deserializable", self.id())
+    }
+
+    /// Returns how this function uses the extension dtypes in the operands of a call over
+    /// `arg_dtypes`.
+    ///
+    /// The blanket [`ScalarFnVTable`] implementation forwards [`ScalarFnVTable::extension_use`] to
+    /// this method. The default is conservatively [`ExtensionUse::None`].
+    ///
+    /// [`ScalarFnVTable`]: crate::scalar_fn::ScalarFnVTable
+    /// [`ScalarFnVTable::extension_use`]: crate::scalar_fn::ScalarFnVTable::extension_use
+    fn extension_use(&self, options: &Self::Options, arg_dtypes: &[DType]) -> ExtensionUse {
+        _ = (options, arg_dtypes);
+        ExtensionUse::None
     }
 
     /// Choose element types for these input dtypes and visit the framework with them.

@@ -23,6 +23,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 use crate::executor::DonePredicate;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -327,6 +328,16 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn is_infallible(&self, options: &Self::Options) -> bool {
         _ = options;
         false
+    }
+
+    /// Returns how this function uses the extension dtypes in the operands of a call over
+    /// `arg_dtypes`.
+    ///
+    /// See [`ExtensionUse`] for the meaning of each answer. The default is conservatively
+    /// [`ExtensionUse::None`].
+    fn extension_use(&self, options: &Self::Options, arg_dtypes: &[DType]) -> ExtensionUse {
+        _ = (options, arg_dtypes);
+        ExtensionUse::None
     }
 }
 

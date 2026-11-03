@@ -12,6 +12,8 @@
 //! serialization, storage dtype validation, scalar validation, and typed scalar unpacking. Register
 //! extension plugins in a session before deserializing data that may reference them.
 //!
+//! Scalar functions and aggregates declare how they use extension operands with [`ExtensionUse`].
+//!
 //! ## File layout convention
 //!
 //! Each vtable-backed concept `Foo` follows this module structure:
@@ -39,6 +41,9 @@ pub use erased::*;
 
 mod matcher;
 pub use matcher::*;
+
+mod extension_use;
+pub use extension_use::*;
 use vortex_session::registry::Id;
 
 /// A unique identifier for an extension type

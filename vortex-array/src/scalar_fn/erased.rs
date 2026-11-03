@@ -19,6 +19,7 @@ use vortex_utils::debug_with::DebugWith;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
@@ -116,6 +117,12 @@ impl ScalarFnRef {
     /// Signature information for this scalar function.
     pub fn signature(&self) -> ScalarFnSignature<'_> {
         ScalarFnSignature { inner: &*self.0 }
+    }
+
+    /// Returns how this function uses the extension dtypes in the operands of a call over
+    /// `arg_dtypes`. See [`ScalarFnVTable::extension_use`].
+    pub fn extension_use(&self, arg_dtypes: &[DType]) -> ExtensionUse {
+        self.0.extension_use(arg_dtypes)
     }
 
     /// Compute the return [`DType`] of this expression given the input argument types.

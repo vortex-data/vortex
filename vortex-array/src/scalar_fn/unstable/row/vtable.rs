@@ -29,6 +29,7 @@ use super::visitor::ExecuteValidRows;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -91,6 +92,10 @@ impl<F: RowFn> ScalarFnVTable for F {
 
     fn is_infallible(&self, _options: &Self::Options) -> bool {
         F::INFALLIBLE
+    }
+
+    fn extension_use(&self, options: &Self::Options, arg_dtypes: &[DType]) -> ExtensionUse {
+        RowFn::extension_use(self, options, arg_dtypes)
     }
 }
 
@@ -278,8 +283,13 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::extension::ExtensionUse;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnId;
+    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::VecExecutionArgs;
     use crate::scalar_fn::unstable::row::RowFn;
     use crate::scalar_fn::unstable::row::RowVisitor;
@@ -304,6 +314,9 @@ mod tests {
         Policy,
         Element,
     }
+
+    #[derive(Clone)]
+    struct SpecificRowFn;
 
     impl RowFn for NullarySeven {
         type Options = EmptyOptions;
@@ -376,6 +389,31 @@ mod tests {
                     DispatchChange::Element => visitor.visit::<(u64,), u64>(|(value,)| value),
                 }
             }
+        }
+    }
+
+    impl RowFn for SpecificRowFn {
+        type Options = EmptyOptions;
+
+        const ARG_NAMES: &'static [&'static str] = &["value"];
+        const INFALLIBLE: bool = true;
+
+        fn id(&self) -> ScalarFnId {
+            static ID: CachedId = CachedId::new("test.specific_row_fn");
+            *ID
+        }
+
+        fn extension_use(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> ExtensionUse {
+            ExtensionUse::Specific
+        }
+
+        fn dispatch<V: RowVisitor>(
+            &self,
+            _options: &Self::Options,
+            _args: &[DType],
+            visitor: V,
+        ) -> VortexResult<V::VisitResult> {
+            visitor.visit::<(i64,), i64>(|(value,)| value)
         }
     }
 
@@ -464,6 +502,16 @@ mod tests {
             "unexpected error: {error}",
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_extension_use_reaches_scalar_fn_ref() {
+        let timestamp = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable);
+        let scalar_fn = SpecificRowFn.bind(EmptyOptions);
+
+        let extension_use = scalar_fn.extension_use(&[DType::Extension(timestamp.erased())]);
+
+        assert!(matches!(extension_use, ExtensionUse::Specific));
     }
 
     #[track_caller]

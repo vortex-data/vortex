@@ -21,6 +21,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtensionUse;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 
@@ -182,6 +183,15 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Returns `None` if the aggregate function cannot be applied to the input dtype.
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
+
+    /// Returns how this aggregate uses the extension dtypes in `input_dtype`.
+    ///
+    /// See [`ExtensionUse`] for the meaning of each answer. The default is conservatively
+    /// [`ExtensionUse::None`].
+    fn extension_use(&self, options: &Self::Options, input_dtype: &DType) -> ExtensionUse {
+        _ = (options, input_dtype);
+        ExtensionUse::None
+    }
 
     /// The partial state of a group with no accumulated values.
     ///
