@@ -288,7 +288,11 @@ impl fmt::Display for DriverLoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LibraryUnavailable => {
-                write!(f, "none of {DRIVER_LIBRARIES:?} could be loaded")
+                write!(
+                    f,
+                    "none of [{}] could be loaded",
+                    DRIVER_LIBRARIES.join(", ")
+                )
             }
             Self::MissingSymbol(reason) => f.write_str(reason),
         }
