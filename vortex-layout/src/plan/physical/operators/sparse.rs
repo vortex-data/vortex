@@ -84,6 +84,19 @@ impl Operator for SparseSource {
                 ConstantArray::new(self.fill.clone(), len).into_array(),
             ));
         }
+        if self.fill.is_null() {
+            // A null fill is a take of the values with null indices for the absent rows, which
+            // takes push into nested children instead of expanding the rows one by one.
+            let mut take = vec![0u64; len];
+            let mut present = vec![false; len];
+            for (&value, &position) in keep.iter().zip(&positions) {
+                let position = usize::try_from(position)?;
+                take[position] = value as u64;
+                present[position] = true;
+            }
+            let take = PrimitiveArray::new(Buffer::from(take), Validity::from_iter(present));
+            return Ok(Step::Final(values.take(take.into_array())?));
+        }
         let values = values.filter(Mask::from_indices(values.len(), keep))?;
         let positions = PrimitiveArray::new(Buffer::from(positions), Validity::NonNullable);
         let array = Sparse::try_new(
