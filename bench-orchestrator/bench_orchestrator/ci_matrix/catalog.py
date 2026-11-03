@@ -20,6 +20,8 @@ PRESETS = {
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": "Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended).",
+    # TEMPORARY (measurement only, do not merge): times JOB on DataFusion in isolation.
+    "job-datafusion": "JOB on DataFusion only, to measure its runtime (action/bench-sql on the draft PR).",
     "nightly": "Large-scale SF=100 TPC-H on NVMe and S3, and SF=10/100 TPC-DS on NVMe and S3, at default targets.",
 }
 
@@ -299,6 +301,14 @@ BENCHMARKS = (
             "pr-full": JOB_DUCKDB,
             "develop": JOB_DUCKDB,
         },
+    ),
+    # TEMPORARY (measurement only, do not merge): DataFusion JOB as its own matrix job so its
+    # wall-clock time is measured separately from DuckDB.
+    BenchmarkCase(
+        id="job-nvme-datafusion",
+        benchmark=Benchmark.JOB,
+        name="JOB on NVME (DataFusion)",
+        runs={"job-datafusion": Coverage(df(Format.PARQUET, Format.VORTEX))},
     ),
     BenchmarkCase(
         id="vortex-queries",

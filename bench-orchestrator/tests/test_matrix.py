@@ -55,6 +55,7 @@ EXPECTED_IDS = {
     "pr-compact": COMPACT_IDS,
     "pr-all": PR_FULL_IDS,
     "pr-full": PR_FULL_IDS,
+    "job-datafusion": ("job-nvme-datafusion",),
     "nightly": (
         "tpch-nvme",
         "tpch-s3",
