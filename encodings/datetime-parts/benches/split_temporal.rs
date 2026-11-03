@@ -16,7 +16,6 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
@@ -110,14 +109,6 @@ fn split_extreme(bencher: Bencher, args: (usize, TimeUnit, bool)) {
     }
 
     bencher
-        .with_inputs(|| {
-            // Splitting an overflow input computes min/max, so clear them outside the timed call
-            // to keep measuring the path without cached bounds.
-            if !cached_bounds {
-                array.temporal_values().statistics().clear(Stat::Min);
-                array.temporal_values().statistics().clear(Stat::Max);
-            }
-            (array.clone(), SESSION.create_execution_ctx())
-        })
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| split_temporal(array, &mut ctx).unwrap())
 }

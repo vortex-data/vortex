@@ -467,7 +467,8 @@ mod tests {
         )
         .unwrap();
 
-        let rhs = dtp_array_from_timestamp(i64::from(i32::MAX) + 1, rhs_validity);
+        // Timestamp with a value larger than i32::MAX.
+        let rhs = dtp_array_from_timestamp(i64::MAX, rhs_validity);
 
         let comparison = lhs
             .clone()
@@ -498,6 +499,42 @@ mod tests {
 
         // `CompareOperator::Gt` and `CompareOperator::Gte` only cover the case of all lhs values
         // being larger. Therefore, these cases are not covered by unit tests.
+    }
+
+    #[rstest]
+    #[case::eq(CompareOperator::Eq, false)]
+    #[case::not_eq(CompareOperator::NotEq, true)]
+    #[case::lt(CompareOperator::Lt, true)]
+    #[case::lte(CompareOperator::Lte, true)]
+    #[case::gt(CompareOperator::Gt, false)]
+    #[case::gte(CompareOperator::Gte, false)]
+    fn compare_date_time_parts_extreme_days_constant(
+        #[case] operator: CompareOperator,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let timestamp = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: Some("UTC".into()),
+            },
+            i64::MAX.into(),
+        );
+        let rhs = ConstantArray::new(timestamp, 1).into_array();
+        let lhs = DateTimeParts::try_new(
+            rhs.dtype().clone(),
+            buffer![0i32].into_array(),
+            buffer![0u32].into_array(),
+            buffer![0i64].into_array(),
+        )?;
+
+        let comparison = DateTimeParts::compare(lhs.as_view(), &rhs, operator, &mut ctx)?
+            .expect("constant timestamps use the DateTimeParts comparison kernel");
+        assert_arrays_eq!(comparison, BoolArray::from_iter([expected]), &mut ctx);
+
+        Ok(())
     }
 
     #[test]
