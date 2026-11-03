@@ -280,6 +280,13 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 /// would give the values a different meaning, such as a different time unit for a timestamp. To
 /// check this, a session that knows the Vortex ID rebuilds the dtype from the target and compares
 /// the dtypes, and any other session compares the metadata bytes.
+///
+/// On import, the importers run first. If none of them accepts the field, but its extension name is
+/// a Vortex ID that the session knows (see [`initialize`]), the field imports as that extension
+/// type over its storage. In that case, the import fails if the type rejects the metadata or the
+/// storage. A field with any other extension name imports as plain storage.
+///
+/// [`initialize`]: crate::initialize
 #[derive(Clone, Debug, Default)]
 pub struct ArrowSession {
     exporters: ArrowExporterRegistry,
@@ -538,6 +545,9 @@ impl ArrowSession {
     /// to [`DType::Variant`], and any other field converts through
     /// [`Self::from_arrow_datatype`] so extension metadata on nested element/struct
     /// fields is preserved.
+    ///
+    /// If the extension name of `field` is a Vortex ID that the session knows, the result is that
+    /// extension type over the converted storage (see [`ArrowSession`]).
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let DataType::Dictionary(_, value_type) = field.data_type() {
@@ -556,7 +566,16 @@ impl ArrowSession {
                 return Ok(DType::Variant(field.is_nullable().into()));
             }
         }
-        self.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+
+        let storage_dtype =
+            self.from_arrow_datatype(field.data_type(), field.is_nullable().into())?;
+
+        Ok(
+            match self.rebuild_ext_dtype_by_vortex_id(field, &storage_dtype)? {
+                Some(ext_dtype) => DType::Extension(ext_dtype),
+                None => storage_dtype,
+            },
+        )
     }
 
     /// Build the Vortex [`DType`] for an Arrow [`DataType`].
@@ -743,6 +762,9 @@ impl ArrowSession {
     /// extension fields nested inside containers reach their importers; leaf types fall
     /// through to the canonical Arrow → Vortex array conversion.
     ///
+    /// If the extension name of `field` is a Vortex ID that the session knows, the import wraps the
+    /// converted array in that extension type (see [`ArrowSession`]).
+    ///
     /// A dictionary array imports as a [`DictArray`]. Its values import as described above, with
     /// `field`'s metadata.
     ///
@@ -761,8 +783,9 @@ impl ArrowSession {
 
     /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: peel a dictionary,
     /// probe the import plugins registered for the field's extension name, then fall back to the
-    /// canonical conversion. Also the recursion point for nested fields, which already have a
-    /// [`Field`].
+    /// canonical conversion. If the extension name of the field is a Vortex ID that the session
+    /// knows, the result is wrapped in that extension type. Also the recursion point for nested
+    /// fields, which already have a [`Field`].
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_inner(
         &self,
@@ -773,13 +796,15 @@ impl ArrowSession {
             return self.dictionary_from_arrow(array.as_ref(), field);
         }
 
+        let mut current = array;
+
         if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
-                let len = array.len();
-                let mut current = array;
+                let len = current.len();
+
                 for plugin in importers.iter() {
                     match plugin.from_arrow_array(current, field, &dtype, self)? {
                         // Parents such as lists reuse the Arrow offsets into this array without
@@ -809,10 +834,15 @@ impl ArrowSession {
                         }
                     }
                 }
-                return self.from_arrow_array_canonical(current.as_ref(), field);
             }
         }
-        self.from_arrow_array_canonical(array.as_ref(), field)
+
+        let imported = self.from_arrow_array_canonical(current.as_ref(), field)?;
+
+        match self.rebuild_ext_dtype_by_vortex_id(field, imported.dtype())? {
+            Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
+            None => Ok(imported),
+        }
     }
 
     /// Recurse into Arrow container arrays so nested fields with extension metadata reach

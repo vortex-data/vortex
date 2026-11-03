@@ -15,6 +15,8 @@
 //!
 //! The [`ArrowSession`] session variable is created lazily on first use of
 //! [`ArrowSessionExt::arrow`], so no explicit registration is required for plain conversions.
+//! To import extension types that have no Arrow plugin, register the session with [`initialize`]
+//! (see [`ArrowSession`]).
 
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_session::VortexSession;
@@ -46,7 +48,9 @@ pub use session::*;
 /// Register vortex-arrow's session extensions into `session`.
 ///
 /// This eagerly registers the [`ArrowSession`], which is otherwise created lazily on first use.
-/// Only the eager session knows the extension dtypes of `session` by their Vortex IDs.
+/// Only a session registered here can look up the extension types of `session` by their Vortex IDs.
+/// A session that is created lazily on first use cannot, so it imports an extension type without an
+/// Arrow plugin as plain storage.
 pub fn initialize(session: &VortexSession) {
     session.register(ArrowSession::new(&session.dtypes()));
 }
