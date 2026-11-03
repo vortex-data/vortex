@@ -99,8 +99,11 @@ mod tests {
             leading_bytes.len(),
         )
         .into_array();
-        let ext_dtype =
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage.dtype().clone())?;
+        let ext_dtype = ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            storage.dtype().nullability(),
+        )?;
         Ok(ExtensionArray::new(ext_dtype.erased(), storage).into_array())
     }
 
