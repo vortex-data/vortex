@@ -32,7 +32,15 @@ The contribution process is outlined below:
 3. Open a PR to indicate that the change is ready for review.
    - Ensure that you sign your work via DCO (see below).
    - Disclose LLM usage as described in [AI Assistance](#ai-assistance).
-   - CI requires approval from external committers.
+   - CI runs for pull requests from forks may need approval from a maintainer before they start.
+
+### Pull requests from forks
+
+CI for a pull request from a fork runs on GitHub-hosted runners. The self-hosted runners that CI
+uses otherwise are reserved for code that a maintainer has reviewed, so some jobs are skipped for
+fork pull requests: the GPU and CUDA jobs, the arm64 and CPU-feature test jobs, and the Java
+publish build. A maintainer can run them by pushing your branch to the main repository, and
+reviewers may do that before merging.
 
 ## Development Workflows
 

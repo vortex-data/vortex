@@ -17,6 +17,12 @@ All files under `.github/` are linted by `yamllint --strict -c .yamllint.yaml`.
 
 Code from a fork pull request must never run on our self-hosted (runs-on) runners. These runners
 run in our AWS account and share the S3 build cache with trusted builds.
+`scripts/check_fork_pr_runners.py` enforces the rules below in CI; run it after changing a
+workflow:
+
+```bash
+uv run --no-project --with pyyaml python scripts/check_fork_pr_runners.py
+```
 
 - A job may pick a self-hosted runner only when the run is trusted. Use this condition in
   `runs-on` and in job-level `if:`:
@@ -35,4 +41,7 @@ run in our AWS account and share the S3 build cache with trusted builds.
   `runner.environment == 'self-hosted'`, not `github.repository`. For example, gate
   `runs-on/action` and `sccache --show-stats` on it.
 - Benchmark workflows started by `action/bench-*` labels are the exception. Only maintainers can
-  add these labels, so adding one is a decision to trust the pull request's code.
+  add these labels, so adding one is a decision to trust the pull request's code. The check exempts
+  workflows whose `pull_request` trigger only lists the `labeled` type.
+- Never use the `pull_request_target` event. It runs with secrets and a write token in the context
+  of the fork pull request. The check rejects it.

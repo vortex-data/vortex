@@ -99,14 +99,18 @@ jobs:
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
       # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
       # would break ON CONFLICT idempotency against the rows already in production.
-      - name: Pytest - measurement_id, benchmark reporting, ingestion and CodSpeed shards
+      - name: Pytest - measurement_id, benchmark reporting, ingestion, CodSpeed shards and fork PR runners
         if: "!cancelled()"
         run: |
           uv run --no-project --with pytest --with pandas --with numpy --with orjson \
-            --with tabulate --with xxhash \
+            --with tabulate --with xxhash --with pyyaml \
             pytest scripts/tests/test_measurement_id.py \
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
-              scripts/tests/test_codspeed_shards.py
+              scripts/tests/test_codspeed_shards.py scripts/tests/test_check_fork_pr_runners.py
+      # Fork pull requests must never reach the self-hosted runners. The script documents the rule.
+      - name: Check fork pull request runner routing
+        if: "!cancelled()"
+        run: uv run --no-project --with pyyaml python scripts/check_fork_pr_runners.py
 
   python-test:
     name: "Python (test)"
