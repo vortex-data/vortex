@@ -1205,6 +1205,7 @@ mod tests {
 
     impl ExtVTable for FailingMetadata {
         type Metadata = usize;
+        type StoredMetadata = Self::Metadata;
         type NativeValue<'a> = &'a str;
 
         #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -1216,12 +1217,20 @@ mod tests {
             vortex_bail!("metadata serializer failed")
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::StoredMetadata> {
             Ok(0)
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn metadata_from_storage(
+            &self,
+            stored_metadata: Self::StoredMetadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
+            Ok(stored_metadata)
+        }
+
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::I32, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -1233,11 +1242,7 @@ mod tests {
     }
 
     fn failing_metadata_scalar() -> Scalar {
-        let ext_dtype = ExtDType::<FailingMetadata>::try_new(
-            0,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let ext_dtype = ExtDType::<FailingMetadata>::try_new(0, Nullability::NonNullable).unwrap();
         Scalar::new(
             DType::Extension(ext_dtype.erased()),
             Some(ScalarValue::Primitive(PValue::I32(1))),

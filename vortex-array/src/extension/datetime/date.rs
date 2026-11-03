@@ -7,8 +7,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
@@ -42,9 +40,7 @@ impl Date {
     ///
     /// Note that only Milliseconds and Days time units are supported for Date.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = date_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", time_unit))?;
-        ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
+        ExtDType::try_new(time_unit, nullability)
     }
 
     /// Creates a new Date extension dtype with the given time unit and nullability.
@@ -86,6 +82,7 @@ impl fmt::Display for DateValue {
 
 impl ExtVTable for Date {
     type Metadata = TimeUnit;
+    type StoredMetadata = Self::Metadata;
     type NativeValue<'a> = DateValue;
 
     fn id(&self) -> ExtId {
@@ -97,24 +94,31 @@ impl ExtVTable for Date {
         Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
         vortex_ensure!(!metadata.is_empty(), "Date metadata must not be empty");
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        let metadata = ext_dtype.metadata();
-        let ptype = date_ptype(metadata)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(stored_metadata)
+    }
 
-        let DType::Primitive(storage_ptype, _) = ext_dtype.storage_dtype() else {
-            vortex_bail!(
-                "Date storage dtype must be primitive, got {}",
-                ext_dtype.storage_dtype()
-            );
-        };
-        vortex_ensure_eq!(*storage_ptype, ptype);
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        let ptype = date_ptype(metadata)
+            .vortex_expect("Date::validate_metadata accepts only days and milliseconds");
+        DType::Primitive(ptype, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        vortex_ensure!(
+            date_ptype(metadata).is_some(),
+            "Date time unit must be days or milliseconds, got {metadata}"
+        );
 
         Ok(())
     }
@@ -141,7 +145,7 @@ mod tests {
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
-    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypePlugin;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::DateValue;
     use crate::extension::datetime::TimeUnit;
@@ -150,8 +154,13 @@ mod tests {
     use crate::scalar::ScalarValue;
 
     #[test]
-    fn test_reject_non_primitive_storage() {
-        assert!(ExtDType::<Date>::try_new(TimeUnit::Days, DType::Utf8(Nullable),).is_err());
+    fn test_read_rejects_non_primitive_storage() {
+        let result = Date.deserialize(&[u8::from(TimeUnit::Days)], DType::Utf8(Nullable));
+        assert!(result.is_err_and(|error| {
+            error
+                .to_string()
+                .contains("vortex.date storage must be i32?, got utf8?")
+        }));
     }
 
     #[test]
