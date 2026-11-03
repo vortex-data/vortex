@@ -423,3 +423,30 @@ fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
     assert_arrays_eq!(patched, values, &mut ctx);
     Ok(())
 }
+
+/// Chunked patches sliced mid-chunk must survive serde. `Patches::to_metadata` writes
+/// `offset_within_chunk`, but the deserializer rebuilds the patches with `Patches::new`, which
+/// resets it to 0, so chunked lookups after the round trip miss the first patches of every chunk.
+#[test]
+fn serde_roundtrip_sliced_chunked_patches() -> VortexResult<()> {
+    let mut ctx = PLUGIN_SESSION.create_execution_ctx();
+    // Every 7th value does not fit 11 bits and becomes a patch, in every chunk.
+    let values =
+        PrimitiveArray::from_iter((0u32..4096).map(|i| if i % 7 == 0 { 5000 } else { i % 2048 }));
+    let encoded = BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx)?;
+    // Slice mid-chunk while still encoded, as the slice kernel does.
+    let sliced = <BitPacked as vortex_array::arrays::slice::SliceKernel>::slice(
+        encoded.as_view(),
+        500..4096,
+        &mut ctx,
+    )?
+    .ok_or_else(|| vortex_err!("BitPacked slices"))?;
+    let read = roundtrip(&sliced)?;
+    let expected = values.into_array().slice(500..4096)?;
+    // Row 529 is original row 1029 = 7 * 147: the first patch of the second chunk.
+    assert_eq!(
+        read.execute_scalar(529, &mut ctx)?,
+        expected.execute_scalar(529, &mut ctx)?
+    );
+    Ok(())
+}
