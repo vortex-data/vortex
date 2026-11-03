@@ -74,10 +74,8 @@ fn wkb_extension_array() -> VortexResult<(Vec<u8>, vortex_array::ArrayRef)> {
     builder.append_value(&buf);
 
     let dtype = ExtDType::<WellKnownBinary>::try_new(
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        },
-        DType::Binary(Nullability::NonNullable),
+        SpatialMetadata::new(Some("EPSG:4326".to_string())),
+        Nullability::NonNullable,
     )?;
     let storage = builder.finish_into_varbin();
     let array = ExtensionArray::new(dtype.erased(), storage.into_array()).into_array();
@@ -110,10 +108,8 @@ fn scalar_unpacks_to_geometry() -> VortexResult<()> {
     let (_, array) = wkb_extension_array()?;
 
     let dtype = ExtDType::<WellKnownBinary>::try_new(
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        },
-        DType::Binary(Nullability::NonNullable),
+        SpatialMetadata::new(Some("EPSG:4326".to_string())),
+        Nullability::NonNullable,
     )?;
 
     for idx in 0..3 {
@@ -219,10 +215,8 @@ fn imports_from_large_binary() -> VortexResult<()> {
     assert_imported_wkb_dtype(imported.dtype(), Some("EPSG:4326"), false);
     let expected = ExtensionArray::try_new(
         ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata {
-                crs: Some("EPSG:4326".to_string()),
-            },
-            DType::Binary(Nullability::NonNullable),
+            SpatialMetadata::new(Some("EPSG:4326".to_string())),
+            Nullability::NonNullable,
         )?
         .erased(),
         VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 2)).into_array(),
@@ -247,11 +241,8 @@ fn imports_from_binary_view() -> VortexResult<()> {
     let imported = SESSION.arrow().from_arrow_array(arrow, &field)?;
     assert_imported_wkb_dtype(imported.dtype(), None, false);
     let expected = ExtensionArray::try_new(
-        ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata { crs: None },
-            DType::Binary(Nullability::NonNullable),
-        )?
-        .erased(),
+        ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::new(None), Nullability::NonNullable)?
+            .erased(),
         VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 4)).into_array(),
     )?;
     assert_arrays_eq!(imported, expected, &mut ctx);

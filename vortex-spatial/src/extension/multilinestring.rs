@@ -19,7 +19,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiLineStringArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiLineStringType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -71,15 +70,23 @@ impl ExtVTable for MultiLineString {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        SpatialMetadata::deserialize(metadata, Some(multilinestring_dimension(storage_dtype)?))
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        multilinestring_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        multilinestring_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(MultiLineString.id())
     }
 
     fn unpack_native<'a>(
@@ -202,7 +209,7 @@ impl ArrowExportVTable for MultiLineString {
     ) -> VortexResult<Option<Field>> {
         let ext_type = dtype.as_extension();
         let spatial_metadata = ext_type.metadata::<MultiLineString>();
-        let dimension = multilinestring_dimension(ext_type.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
         field.try_with_extension_type(multilinestring_type(spatial_metadata, dimension))?;
@@ -304,9 +311,13 @@ impl ArrowImportVTable for MultiLineString {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = multilinestring_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(MultiLineString, metadata, storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(
+                MultiLineString,
+                metadata.with_dimension(dimension),
+                field.is_nullable().into(),
+            )?
+            .erased(),
         )))
     }
 
@@ -342,7 +353,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::MultiLineString;
@@ -352,34 +363,40 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `MultiLineString` accepts the canonical `List<List<coordinate-struct>>` storage of every
+    /// `MultiLineString` reads the canonical `List<List<coordinate-struct>>` storage of every
     /// dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn multilinestring_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn multilinestring_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = multilinestring_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<MultiLineString>::try_new(spatial_meta(), storage)?;
+        MultiLineString.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-multilinestring storage is rejected: a bare coordinate struct (point) fails.
+    /// Non-multilinestring storage fails to read, for example `f64` or a single list (linestring).
     #[test]
     fn multilinestring_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<MultiLineString>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            MultiLineString
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         // A bare list of coordinates is a single line string, not a multilinestring.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let line = DType::List(Arc::new(coords), Nullability::NonNullable);
-        assert!(ExtDType::<MultiLineString>::try_new(spatial_meta(), line).is_err());
+        assert!(
+            MultiLineString
+                .deserialize(&spatial_meta().serialize(), line)
+                .is_err()
+        );
         Ok(())
     }
 }

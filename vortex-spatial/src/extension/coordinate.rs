@@ -31,8 +31,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 /// Coordinate dimensions, matching GeoArrow. Field order is fixed: `x`, `y`, then `z` before `m`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Dimension {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Dimension {
     /// 2D: `x`, `y`.
     Xy,
     /// 3D with elevation: `x`, `y`, `z`.
