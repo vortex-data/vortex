@@ -3,20 +3,35 @@
 
 //! Spatial extension types and metadata shared by their Arrow plugins.
 //!
-//! Geometry types derive their coordinate dimension from storage and carry an optional coordinate
-//! reference system in [`SpatialMetadata`]. Shared metadata handling keeps these properties
+//! Geometry types declare storage from [`SpatialMetadata`], which holds the coordinate dimension
+//! and an optional coordinate reference system. Shared metadata handling keeps these properties
 //! consistent across the GeoArrow fields used to import and export each geometry.
 
 pub(crate) mod coordinate;
-mod linestring;
-mod multilinestring;
-mod multipoint;
-mod multipolygon;
-mod point;
-mod polygon;
-mod rect;
-mod wkb;
+pub use coordinate::Dimension;
 
+mod linestring;
+pub use linestring::*;
+
+mod multilinestring;
+pub use multilinestring::*;
+
+mod multipoint;
+pub use multipoint::*;
+
+mod multipolygon;
+pub use multipolygon::*;
+
+mod point;
+pub use point::*;
+
+mod polygon;
+pub use polygon::*;
+
+mod rect;
+pub use rect::*;
+
+mod wkb;
 use std::fmt::Display;
 use std::sync::Arc;
 
@@ -27,7 +42,7 @@ use geoarrow::array::GenericWkbArray;
 use geoarrow::array::GeoArrowArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::Crs;
-use geoarrow::datatypes::Dimension;
+use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use geoarrow::datatypes::GeoArrowType;
 use geoarrow::datatypes::LineStringType;
 use geoarrow::datatypes::Metadata;
@@ -38,13 +53,7 @@ use geoarrow::datatypes::PointType;
 use geoarrow::datatypes::PolygonType;
 use geoarrow::datatypes::WkbType;
 use geoarrow_cast::cast::cast;
-pub use linestring::*;
-pub use multilinestring::*;
-pub use multipoint::*;
-pub use multipolygon::*;
-pub use point::*;
-pub use polygon::*;
-pub use rect::*;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -61,14 +70,16 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 pub use wkb::*;
@@ -225,38 +236,42 @@ pub fn native_geometry_scalar_from_wkb(
     let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
         GeometryType::Point => {
             let target = GeoArrowType::Point(
-                PointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+                PointType::new(GeoArrowDimension::XY, metadata)
+                    .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(Point, to_storage(&target)?, session)?
         }
         GeometryType::LineString => {
             let target = GeoArrowType::LineString(
-                LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+                LineStringType::new(GeoArrowDimension::XY, metadata)
+                    .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(LineString, to_storage(&target)?, session)?
         }
         GeometryType::Polygon => {
             let target = GeoArrowType::Polygon(
-                PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+                PolygonType::new(GeoArrowDimension::XY, metadata)
+                    .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(Polygon, to_storage(&target)?, session)?
         }
         GeometryType::MultiPoint => {
             let target = GeoArrowType::MultiPoint(
-                MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+                MultiPointType::new(GeoArrowDimension::XY, metadata)
+                    .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(MultiPoint, to_storage(&target)?, session)?
         }
         GeometryType::MultiLineString => {
             let target = GeoArrowType::MultiLineString(
-                MultiLineStringType::new(Dimension::XY, metadata)
+                MultiLineStringType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(MultiLineString, to_storage(&target)?, session)?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
-                MultiPolygonType::new(Dimension::XY, metadata)
+                MultiPolygonType::new(GeoArrowDimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
             spatial_ext_scalar(MultiPolygon, to_storage(&target)?, session)?
@@ -266,40 +281,129 @@ pub fn native_geometry_scalar_from_wkb(
     Ok(Some(scalar))
 }
 
-/// Wrap cast-from-WKB `storage` in its `vtable` extension type and pull out the single scalar.
-fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
+/// Wrap cast-from-WKB `storage`, which has XY coordinates, in its `vtable` extension type and pull
+/// out the single scalar.
+fn spatial_ext_scalar<V: ExtVTable<StoredMetadata = SpatialStoredMetadata>>(
     vtable: V,
     storage: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<Scalar> {
-    let ext =
-        ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.dtype().clone())?
-            .erased();
-    ExtensionArray::try_new(ext, storage)?
+    ExtensionArray::try_from_storage_with_vtable(vtable, SpatialStoredMetadata::default(), storage)?
         .into_array()
         .execute_scalar(0, &mut session.create_execution_ctx())
 }
 
-/// Extension metadata that is common to all the spatial extension types.
+/// Coordinate reference system stored alongside a spatial storage dtype.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SpatialStoredMetadata {
+    crs: Option<String>,
+}
+
+impl SpatialStoredMetadata {
+    /// Creates stored metadata with an optional coordinate reference system.
+    pub fn new(crs: Option<String>) -> Self {
+        Self { crs }
+    }
+
+    /// Returns the coordinate reference system, if present.
+    pub fn get_crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
+
+    /// Decodes the coordinate reference system stored in protobuf metadata.
+    pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<Self> {
+        Ok(Self::new(SpatialMetadataProto::decode(bytes)?.crs))
+    }
+}
+
+/// Coordinate reference system (CRS) and coordinate dimension for spatial extension types.
 ///
-/// Currently, this is just the coordinate reference system (CRS).
-/// We may wish to add a second field for edges interpretation in the future similar to
-/// the GeoArrow standard.
-#[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
+/// Native geometry types require a dimension set by [`with_dimension`](Self::with_dimension).
+/// [`WellKnownBinary`] uses metadata without a dimension, since each WKB value encodes its own.
+/// Serialized metadata contains only the CRS. Native geometry reads recover the dimension from
+/// the stored storage dtype.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SpatialMetadata {
-    #[prost(optional, string, tag = "1")]
     pub(crate) crs: Option<String>,
+    /// The coordinate dimension of a native geometry type, and `None` for [`WellKnownBinary`].
+    ///
+    /// It is not serialized, because the storage dtype holds it. A read takes it from the stored
+    /// storage dtype.
+    pub(crate) dimension: Option<Dimension>,
+}
+
+/// The serialized form of [`SpatialMetadata`].
+#[derive(Clone, PartialEq, prost::Message)]
+struct SpatialMetadataProto {
+    #[prost(optional, string, tag = "1")]
+    crs: Option<String>,
 }
 
 impl SpatialMetadata {
-    /// Creates metadata with an optional coordinate reference system (CRS).
+    /// Creates metadata with an optional coordinate reference system (CRS) and no coordinate
+    /// dimension, as [`WellKnownBinary`] requires.
     pub fn new(crs: Option<String>) -> Self {
-        Self { crs }
+        Self {
+            crs,
+            dimension: None,
+        }
+    }
+
+    /// Returns this metadata with the coordinate dimension that a native geometry type requires.
+    pub fn with_dimension(self, dimension: Dimension) -> Self {
+        Self {
+            dimension: Some(dimension),
+            ..self
+        }
     }
 
     /// Returns the coordinate reference system, or `None` for unreferenced geometry.
     pub fn get_crs(&self) -> Option<&str> {
         self.crs.as_deref()
+    }
+
+    /// Returns the coordinate dimension for a native geometry type, or `None` for WKB.
+    pub fn dimension(&self) -> Option<Dimension> {
+        self.dimension
+    }
+
+    /// Serializes the CRS, the only part that the storage dtype does not hold.
+    pub(crate) fn serialize(&self) -> Vec<u8> {
+        SpatialMetadataProto {
+            crs: self.crs.clone(),
+        }
+        .encode_to_vec()
+    }
+
+    /// Combines stored spatial metadata with the dimension inferred from storage.
+    pub(crate) fn from_stored_metadata(
+        stored_metadata: SpatialStoredMetadata,
+        dimension: Option<Dimension>,
+    ) -> Self {
+        Self {
+            crs: stored_metadata.crs,
+            dimension,
+        }
+    }
+
+    /// Checks that the metadata of the native geometry type `id` has a coordinate dimension.
+    pub(crate) fn validate_native(&self, id: ExtId) -> VortexResult<()> {
+        vortex_ensure!(
+            self.dimension.is_some(),
+            "{id} metadata must have a coordinate dimension, got none"
+        );
+
+        Ok(())
+    }
+
+    /// Returns the coordinate dimension of a native geometry type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is none, which [`validate_native`](Self::validate_native) rejects.
+    pub(crate) fn native_dimension(&self) -> Dimension {
+        self.dimension
+            .vortex_expect("validate_native checks that native geometry metadata has a dimension")
     }
 }
 
@@ -348,7 +452,7 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
             .map(str::to_string)
             .unwrap_or_else(|| value.to_string())
     });
-    SpatialMetadata { crs }
+    SpatialMetadata::new(crs)
 }
 
 #[cfg(test)]
@@ -356,7 +460,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use prost::Message;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -368,6 +471,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_array::dtype::extension::ExtVTable;
     use vortex_array::dtype::proto::dtype as pb;
     use vortex_array::dtype::proto::dtype::d_type::DtypeType;
@@ -385,6 +489,8 @@ mod tests {
     use super::MultiPolygon;
     use super::Point;
     use super::Polygon;
+    use super::Rect;
+    use super::WellKnownBinary;
     use crate::extension::SpatialMetadata;
     use crate::extension::coordinate::Dimension;
     use crate::extension::coordinate::coordinate_storage_dtype;
@@ -407,10 +513,11 @@ mod tests {
         storage = storage.with_nullability(nullable.into());
         let dtype = ExtDType::try_with_vtable(
             vtable,
-            SpatialMetadata::new(Some("EPSG:4326".into())),
-            storage,
+            SpatialMetadata::new(Some("EPSG:4326".into())).with_dimension(Dimension::Xy),
+            nullable.into(),
         )?
         .erased();
+        assert_eq!(*dtype.storage_dtype(), storage);
         let mut builder =
             builder_with_capacity_in(dtype.storage_dtype(), 2, BufferAllocatorRef::static_ref());
         builder.append_zeros(2);
@@ -441,6 +548,11 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+    /// The metadata of an unreferenced geometry with XY coordinates.
+    fn xy_metadata() -> SpatialMetadata {
+        SpatialMetadata::default().with_dimension(Dimension::Xy)
+    }
+
     /// Test shim: decode with an explicitly constructed session.
     fn native_geometry_scalar_from_wkb(
         bytes: &[u8],
@@ -449,16 +561,80 @@ mod tests {
     }
 
     #[test]
-    fn test_metadata() {
-        let meta = SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        };
-
+    fn test_metadata() -> VortexResult<()> {
+        let meta = SpatialMetadata::new(Some("EPSG:4326".to_string()));
         assert_eq!(meta.to_string(), "Geometry(crs=EPSG:4326)");
-        // round trip
-        let bytes = meta.encode_to_vec();
-        let decoded = SpatialMetadata::decode(bytes.as_slice()).unwrap();
+
+        // Files store the protobuf encoding of the CRS as field 1, so these bytes must not change:
+        // the key `0x0a`, the length 9, and the CRS.
+        let bytes = meta.serialize();
+        assert_eq!(bytes, b"\x0a\x09EPSG:4326");
+
+        let decoded = SpatialMetadata::from_stored_metadata(
+            super::SpatialStoredMetadata::deserialize(&bytes)?,
+            None,
+        );
         assert_eq!(decoded, meta);
+        assert_eq!(decoded.dimension(), None);
+        assert_eq!(
+            meta.with_dimension(Dimension::Xy).dimension(),
+            Some(Dimension::Xy)
+        );
+
+        Ok(())
+    }
+
+    /// [`ExtDType::try_with_vtable`] validates the metadata before it asks for the storage
+    /// declaration, so a native geometry type without a coordinate dimension returns an error
+    /// instead of a panic. WKB metadata with a coordinate dimension is also invalid.
+    #[rstest]
+    #[case::point(
+        Point,
+        SpatialMetadata::default(),
+        "vortex.st.point metadata must have a coordinate dimension, got none"
+    )]
+    #[case::linestring(
+        LineString,
+        SpatialMetadata::default(),
+        "vortex.st.linestring metadata must have a coordinate dimension, got none"
+    )]
+    #[case::polygon(
+        Polygon,
+        SpatialMetadata::default(),
+        "vortex.st.polygon metadata must have a coordinate dimension, got none"
+    )]
+    #[case::multipoint(
+        MultiPoint,
+        SpatialMetadata::default(),
+        "vortex.st.multipoint metadata must have a coordinate dimension, got none"
+    )]
+    #[case::multilinestring(
+        MultiLineString,
+        SpatialMetadata::default(),
+        "vortex.st.multilinestring metadata must have a coordinate dimension, got none"
+    )]
+    #[case::multipolygon(
+        MultiPolygon,
+        SpatialMetadata::default(),
+        "vortex.st.multipolygon metadata must have a coordinate dimension, got none"
+    )]
+    #[case::rect(
+        Rect,
+        SpatialMetadata::default(),
+        "vortex.st.box metadata must have a coordinate dimension, got none"
+    )]
+    #[case::wkb(
+        WellKnownBinary,
+        xy_metadata(),
+        "vortex.st.wkb metadata must not have a coordinate dimension, got Xy"
+    )]
+    fn invalid_dimension_returns_error(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] metadata: SpatialMetadata,
+        #[case] expected: &str,
+    ) {
+        let result = ExtDType::try_with_vtable(vtable, metadata, Nullability::NonNullable);
+        assert!(result.is_err_and(|error| error.to_string().contains(expected)));
     }
 
     /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar.
@@ -474,7 +650,7 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Point>());
-        assert_eq!(ext.metadata::<Point>(), &SpatialMetadata::default());
+        assert_eq!(ext.metadata::<Point>(), &xy_metadata());
         let mut ctx = SESSION.create_execution_ctx();
         let expected =
             crate::test_harness::point_column(vec![1.0], vec![2.0])?.execute_scalar(0, &mut ctx)?;
@@ -504,7 +680,7 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Polygon>());
-        assert_eq!(ext.metadata::<Polygon>(), &SpatialMetadata::default());
+        assert_eq!(ext.metadata::<Polygon>(), &xy_metadata());
         let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::polygon_column(vec![vec![vec![
             (0.0, 0.0),
@@ -538,7 +714,7 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<LineString>());
-        assert_eq!(ext.metadata::<LineString>(), &SpatialMetadata::default());
+        assert_eq!(ext.metadata::<LineString>(), &xy_metadata());
         let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::linestring_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
             .execute_scalar(0, &mut ctx)?;
@@ -570,7 +746,7 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiPoint>());
-        assert_eq!(ext.metadata::<MultiPoint>(), &SpatialMetadata::default());
+        assert_eq!(ext.metadata::<MultiPoint>(), &xy_metadata());
         let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
             .execute_scalar(0, &mut ctx)?;
@@ -606,10 +782,7 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiLineString>());
-        assert_eq!(
-            ext.metadata::<MultiLineString>(),
-            &SpatialMetadata::default()
-        );
+        assert_eq!(ext.metadata::<MultiLineString>(), &xy_metadata());
         let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::multilinestring_column(vec![vec![
             vec![(0.0, 0.0), (1.0, 1.0)],
@@ -633,8 +806,8 @@ mod tests {
         coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable)
     }
 
-    /// The list-based geometry types reject storage with a nullable inner `List` or coordinate
-    /// `Struct`, and the error reports the rejected storage.
+    /// The list-based geometry types fail to read storage with a nullable inner `List` or
+    /// coordinate `Struct`, and the error reports the rejected storage.
     #[rstest]
     #[case::linestring_coordinates(     LineString,      list(xy().as_nullable()))]
     #[case::multipoint_coordinates(     MultiPoint,      list(xy().as_nullable()))]
@@ -649,13 +822,13 @@ mod tests {
         #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
         #[case] storage: DType,
     ) {
-        let result = ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.clone());
+        let result = vtable.deserialize(&[], storage.clone());
         assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
     }
 
     /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
-    /// with an error that names the expected storage. [`LineString`] rejects that storage at
-    /// construction, so the test builds the serialized extension dtype by hand.
+    /// with an error that names the expected storage. No constructor builds that storage, so the
+    /// test builds the serialized extension dtype by hand.
     #[test]
     fn nullable_nested_level_fails_to_read() -> VortexResult<()> {
         let serialized = pb::DType {

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`LineString`] geometry extension type (`vortex.st.linestring`): an ordered path of the
-//! [`Point`](super::Point) coordinate struct, stored as `List<Struct<x, y[, z][, m]>>` and tagged
-//! with [`SpatialMetadata`] (CRS).
+//! Native line-string geometry (`vortex.st.linestring`).
+//!
+//! [`LineString`] stores an ordered path as `List<Struct<x, y[, z][, m]>>`. [`SpatialMetadata`]
+//! declares its coordinate dimension and optional coordinate reference system. Coordinates use
+//! non-nullable `f64` fields, and only the outer list can be nullable.
 
 use std::sync::Arc;
 
@@ -18,7 +20,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::LineStringArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::LineStringType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -71,6 +72,7 @@ pub struct LineString;
 
 impl ExtVTable for LineString {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     // No cheap owned value like Point's `Coordinate`; expose the raw storage scalar.
     type NativeValue<'a> = &'a ScalarValue;
 
@@ -80,15 +82,30 @@ impl ExtVTable for LineString {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        linestring_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(linestring_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        linestring_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(LineString.id())
     }
 
     fn unpack_native<'a>(
@@ -155,7 +172,7 @@ pub(crate) fn linestring_array_from_point_pairs(
         .map_err(|_| vortex_err!("spatial: two-vertex line string offset overflow"))?;
     let row_count = u32::try_from(len)
         .map_err(|_| vortex_err!("spatial: two-vertex line string row count overflow"))?;
-    let dimension = linestring_dimension(ext_dtype.storage_dtype())?;
+    let dimension = ext_dtype.metadata().native_dimension();
     let start_dimension = coordinate_dimension(starts.dtype())?;
     let end_dimension = coordinate_dimension(ends.dtype())?;
 
@@ -271,7 +288,7 @@ impl ArrowExtVTable for LineString {
         _session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         let spatial_metadata = ext_dtype.metadata();
-        let dimension = linestring_dimension(ext_dtype.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let arrow_type = linestring_type(spatial_metadata, dimension);
         let mut field = Field::new(
@@ -351,11 +368,10 @@ impl ArrowExtVTable for LineString {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = linestring_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(ExtDType::try_with_vtable(
             LineString,
-            metadata,
-            storage_dtype,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
         )?))
     }
 
@@ -384,7 +400,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::LineString;
@@ -393,29 +409,30 @@ mod tests {
     use crate::extension::coordinate::Dimension;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `LineString` accepts the canonical `List<coordinate-struct>` storage of every dimension.
+    /// `LineString` reads the canonical `List<coordinate-struct>` storage of every dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn linestring_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn linestring_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = linestring_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<LineString>::try_new(spatial_meta(), storage)?;
+        LineString.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-linestring storage is rejected at dtype construction: a bare coordinate struct (point) is
-    /// not a list of coordinates.
+    /// Non-linestring storage fails to read: `f64` is not a list of coordinates.
     #[test]
     fn linestring_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<LineString>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            LineString
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
         Ok(())
     }
 }

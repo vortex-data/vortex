@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Point`] geometry extension type (`vortex.st.point`): a location stored columnarly as
-//! `Struct<x, y[, z][, m]>` of non-nullable `f64` — the four GeoArrow dimensions XY, XYZ, XYM,
-//! XYZM — tagged with [`SpatialMetadata`] (CRS). `z` is an optional elevation and `m` an optional
-//! measure: an arbitrary per-point value such as distance along a route or a timestamp.
+//! Native point geometry (`vortex.st.point`).
+//!
+//! [`Point`] stores `Struct<x, y[, z][, m]>` coordinates with non-nullable `f64` fields.
+//! [`SpatialMetadata`] declares the coordinate dimension and optional coordinate reference system.
+//! The four GeoArrow dimensions are XY, XYZ, XYM, and XYZM. `z` is an elevation and `m` is a
+//! measure, such as distance along a route or a timestamp.
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
@@ -17,13 +19,13 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::PointArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PointType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -60,6 +62,7 @@ pub struct Point;
 
 impl ExtVTable for Point {
     type Metadata = SpatialMetadata;
+    type StoredMetadata = super::SpatialStoredMetadata;
     type NativeValue<'a> = Coordinate;
 
     fn id(&self) -> ExtId {
@@ -68,15 +71,30 @@ impl ExtVTable for Point {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::StoredMetadata> {
+        super::SpatialStoredMetadata::deserialize(metadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        coordinate_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn metadata_from_storage(
+        &self,
+        stored_metadata: Self::StoredMetadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(SpatialMetadata::from_stored_metadata(
+            stored_metadata,
+            Some(coordinate_dimension(storage_dtype)?),
+        ))
+    }
+
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        coordinate_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(Point.id())
     }
 
     fn unpack_native<'a>(
@@ -167,7 +185,7 @@ impl ArrowExtVTable for Point {
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         let spatial_metadata = ext_dtype.metadata();
-        let dimension = coordinate_dimension(ext_dtype.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let mut field = session.to_arrow_field(name, ext_dtype.storage_dtype())?;
         field.try_with_extension_type(point_type(spatial_metadata, dimension))?;
@@ -240,11 +258,10 @@ impl ArrowExtVTable for Point {
             (dimension, SpatialMetadata::default())
         };
 
-        let storage_dtype = coordinate_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(ExtDType::try_with_vtable(
             Point,
-            metadata,
-            storage_dtype,
+            metadata.with_dimension(dimension),
+            field.is_nullable().into(),
         )?))
     }
 
@@ -280,6 +297,8 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
+    use vortex_array::flatbuffers::WriteFlatBufferExt;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -290,40 +309,62 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
     use crate::test_harness::coordinate_from_scalar;
     use crate::test_harness::point_column;
+    use crate::test_harness::spatial_session;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `Point` accepts the canonical coordinate storage of every GeoArrow dimension.
+    /// `Point` reads the canonical coordinate storage of every GeoArrow dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn point_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn point_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = coordinate_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<Point>::try_new(spatial_meta(), storage)?;
+        Point.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Invalid storage is rejected at dtype construction: both non-struct storage and a struct whose
-    /// fields are not GeoArrow coordinates.
+    /// A `Point` dtype round-trips through a flatbuffer. The read compares the stored storage
+    /// dtype, whose struct fields are flatbuffer views, with the declared one, whose fields are
+    /// owned.
+    #[test]
+    fn point_dtype_roundtrips_through_flatbuffer() -> VortexResult<()> {
+        let metadata = spatial_meta().with_dimension(Dimension::Xyz);
+        let dtype =
+            DType::Extension(ExtDType::<Point>::try_new(metadata, Nullability::Nullable)?.erased());
+
+        let bytes = dtype.write_flatbuffer_bytes()?;
+        assert_eq!(DType::from_flatbuffer(bytes, &spatial_session())?, dtype);
+
+        Ok(())
+    }
+
+    /// Invalid storage fails to read: both non-struct storage and a struct whose fields are not
+    /// GeoArrow coordinates.
     #[test]
     fn point_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<Point>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            Point
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         let wrong_fields = StructArray::from_fields(&[
             ("a", PrimitiveArray::from_iter(vec![0.0f64]).into_array()),
             ("b", PrimitiveArray::from_iter(vec![0.0f64]).into_array()),
         ])?
         .into_array();
-        assert!(ExtDType::<Point>::try_new(spatial_meta(), wrong_fields.dtype().clone()).is_err());
+        assert!(
+            Point
+                .deserialize(&spatial_meta().serialize(), wrong_fields.dtype().clone())
+                .is_err()
+        );
         Ok(())
     }
 
