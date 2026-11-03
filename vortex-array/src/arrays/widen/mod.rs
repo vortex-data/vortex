@@ -12,8 +12,9 @@
 //!
 //! A decimal child has the logical scale and a lower precision, and **must** be valid for its dtype.
 //! Comparisons, bounds checks and fills use the child dtype to bound its valid values.
-//! [`WidenArray::encode_decimal`] picks the smallest precision that holds the valid values and the
-//! scale. Decimal execution copies the child values into the logical canonical width.
+//! [`WidenArray::encode_decimal`] and [`WidenArray::from_stored_decimal`] choose child precision
+//! from valid values or supplied bounds, at the logical scale. Decimal execution copies the child
+//! values into the logical canonical width.
 //!
 //! Narrowing is a physical choice, so it **must not** change a result. Execution casts the values
 //! to the logical dtype for integers, and an operation runs on the values only where it gives the
