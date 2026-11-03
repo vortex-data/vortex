@@ -869,12 +869,16 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(
+                &self,
+                _data: &[u8],
+                _storage_dtype: &DType,
+            ) -> VortexResult<Self::Metadata> {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
+            fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+                DType::Primitive(PType::I32, Nullability::NonNullable)
             }
 
             fn unpack_native<'a>(
@@ -1059,7 +1063,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Time storage dtype must be primitive, got utf8")]
+    #[should_panic(expected = "vortex.time storage must be i64, got utf8")]
     fn test_temporal_non_primitive_storage_error() {
         let _scalar = Scalar::extension::<Time>(
             TimeUnit::Nanoseconds,
