@@ -383,15 +383,16 @@ fn execute_sparse_lists(
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let fill_list = fill_value.as_list();
 
-    // Flatten the patch views up front so that runs of them can be appended as slices below. An
-    // exact layout also trims `elements` to exactly what the patches reference, so the patch half
-    // of the count below is what the builder will actually hold rather than an over-estimate.
+    // Make the patch views contiguous and trim unused elements once. Empty-fill decoding can
+    // share those elements directly; the nonempty-fill builder below can append contiguous
+    // patch runs and use the exact element count when choosing an offset width.
     let values = resolved
         .values()
         .clone()
         .downcast::<ListView>()
         .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
+    // Null lists also have no elements, so null and empty fills take the same path.
     if fill_list.is_empty() {
         return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
     }

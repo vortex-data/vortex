@@ -29,6 +29,7 @@ fn empty_fill_reuses_elements(
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let elements = buffer![1i32, 2, 8, 9, 3].into_array();
     let lists = ListArray::try_new(
         elements.clone(),
@@ -36,6 +37,7 @@ fn empty_fill_reuses_elements(
         Validity::from_iter([true, false, true]),
         &mut ctx,
     )?;
+
     let fill = if null_fill {
         Scalar::null(lists.dtype().clone())
     } else {
@@ -52,6 +54,7 @@ fn empty_fill_reuses_elements(
         fill,
         &mut ctx,
     )?;
+
     let actual = if repeated_position {
         sparse
             .into_array()
@@ -60,6 +63,7 @@ fn empty_fill_reuses_elements(
     } else {
         sparse.into_array().execute_until::<List>(&mut ctx)?
     };
+
     if let Some(list) = actual.as_opt::<List>() {
         assert!(ArrayRef::ptr_eq(list.elements(), &elements));
         assert!(list.offsets().is::<RunEnd>());
@@ -69,6 +73,8 @@ fn empty_fill_reuses_elements(
         assert!(view.offsets().is::<Sparse>());
         assert!(view.sizes().is::<Sparse>());
     }
+
+    // The middle patch is null. At a repeated position it replaces the first, valid patch.
     let mut validity = vec![!null_fill; 10];
     validity[1] = !repeated_position;
     if !repeated_position {
@@ -89,6 +95,7 @@ fn empty_fill_reuses_elements(
         Validity::from_iter(validity),
         &mut ctx,
     )?;
+
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
@@ -98,6 +105,7 @@ fn terminal_offset_wider_than_view_offsets() -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
+
     let elements = Buffer::from(vec![1i32; 260]).into_array();
     let views = ListViewArray::try_new(
         elements.clone(),
@@ -106,8 +114,10 @@ fn terminal_offset_wider_than_view_offsets() -> VortexResult<()> {
         Validity::AllValid,
         &mut ctx,
     )?;
+
     // SAFETY: these two views cover contiguous, non-overlapping ranges 0..130 and 130..260.
     let views = unsafe { views.with_zero_copy_to_list(true) };
+
     let fill = Scalar::null(views.dtype().clone());
     let actual = Sparse::try_new(
         buffer![1u32, 3].into_array(),
@@ -118,13 +128,16 @@ fn terminal_offset_wider_than_view_offsets() -> VortexResult<()> {
     )?
     .into_array()
     .execute::<ListViewArray>(&mut ctx)?;
+
     assert!(actual.offsets().is::<Sparse>());
+
     let expected = ListArray::try_new(
         elements,
         buffer![0u16, 0, 130, 130, 260, 260].into_array(),
         Validity::from_iter([false, true, false, true, false]),
         &mut ctx,
     )?;
+
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
