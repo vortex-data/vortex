@@ -18,12 +18,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
@@ -58,15 +59,13 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
-/// The session used to read nested element values when the caller has no execution context.
+/// The session used to read element values when the caller has no execution context.
 ///
-/// Reading an element of a recursively canonical array never needs a kernel, so an empty session
-/// is enough.
+/// Reading a row of an array runs its encoding's own scalar read, which no session-registered
+/// kernel is needed for, so an empty session is enough.
 static ELEMENT_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// An execution context for reading or copying the elements of a [`ListValue`].
-///
-/// The elements are recursively canonical, so no kernel runs and an empty session suffices.
 pub(crate) fn element_ctx() -> ExecutionCtx {
     ELEMENT_SESSION.create_execution_ctx()
 }
@@ -76,10 +75,14 @@ pub(crate) fn element_ctx() -> ExecutionCtx {
 /// The elements are held as a single array of the list's element dtype, so a list row of an array
 /// becomes a scalar by slicing, and a list scalar becomes an array by reusing that slice.
 ///
-/// Invariant: the elements array is *recursively canonical*: it and all of its descendants are
-/// canonical encodings, so element values can be read without an [`ExecutionCtx`]. The one
-/// exception is an element dtype with no canonical builder (unions and variants), whose elements
-/// built from scalars are held as constant chunks.
+/// Invariant: the elements array is canonical at the top level, the same promise [`Canonical`]
+/// makes: flat elements are read straight from their buffers, while the children of nested
+/// elements - struct fields, the elements of inner lists, extension storage - keep whatever
+/// encoding they arrived in and are read through their encoding. The one exception is an element
+/// dtype with no canonical builder (unions and variants), whose elements built from scalars are
+/// held as constant chunks.
+///
+/// [`Canonical`]: crate::Canonical
 ///
 /// [`PartialEq`], [`Hash`] and ordering compare element values, never physical buffers, so two
 /// equal lists compare equal whatever their elements' encodings.
@@ -92,25 +95,25 @@ pub struct ListValue {
 }
 
 impl ListValue {
-    /// Creates a list value from an elements array, executing it to recursively canonical form if
-    /// it is not already.
+    /// Creates a list value from an elements array, executing its top level to canonical form if
+    /// it is not already. Children of nested elements are left as they are.
     pub fn try_from_array(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        if is_recursively_canonical(&elements) {
+        if elements.is_canonical() {
             return Ok(Self::wrap(elements));
         }
-        let elements = elements.execute::<RecursiveCanonical>(ctx)?.0.into_array();
+        let elements = elements.execute::<Canonical>(ctx)?.into_array();
         Ok(Self::wrap(elements))
     }
 
-    /// Creates a list value from an elements array that is already recursively canonical.
+    /// Creates a list value from an elements array that is already canonical at the top level.
     ///
     /// # Safety
     ///
-    /// The caller must ensure `elements` and all of its descendants are canonical encodings.
+    /// The caller must ensure `elements` is a canonical encoding.
     pub unsafe fn new_unchecked(elements: ArrayRef) -> Self {
         debug_assert!(
-            is_recursively_canonical(&elements) || !has_builder(elements.dtype()),
-            "ListValue elements must be recursively canonical"
+            elements.is_canonical() || !has_builder(elements.dtype()),
+            "ListValue elements must be canonical"
         );
         Self::wrap(elements)
     }
@@ -170,7 +173,7 @@ impl ListValue {
 
     /// Wraps an array produced by a canonical builder.
     fn from_built(elements: ArrayRef) -> Self {
-        if is_recursively_canonical(&elements) || !has_builder(elements.dtype()) {
+        if elements.is_canonical() || !has_builder(elements.dtype()) {
             return Self::wrap(elements);
         }
         let mut ctx = element_ctx();
@@ -178,7 +181,8 @@ impl ListValue {
             .vortex_expect("builder output executes to canonical form")
     }
 
-    /// The elements of the list, as a recursively canonical array of the element dtype.
+    /// The elements of the list, as an array of the element dtype that is canonical at the top
+    /// level.
     #[inline]
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
@@ -405,11 +409,36 @@ fn all_valid(array: &ArrayRef) -> bool {
         return array.is_empty();
     }
     match array.validity() {
-        Ok(Validity::NonNullable | Validity::AllValid) => true,
-        Ok(Validity::Array(validity)) => validity
-            .as_opt::<Bool>()
-            .is_some_and(|bits| bits.to_bit_buffer().true_count() == bits.len()),
-        _ => false,
+        Ok(validity) => match validity_bits(validity, array.len()) {
+            ValidityBits::AllValid => true,
+            ValidityBits::AllInvalid => array.is_empty(),
+            ValidityBits::Bits(bits) => bits.true_count() == bits.len(),
+        },
+        Err(_) => false,
+    }
+}
+
+/// The validity of an array's rows as bits.
+///
+/// Only the top level of the elements is canonical, so a validity array may be in any encoding.
+/// A bool array is read as it is; any other encoding is executed into a mask.
+fn validity_bits(validity: Validity, len: usize) -> ValidityBits {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => ValidityBits::AllValid,
+        Validity::AllInvalid => ValidityBits::AllInvalid,
+        Validity::Array(validity) => {
+            if let Some(bits) = validity.as_opt::<Bool>() {
+                return ValidityBits::Bits(bits.to_bit_buffer());
+            }
+            let mask = Validity::Array(validity)
+                .execute_mask(len, &mut element_ctx())
+                .vortex_expect("a validity array executes to a mask");
+            match mask {
+                Mask::AllTrue(_) => ValidityBits::AllValid,
+                Mask::AllFalse(_) => ValidityBits::AllInvalid,
+                Mask::Values(values) => ValidityBits::Bits(values.bit_buffer().clone()),
+            }
+        }
     }
 }
 
@@ -504,7 +533,7 @@ fn has_builder(dtype: &DType) -> bool {
 
 /// Holds element scalars of a dtype with no builder as one constant chunk per element.
 ///
-/// Such elements are the exception to the recursively canonical invariant. Every read, equality
+/// Such elements are the exception to the canonical invariant. Every read, equality
 /// and hash of a [`ListValue`] goes through element values, so the representation does not affect
 /// them.
 fn constant_chunks(element_dtype: &DType, scalars: impl Iterator<Item = Scalar>) -> ArrayRef {
@@ -712,15 +741,10 @@ pub(crate) fn normalize_list_values(dtype: &DType, value: &mut ScalarValue) {
     }
 }
 
-/// Returns `true` if `array` and all of its descendants are canonical encodings.
-pub(crate) fn is_recursively_canonical(array: &ArrayRef) -> bool {
-    array.is_canonical() && array.slots().iter().flatten().all(is_recursively_canonical)
-}
-
-/// Reads element values out of a recursively canonical array.
+/// Reads element values out of an array that is canonical at the top level.
 ///
-/// Flat encodings are read straight from their buffers. Nested ones go through
-/// [`ArrayRef::execute_scalar`], which on canonical input runs no kernels.
+/// Flat encodings are read straight from their buffers. Nested ones, whose children may be in any
+/// encoding, go through [`ArrayRef::execute_scalar`], as does anything that is not canonical.
 pub(crate) struct ValueReader<'a> {
     array: &'a ArrayRef,
     validity: ValidityBits,
@@ -775,17 +799,12 @@ impl<'a> ValueReader<'a> {
             ReaderKind::Null | ReaderKind::Extension(_) | ReaderKind::Nested(_) => {
                 ValidityBits::AllValid
             }
-            _ => match array
-                .validity()
-                .vortex_expect("canonical arrays report their validity")
-            {
-                Validity::NonNullable | Validity::AllValid => ValidityBits::AllValid,
-                Validity::AllInvalid => ValidityBits::AllInvalid,
-                Validity::Array(validity) => match validity.as_opt::<Bool>() {
-                    Some(bits) => ValidityBits::Bits(bits.to_bit_buffer()),
-                    None => vortex_panic!("validity of a canonical array must be a bool array"),
-                },
-            },
+            _ => validity_bits(
+                array
+                    .validity()
+                    .vortex_expect("canonical arrays report their validity"),
+                array.len(),
+            ),
         };
 
         Self {
@@ -863,13 +882,18 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Struct;
+    use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::listview::ListViewArraySlotsExt;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
+    use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
@@ -1022,6 +1046,64 @@ mod tests {
                 scalar
             );
         }
+        Ok(())
+    }
+
+    /// Only the elements' top level is executed: the fields of struct elements keep their
+    /// encoding, and are still read, compared and expanded by value.
+    #[test]
+    fn struct_elements_keep_their_field_encodings() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 1, 0, 1, 1]).into_array();
+        let dict_values = PrimitiveArray::from_iter([10i64, 20]).into_array();
+        let field = DictArray::try_new(codes, dict_values)?.into_array();
+        let elements =
+            StructArray::try_new(FieldNames::from(["a"]), [field], 5, Validity::NonNullable)?
+                .into_array();
+        let offsets = PrimitiveArray::from_iter([1u32]).into_array();
+        let sizes = PrimitiveArray::from_iter([3u32]).into_array();
+        let array =
+            ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)?
+                .into_array();
+
+        let read = array.execute_scalar(0, &mut ctx)?;
+        let list_elements = read.as_list().elements_array().unwrap().clone();
+        assert!(list_elements.is::<Struct>());
+        assert!(
+            !list_elements
+                .as_::<Struct>()
+                .unmasked_field(0)
+                .is_canonical(),
+            "struct fields should keep their encoding"
+        );
+
+        let element_dtype = list_elements.dtype().clone();
+        let built = Scalar::list(
+            Arc::new(element_dtype.clone()),
+            [20i64, 10, 20]
+                .into_iter()
+                .map(|a| {
+                    Scalar::struct_(
+                        element_dtype.clone(),
+                        vec![Scalar::primitive(a, Nullability::NonNullable)],
+                    )
+                })
+                .collect(),
+            Nullability::NonNullable,
+        );
+        assert_eq!(read, built);
+        assert_eq!(hash_of(&read), hash_of(&built));
+        assert_eq!(read.as_list().element(1), built.as_list().element(1));
+
+        let expanded = ConstantArray::new(read, 2)
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        let expected = ConstantArray::new(built, 2)
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_arrays_eq!(expanded, expected, &mut ctx);
         Ok(())
     }
 

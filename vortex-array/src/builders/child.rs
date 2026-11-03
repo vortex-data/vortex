@@ -96,8 +96,8 @@ impl ChildBuilder {
 
     /// Appends the elements of a list scalar to the child, copying them into the pending builder.
     ///
-    /// A list scalar's elements are recursively canonical, so the copy is a bulk write of their
-    /// buffers. Copying keeps the child contiguous where a chunk per list would fragment it.
+    /// Flat elements copy as a bulk write of their buffers. Copying keeps the child contiguous
+    /// where a chunk per list would fragment it.
     pub fn append_list_value(&mut self, list: &ListValue) -> VortexResult<()> {
         if list.is_empty() {
             return Ok(());

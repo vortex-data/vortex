@@ -35,7 +35,8 @@ pub enum ScalarValue {
     Utf8(BufferString),
     /// A binary (byte array) value.
     Binary(ByteBuffer),
-    /// The elements of a list or fixed-size list, held as one recursively canonical array.
+    /// The elements of a list or fixed-size list, held as one array that is canonical at
+    /// the top level.
     List(ListValue),
     /// A tuple of potentially null scalar values.
     ///

@@ -559,7 +559,7 @@ fn primitive_list_from_proto(
         let validity = validity.map_or(Validity::NonNullable, |bits| Validity::from(bits.freeze()));
         PrimitiveArray::new(buffer.freeze(), validity).into_array()
     });
-    // SAFETY: a primitive array is recursively canonical.
+    // SAFETY: a primitive array is canonical.
     Ok(ScalarValue::List(unsafe {
         ScalarListValue::new_unchecked(elements)
     }))
