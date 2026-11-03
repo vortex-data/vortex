@@ -108,16 +108,10 @@ impl TreeDisplayAdapter for PlanTreeDisplay<'_> {
         plan: &PlanRef,
         visit: &mut dyn FnMut(&str, &PlanRef, bool) -> fmt::Result,
     ) -> fmt::Result {
-        let present = plan
-            .slots()
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, lazy)| lazy.as_ref().map(|lazy| (slot, lazy)))
-            .collect::<Vec<_>>();
-        for (index, (slot, lazy)) in present.iter().enumerate() {
+        let mut present = plan.slots().present().peekable();
+        while let Some((slot, lazy)) = present.next() {
             let child = lazy.get().map_err(|_| fmt::Error)?;
-            let name = plan.slot_name(*slot);
-            visit(name.as_ref(), child, index + 1 == present.len())?;
+            visit(&plan.slot_name(slot), child, present.peek().is_none())?;
         }
         Ok(())
     }

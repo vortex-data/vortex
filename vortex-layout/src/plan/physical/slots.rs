@@ -108,12 +108,23 @@ impl PlanSlots {
             .ok_or_else(|| vortex_err!("Plan slot {slot} is absent"))
     }
 
+    /// The present slots with their positions, in slot order, without building any child.
+    ///
+    /// This is the one place absent slots are dropped. Everything that walks a plan's children
+    /// goes through it, with the slot position when it needs one.
+    pub fn present(&self) -> impl Iterator<Item = (usize, &LazyPlanRef)> + '_ {
+        self.0
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, lazy)| Some((slot, lazy.as_ref()?)))
+    }
+
     /// The plans of the present slots in slot order, building each as it is visited.
     ///
-    /// This is the one place absent slots are dropped: everything that walks a plan's children
-    /// without caring about their positions, including compiling them into a pipeline, uses it.
+    /// Pipelines have no absent inputs, so compiling a plan's children uses this: the `i`-th
+    /// child is the `i`-th present slot.
     pub fn children(&self) -> impl Iterator<Item = VortexResult<&PlanRef>> + '_ {
-        self.0.iter().flatten().map(LazyPlanRef::get)
+        self.present().map(|(_, lazy)| lazy.get())
     }
 
     /// Returns an error when there are not exactly `expected` slots.
@@ -139,27 +150,27 @@ impl FromIterator<Option<LazyPlanRef>> for PlanSlots {
     }
 }
 
+/// Built slots, with `None` for an absent child.
+impl FromIterator<Option<PlanRef>> for PlanSlots {
+    fn from_iter<I: IntoIterator<Item = Option<PlanRef>>>(iter: I) -> Self {
+        Self(
+            iter.into_iter()
+                .map(|plan| plan.map(LazyPlanRef::ready))
+                .collect(),
+        )
+    }
+}
+
 impl From<Vec<Option<LazyPlanRef>>> for PlanSlots {
     fn from(slots: Vec<Option<LazyPlanRef>>) -> Self {
         Self(SmallVec::from_vec(slots))
     }
 }
 
+/// Built slots, every one present.
 impl From<Vec<PlanRef>> for PlanSlots {
     fn from(children: Vec<PlanRef>) -> Self {
-        children
-            .into_iter()
-            .map(|child| Some(LazyPlanRef::ready(child)))
-            .collect()
-    }
-}
-
-impl<const N: usize> From<[PlanRef; N]> for PlanSlots {
-    fn from(children: [PlanRef; N]) -> Self {
-        children
-            .into_iter()
-            .map(|child| Some(LazyPlanRef::ready(child)))
-            .collect()
+        children.into_iter().map(Some).collect()
     }
 }
 
@@ -168,14 +179,12 @@ impl fmt::Debug for PlanSlots {
         formatter
             .debug_struct("PlanSlots")
             .field("len", &self.0.len())
-            .field("present", &self.0.iter().flatten().count())
+            .field("present", &self.present().count())
             .field(
                 "built",
                 &self
-                    .0
-                    .iter()
-                    .flatten()
-                    .filter(|slot| slot.is_initialized())
+                    .present()
+                    .filter(|(_, lazy)| lazy.is_initialized())
                     .count(),
             )
             .finish()

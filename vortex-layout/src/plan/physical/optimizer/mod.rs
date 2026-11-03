@@ -80,14 +80,12 @@ pub(crate) fn reduce_plan(
     PLAN_RULES.evaluate(plan, session)
 }
 
-/// Attempts a static rewrite for `parent` and its child in `slot`, if that slot is present.
+/// Attempts a static rewrite for `parent` and `child`, its child in `slot`.
 pub(crate) fn reduce_parent(
+    child: &PlanRef,
     parent: &PlanRef,
     slot: usize,
     session: &VortexSession,
 ) -> VortexResult<Option<PlanRef>> {
-    let Some(child) = parent.slots().get(slot)? else {
-        return Ok(None);
-    };
     PARENT_RULES.evaluate(child, parent, slot, session)
 }

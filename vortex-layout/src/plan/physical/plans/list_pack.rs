@@ -12,7 +12,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 
-use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
@@ -72,11 +71,9 @@ impl ListPackPlan {
         validity: Option<PlanRef>,
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
-        let slots = PlanSlots::from(vec![
-            Some(LazyPlanRef::ready(elements)),
-            Some(LazyPlanRef::ready(offsets)),
-            validity.map(LazyPlanRef::ready),
-        ]);
+        let slots = [Some(elements), Some(offsets), validity]
+            .into_iter()
+            .collect();
         validate_slots(&dtype, row_count, &slots)?;
 
         // SAFETY: All slot shape invariants were validated above.

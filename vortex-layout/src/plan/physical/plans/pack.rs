@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::iter;
 use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
@@ -34,7 +35,6 @@ use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
-use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
@@ -149,11 +149,9 @@ impl PackPlan {
         field_plans: Vec<PlanRef>,
         validity: Option<PlanRef>,
     ) -> Self {
-        let mut slots = PlanSlots::with_capacity(Pack::FIELDS_OFFSET + field_plans.len());
-        slots.push(validity.map(LazyPlanRef::ready));
-        for field in field_plans {
-            slots.push(Some(LazyPlanRef::ready(field)));
-        }
+        let slots = iter::once(validity)
+            .chain(field_plans.into_iter().map(Some))
+            .collect();
         // SAFETY: The caller guarantees the same slot invariants required by this constructor.
         unsafe { Self::from_slots_unchecked(fields, nullability, row_count, slots) }
     }
@@ -232,7 +230,7 @@ impl PlanVTable for Pack {
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
         // Inlet `i` reads the `i`-th present slot: validity first when nullable, then the fields.
-        let count = plan.slots().iter().flatten().count();
+        let count = plan.slots().present().count();
         if count == 0 {
             // A struct with no fields still has rows, so no child can carry them.
             let array = empty_struct(

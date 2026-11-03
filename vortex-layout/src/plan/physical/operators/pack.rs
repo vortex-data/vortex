@@ -104,19 +104,17 @@ impl Operator for PackSource {
                 .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
             len = len.min(front.len());
         }
-        let fields_offset = usize::from(self.nullable);
-        let mut validity = Validity::NonNullable;
-        let mut arrays = Vec::with_capacity(self.states.len() - fields_offset);
+        let mut arrays = Vec::with_capacity(self.states.len());
         for index in 0..self.states.len() {
             let mut inlet = cx.inlet(index);
-            let array = take_rows(&mut inlet, len)?;
+            arrays.push(take_rows(&mut inlet, len)?);
             self.observe(index, &inlet);
-            if index < fields_offset {
-                validity = Validity::Array(array);
-            } else {
-                arrays.push(array);
-            }
         }
+        let validity = if self.nullable {
+            Validity::Array(arrays.remove(0))
+        } else {
+            Validity::NonNullable
+        };
         let array = assemble(&self.fields, arrays, validity).into_array();
         Ok(Step::Final(array))
     }

@@ -20,8 +20,8 @@ fn reduce(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRe
     if let Some(rewritten) = reduce_plan(plan, session)? {
         return Ok(Some(rewritten));
     }
-    for slot in 0..plan.nslots() {
-        if let Some(rewritten) = reduce_parent(plan, slot, session)? {
+    for (slot, child) in plan.slots().present() {
+        if let Some(rewritten) = reduce_parent(child.get()?, plan, slot, session)? {
             return Ok(Some(rewritten));
         }
     }
@@ -42,34 +42,27 @@ pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef>
         return optimize(rewritten, session);
     }
 
-    // Only the first changed slot allocates; unchanged slots keep their shared lazy slot.
-    let mut slots: Option<PlanSlots> = None;
-    for (index, slot) in plan.slots().iter().enumerate() {
-        let replaced = match slot {
-            Some(lazy) => {
-                let child = lazy.get()?;
-                let optimized = optimize(child.clone(), session)?;
-                (!PlanRef::ptr_eq(child, &optimized)).then(|| LazyPlanRef::ready(optimized))
+    // Absent slots stay absent, and unchanged slots keep their shared lazy slot.
+    let mut changed = false;
+    let slots = plan
+        .slots()
+        .iter()
+        .map(|slot| {
+            let Some(lazy) = slot else {
+                return Ok(None);
+            };
+            let child = lazy.get()?;
+            let optimized = optimize(child.clone(), session)?;
+            if PlanRef::ptr_eq(child, &optimized) {
+                return Ok(Some(lazy.clone()));
             }
-            None => None,
-        };
-        match (&mut slots, replaced) {
-            (Some(slots), replaced) => slots.push(replaced.or_else(|| slot.clone())),
-            (None, Some(replaced)) => {
-                let mut changed = PlanSlots::with_capacity(plan.nslots());
-                for previous in &plan.slots()[..index] {
-                    changed.push(previous.clone());
-                }
-                changed.push(Some(replaced));
-                slots = Some(changed);
-            }
-            (None, None) => {}
-        }
-    }
-
-    let Some(slots) = slots else {
+            changed = true;
+            Ok(Some(LazyPlanRef::ready(optimized)))
+        })
+        .collect::<VortexResult<PlanSlots>>()?;
+    if !changed {
         return Ok(plan);
-    };
+    }
 
     let plan = plan.with_slots(slots)?;
     if let Some(rewritten) = reduce(&plan, session)? {
