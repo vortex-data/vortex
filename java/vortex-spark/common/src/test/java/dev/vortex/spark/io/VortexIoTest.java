@@ -18,10 +18,30 @@ import org.junit.jupiter.api.Test;
 
 final class VortexIoTest {
     @Test
-    void readConcurrencyDefaultsToNativeDefault() {
+    void concurrenciesDefaultToNativeDefaults() {
         VortexIo io = VortexIo.create(VortexOptions.empty(), new Configuration());
 
         assertEquals(0, io.readConcurrency());
+        assertEquals(0, io.splitConcurrency());
+    }
+
+    @Test
+    void splitConcurrencyIsParsedAndValidated() {
+        Configuration conf = new Configuration();
+
+        assertEquals(
+                2,
+                VortexIo.create(options(VortexIo.SPLIT_CONCURRENCY_OPTION, "2"), conf)
+                        .splitConcurrency());
+        assertEquals(
+                2,
+                VortexIo.create(options("VORTEX.SPLITCONCURRENCY", "2"), conf).splitConcurrency());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> VortexIo.create(options(VortexIo.SPLIT_CONCURRENCY_OPTION, "-1"), conf));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> VortexIo.create(options(VortexIo.SPLIT_CONCURRENCY_OPTION, "many"), conf));
     }
 
     @Test
@@ -54,11 +74,14 @@ final class VortexIoTest {
     void settingsAndConfigurationSurviveSerialization() throws IOException, ClassNotFoundException {
         Configuration conf = new Configuration();
         conf.set("fs.s3a.endpoint", "https://storage.example");
-        VortexIo io = VortexIo.create(options(VortexIo.READ_CONCURRENCY_OPTION, "4"), conf);
+        VortexIo io = VortexIo.create(
+                VortexOptions.of(Map.of(VortexIo.READ_CONCURRENCY_OPTION, "4", VortexIo.SPLIT_CONCURRENCY_OPTION, "3")),
+                conf);
 
         VortexIo shipped = roundTrip(io);
 
         assertEquals(4, shipped.readConcurrency());
+        assertEquals(3, shipped.splitConcurrency());
         assertEquals("https://storage.example", shipped.hadoopConf().get("fs.s3a.endpoint"));
     }
 

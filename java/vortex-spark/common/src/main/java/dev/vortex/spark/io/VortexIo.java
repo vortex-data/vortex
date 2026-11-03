@@ -30,31 +30,47 @@ public final class VortexIo implements Serializable {
 
     private static final int DEFAULT_READ_CONCURRENCY = 0;
 
+    /**
+     * Option bounding how many splits of a file the native scan reads at once, in all. Each split in flight holds the
+     * decoded chunks of every column it overlaps, and every task in an executor runs its own scan, which by default
+     * keeps several splits in flight per core. Lowering this reduces memory held by concurrent split decoding and Arrow
+     * conversion. A scan with both a filter and a limit may also retain one trimmed array per split while preparing
+     * output. This does not cap total native memory or I/O read-ahead. Zero keeps the native default.
+     */
+    public static final String SPLIT_CONCURRENCY_OPTION = "vortex.splitConcurrency";
+
+    private static final int DEFAULT_SPLIT_CONCURRENCY = 0;
+
     private final SerializableHadoopConf conf;
     private final int readConcurrency;
+    private final int splitConcurrency;
 
     /** Captures {@code hadoopConf} and the read settings found in the format options. */
     public static VortexIo create(VortexOptions options, Configuration hadoopConf) {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(hadoopConf, "hadoopConf");
-        return new VortexIo(new SerializableHadoopConf(hadoopConf), parseReadConcurrency(options));
+        return new VortexIo(
+                new SerializableHadoopConf(hadoopConf),
+                nonNegative(options, READ_CONCURRENCY_OPTION, DEFAULT_READ_CONCURRENCY),
+                nonNegative(options, SPLIT_CONCURRENCY_OPTION, DEFAULT_SPLIT_CONCURRENCY));
     }
 
     /** Hadoop I/O over a default configuration, for callers that have no Spark session to draw one from. */
     public static VortexIo defaults() {
-        return new VortexIo(new SerializableHadoopConf(new Configuration()), DEFAULT_READ_CONCURRENCY);
+        return new VortexIo(
+                new SerializableHadoopConf(new Configuration()), DEFAULT_READ_CONCURRENCY, DEFAULT_SPLIT_CONCURRENCY);
     }
 
-    private VortexIo(SerializableHadoopConf conf, int readConcurrency) {
+    private VortexIo(SerializableHadoopConf conf, int readConcurrency, int splitConcurrency) {
         this.conf = conf;
         this.readConcurrency = readConcurrency;
+        this.splitConcurrency = splitConcurrency;
     }
 
-    private static int parseReadConcurrency(VortexOptions options) {
-        int parsed = options.getInt(READ_CONCURRENCY_OPTION, DEFAULT_READ_CONCURRENCY);
+    private static int nonNegative(VortexOptions options, String key, int defaultValue) {
+        int parsed = options.getInt(key, defaultValue);
         if (parsed < 0) {
-            throw new IllegalArgumentException(
-                    String.format(Locale.ROOT, "%s must be >= 0, got %d", READ_CONCURRENCY_OPTION, parsed));
+            throw new IllegalArgumentException(String.format(Locale.ROOT, "%s must be >= 0, got %d", key, parsed));
         }
         return parsed;
     }
@@ -66,6 +82,11 @@ public final class VortexIo implements Serializable {
     /** Bound on concurrent read upcalls per file; zero keeps the native default. */
     public int readConcurrency() {
         return readConcurrency;
+    }
+
+    /** The most splits of a file the native scan reads at once; zero keeps the native default. */
+    public int splitConcurrency() {
+        return splitConcurrency;
     }
 
     /**

@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import org.immutables.value.Value;
 import org.roaringbitmap.longlong.Roaring64NavigableMap;
@@ -57,6 +58,25 @@ public interface ScanOptions {
     @Value.Default
     default boolean ordered() {
         return false;
+    }
+
+    /**
+     * The most splits of each partition the native scan decodes at once, in all, and the most of its batches converted
+     * to Arrow ahead of the caller. Absent keeps the native default, which scales with the machine's cores.
+     *
+     * <p>Each split being decoded holds the decoded chunks of every column it overlaps, so a scan running alongside
+     * others, such as one Spark task of several in an executor, can lower this to reduce memory held by concurrent
+     * decoding and Arrow conversion. A scan with both a filter and a limit may also retain one trimmed array per split
+     * while preparing output. This does not cap total native memory or I/O read-ahead.
+     */
+    OptionalInt splitConcurrency();
+
+    @Value.Check
+    default void validateSplitConcurrency() {
+        if (splitConcurrency().isPresent() && splitConcurrency().getAsInt() <= 0) {
+            throw new IllegalArgumentException("split concurrency must be positive, got "
+                    + splitConcurrency().getAsInt());
+        }
     }
 
     @Value.Check

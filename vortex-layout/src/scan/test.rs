@@ -4,6 +4,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use parking_lot::Mutex;
@@ -66,6 +68,20 @@ pub struct TestLayoutReader {
     fail_projection: bool,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
+    in_flight: Option<Arc<InFlight>>,
+}
+
+/// Counts projections running at once, and the most that ever were.
+#[derive(Debug, Default)]
+pub struct InFlight {
+    now: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl InFlight {
+    pub fn peak(&self) -> usize {
+        self.peak.load(Ordering::SeqCst)
+    }
 }
 
 impl TestLayoutReader {
@@ -82,6 +98,7 @@ impl TestLayoutReader {
             fail_projection: false,
             projection_masks: None,
             filter_exprs: None,
+            in_flight: None,
         }
     }
 
@@ -108,6 +125,13 @@ impl TestLayoutReader {
 
     pub fn with_projection_masks(mut self, projection_masks: Arc<Mutex<Vec<usize>>>) -> Self {
         self.projection_masks = Some(projection_masks);
+        self
+    }
+
+    /// Records into `in_flight` how many projections are running at once. Each projection yields
+    /// once before finishing, so others that the scan has started get to run alongside it.
+    pub fn with_in_flight(mut self, in_flight: Arc<InFlight>) -> Self {
+        self.in_flight = Some(in_flight);
         self
     }
 
@@ -213,8 +237,15 @@ impl LayoutReader for TestLayoutReader {
         let base = self.base;
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
+        let in_flight = self.in_flight.clone();
 
         Ok(Box::pin(async move {
+            if let Some(in_flight) = &in_flight {
+                let now = in_flight.now.fetch_add(1, Ordering::SeqCst) + 1;
+                in_flight.peak.fetch_max(now, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                in_flight.now.fetch_sub(1, Ordering::SeqCst);
+            }
             let mask = mask.await?;
             if let Some(projection_masks) = projection_masks {
                 projection_masks.lock().push(mask.true_count());

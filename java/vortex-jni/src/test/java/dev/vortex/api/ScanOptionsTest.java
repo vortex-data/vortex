@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.vortex.api.ScanOptions.SelectionMode;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import org.junit.jupiter.api.Test;
 import org.roaringbitmap.longlong.Roaring64NavigableMap;
@@ -39,6 +40,21 @@ public final class ScanOptionsTest {
         assertTrue(options.selectionRoaringBitmap().isEmpty());
         assertEquals(SelectionMode.INCLUDE_ALL, options.selectionMode());
         assertFalse(options.ordered());
+        assertEquals(OptionalInt.empty(), options.splitConcurrency());
+    }
+
+    @Test
+    public void splitConcurrencyMustBePositive() {
+        for (int value : new int[] {0, -1}) {
+            IllegalArgumentException exception = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> ScanOptions.builder().splitConcurrency(value).build(),
+                    () -> "no exception for " + value);
+            assertEquals("split concurrency must be positive, got " + value, exception.getMessage());
+        }
+        assertEquals(
+                OptionalInt.of(2),
+                ScanOptions.builder().splitConcurrency(2).build().splitConcurrency());
     }
 
     @Test

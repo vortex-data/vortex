@@ -196,6 +196,7 @@ own storage clients are not used by the Spark connector.
 | Option                     | Default | Description |
 |----------------------------|---------|-------------|
 | `vortex.readConcurrency`   | `0`     | Maximum Hadoop read upcalls per file; `0` uses the native default. |
+| `vortex.splitConcurrency`  | `0`     | Most row splits of a file decoded at once by one task; `0` uses the native default of four per core. Lowering this reduces memory held by concurrent split decoding and Arrow conversion. A scan with both a filter and a limit may also retain one trimmed array per split while preparing output. This does not cap total native memory or I/O read-ahead. |
 | `vortex.workerThreads`     | `4`     | Background threads driving Vortex futures. JVM-wide, and set once per JVM by the first read or write. |
 | `vortex.session.provider`  | —       | Fully-qualified name of a `VortexSessionProvider` supplying a custom session on the driver and on every executor. |
 | `vortex.aggregatePushdown` | `true`  | Answer `COUNT(*)` from file footers. |
