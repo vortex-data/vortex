@@ -104,7 +104,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
             days: widen_days_if_needed(
                 PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
                 timestamps,
-                &array,
+                time_unit,
                 all_fit,
                 ctx,
             )?,
@@ -143,7 +143,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
         days: widen_days_if_needed(
             PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
             timestamps,
-            &array,
+            time_unit,
             all_fit,
             ctx,
         )?,
@@ -152,17 +152,15 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
     })
 }
 
-/// Rebuilds only the days buffer when a non-null timestamp exceeds the `i32` range.
+/// Keeps widened days only when a non-null day exceeds the `i32` range.
 fn widen_days_if_needed(
     days: PrimitiveArray,
     timestamps: &[i64],
-    array: &TemporalArray,
+    time_unit: TimeUnit,
     all_fit: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // The split checks null slots too. Their values must not force the days buffer to widen.
-    let time_unit = array.temporal_metadata().time_unit();
-    if all_fit || days_fit(array, time_unit, ctx)? {
+    if all_fit {
         return Ok(days.into_array());
     }
 
@@ -171,33 +169,21 @@ fn widen_days_if_needed(
         TimeUnit::Milliseconds => timestamp::SECONDS_PER_DAY * 1_000,
         _ => unreachable!("microsecond and nanosecond days always fit i32"),
     };
-    let wide_days = Buffer::from_iter(timestamps.iter().map(|ts| ts / ticks_per_day));
+    let wide_days = PrimitiveArray::new(
+        Buffer::from_iter(timestamps.iter().map(|ts| ts / ticks_per_day)),
+        days.validity()?,
+    )
+    .into_array();
 
-    Ok(PrimitiveArray::new(wide_days, days.validity()?).into_array())
-}
-
-fn days_fit(
-    array: &TemporalArray,
-    time_unit: TimeUnit,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<bool> {
-    if matches!(time_unit, TimeUnit::Microseconds | TimeUnit::Nanoseconds) {
-        return Ok(true);
-    }
-
-    let bounds = match cached_bounds(array) {
-        Some(bounds) => bounds,
-        None => match min_max(
-            array.temporal_values(),
-            ctx,
-            NumericalAggregateOpts::default(),
-        )? {
-            Some(MinMaxResult { min, max }) => [min, max],
-            None => return Ok(true),
-        },
+    // The split checks null slots too. Their values must not force the days buffer to widen.
+    let fits = match min_max(&wide_days, ctx, NumericalAggregateOpts::default())? {
+        Some(MinMaxResult { min, max }) => [min, max]
+            .iter()
+            .all(|bound| bound.as_primitive().as_opt::<i32>().is_some()),
+        None => true,
     };
 
-    Ok(bounds_fit(&bounds, time_unit))
+    Ok(if fits { days.into_array() } else { wide_days })
 }
 
 /// Exact min and max cached on the array, which the layout writer computes before compressing.
@@ -232,8 +218,8 @@ fn bounds_fit(bounds: &[Scalar; 2], time_unit: TimeUnit) -> bool {
 /// An out-of-range value sets a bit above bit 31. OR-ing the offsets preserves those bits, so the
 /// loops can check the whole slice without a branch for each timestamp.
 #[inline]
-fn day_offset<const DIVISOR: i64>(timestamp: i64) -> u64 {
-    (timestamp / (timestamp::SECONDS_PER_DAY * DIVISOR) - i64::from(i32::MIN)).cast_unsigned()
+fn day_offset(days: i64) -> u64 {
+    (days - i64::from(i32::MIN)).cast_unsigned()
 }
 
 /// Initializes all three output slices and reports whether the days fit `i32`.
@@ -264,7 +250,7 @@ fn split_slice<const DIVISOR: i64, const CHECK_DAYS: bool>(
         for k in 0..4 {
             let parts = timestamp::split_with_divisor::<DIVISOR>(timestamp[k]);
             if CHECK_DAYS {
-                day_offsets |= day_offset::<DIVISOR>(timestamp[k]);
+                day_offsets |= day_offset(parts.days);
             }
             day_buf[k] = parts.days.as_();
             second_buf[k] = parts.seconds;
@@ -285,7 +271,7 @@ fn split_slice<const DIVISOR: i64, const CHECK_DAYS: bool>(
     for (((&ts, day), second), subsecond) in remainder {
         let parts = timestamp::split_with_divisor::<DIVISOR>(ts);
         if CHECK_DAYS {
-            day_offsets |= day_offset::<DIVISOR>(ts);
+            day_offsets |= day_offset(parts.days);
         }
         day.write(parts.days.as_());
         second.write(parts.seconds);
@@ -309,7 +295,7 @@ fn split_slice_seconds<const CHECK_DAYS: bool>(
     for ((day, second), ts) in days.iter_mut().zip(seconds).zip(timestamps) {
         let parts = timestamp::split_with_divisor::<1>(*ts);
         if CHECK_DAYS {
-            day_offsets |= day_offset::<1>(*ts);
+            day_offsets |= day_offset(parts.days);
         }
         day.write(parts.days.as_());
         second.write(parts.seconds);

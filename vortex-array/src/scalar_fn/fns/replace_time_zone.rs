@@ -277,10 +277,7 @@ fn replace(
             "Invalid ambiguity policy {policy:?}: expected raise, earliest, latest, or null"
         );
     }
-    // Keeping the same timezone does not introduce a new ambiguity to reject.
-    if source == target && policy == "raise" {
-        return Ok(Some(value));
-    }
+    // Convert first so the same-timezone shortcut cannot pass values outside jiff's range through.
     let timestamp = match unit {
         TimeUnit::Seconds => JiffTimestamp::from_second(value)?,
         TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value)?,
@@ -288,6 +285,10 @@ fn replace(
         TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value))?,
         TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
     };
+    // Keeping the same timezone does not introduce a new ambiguity to reject.
+    if source == target && policy == "raise" {
+        return Ok(Some(value));
+    }
     let wall_time = source.to_datetime(timestamp);
     let ambiguous = target.to_ambiguous_timestamp(wall_time);
     let timestamp = match ambiguous.offset() {
@@ -324,6 +325,7 @@ mod tests {
     use super::ReplaceTimeZoneOptions;
     use super::replace;
     use super::resolve_zone;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ExtensionArray;
@@ -550,5 +552,33 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
+    }
+
+    #[rstest]
+    #[case::end_of_9999(TimeUnit::Microseconds, 253_402_214_400_000_000)]
+    #[case::storage_min(TimeUnit::Seconds, i64::MIN)]
+    fn rejects_timestamps_beyond_jiff_range(
+        #[case] unit: TimeUnit,
+        #[case] value: i64,
+        #[values(None, Some("America/New_York"))] target: Option<&str>,
+    ) {
+        let input = ExtensionArray::new(
+            Timestamp::new(unit, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter([Some(0i64), Some(value)]).into_array(),
+        );
+        let expr = replace_time_zone(
+            root(),
+            lit("raise"),
+            ReplaceTimeZoneOptions {
+                time_zone: target.map(Into::into),
+                null_on_non_existent: false,
+            },
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = input
+            .into_array()
+            .apply(&expr)
+            .and_then(|array| array.execute::<Canonical>(&mut ctx));
+        assert!(result.is_err());
     }
 }
