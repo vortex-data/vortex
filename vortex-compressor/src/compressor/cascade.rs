@@ -128,6 +128,7 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let array = self.compress_leaf_validity(array, exec_ctx)?;
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             Canonical::Bool(bool_array) => self
@@ -149,7 +150,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity()?,
+                    self.compress_validity(struct_array.validity()?, exec_ctx)?,
                 )?
                 .into_array())
             }
@@ -180,7 +181,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity()?,
+                    self.compress_validity(fsl_array.validity()?, exec_ctx)?,
                     fsl_array.len(),
                 )?
                 .into_array())
