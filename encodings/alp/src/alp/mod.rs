@@ -36,7 +36,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
@@ -71,7 +70,9 @@ mod tests {
     }
 
     #[rstest]
-    fn serde_roundtrip_sliced_chunked_patches(#[values(500, 1500)] start: usize) -> VortexResult<()> {
+    fn serde_roundtrip_sliced_chunked_patches(
+        #[values(500, 1500)] start: usize,
+    ) -> VortexResult<()> {
         let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();

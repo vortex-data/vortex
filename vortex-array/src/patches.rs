@@ -310,8 +310,35 @@ impl Patches {
             chunk_offsets,
             ctx,
         )?;
-        if patches.chunk_offsets.is_some() {
-            patches.offset_within_chunk = Some(usize::try_from(metadata.offset_within_chunk())?);
+        if let Some(chunk_offsets) = &patches.chunk_offsets {
+            let offset_within_chunk = usize::try_from(metadata.offset_within_chunk())?;
+            let sliced_rows = patches.offset % PATCH_CHUNK_SIZE;
+            vortex_ensure!(
+                offset_within_chunk <= sliced_rows,
+                "Patch offset within chunk exceeds the sliced row count"
+            );
+
+            // A wrong offset can assign first-chunk patches to a later chunk during decoding.
+            // Check the boundary against the indices, not just the original chunk's patch count.
+            if chunk_offsets.len() > 1 && chunk_offsets.is_host() && patches.indices.is_host() {
+                let first_chunk_end = patches
+                    .offset
+                    .checked_add(PATCH_CHUNK_SIZE - sliced_rows)
+                    .ok_or_else(|| vortex_err!("Patch chunk boundary overflows usize"))?;
+                let retained =
+                    search_index_binary_search(&patches.indices, first_chunk_end, ctx)?.to_index();
+                let expected_offset = patches
+                    .chunk_offset_at(1, ctx)?
+                    .checked_sub(patches.chunk_offset_at(0, ctx)?)
+                    .and_then(|count| count.checked_sub(retained))
+                    .ok_or_else(|| vortex_err!("Invalid patch chunk offsets"))?;
+                vortex_ensure_eq!(
+                    offset_within_chunk,
+                    expected_offset,
+                    "Patch offset within chunk disagrees with the patch indices"
+                );
+            }
+            patches.offset_within_chunk = Some(offset_within_chunk);
         }
         Ok(patches)
     }
@@ -1380,6 +1407,7 @@ fn take_indices_with_search_fn<
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -1427,7 +1455,68 @@ mod test {
         )?;
 
         assert_eq!(patches.offset_within_chunk(), chunked.then_some(0));
-        assert_eq!(patches.search_index(1029, &mut ctx)?, SearchResult::Found(1));
+        assert_eq!(
+            patches.search_index(1029, &mut ctx)?,
+            SearchResult::Found(1)
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_from_metadata_rejects_inconsistent_chunk_offset(
+        #[values(0, 2, 3, 501, usize::MAX)] offset_within_chunk: usize,
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The original first chunk had patches at 100 and 500; slicing at 500 removed one.
+        let metadata = PatchesMetadata::new(
+            2,
+            500,
+            PType::U32,
+            Some(2),
+            Some(PType::U32),
+            Some(offset_within_chunk),
+        );
+        let error = Patches::from_metadata(
+            1000,
+            &metadata,
+            buffer![500u32, 1200].into_array(),
+            buffer![11i32, 22].into_array(),
+            Some(buffer![0u32, 2].into_array()),
+            &mut ctx,
+        )
+        .expect_err("inconsistent patch offset must be rejected");
+        assert!(error.to_string().contains("Patch offset within chunk"));
+    }
+
+    #[rstest]
+    #[case::single_chunk(900..901)]
+    #[case::later_single_chunk(1500..1501)]
+    #[case::multiple_chunks(900..2050)]
+    fn test_from_metadata_short_slice(#[case] range: Range<usize>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let indices = PrimitiveArray::from_iter(0u32..3072).into_array();
+        let patches = Patches::new(
+            3072,
+            0,
+            indices.clone(),
+            indices,
+            Some(buffer![0u32, 1024, 2048].into_array()),
+            &mut ctx,
+        )?;
+        let sliced = patches.slice(range, &mut ctx)?.expect("slice has patches");
+        let metadata = sliced.to_metadata(sliced.array_len(), sliced.dtype())?;
+        let read = Patches::from_metadata(
+            sliced.array_len(),
+            &metadata,
+            sliced.indices().clone(),
+            sliced.values().clone(),
+            sliced.chunk_offsets().clone(),
+            &mut ctx,
+        )?;
+
+        assert_eq!(read.offset_within_chunk(), sliced.offset_within_chunk());
+        assert_eq!(read.search_index(0, &mut ctx)?, SearchResult::Found(0));
+        assert_arrays_eq!(read.values(), sliced.values(), &mut ctx);
         Ok(())
     }
 

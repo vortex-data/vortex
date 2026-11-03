@@ -490,7 +490,9 @@ fn serde_roundtrip_sliced_chunked_patches(
         expected_patches.offset_within_chunk()
     );
     let resliced = read_patches.slice(800..read.len(), &mut ctx)?.unwrap();
-    let expected_resliced = expected_patches.slice(800..sliced.len(), &mut ctx)?.unwrap();
+    let expected_resliced = expected_patches
+        .slice(800..sliced.len(), &mut ctx)?
+        .unwrap();
     assert_eq!(
         resliced.offset_within_chunk(),
         expected_resliced.offset_within_chunk()
