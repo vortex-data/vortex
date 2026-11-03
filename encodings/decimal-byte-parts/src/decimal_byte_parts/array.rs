@@ -41,7 +41,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use super::MAX_LOWER_PARTS;
-use super::assemble::assemble_decimal;
+use super::assemble::assemble_decimal_from_primitive;
 use super::assemble::assemble_wide_decimal_value;
 use super::decimal_byte_parts_v2_id;
 use super::rules::PARENT_RULES;
@@ -295,8 +295,14 @@ impl VTable for DecimalByteParts {
                 DecimalBytePartsSlots::LOWER_PARTS_OFFSET + idx => Primitive
             );
         }
-        let lower_parts = array.lower_parts().to_vec();
-        let assembled = assemble_decimal(array.msp(), &lower_parts, array.decimal_dtype(), ctx)?;
+        let msp = array.msp().clone().downcast::<Primitive>();
+        let lower_parts = array
+            .lower_parts()
+            .iter()
+            .map(|part| part.clone().downcast::<Primitive>())
+            .collect::<Vec<_>>();
+        let assembled =
+            assemble_decimal_from_primitive(&msp, &lower_parts, array.decimal_dtype(), ctx)?;
 
         Ok(ExecutionResult::done(assembled))
     }

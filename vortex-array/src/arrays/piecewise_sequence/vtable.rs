@@ -23,7 +23,9 @@ use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
 use crate::arrays::piecewise_sequence::check_index_arrays;
 use crate::arrays::piecewise_sequence::execute_index_arrays;
@@ -34,6 +36,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -124,13 +127,31 @@ impl VTable for PiecewiseSequence {
         vortex_bail!("PiecewiseSequenceArray is not serializable")
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let (starts, lengths, multipliers) = execute_index_arrays(array.as_view(), ctx)?;
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(
+            array,
+            array.starts(),
+            PiecewiseSequenceSlots::STARTS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.lengths(),
+            PiecewiseSequenceSlots::LENGTHS => Primitive
+        );
+        let array = require_child!(
+            array,
+            array.multipliers(),
+            PiecewiseSequenceSlots::MULTIPLIERS => Primitive
+        );
+
+        let starts = array.starts().as_::<Primitive>();
+        let lengths = array.lengths().as_::<Primitive>();
+        let multipliers = array.multipliers().as_::<Primitive>();
 
         let values = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
             match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                 match_each_unsigned_integer_ptype!(multipliers.ptype(), |M| {
-                    materialize_ranges::<S, L, M>(&starts, &lengths, &multipliers, array.len())?
+                    materialize_ranges::<S, L, M>(starts, lengths, multipliers, array.len())?
                 })
             })
         });
