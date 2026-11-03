@@ -13,11 +13,11 @@
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work uses chunks of
-//! up to 1,048,576 rows, or 131,072 rows for filtered scans. Filtered scans reading only one
-//! primitive or boolean field use 1,048,576 rows to amortize setup. Chunks are independent of
-//! stored layout boundaries. Unfiltered projections stream stored batches without concatenating
-//! them. Full-file projections use smaller 8,192-row multiples when serialized bytes per row
-//! are high.
+//! up to 1,048,576 rows, or 131,072 rows for filtered scans. Filtered scans whose referenced
+//! fixed-width fields total at most 32 bytes per row use 1,048,576 rows to amortize setup and IO.
+//! Chunks are independent of stored layout boundaries. Unfiltered projections stream stored
+//! batches without concatenating them. Full-file projections use smaller 8,192-row multiples
+//! when serialized bytes per row are high.
 //!
 //! Sparse positive input selections use [`AccessMode::RandomAccess`]: only selected 65,536-row
 //! regions are scheduled, and segment leaves gather encoded values before materialization.
@@ -265,14 +265,12 @@ fn filtered_rows_per_chunk(
 ) -> VortexResult<usize> {
     let mut fields = referenced_field_paths(projection)?;
     fields.extend(referenced_field_paths(filter)?);
-    let mut fields = fields.into_iter();
-    let first = fields.next();
-    // A scan of one fixed-width field is cheap enough that smaller chunks mainly add setup.
+    let bytes_per_row = fields.into_iter().try_fold(0usize, |bytes, field| {
+        bytes.checked_add(field.resolve(dtype.clone())?.element_size()?)
+    });
+    // Up to 32 MiB of fixed-width values amortize setup and coalesce adjacent stored batches.
     // Wider and variable-width scans need more chunks to avoid long tails on a few workers.
-    let narrow = fields.next().is_none()
-        && first
-            .and_then(|field| field.resolve(dtype.clone()))
-            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
+    let narrow = bytes_per_row.is_some_and(|bytes| bytes <= 32);
     Ok(if narrow {
         128 * ROW_BLOCK_SIZE
     } else {
