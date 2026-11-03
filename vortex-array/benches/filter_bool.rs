@@ -41,8 +41,6 @@ static SESSION: LazyLock<VortexSession> =
 /// 1000 rows took less than 1 µs, so the allocator work left behind by the previous, larger case
 /// was a large part of the single measured iteration in simulation, and CodSpeed reported no
 /// execution time for `filter_powerlaw_by_mostly_false[1000]`.
-// CodSpeed leaves out the largest size: times scale with length past 100,000 rows. Local runs
-// measure every size.
 const SIZES: &[usize] = if cfg!(codspeed) {
     &[10_000, 100_000]
 } else {

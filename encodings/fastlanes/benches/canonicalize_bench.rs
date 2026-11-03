@@ -29,9 +29,6 @@ fn main() {
     divan::main();
 }
 
-// CodSpeed measures a subset. The 100-chunk cases cost 30 times as much as the 10-chunk ones, and
-// `(1000, 1000, 0.00)` covers the same total length, so CodSpeed leaves them out along with the
-// 1% patch fraction, which lies between the other two.
 const BENCH_ARGS: &[(usize, usize, f64)] = if cfg!(codspeed) {
     &[
         // chunk_len, chunk_count, fraction_patched

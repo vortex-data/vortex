@@ -42,8 +42,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<MemorySession>()
 });
 
-// CodSpeed measures the smallest and largest dictionaries: these compares time alike for every
-// dictionary size.
 const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = if cfg!(codspeed) {
     &[
         // length, unique_values
@@ -118,7 +116,6 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
         })
 }
 
-// CodSpeed measures the ends of the sweep, its middle, and both sides of codes as long as values.
 const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = if cfg!(codspeed) {
     &[
         (1_000, 10_000),
