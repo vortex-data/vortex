@@ -11900,6 +11900,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-duckdb",
+ "vortex-onpair",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",

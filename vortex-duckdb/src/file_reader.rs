@@ -147,7 +147,11 @@ impl OpenFileReader {
                 reader: file.layout_reader()?,
                 scan_file,
                 v2: OnceLock::new(),
-                cache: ConversionCache::default(),
+                cache: if crate::scan_v2() {
+                    ConversionCache::with_sparse_dictionaries()
+                } else {
+                    ConversionCache::default()
+                },
             })),
             splits: vec![],
             total_splits: 0,
