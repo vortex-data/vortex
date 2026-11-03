@@ -322,7 +322,8 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
     bench_decimal(bencher, lhs, rhs, Operator::Div);
 }
 
-#[vortex_bench_support::cpu_features]
+// The AVX-512 minimum varies by more than 10% while the median stays stable on unchanged code.
+#[vortex_bench_support::cpu_features(exclude = ["avx512"])]
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
