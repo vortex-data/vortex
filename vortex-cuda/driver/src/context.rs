@@ -100,8 +100,8 @@ impl CudaContext {
 
     /// The device with `ordinal`, and whether its allocations can be stream-ordered.
     ///
-    /// Everything that can fail is queried here, before a context is retained or created, so
-    /// that no failure leaves one behind.
+    /// Query capabilities before retaining or creating a context, so a query failure cannot
+    /// leak it. After acquisition, `wrap` establishes ownership before binding can fail.
     fn device(ordinal: usize) -> Result<(sys::CUdevice, bool), DriverError> {
         result::init()?;
         let device = result::device::get(
