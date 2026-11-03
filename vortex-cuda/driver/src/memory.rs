@@ -384,11 +384,12 @@ impl<T> std::fmt::Debug for CudaSlice<T> {
 impl<T> Drop for CudaSlice<T> {
     fn drop(&mut self) {
         let context = self.stream.context();
-        match self.access.before_free(&self.stream) {
-            Ok(()) => context.record_err(self.stream.free_raw(self.pointer)),
-            // Other streams may still access the memory without the waits: leak it instead.
-            Err(error) => context.record_err::<()>(Err(error)),
-        }
+        // If ordering fails, other streams may still access the memory: leak it instead.
+        context.record_err(
+            self.access
+                .before_free(&self.stream)
+                .and_then(|()| self.stream.free_raw(self.pointer)),
+        );
         self.access.release(context);
     }
 }
@@ -978,28 +979,25 @@ pub trait HostSlice<T> {
 /// Copies read and write page-locked memory asynchronously, so the guard waits for them. The
 /// driver stages copies of pageable memory, which no longer read the slice once enqueued.
 fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
-    // The caller may be on a thread with no current CUDA context. A binding failure says
-    // nothing about the pointer, so record it and wait conservatively.
-    if let Err(error) = stream.make_current() {
-        stream.context().record_err::<()>(Err(error));
-        return SyncOnDrop::wait_for(stream);
-    }
-
     let mut memory_type: c_uint = 0;
-    let mut attributes = [sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE];
-    let mut data = [(&raw mut memory_type).cast()];
-    // The plural API succeeds with a zero memory type for unregistered pageable pointers.
-    // The singular API returns INVALID_VALUE, which Compute Sanitizer reports even if handled.
-    // SAFETY: The context is current; both arrays have one entry and the output is writable.
-    let result = unsafe {
-        sys::cuPointerGetAttributes(
-            1,
-            attributes.as_mut_ptr(),
-            data.as_mut_ptr(),
-            slice.as_ptr() as sys::CUdeviceptr,
-        )
-    }
-    .result();
+    let mut attribute = sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE;
+    let mut data = (&raw mut memory_type).cast();
+
+    let result = stream.make_current().and_then(|()| {
+        // The plural API succeeds with a zero memory type for unregistered pageable pointers.
+        // The singular API returns INVALID_VALUE, which Compute Sanitizer reports even if handled.
+        // SAFETY: The context is current; attribute and data each hold one entry,
+        // and data points to writable memory_type storage.
+        unsafe {
+            sys::cuPointerGetAttributes(
+                1,
+                &raw mut attribute,
+                &raw mut data,
+                slice.as_ptr() as sys::CUdeviceptr,
+            )
+        }
+        .result()
+    });
 
     match result {
         // CUDA accesses pinned host memory directly, without pageable-memory staging.
@@ -1007,7 +1005,7 @@ fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
         Ok(()) if memory_type == sys::CU_MEMORYTYPE_HOST => SyncOnDrop::wait_for(stream),
         Ok(()) => SyncOnDrop::none(),
         Err(error) => {
-            // Context or driver failures do not establish that this memory is pageable.
+            // Neither binding nor query failures establish that the memory is pageable.
             // HostSlice cannot return an error, so record it for the caller and wait conservatively.
             stream.context().record_err::<()>(Err(error));
             SyncOnDrop::wait_for(stream)
@@ -1233,6 +1231,8 @@ impl CudaStream {
             .result()?;
             sys::cuStreamSynchronize(self.cu_stream()).result()?;
         }
+        // The successful synchronization already satisfied a pinned target's same-stream wait.
+        // Avoid synchronizing again on drop, while preserving other-stream waits and recording guards.
         record_target.disarm_wait_for(self);
         Ok(())
     }

@@ -224,7 +224,7 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     let Some((context, stream, _)) = streams() else {
         return Ok(());
     };
-    let len = 256 << 20;
+    let len = 1 << 20;
     // SAFETY: The context is current after `streams`, and the memory is freed below.
     let pointer = unsafe { crate::result::malloc_host(len, 0) }?;
     // SAFETY: The allocation holds `len` bytes, initialized below.

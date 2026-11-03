@@ -190,15 +190,15 @@ impl LaunchArgs<'_> {
             .timing
             .map(|flags| self.stream.record_event(Some(flags)))
             .transpose();
-        let mut tracked = Ok(());
-        for access in &self.accesses {
-            let recorded = access
-                .access
-                .after_or_wait(access.owner, self.stream, access.kind);
-            if tracked.is_ok() {
-                tracked = recorded;
-            }
-        }
+        let tracked = self
+            .accesses
+            .iter()
+            .map(|access| {
+                access
+                    .access
+                    .after_or_wait(access.owner, self.stream, access.kind)
+            })
+            .fold(Ok(()), Result::and);
         tracked?;
         Ok(start.zip(end?))
     }

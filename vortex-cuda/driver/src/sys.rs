@@ -127,9 +127,6 @@ impl CUpointer_attribute {
     pub const CU_POINTER_ATTRIBUTE_MEMORY_TYPE: Self = Self(2);
 }
 
-/// The pointer attribute type under the name of the driver header's enum.
-pub type CUpointer_attribute_enum = CUpointer_attribute;
-
 pub const CU_MEMORYTYPE_HOST: c_uint = 0x1;
 
 pub const CU_STREAM_NON_BLOCKING: c_uint = 0x1;
