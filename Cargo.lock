@@ -11697,11 +11697,6 @@ dependencies = [
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
- "arrow-arith 59.3.2",
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-cast 59.3.2",
- "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -12409,7 +12404,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-row 59.3.2",
- "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
