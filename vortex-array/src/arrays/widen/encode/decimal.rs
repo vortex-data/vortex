@@ -97,7 +97,7 @@ impl WidenArray {
     /// without reading its values. This also lets device buffers stay on the device. Otherwise,
     /// child selection follows [`Self::encode_decimal`], keeping the logical dtype and validity.
     /// We reuse buffers at the selected width and convert other widths without rescaling.
-    /// Narrowing zeroes null slots.
+    /// A narrowing copy writes zeros in null slots. A reused buffer keeps its null slots.
     ///
     /// Scanning and conversion use CPU kernels, so noncanonical buffers are brought to the host.
     /// Their validity **must** already be executable on the host because these kernels need a mask

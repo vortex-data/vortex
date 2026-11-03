@@ -11,4 +11,5 @@ mod decimal;
 pub(crate) use decimal::smallest_decimal_dtype;
 
 mod integer;
+pub(super) use integer::integer_extrema;
 pub(super) use integer::smallest_integer_ptype;

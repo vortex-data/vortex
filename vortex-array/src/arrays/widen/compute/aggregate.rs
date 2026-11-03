@@ -86,6 +86,8 @@ fn aggregate_decimal(
         return Ok(Some(partial));
     }
 
+    // D36 defines the decimal allowlist. Registrations cover the encoding, not the dtype, so
+    // every other decimal aggregate must keep the default path.
     if !(aggregate_fn.is::<MinMax>()
         || aggregate_fn.is::<Min>()
         || aggregate_fn.is::<Max>()

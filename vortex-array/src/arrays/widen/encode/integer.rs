@@ -16,6 +16,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::WidenArray;
@@ -74,17 +75,7 @@ fn narrow_values(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<
 
     // An array without valid values fits any type, and the bounds `0..=0` select the 1-byte type.
     let bounds = match min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())? {
-        Some(bounds) => {
-            let [min, max] = [bounds.min, bounds.max].map(|bound| {
-                bound
-                    .as_primitive()
-                    .pvalue()
-                    .and_then(PValue::as_i128)
-                    .vortex_expect("min_max of an integer array returns non-null integer extrema")
-            });
-
-            min..=max
-        }
+        Some(bounds) => integer_extrema(bounds),
         None => 0..=0,
     };
     let Some(stored_ptype) = smallest_integer_ptype(bounds, ptype.is_signed_int())
@@ -98,6 +89,21 @@ fn narrow_values(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<
         .into_array()
         .cast(stored_dtype)?
         .execute::<PrimitiveArray>(ctx)
+}
+
+/// Widens integer extrema to `i128`, which holds every integer [`PValue`] exactly.
+///
+/// Both extrema **must** be non-null integers, as returned by [`min_max`] on an integer array.
+pub(in crate::arrays::widen) fn integer_extrema(bounds: MinMaxResult) -> RangeInclusive<i128> {
+    let [min, max] = [bounds.min, bounds.max].map(|bound| {
+        bound
+            .as_primitive()
+            .pvalue()
+            .and_then(PValue::as_i128)
+            .vortex_expect("min_max of an integer array returns non-null integer extrema")
+    });
+
+    min..=max
 }
 
 /// Returns the smallest integer type with the given signedness that holds every value in `bounds`,
