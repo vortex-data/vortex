@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
-use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use arrow_array::ffi_stream::RecordBatchStreamReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -502,7 +502,7 @@ fn try_arrow_stream_to_iterator(
 
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
-        let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
+        let arrow_stream = RecordBatchStreamReader::from_pyarrow(ob)?;
         let dtype = session()
             .arrow()
             .from_arrow_schema(arrow_stream.schema().as_ref())
