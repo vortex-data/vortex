@@ -213,22 +213,22 @@ mod tests {
 
     #[test]
     fn nested_constant_field_reduces_through_select_and_storage() -> VortexResult<()> {
-        static EXT_ID: CachedId = CachedId::new("test.struct_storage");
+        static EXT_ID: CachedId = CachedId::new("test.measurement");
         let storage_array = StructArray::from_fields(&[(
-            "frame",
+            "value",
             ConstantArray::new(42i32, 1).into_array(),
         )])?;
         let storage = Scalar::struct_(storage_array.dtype().clone(), [Scalar::from(42i32)]);
         let dtype = ForeignExtDType::from_parts(*EXT_ID, vec![], storage.dtype().clone())?;
-        let video = Scalar::extension_ref(dtype, storage);
+        let measurement = Scalar::extension_ref(dtype, storage);
         let array = StructArray::from_fields(&[
-            ("video", ConstantArray::new(video, 3).into_array()),
+            ("measurement", ConstantArray::new(measurement, 3).into_array()),
             ("other", buffer![1i32, 2, 3].into_array()),
         ])?
         .into_array();
         let expr = get_item(
-            "frame",
-            ext_storage(get_item("video", select(["video"], root()))),
+            "value",
+            ext_storage(get_item("measurement", select(["measurement"], root()))),
         );
 
         let result = array.apply(&expr)?;
