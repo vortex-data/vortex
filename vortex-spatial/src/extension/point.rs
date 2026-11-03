@@ -9,7 +9,6 @@
 //! measure, such as distance along a route or a timestamp.
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -21,7 +20,6 @@ use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PointType;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
@@ -248,20 +246,13 @@ impl ArrowExtVTable for Point {
 
     fn from_arrow_array(
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         ext_dtype: &ExtDType<Self>,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        if field.try_extension_type::<PointType>().is_err()
-            || !matches!(array.data_type(), DataType::Struct(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, &ext_dtype.clone().erased())
+            .map(ArrowImport::Imported)
     }
 }
 
