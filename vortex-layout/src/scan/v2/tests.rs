@@ -996,7 +996,11 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     file.cache = Some(cache.clone());
     let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
     let projection = || get_item("ints", root()).bind(layout.dtype());
-    assert!(cache.filter_plans(&filter()?).is_none());
+    assert!(
+        cache
+            .filter_plans(&filter()?, || vortex_bail!("the cache should be empty"))
+            .is_err()
+    );
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -1009,9 +1013,9 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
         assert_eq!(actual.len(), 1_000);
         reads.push(counted.requests() - before);
     }
-    let plans = cache
-        .filter_plans(&filter()?)
-        .expect("the first scan kept its filter plans");
+    let plans = cache.filter_plans(&filter()?, || {
+        vortex_bail!("the first scan should have kept its filter plans")
+    })?;
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
