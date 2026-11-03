@@ -455,15 +455,54 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        // Register splits for the validity child, if there is one
-        if let Some(validity_ref) = self.validity()? {
-            validity_ref.register_splits(field_mask, split_range, splits)?;
-        }
+        // Validity boundaries must stay hard even when they overlap a soft data-field boundary.
+        let validity_boundaries = if let Some(validity_ref) = self.validity()? {
+            let mut validity_splits = RowSplits::new_capacity(16);
+            validity_ref.register_splits(field_mask, split_range, &mut validity_splits)?;
+            validity_splits.into_sorted_deduped()
+        } else {
+            Vec::new()
+        };
+        splits.extend_ascending(validity_boundaries.iter().copied());
 
+        // Each field's boundaries, kept apart so the ones only some fields have can be marked soft.
+        let mut fields: Vec<RowSplits> = Vec::new();
         self.layout.matching_fields(field_mask, |mask, idx| {
+            let mut field = RowSplits::new_capacity(16);
             self.field_reader_by_index(idx)?
-                .register_splits(&[mask], split_range, splits)
+                .register_splits(&[mask], split_range, &mut field)?;
+            fields.push(field);
+            Ok(())
         })?;
+        let mut field_splits = RowSplits::new_capacity(0);
+        if let [field] = &mut fields[..] {
+            field_splits = std::mem::replace(field, RowSplits::new_capacity(0));
+        } else if !fields.is_empty() {
+            let fields: Vec<(Vec<u64>, Vec<u64>)> = fields
+                .into_iter()
+                .map(RowSplits::into_sorted_deduped_with_soft)
+                .collect();
+            // Intersect once; checking every field for every boundary is quadratic in field count.
+            let mut shared = fields[0].0.clone();
+            for (boundaries, _) in &fields[1..] {
+                shared.retain(|row| boundaries.binary_search(row).is_ok());
+                if shared.is_empty() {
+                    break;
+                }
+            }
+            for (boundaries, soft) in fields.iter() {
+                field_splits.extend_ascending(boundaries.iter().copied());
+                field_splits.mark_soft(soft.iter().copied());
+                field_splits.mark_soft(
+                    boundaries
+                        .iter()
+                        .copied()
+                        .filter(|row| shared.binary_search(row).is_err()),
+                );
+            }
+        }
+        field_splits.remove_soft(&validity_boundaries);
+        splits.append(field_splits);
 
         // In the case of an empty struct, we need to register the end split. Pushed last so it
         // extends the final field's ascending run rather than starting a run of its own.
@@ -611,7 +650,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::RESERVED_VALIDITY_FIELD_NAME;
@@ -644,11 +685,16 @@ mod tests {
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::RowSplits;
+    use crate::SplitRange;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::repartition::RepartitionStrategy;
+    use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::scan::split_by::SplitBy;
     use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
@@ -731,6 +777,148 @@ mod tests {
         .unwrap();
 
         (segments, layout)
+    }
+
+    /// A leaf writer that chunks every `rows` rows.
+    fn chunked_every(rows: usize) -> Arc<dyn LayoutStrategy> {
+        Arc::new(RepartitionStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            RepartitionWriterOptions {
+                block_size_minimum: 0,
+                block_len_multiple: rows,
+                block_size_target: None,
+                canonicalize: false,
+            },
+        ))
+    }
+
+    /// A struct of 12,000 rows whose field `a` chunks every 1,000 rows and `b` every 3,000,
+    /// written in `pieces` pushes. With `chunked`, the struct is itself a chunk of a chunked layout
+    /// per push.
+    fn misaligned_struct_layout(
+        pieces: usize,
+        chunked: bool,
+        nullable: bool,
+    ) -> (Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let table = TableStrategy::new(chunked_every(2000), chunked_every(1000))
+            .with_field_writer(FieldPath::from_name("b"), chunked_every(3000));
+        let strategy: Arc<dyn LayoutStrategy> = if chunked {
+            Arc::new(ChunkedLayoutStrategy::new(table))
+        } else {
+            Arc::new(table)
+        };
+        let rows = 12_000 / pieces;
+        let chunks: Vec<ArrayRef> = (0..pieces)
+            .map(|piece| {
+                let start = i32::try_from(piece * rows).unwrap();
+                let end = start + i32::try_from(rows).unwrap();
+                StructArray::try_from_iter_with_validity(
+                    [
+                        ("a", PrimitiveArray::from_iter(start..end).into_array()),
+                        ("b", PrimitiveArray::from_iter(start..end).into_array()),
+                    ],
+                    if nullable {
+                        Validity::Array(
+                            BoolArray::from_iter((start..end).map(|row| row % 2 == 0)).into_array(),
+                        )
+                    } else {
+                        Validity::NonNullable
+                    },
+                )
+                .unwrap()
+                .into_array()
+            })
+            .collect();
+        let dtype = chunks[0].dtype().clone();
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx.into(),
+                    segments2,
+                    ChunkedArray::try_new(chunks, dtype)
+                        .unwrap()
+                        .into_array()
+                        .to_array_stream()
+                        .sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+        (segments, layout)
+    }
+
+    /// Registers `layout`'s boundaries over its rows, as a scan does.
+    fn boundaries_and_soft(
+        segments: Arc<dyn SegmentSource>,
+        layout: &LayoutRef,
+    ) -> (Vec<u64>, Vec<u64>) {
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
+        let mut splits = RowSplits::new_capacity(16);
+        splits.push(0);
+        reader
+            .register_splits(
+                &[FieldMask::All],
+                &SplitRange::root(0..reader.row_count()).unwrap(),
+                &mut splits,
+            )
+            .unwrap();
+        splits.into_sorted_deduped_with_soft()
+    }
+
+    #[test]
+    fn boundaries_only_some_fields_have_are_soft() {
+        let (segments, layout) = misaligned_struct_layout(1, false, false);
+        let (boundaries, soft) = boundaries_and_soft(segments, &layout);
+        // `a` chunks every 1,000 rows and `b` every 3,000, so only `b`'s are shared.
+        assert_eq!(boundaries, (0..=12).map(|k| k * 1000).collect::<Vec<u64>>());
+        assert_eq!(
+            soft,
+            (1..12)
+                .filter(|k| k % 3 != 0)
+                .map(|k| k * 1000)
+                .collect::<Vec<u64>>()
+        );
+    }
+
+    #[test]
+    fn chunk_ends_above_the_struct_stay_hard() {
+        // Two top-level chunks of 6,000 rows, each a struct whose `a` chunks every 1,000 rows and
+        // `b` every 3,000: the top-level chunk end at 6,000 is every column's, so it stays hard.
+        let (segments, layout) = misaligned_struct_layout(2, true, false);
+        let (boundaries, soft) = boundaries_and_soft(segments, &layout);
+        assert_eq!(boundaries, (0..=12).map(|k| k * 1000).collect::<Vec<u64>>());
+        assert!(!soft.contains(&6000), "the chunk end is soft: {soft:?}");
+        assert!(!soft.contains(&3000) && !soft.contains(&9000), "{soft:?}");
+        assert!(soft.contains(&1000) && soft.contains(&7000), "{soft:?}");
+    }
+
+    #[rstest]
+    #[case::non_nullable(false, vec![0, 3000, 6000, 9000, 12000])]
+    #[case::nullable(true, vec![0, 2000, 3000, 4000, 6000, 8000, 9000, 10000, 12000])]
+    fn scan_merges_soft_boundaries_and_keeps_validity_boundaries(
+        #[case] nullable: bool,
+        #[case] expected: Vec<u64>,
+    ) -> VortexResult<()> {
+        let (segments, layout) = misaligned_struct_layout(1, false, nullable);
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        assert_eq!(
+            SplitBy::default().splits(
+                reader.as_ref(),
+                &(0..reader.row_count()),
+                &[FieldMask::All],
+            )?,
+            expected,
+        );
+        Ok(())
     }
 
     #[fixture]

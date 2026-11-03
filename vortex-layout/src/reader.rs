@@ -100,12 +100,18 @@ impl SplitRange {
 /// starts a new run. A run that exactly repeats the previous surviving run — common when sibling
 /// columns share chunk boundaries — is dropped as it completes, and the final sort is skipped
 /// when only a single run survives (the boundaries are then already ascending).
+///
+/// A boundary can also be marked soft: one that only some of a struct's fields have. A split there
+/// lets the fields that chunk across it decode the same chunk in two splits, so the scan may merge
+/// it away (see [`crate::scan::split_by::SplitBy::LayoutSubSplitting`]).
 pub struct RowSplits {
     splits: Vec<u64>,
     /// Start index of the run currently being appended.
     run_start: usize,
     /// Start index of the surviving run immediately before `run_start`.
     prev_run_start: usize,
+    /// Boundaries marked soft, unsorted and possibly repeated.
+    soft: Vec<u64>,
 }
 
 impl RowSplits {
@@ -162,13 +168,43 @@ impl RowSplits {
         self.splits.reserve(additional);
     }
 
+    /// Mark boundaries soft: ones that only some fields of a struct have. They must also be
+    /// pushed.
+    pub fn mark_soft(&mut self, rows: impl IntoIterator<Item = u64>) {
+        self.soft.extend(rows);
+    }
+
+    /// Push `other`'s boundaries into this set as a batch, keeping its soft marks.
+    pub(crate) fn append(&mut self, mut other: RowSplits) {
+        let soft = std::mem::take(&mut other.soft);
+        self.extend_ascending(other.into_sorted_deduped());
+        self.soft.extend(soft);
+    }
+
+    /// Remove soft marks at the supplied sorted boundaries.
+    pub(crate) fn remove_soft(&mut self, rows: &[u64]) {
+        debug_assert!(rows.is_sorted());
+        if !rows.is_empty() {
+            self.soft.retain(|row| rows.binary_search(row).is_err());
+        }
+    }
+
     /// Create a new RowSplits with preallocated "capacity"
     pub(crate) fn new_capacity(capacity: usize) -> Self {
         Self {
             splits: Vec::with_capacity(capacity),
             run_start: 0,
             prev_run_start: 0,
+            soft: Vec::new(),
         }
+    }
+
+    /// The sorted, deduplicated boundaries, and the sorted soft ones among them.
+    pub(crate) fn into_sorted_deduped_with_soft(mut self) -> (Vec<u64>, Vec<u64>) {
+        let mut soft = std::mem::take(&mut self.soft);
+        soft.sort_unstable();
+        soft.dedup();
+        (self.into_sorted_deduped(), soft)
     }
 
     pub(crate) fn into_sorted_deduped(mut self) -> Vec<u64> {
