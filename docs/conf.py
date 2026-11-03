@@ -33,6 +33,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "vortex_theme",
+    "vortex_site_files",
 ]
 
 templates_path = ["_templates"]
@@ -87,6 +88,10 @@ html_theme_path = ["_theme"]
 html_baseurl = "https://docs.vortex.dev/"
 html_static_path = ["_static", "_build/_gen_static"]
 html_favicon = "_static/vortex_logo.svg"  # relative to _static/
+# Copied to the site root: robots.txt, and favicon.ico for clients that ignore the icon link.
+html_extra_path = ["_extra"]
+# Pages are served without `.html`. vortex_site_files sets the page links; this sets the search results'.
+html_link_suffix = ""
 
 os.makedirs(Path(__file__).parent / "_build" / "_gen_static", exist_ok=True)
 

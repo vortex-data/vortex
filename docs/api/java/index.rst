@@ -13,8 +13,8 @@ The API is split into two main components:
    <div class="api-links">
    <h3>API Documentation</h3>
    <ul>
-     <li><a href="../../_static/vortex-jni/index.html">Vortex JNI API</a> - Core Java bindings for Vortex</li>
-     <li><a href="../../_static/vortex-spark/index.html">Vortex Spark API</a> - Apache Spark integration</li>
+     <li><a href="../../_static/vortex-jni/">Vortex JNI API</a> - Core Java bindings for Vortex</li>
+     <li><a href="../../_static/vortex-spark/">Vortex Spark API</a> - Apache Spark integration</li>
    </ul>
    </div>
 
