@@ -4,6 +4,7 @@
 //! Protobuf serialization for [`FixedShapeTensorMetadata`].
 
 use prost::Message;
+use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -62,11 +63,15 @@ pub(crate) fn serialize(metadata: &FixedShapeTensorMetadata) -> Vec<u8> {
     proto.encode_to_vec()
 }
 
-/// Deserializes [`FixedShapeTensorMetadata`] from protobuf bytes.
+/// Deserializes [`FixedShapeTensorMetadata`] from protobuf bytes and the element type, which the
+/// bytes leave out.
 ///
 /// For 0-dimensional tensors, all three repeated fields are empty, which correctly produces a
 /// metadata with an empty shape and no names or permutation.
-pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata> {
+pub(crate) fn deserialize(
+    bytes: &[u8],
+    element_ptype: PType,
+) -> VortexResult<FixedShapeTensorMetadata> {
     let proto = FixedShapeTensorMetadataProto::decode(bytes).map_err(|e| vortex_err!("{e}"))?;
 
     let logical_shape = proto
@@ -74,7 +79,7 @@ pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata
         .into_iter()
         .map(|d| d as usize)
         .collect();
-    let mut m = FixedShapeTensorMetadata::new(logical_shape);
+    let mut m = FixedShapeTensorMetadata::new(element_ptype, logical_shape);
 
     // Note that this is fine for 0 dimensions since if we do not have any dimensions, we cannot
     // have any names or permutations.

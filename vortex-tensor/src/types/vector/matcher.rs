@@ -1,29 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::dtype::DType;
+use std::fmt;
+
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::Matcher;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 
 use crate::types::vector::Vector;
 
 pub struct AnyVector;
 
-/// Convenience metadata for vectors.
+/// The metadata of the [`Vector`] type: its element type and number of dimensions.
 ///
-/// Unlike `FixedShapeTensor`, the [`Vector`] type has `EmptyMetadata` as its metadata because all
-/// of the important information is already stored in the dtype.
-///
-/// However, it is quite inconvenient to repeatedly unwrap the dtype to get the element type of the
-/// vector and the number of dimensions.
-///
-/// Thus, we allow the matcher to return this metadata so that we can access this information more
-/// easily.
+/// The serialized metadata is empty, because the storage dtype holds both facts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct VectorMatcherMetadata {
     /// The element type of the vectors. Note that vector elements are _always_ non-nullable.
@@ -39,27 +31,7 @@ impl Matcher for AnyVector {
     type Match<'a> = VectorMatcherMetadata;
 
     fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        if !ext_dtype.is::<Vector>() {
-            return None;
-        }
-
-        let DType::FixedSizeList(element_dtype, list_size, _) = ext_dtype.storage_dtype() else {
-            vortex_panic!("`Vector` type somehow did not have a `FixedSizeList` storage type")
-        };
-
-        let dimensions = *list_size;
-
-        assert!(element_dtype.is_float(), "element dtype must be float");
-        assert!(
-            !element_dtype.is_nullable(),
-            "element dtype must be non-nullable"
-        );
-        let element_ptype = element_dtype.as_ptype();
-
-        let vector_metadata = VectorMatcherMetadata::try_new(element_ptype, dimensions)
-            .vortex_expect("`Vector` type somehow did not have float elements");
-
-        Some(vector_metadata)
+        ext_dtype.metadata_opt::<Vector>().copied()
     }
 }
 
@@ -70,7 +42,10 @@ impl VectorMatcherMetadata {
     ///
     /// Returns an error if the element type is not a float.
     pub fn try_new(element_ptype: PType, dimensions: u32) -> VortexResult<Self> {
-        vortex_ensure!(element_ptype.is_float());
+        vortex_ensure!(
+            element_ptype.is_float(),
+            "Vector element type must be a float, got {element_ptype}"
+        );
 
         Ok(Self {
             element_ptype,
@@ -89,12 +64,16 @@ impl VectorMatcherMetadata {
     }
 }
 
+/// Prints nothing, like the serialized metadata, because a printed dtype already shows both facts
+/// in its storage dtype.
+impl fmt::Display for VectorMatcherMetadata {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use vortex_array::EmptyMetadata;
-    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
@@ -104,19 +83,10 @@ mod tests {
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
     use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
 
-    fn vector_storage_dtype(element_ptype: PType, dimensions: u32) -> DType {
-        DType::FixedSizeList(
-            Arc::new(DType::Primitive(element_ptype, Nullability::NonNullable)),
-            dimensions,
-            Nullability::NonNullable,
-        )
-    }
-
     #[test]
     fn matches_vector_dtype_metadata() -> VortexResult<()> {
-        let ext_dtype =
-            ExtDType::<Vector>::try_new(EmptyMetadata, vector_storage_dtype(PType::F32, 256))?
-                .erased();
+        let metadata = VectorMatcherMetadata::try_new(PType::F32, 256)?;
+        let ext_dtype = ExtDType::<Vector>::try_new(metadata, Nullability::NonNullable)?.erased();
 
         let metadata = ext_dtype.metadata::<AnyVector>();
         assert_eq!(metadata.element_ptype(), PType::F32);
@@ -127,8 +97,8 @@ mod tests {
     #[test]
     fn does_not_match_fixed_shape_tensor() -> VortexResult<()> {
         let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(
-            FixedShapeTensorMetadata::new(vec![16, 16]),
-            vector_storage_dtype(PType::F32, 256),
+            FixedShapeTensorMetadata::new(PType::F32, vec![16, 16]),
+            Nullability::NonNullable,
         )?
         .erased();
 

@@ -148,7 +148,6 @@ mod tests {
     use vortex_array::ArrayDeserialization;
     use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
-    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Constant;
@@ -168,6 +167,7 @@ mod tests {
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::tests::SESSION;
     use crate::types::vector::Vector;
+    use crate::types::vector::VectorMatcherMetadata;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::literal_vector_array;
     use crate::utils::test_helpers::tensor_array;
@@ -340,12 +340,8 @@ mod tests {
     /// the correct primitive dtype and length.
     #[test]
     fn constant_null_input_yields_null_constant_output() -> VortexResult<()> {
-        let storage_dtype = DType::FixedSizeList(
-            DType::Primitive(PType::F64, Nullability::NonNullable).into(),
-            2,
-            Nullability::Nullable,
-        );
-        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage_dtype)?.erased();
+        let metadata = VectorMatcherMetadata::try_new(PType::F64, 2)?;
+        let ext_dtype = ExtDType::<Vector>::try_new(metadata, Nullability::Nullable)?.erased();
         let null_scalar = Scalar::null(DType::Extension(ext_dtype));
         let input = ConstantArray::new(null_scalar, 3).into_array();
 

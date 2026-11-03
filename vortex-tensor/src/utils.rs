@@ -212,6 +212,7 @@ pub mod test_helpers {
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
     use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
     use crate::types::vector::Vector;
+    use crate::types::vector::VectorMatcherMetadata;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
     /// inferred from `elements.len() / list_size`.
@@ -238,9 +239,10 @@ pub mod test_helpers {
     pub fn tensor_array<T: NativePType>(shape: &[usize], elements: &[T]) -> VortexResult<ArrayRef> {
         let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
         let storage = flat_fsl(elements, list_size);
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
+        let metadata = FixedShapeTensorMetadata::new(T::PTYPE, shape.to_vec());
         let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
+            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().nullability())?
+                .erased();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
@@ -269,9 +271,10 @@ pub mod test_helpers {
         len: usize,
     ) -> VortexResult<ArrayRef> {
         let storage = ConstantArray::new(fsl_scalar(elements), len).into_array();
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
+        let metadata = FixedShapeTensorMetadata::new(T::PTYPE, shape.to_vec());
         let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
+            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().nullability())?
+                .erased();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
@@ -283,8 +286,9 @@ pub mod test_helpers {
         elements: &[T],
         len: usize,
     ) -> ArrayRef {
-        use vortex_array::EmptyMetadata;
-        let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar(elements));
+        let dimensions = u32::try_from(elements.len()).unwrap();
+        let metadata = VectorMatcherMetadata::try_new(T::PTYPE, dimensions).unwrap();
+        let ext_scalar = Scalar::extension::<Vector>(metadata, fsl_scalar(elements));
         ConstantArray::new(ext_scalar, len).into_array()
     }
 

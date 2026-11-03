@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -37,6 +36,7 @@ use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
 use vortex_tensor::vector::Vector;
+use vortex_tensor::vector::VectorMatcherMetadata;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
@@ -90,7 +90,9 @@ fn constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    let ext_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar);
+    let metadata =
+        VectorMatcherMetadata::try_new(PType::F64, u32::try_from(width).unwrap()).unwrap();
+    let ext_scalar = Scalar::extension::<Vector>(metadata, fsl_scalar);
     ConstantArray::new(ext_scalar, ELEMENTS / width).into_array()
 }
 

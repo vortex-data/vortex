@@ -4,7 +4,6 @@
 //! Vector extension type for fixed-length float vectors (e.g., embeddings).
 
 use vortex_array::ArrayRef;
-use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
@@ -15,27 +14,20 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 
-/// Validates that `storage` is a valid storage dtype for a [`Vector`].
+/// Reads the [`Vector`] metadata from `storage`, a `FixedSizeList` of floats.
 ///
-/// The storage must be a `FixedSizeList<float, dim, nullability>` with non-nullable float
-/// elements. The outer nullability is not constrained.
-pub(crate) fn validate_vector_storage_dtype(storage: &DType) -> VortexResult<()> {
-    let DType::FixedSizeList(element_dtype, _list_size, _nullability) = storage else {
+/// This does not check the element nullability. The [`Vector`] storage dtype declares
+/// non-nullable elements, so the comparison with the declaration rejects nullable ones.
+pub(crate) fn vector_metadata(storage: &DType) -> VortexResult<VectorMatcherMetadata> {
+    let DType::FixedSizeList(element_dtype, dimensions, _nullability) = storage else {
         vortex_bail!("Vector storage dtype must be a FixedSizeList, got {storage}");
     };
+    let DType::Primitive(element_ptype, _) = element_dtype.as_ref() else {
+        vortex_bail!("Vector element dtype must be a float, got {element_dtype}");
+    };
 
-    vortex_ensure!(
-        element_dtype.is_float(),
-        "Vector element dtype must be a float, got {element_dtype}"
-    );
-    vortex_ensure!(
-        !element_dtype.is_nullable(),
-        "Vector element dtype must be non-nullable"
-    );
-
-    Ok(())
+    VectorMatcherMetadata::try_new(*element_ptype, *dimensions)
 }
 
 /// The Vector extension type.
@@ -47,10 +39,10 @@ impl Vector {
     ///
     /// # Errors
     ///
-    /// Returns an error if the [`Vector`] extension dtype rejects the storage array.
+    /// Returns an error if the storage array does not have the [`Vector`] storage dtype.
     pub fn try_new_vector_array(storage: ArrayRef) -> VortexResult<ArrayRef> {
-        ExtensionArray::try_new_from_vtable(Vector, EmptyMetadata, storage)
-            .map(|ext| ext.into_array())
+        let metadata = vector_metadata(storage.dtype())?;
+        ExtensionArray::try_new_from_vtable(Vector, metadata, storage).map(|ext| ext.into_array())
     }
 
     /// Helper function to build a [`Vector`] [`ExtensionArray`] whose storage is a
