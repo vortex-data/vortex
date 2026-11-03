@@ -182,6 +182,7 @@ jobs:
           SCALE: ${{ matrix.scale }}
           BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
           HEAD_SHA: ${{ inputs.head_sha }}
+          QUERY_TIMEOUT_SECONDS: ${{ matrix.id == 'tpcds-50' && '900' || '300' }}
         run: |
           options=()
           if [[ -n "$SCALE" ]]; then
@@ -190,7 +191,7 @@ jobs:
           bash scripts/bench-taskset.sh python3 scripts/compare-scan-versions.py "$SUITE" \
             --base-dir target/scan-comparison/base --head-dir target/scan-comparison/head \
             --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" \
-            --iterations 7 --warmup 2 --rounds 2 --query-timeout 300 \
+            --iterations 7 --warmup 2 --rounds 2 --query-timeout "$QUERY_TIMEOUT_SECONDS" \
             --output-dir scan-comparison-results "${options[@]}"
       - name: Publish comparison summary
         if: always()
