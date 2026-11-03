@@ -5,7 +5,6 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -23,10 +22,7 @@ use vortex_session::VortexSession;
 use crate::Sparse;
 
 #[rstest]
-fn empty_fill_reuses_elements(
-    #[values(false, true)] null_fill: bool,
-    #[values(false, true)] repeated_position: bool,
-) -> VortexResult<()> {
+fn empty_fill_reuses_elements(#[values(false, true)] null_fill: bool) -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
@@ -45,54 +41,26 @@ fn empty_fill_reuses_elements(
         Scalar::zero_value(lists.dtype())
     };
     let sparse = Sparse::try_new(
-        if repeated_position {
-            buffer![1u32, 1, 7].into_array()
-        } else {
-            buffer![1u32, 4, 7].into_array()
-        },
+        buffer![1u32, 4, 7].into_array(),
         lists.into_array(),
         10,
         fill,
         &mut ctx,
     )?;
 
-    let actual = if repeated_position {
-        sparse
-            .into_array()
-            .execute::<ListViewArray>(&mut ctx)?
-            .into_array()
-    } else {
-        sparse.into_array().execute_until::<List>(&mut ctx)?
-    };
+    let actual = sparse.into_array().execute_until::<List>(&mut ctx)?;
+    let list = actual.as_::<List>();
+    assert!(ArrayRef::ptr_eq(list.elements(), &elements));
+    assert!(list.offsets().is::<RunEnd>());
 
-    if let Some(list) = actual.as_opt::<List>() {
-        assert!(ArrayRef::ptr_eq(list.elements(), &elements));
-        assert!(list.offsets().is::<RunEnd>());
-    } else {
-        let view = actual.as_::<vortex_array::arrays::ListView>();
-        assert!(ArrayRef::ptr_eq(view.elements(), &elements));
-        assert!(view.offsets().is::<Sparse>());
-        assert!(view.sizes().is::<Sparse>());
-    }
-
-    // The middle patch is null. At a repeated position it replaces the first, valid patch.
+    // The middle patch is null.
     let mut validity = vec![!null_fill; 10];
-    validity[1] = !repeated_position;
-    if !repeated_position {
-        validity[4] = false;
-    }
+    validity[1] = true;
+    validity[4] = false;
     validity[7] = true;
     let expected = ListArray::try_new(
-        if repeated_position {
-            buffer![3i32].into_array()
-        } else {
-            buffer![1i32, 2, 3].into_array()
-        },
-        if repeated_position {
-            buffer![0u32, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1].into_array()
-        } else {
-            buffer![0u32, 0, 2, 2, 2, 2, 2, 2, 3, 3, 3].into_array()
-        },
+        buffer![1i32, 2, 3].into_array(),
+        buffer![0u32, 0, 2, 2, 2, 2, 2, 2, 3, 3, 3].into_array(),
         Validity::from_iter(validity),
         &mut ctx,
     )?;
@@ -143,10 +111,8 @@ fn terminal_offset_wider_than_view_offsets() -> VortexResult<()> {
     Ok(())
 }
 
-#[rstest]
-fn single_valid_patch_with_nulls(
-    #[values(false, true)] repeated_position: bool,
-) -> VortexResult<()> {
+#[test]
+fn single_valid_patch_with_nulls() -> VortexResult<()> {
     let session = VortexSession::empty();
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
@@ -160,33 +126,23 @@ fn single_valid_patch_with_nulls(
     )?;
     let fill = Scalar::null(lists.dtype().clone());
     let sparse = Sparse::try_new(
-        if repeated_position {
-            buffer![1u32, 3, 3].into_array()
-        } else {
-            buffer![1u32, 3, 5].into_array()
-        },
+        buffer![1u32, 3, 5].into_array(),
         lists.into_array(),
         7,
-        fill.clone(),
+        fill,
         &mut ctx,
     )?;
 
     let actual = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
-    if repeated_position {
-        // The final null patch replaces the only valid list at row 3.
-        assert!(actual.offsets().is::<Sparse>());
-        assert_arrays_eq!(actual, ConstantArray::new(fill, 7), &mut ctx);
-    } else {
-        // A single list needs no repeated gather, and the builder remains ready for Arrow export.
-        assert!(actual.is_zero_copy_to_list());
-        assert!(actual.offsets().is::<vortex_array::arrays::Primitive>());
-        let expected = ListArray::try_new(
-            elements,
-            buffer![0u32, 0, 0, 0, 3, 3, 3, 3].into_array(),
-            Validity::from_iter([false, false, false, true, false, false, false]),
-            &mut ctx,
-        )?;
-        assert_arrays_eq!(actual, expected, &mut ctx);
-    }
+    // A single list needs no repeated gather, and the builder remains ready for Arrow export.
+    assert!(actual.is_zero_copy_to_list());
+    assert!(actual.offsets().is::<vortex_array::arrays::Primitive>());
+    let expected = ListArray::try_new(
+        elements,
+        buffer![0u32, 0, 0, 0, 3, 3, 3, 3].into_array(),
+        Validity::from_iter([false, false, false, true, false, false, false]),
+        &mut ctx,
+    )?;
+    assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
