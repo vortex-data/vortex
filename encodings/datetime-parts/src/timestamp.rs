@@ -44,19 +44,6 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
     })
 }
 
-/// Returns whether the timestamp's days can use the array splitter's `i32` buffer.
-pub(crate) fn days_fit_i32(timestamp: i64, time_unit: TimeUnit) -> bool {
-    let ticks_per_second = match time_unit {
-        TimeUnit::Nanoseconds => 1_000_000_000,
-        TimeUnit::Microseconds => 1_000_000,
-        TimeUnit::Milliseconds => 1_000,
-        TimeUnit::Seconds => 1,
-        TimeUnit::Days => return false,
-    };
-
-    i32::try_from(timestamp / (SECONDS_PER_DAY * ticks_per_second)).is_ok()
-}
-
 /// Splits a Unix timestamp into parts using a constant divisor.
 #[inline]
 pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> TimestampParts {
