@@ -32,6 +32,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use super::eval::is_field_path;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
@@ -291,6 +292,30 @@ fn validate_validity_child(expected_row_count: u64, child: &PlanRef) -> VortexRe
 }
 
 impl PackPlan {
+    /// The plan of `path`, a chain of field accesses such as `$.a.b` over this non-nullable
+    /// pack, stepped into the plan of its first field.
+    pub(crate) fn field_path_plan(&self, path: &BoundExpression) -> VortexResult<PlanRef> {
+        let mut first = path;
+        while let [child] = first.children()
+            && !child.is_root()
+        {
+            first = child;
+        }
+        let Some(name) = first.as_opt::<GetItem>() else {
+            return Ok(EvalPlan::try_new(path.clone(), self.to_plan())?.into_plan());
+        };
+        let index = self
+            .fields()
+            .find(name)
+            .ok_or_else(|| vortex_err!("Struct expression references unknown field '{name}'"))?;
+        let field = field_plan(self, index)?;
+        let lowered = step_into_struct_field(path.clone(), name, field.dtype().clone())?;
+        if lowered.is_root() {
+            return Ok(field);
+        }
+        Ok(EvalPlan::try_new(lowered, field)?.into_plan())
+    }
+
     /// Rebuilds this plan with only `fields`, which must be a subset of the current fields.
     ///
     /// Pruning is only sound for a non-nullable struct: dropping a field of a nullable struct
@@ -338,6 +363,11 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         }
 
         let expression = parent.expression();
+        // A field path steps straight into its field's plan, without the annotation of every
+        // field that a general expression needs.
+        if !expression.is_root() && is_field_path(expression) {
+            return Ok(Some(child.field_path_plan(expression)?));
+        }
         let fields = child.fields();
         let referenced_fields =
             descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
