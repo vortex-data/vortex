@@ -272,6 +272,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
@@ -399,6 +400,32 @@ mod tests {
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         let optimized = expr.optimize()?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Both slices share the codes `[1, 1, 1]`, so the codes pull-up divides the two values
+    /// arrays. The divisor still holds the unreferenced `0`, which no row divides by, so the
+    /// result must be `[8, 8, 8] / [2, 2, 2]`.
+    #[test]
+    fn codes_pull_up_skips_fallible_fn_over_unreferenced_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dividend = DictArray::try_new(
+            buffer![0u8, 1, 1, 1].into_array(),
+            buffer![7i32, 8].into_array(),
+        )?
+        .into_array()
+        .slice(1..4)?;
+        let divisor = DictArray::try_new(
+            buffer![0u8, 1, 1, 1].into_array(),
+            buffer![0i32, 2].into_array(),
+        )?
+        .into_array()
+        .slice(1..4)?;
+        let expr = Binary::try_new(dividend, divisor, Operator::Div)?.into_array();
+
+        let quotient = expr.optimize()?.execute::<Canonical>(&mut ctx)?;
+
+        assert_arrays_eq!(quotient, PrimitiveArray::from_iter([4i32, 4, 4]), &mut ctx);
         Ok(())
     }
 }

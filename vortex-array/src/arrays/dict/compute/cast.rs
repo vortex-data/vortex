@@ -51,9 +51,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Dict;
@@ -221,5 +223,21 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]), ctx);
+    }
+
+    /// Slicing keeps the whole dictionary, so the value `1000` stays in `values` although no
+    /// remaining row references it. The cast must only consider the rows: `[1, 1, 1]` fits in i8.
+    #[test]
+    fn test_cast_dict_after_slice_ignores_unreferenced_values() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let dict = dict_encode(&buffer![1000i64, 1, 1, 1].into_array(), ctx)?;
+        let rows = dict.into_array().slice(1..4)?;
+
+        let casted = rows
+            .cast(DType::Primitive(PType::I8, Nullability::NonNullable))?
+            .execute::<Canonical>(ctx)?;
+
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i8, 1, 1]), ctx);
+        Ok(())
     }
 }
