@@ -75,6 +75,8 @@ use crate::Sparse;
 use crate::SparseExt;
 use crate::SparseParts;
 
+mod lists;
+
 /// The pieces every string decode of a sparse array starts from: the offset-resolved patch
 /// indices and canonical patch values, plus the fill value's bytes (`None` for a null fill).
 struct SparseStringParts {
@@ -381,14 +383,31 @@ fn execute_sparse_lists(
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let fill_list = fill_value.as_list();
 
-    // Flatten the patch views up front so that runs of them can be appended as slices below. An
-    // exact layout also trims `elements` to exactly what the patches reference, so the patch half
-    // of the count below is what the builder will actually hold rather than an over-estimate.
+    // Make the patch views contiguous and trim unused elements once. Empty-fill decoding can
+    // share those elements directly; the nonempty-fill builder below can append contiguous
+    // patch runs and use the exact element count when choosing an offset width.
     let values = resolved
         .values()
         .clone()
         .downcast::<ListView>()
         .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+
+    // Keep the builder for at most one valid list: there is no repeated element gather to
+    // avoid, and constructing run-end offsets would add setup work. Duplicate positions still
+    // need the metadata path to preserve last-patch-wins semantics.
+    let patch_validity = values.listview_validity().execute_mask(values.len(), ctx)?;
+    let use_shared_elements = patch_validity.true_count() > 1
+        || match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .windows(2)
+                .any(|pair| pair[0] == pair[1])
+        });
+
+    // Null lists also have no elements, so null and empty fills take the same path.
+    if fill_list.is_empty() && use_shared_elements {
+        return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
+    }
 
     // Each gap between patches is appended as one constant array, whose canonical form points
     // every view at a single copy of the fill value, so a gap costs the fill value's elements once
@@ -403,6 +422,7 @@ fn execute_sparse_lists(
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
+                &patch_validity,
                 fill_value,
                 values_dtype,
                 len,
@@ -418,6 +438,7 @@ fn execute_sparse_lists(
 fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
+    patch_validity: &Mask,
     fill_value: &Scalar,
     values_dtype: Arc<DType>,
     len: usize,
@@ -437,12 +458,6 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     // The fill's elements become an array once, up front. Every gap then appends that same array,
     // so the fill's elements are stored once for the whole result however many gaps reference them.
     let fill_elements = list_scalar_elements_array(fill_value.as_list(), ctx.allocator());
-
-    // One mask for the whole patch array rather than a validity lookup per patch.
-    let patch_validity = patch_values
-        .listview_validity()
-        .execute_mask(patch_values.len(), ctx)
-        .vortex_expect("sparse list validity mask failed to execute");
 
     let mut next_index = 0;
 
