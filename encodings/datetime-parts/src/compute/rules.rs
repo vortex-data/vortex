@@ -202,6 +202,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
@@ -297,15 +298,15 @@ mod tests {
     #[case::eq(Operator::Eq, false)]
     #[case::not_eq(Operator::NotEq, true)]
     #[case::gt(Operator::Gt, false)]
+    #[case::gte(Operator::Gte, false)]
     fn test_midnight_comparison_beyond_narrowed_days(
         #[case] op: Operator,
         #[case] expected: bool,
     ) -> VortexResult<()> {
-        let dtype = dtp_at_midnight(&[0], TimeUnit::Microseconds)
-            .dtype()
-            .clone();
         let narrowed = DateTimeParts::try_new(
-            dtype,
+            DType::Extension(
+                Timestamp::new(TimeUnit::Microseconds, Nullability::NonNullable).erased(),
+            ),
             PrimitiveArray::from_iter([20_000u16, 20_001]).into_array(),
             ConstantArray::new(0u8, 2).into_array(),
             ConstantArray::new(0u8, 2).into_array(),
