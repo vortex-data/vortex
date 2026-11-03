@@ -121,7 +121,6 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
         let in_flight = self.in_flight;
-        let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -149,22 +148,30 @@ impl ScanDriver {
                 )
             })
             .flatten_unordered(initial_count);
-        let (chunk_handle, chunk_io, chunk_map) =
-            (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
-        let batches = run_stream(self.handle, root, scope, Arc::clone(&io), map, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    Arc::clone(&chunk_io),
-                    Arc::clone(&chunk_map),
-                ),
-            })
-            .try_flatten_unordered(in_flight);
+        let batches = if in_flight <= 1 {
+            // Start only after startup batches drain, and keep the run on one task across IO waits.
+            stream::once(async move { chunk_stream(&self.handle, root, scope, io, map) })
+                .flatten()
+                .boxed()
+        } else {
+            let (chunk_handle, chunk_io, chunk_map) =
+                (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
+            run_stream(self.handle, root, scope, io, map)
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        stream::once(future::ready(Ok((start, batch)))).boxed()
+                    }
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        Arc::clone(&chunk_io),
+                        Arc::clone(&chunk_map),
+                    ),
+                })
+                .try_flatten_unordered(in_flight)
+                .boxed()
+        };
         // Drain startup batches before admitting bulk work, so TopK can tighten its bound.
         let batches = initial.chain(batches);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
@@ -208,34 +215,24 @@ struct RunState {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    /// Each admitted root owns a session, cleared independently when it retires.
-    io: Arc<dyn IoService>,
     map: MapBatch,
-    /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
-    inline: bool,
 }
 
 /// Runs `root` over `scope` on a planning run of its own, reading through `io`, each CPU step
-/// on a `spawn_cpu` task, and yields its mapped batches and, unless `inline`, the chunks it
-/// spawns. Inline, a spawned chunk runs on this run beside the others: the run's steps already
-/// interleave every chunk's work, and a run per chunk would only add a hand-off per chunk for
-/// parallelism the engine provides.
+/// on a `spawn_cpu` task, and yields its mapped batches and the chunks it spawns.
 fn run_stream(
     handle: Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
     io: Arc<dyn IoService>,
     map: MapBatch,
-    inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded>> {
     let mut run = Run::new();
     run.admit(root, scope, io.session());
     let state = RunState {
         handle,
         run: Some(run),
-        io,
         map,
-        inline,
     };
     stream::try_unfold(state, |mut state| async move {
         loop {
@@ -266,9 +263,6 @@ fn run_stream(
             match step? {
                 Step::Batch(start, batch) => {
                     return Ok(Some((Yielded::Batch(start, batch), state)));
-                }
-                Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, state.io.session());
                 }
                 Step::Spawn(scope, child) => {
                     return Ok(Some((Yielded::Spawn(scope, child), state)));
