@@ -100,9 +100,8 @@ fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<Pla
     plan_row_idx_expression(expression, child)
 }
 
-fn child_of(plan: &PlanRef, index: usize) -> VortexResult<PlanRef> {
-    plan.child(index)?
-        .ok_or_else(|| vortex_err!("missing child {index}"))
+fn child_of(plan: &PlanRef, slot: usize) -> VortexResult<PlanRef> {
+    plan.slot_required(slot)
 }
 
 fn assert_unsupported(error: vortex_error::VortexError) {
@@ -133,8 +132,8 @@ fn flat_plan_is_a_filtered_segment_scan_without_children() -> VortexResult<()> {
     assert!(plan.is::<Filter>());
     let scan = child_of(&plan, 0)?;
     assert!(scan.is::<SegmentScan>());
-    assert_eq!(scan.child_count(), 0);
-    assert!(scan.child(0)?.is_none());
+    assert_eq!(scan.nslots(), 0);
+    assert!(scan.slot(0).is_err());
     Ok(())
 }
 
@@ -150,7 +149,7 @@ fn chunked_plan_exposes_chunks() -> VortexResult<()> {
     let plan = make_plan(layout)?;
 
     assert!(plan.is::<Concat>());
-    assert_eq!(plan.child_count(), 2);
+    assert_eq!(plan.nslots(), 2);
     assert_eq!(child_of(&plan, 0)?.row_count(), 2);
     assert_eq!(child_of(&plan, 1)?.row_count(), 1);
     Ok(())
@@ -215,9 +214,9 @@ fn struct_plan_lowers_each_field_on_access() -> VortexResult<()> {
     .into_layout();
 
     let plan = make_plan(layout)?;
-    assert_eq!(child_of(&plan, 0)?.row_count(), 1);
+    assert_eq!(child_of(&plan, Pack::FIELDS_OFFSET)?.row_count(), 1);
     assert_unsupported(
-        child_of(&plan, 1)
+        child_of(&plan, Pack::FIELDS_OFFSET + 1)
             .err()
             .ok_or_else(|| vortex_err!("unsupported field unexpectedly produced a plan"))?,
     );
@@ -236,14 +235,14 @@ fn dict_plan_orders_codes_before_values() -> VortexResult<()> {
     let plan = make_plan(layout)?;
 
     assert!(plan.is::<Take>());
-    assert_eq!(plan.child_count(), 2);
+    assert_eq!(plan.nslots(), 2);
     assert_eq!(child_of(&plan, 0)?.dtype(), &codes_dtype);
     assert_eq!(child_of(&plan, 1)?.dtype(), &values_dtype);
     Ok(())
 }
 
 #[test]
-fn list_plan_appends_validity_when_nullable() -> VortexResult<()> {
+fn list_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
     let element_dtype = primitive(PType::I32, Nullability::NonNullable);
     let offsets_dtype = primitive(PType::U32, Nullability::NonNullable);
     let non_nullable = ListLayout::new(
@@ -256,9 +255,10 @@ fn list_plan_appends_validity_when_nullable() -> VortexResult<()> {
     let plan = make_plan(non_nullable)?;
 
     assert!(plan.is::<ListPack>());
-    assert_eq!(plan.child_count(), 2);
+    assert_eq!(plan.nslots(), 3);
     assert_eq!(child_of(&plan, 0)?.dtype(), &element_dtype);
     assert_eq!(child_of(&plan, 1)?.dtype(), &offsets_dtype);
+    assert!(plan.slot(2)?.is_none());
 
     let nullable = ListLayout::new(
         DType::List(Arc::new(element_dtype.clone()), Nullability::Nullable),
@@ -268,7 +268,7 @@ fn list_plan_appends_validity_when_nullable() -> VortexResult<()> {
     )
     .into_layout();
     let nullable_plan = make_plan(nullable)?;
-    assert_eq!(nullable_plan.child_count(), 3);
+    assert_eq!(nullable_plan.nslots(), 3);
     assert_eq!(
         child_of(&nullable_plan, 2)?.dtype(),
         &DType::Bool(Nullability::NonNullable)
@@ -277,7 +277,7 @@ fn list_plan_appends_validity_when_nullable() -> VortexResult<()> {
 }
 
 #[test]
-fn struct_plan_appends_validity_when_nullable() -> VortexResult<()> {
+fn struct_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
     let field_dtype = primitive(PType::I32, Nullability::NonNullable);
     let fields = StructFields::from_iter([("a", field_dtype.clone()), ("b", field_dtype.clone())]);
     let non_nullable = StructLayout::new(
@@ -292,9 +292,13 @@ fn struct_plan_appends_validity_when_nullable() -> VortexResult<()> {
     let plan = make_plan(non_nullable)?;
 
     assert!(plan.is::<Pack>());
-    assert_eq!(plan.child_count(), 2);
-    assert_eq!(child_of(&plan, 0)?.dtype(), &field_dtype);
-    assert_eq!(child_of(&plan, 1)?.dtype(), &field_dtype);
+    assert_eq!(plan.nslots(), 3);
+    assert!(plan.slot(Pack::VALIDITY_SLOT)?.is_none());
+    assert_eq!(child_of(&plan, Pack::FIELDS_OFFSET)?.dtype(), &field_dtype);
+    assert_eq!(
+        child_of(&plan, Pack::FIELDS_OFFSET + 1)?.dtype(),
+        &field_dtype
+    );
 
     let nullable = StructLayout::new(
         3,
@@ -307,16 +311,43 @@ fn struct_plan_appends_validity_when_nullable() -> VortexResult<()> {
     )
     .into_layout();
     let nullable_plan = make_plan(nullable)?;
-    assert_eq!(nullable_plan.child_count(), 3);
+    assert_eq!(nullable_plan.nslots(), 3);
     assert_eq!(
-        child_of(&nullable_plan, 2)?.dtype(),
+        child_of(&nullable_plan, Pack::VALIDITY_SLOT)?.dtype(),
         &DType::Bool(Nullability::NonNullable)
     );
     Ok(())
 }
 
 #[test]
-fn with_children_rejects_mismatched_arity() -> VortexResult<()> {
+fn pack_validity_slot_must_match_nullability() -> VortexResult<()> {
+    let field_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let fields = StructFields::from_iter([("a", field_dtype.clone())]);
+    let plan = make_plan(
+        StructLayout::new(
+            3,
+            DType::Struct(fields, Nullability::NonNullable),
+            vec![flat(3, field_dtype, 0)],
+        )
+        .into_layout(),
+    )?;
+    let validity = make_plan(flat(3, DType::Bool(Nullability::NonNullable), 1))?;
+
+    let error = plan
+        .with_slots(vec![validity, child_of(&plan, Pack::FIELDS_OFFSET)?])
+        .err()
+        .ok_or_else(|| vortex_err!("validity on a non-nullable Pack unexpectedly succeeded"))?;
+    assert!(
+        error
+            .to_string()
+            .contains("Non-nullable Pack has a validity child"),
+        "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+#[test]
+fn with_slots_rejects_mismatched_arity() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let layout = ChunkedLayout::new(
         3,
@@ -327,20 +358,20 @@ fn with_children_rejects_mismatched_arity() -> VortexResult<()> {
     let plan = make_plan(layout)?;
 
     let error = plan
-        .with_children(vec![child_of(&plan, 0)?])
+        .with_slots(vec![child_of(&plan, 0)?])
         .err()
         .ok_or_else(|| vortex_err!("mismatched arity unexpectedly succeeded"))?;
     assert!(
         error
             .to_string()
-            .contains("Concat expects 2 children but got 1"),
+            .contains("Concat expects 2 slots but got 1"),
         "unexpected error: {error}"
     );
     Ok(())
 }
 
 #[test]
-fn with_children_replaces_children_in_order() -> VortexResult<()> {
+fn with_slots_replaces_children_in_order() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let layout = ChunkedLayout::new(
         3,
@@ -350,7 +381,7 @@ fn with_children_replaces_children_in_order() -> VortexResult<()> {
     .into_layout();
     let plan = make_plan(layout)?;
 
-    let swapped = plan.with_children(vec![child_of(&plan, 1)?, child_of(&plan, 0)?])?;
+    let swapped = plan.with_slots(vec![child_of(&plan, 1)?, child_of(&plan, 0)?])?;
     assert_eq!(child_of(&swapped, 0)?.row_count(), 1);
     assert_eq!(child_of(&swapped, 1)?.row_count(), 2);
     assert_eq!(swapped.as_::<Concat>().row_offsets(), &[0, 1]);
@@ -399,7 +430,7 @@ fn optimize_rewrites_nested_children() -> VortexResult<()> {
     // any chunked-specific rule.
     let chunk = child_of(&chunked, 0)?;
     let identity: PlanRef = EvalPlan::try_new(root().bind(chunk.dtype())?, chunk)?.into_plan();
-    let wrapped = chunked.with_children(vec![identity, child_of(&chunked, 1)?])?;
+    let wrapped = chunked.with_slots(vec![identity, child_of(&chunked, 1)?])?;
 
     let optimized = optimize(wrapped, &SESSION)?;
     assert!(optimized.is::<Concat>());
@@ -476,11 +507,11 @@ fn plan_display_matches_array_tree_display_shape() -> VortexResult<()> {
     let nullable = make_plan(nullable_layout)?;
     insta::assert_snapshot!(nullable.tree_display_builder(), @r"
     root:
+      validity:
+        child:
       a:
         child:
       b:
-        child:
-      validity:
         child:
     ");
     Ok(())
@@ -659,7 +690,8 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
         .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
 
     assert_eq!(empty_struct.nfields(), 0);
-    assert_eq!(empty_struct.children().len(), 0);
+    assert_eq!(empty_struct.nslots(), Pack::FIELDS_OFFSET);
+    assert_eq!(empty_struct.children().count(), 0);
     Ok(())
 }
 
@@ -1313,7 +1345,8 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     assert!(zoned.is_pruning());
     assert_eq!(zoned.pruning_expression(), Some(&falsifier));
     assert!(zoned.data_plan()?.is_none());
-    assert_eq!(zoned.children().len(), 1);
+    assert_eq!(zoned.nslots(), 2);
+    assert_eq!(zoned.children().count(), 1);
 
     let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
     let mixed = optimize(
@@ -1760,7 +1793,10 @@ fn zoned_pruning_plan_with_new_zones_proves_them_again() -> VortexResult<()> {
     );
 
     let new_zones = make_plan(flat(2, zones_dtype, 2))?;
-    let rebuilt = pruning.clone().into_plan().with_children(vec![new_zones])?;
+    let rebuilt = pruning
+        .clone()
+        .into_plan()
+        .with_slots(vec![None, Some(LazyPlanRef::ready(new_zones))])?;
     let rebuilt_proof = rebuilt
         .as_opt::<Zoned>()
         .and_then(|zoned| zoned.pruned_zones())
