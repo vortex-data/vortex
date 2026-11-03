@@ -5,8 +5,12 @@ mod bool;
 mod constant;
 mod decimal;
 mod grouped;
+mod grouped_state;
 mod primitive;
-pub(crate) use grouped::PrimitiveGroupedSumEncodingKernel;
+pub(crate) use grouped::SUM_GROUPED_KERNEL;
+pub(crate) use grouped::SUM_RUN_GROUPED_KERNEL;
+pub(crate) use grouped::SumBatch;
+pub(crate) use grouped_state::DenseSums;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,10 +22,8 @@ use vortex_session::registry::CachedId;
 pub(crate) use self::bool::accumulate_bool;
 pub(crate) use self::constant::multiply_constant;
 pub(crate) use self::decimal::accumulate_decimal;
+use self::grouped_state::SumGroupedState;
 pub(crate) use self::primitive::accumulate_primitive;
-pub(crate) use self::primitive::sum_float_all;
-pub(crate) use self::primitive::sum_signed_all;
-pub(crate) use self::primitive::sum_unsigned_all;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
@@ -31,6 +33,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::GroupedState;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -141,6 +144,15 @@ impl AggregateFnVTable for Sum {
         Ok(SumPartial {
             current: Some(make_zero_state(args.return_dtype)),
         })
+    }
+
+    fn grouped_state(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Box<dyn GroupedState>> {
+        Ok(Box::new(SumGroupedState::try_new(
+            args.partial_dtype.clone(),
+        )?))
     }
 
     fn partial_from_scalar(
@@ -452,6 +464,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -460,6 +473,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::GroupedArray;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::SumPartial;
@@ -469,7 +483,9 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::FixedSizeList;
     use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListView;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -487,6 +503,24 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Adapt a canonical list array into dense group ids and accumulate it (test-only helper).
+    fn accumulate_list(
+        acc: &mut GroupedAccumulator<Sum>,
+        groups: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<GroupedArray> {
+        let grouped: GroupedArray = if let Some(groups) = groups.as_opt::<FixedSizeList>() {
+            groups.into_owned().into()
+        } else if let Some(groups) = groups.as_opt::<ListView>() {
+            groups.into_owned().into()
+        } else {
+            unreachable!("grouped sum test requires a canonical list array")
+        };
+        let (values, group_ids) = grouped.dense_input(ctx)?;
+        acc.accumulate(&values, &group_ids, ctx)?;
+        Ok(grouped)
+    }
 
     // Multi-batch and reset tests
 
@@ -620,8 +654,14 @@ mod tests {
             NumericalAggregateOpts::default(),
             elem_dtype.clone(),
         )?;
-        acc.accumulate_list(groups, &mut SESSION.create_execution_ctx())?;
-        acc.finish()
+        let mut ctx = SESSION.create_execution_ctx();
+        let grouped = accumulate_list(&mut acc, groups, &mut ctx)?;
+        let sums = acc.finish()?;
+
+        // Dense group ids cannot express a null group, so list callers restore the list contract
+        // themselves: a null list aggregates to null. `list_sum` does the same.
+        let group_validity = grouped.group_validity(&mut ctx)?;
+        GroupedArray::mask_null_groups(sums, &group_validity)
     }
 
     #[test]
@@ -713,7 +753,7 @@ mod tests {
         let elements1 =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
         let groups1 = FixedSizeListArray::try_new(elements1, 2, Validity::NonNullable, 2)?;
-        acc.accumulate_list(&groups1.into_array(), &mut ctx)?;
+        accumulate_list(&mut acc, &groups1.into_array(), &mut ctx)?;
         let result1 = acc.finish()?;
 
         let expected1 = PrimitiveArray::from_option_iter([Some(3i64), Some(7i64)]).into_array();
@@ -721,7 +761,7 @@ mod tests {
 
         let elements2 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         let groups2 = FixedSizeListArray::try_new(elements2, 2, Validity::NonNullable, 1)?;
-        acc.accumulate_list(&groups2.into_array(), &mut ctx)?;
+        accumulate_list(&mut acc, &groups2.into_array(), &mut ctx)?;
         let result2 = acc.finish()?;
 
         let expected2 = PrimitiveArray::from_option_iter([Some(30i64)]).into_array();

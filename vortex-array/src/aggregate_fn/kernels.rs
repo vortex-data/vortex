@@ -4,14 +4,20 @@
 //! Pluggable aggregate function kernels used to provide encoding-specific implementations of
 //! aggregate functions.
 
+use std::any::Any;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::GroupedArray;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::GroupIds;
+use crate::aggregate_fn::GroupedState;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -27,26 +33,153 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     ) -> VortexResult<Option<Scalar>>;
 }
 
+/// A typed grouped aggregate kernel.
+///
+/// Implementations receive the concrete aggregate options and typed partial state. Return
+/// `Ok(false)` when the kernel cannot handle the current values or group-id encodings.
+pub trait GroupedAggregateKernel<V: AggregateFnVTable>: 'static + Send + Sync + Debug {
+    /// Concrete aggregate-owned grouped state consumed by this kernel.
+    type State: GroupedState;
+
+    /// Accumulate `batch` into `states` according to `group_ids`.
+    fn grouped_accumulate(
+        &self,
+        options: &V::Options,
+        state: &mut Self::State,
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool>;
+}
+
+/// Bridges a typed [`GroupedAggregateKernel`] to type-erased grouped kernel dispatch.
+pub struct GroupedAggregateKernelAdapter<V, K> {
+    kernel: K,
+    _phantom: PhantomData<fn() -> V>,
+}
+
+impl<V, K> GroupedAggregateKernelAdapter<V, K> {
+    /// Create a new adapter around `kernel`.
+    pub const fn new(kernel: K) -> Self {
+        Self {
+            kernel,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<V, K> Debug for GroupedAggregateKernelAdapter<V, K>
+where
+    V: AggregateFnVTable,
+    K: GroupedAggregateKernel<V>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupedAggregateKernelAdapter")
+            .field("kernel", &self.kernel)
+            .finish()
+    }
+}
+
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// A kernel can be registered either for an aggregate function regardless of the element encoding,
-/// or for a specific aggregate function and element encoding. Element-encoding kernels are matched
-/// on the inner array of the provided grouped array, not on the outer list encoding. This is more
-/// pragmatic than having every kernel match on the outer list encoding and having to deal with the
-/// possibility of multiple list encodings.
+/// A grouped kernel can be registered for an aggregate function regardless of input encodings, or
+/// for a specific aggregate function plus values and/or group-id encoding.
 ///
-/// Each value in the grouped array represents a group and the result of the grouped aggregate
-/// should be an array of the same length, where each element is the aggregate state of the
-/// corresponding group.
+/// Kernels receive the same dense group ordinals that the caller passed to the grouped accumulator
+/// and may aggregate directly in the encoded domain.
 ///
-/// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
+/// Return `Ok(false)` if the kernel cannot be applied to the given aggregate function or input
+/// encodings.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate each group in the provided grouped array and return an array of the aggregate
-    /// states.
-    fn grouped_aggregate(
+    /// Accumulate values into type-erased partial state.
+    fn grouped_accumulate(
         &self,
         aggregate_fn: &AggregateFnRef,
-        groups: &GroupedArray,
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        states: &mut dyn Any,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>>;
+    ) -> VortexResult<bool>;
+}
+
+impl<V, K> DynGroupedAggregateKernel for GroupedAggregateKernelAdapter<V, K>
+where
+    V: AggregateFnVTable,
+    K: GroupedAggregateKernel<V>,
+{
+    fn grouped_accumulate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        states: &mut dyn Any,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(options) = aggregate_fn.as_opt::<V>() else {
+            return Ok(false);
+        };
+
+        let Some(state) = states.downcast_mut::<K::State>() else {
+            vortex_bail!(
+                "Grouped aggregate kernel for {} received incompatible partial state",
+                aggregate_fn.id()
+            );
+        };
+
+        vortex_ensure!(
+            state.len() >= group_ids.num_groups(),
+            "Grouped aggregate kernel for {} received {} partial states for {} groups",
+            aggregate_fn.id(),
+            state.len(),
+            group_ids.num_groups()
+        );
+
+        self.kernel
+            .grouped_accumulate(options, state, batch, group_ids, ctx)
+    }
+}
+
+/// The shortest run of repeated group ids for which reducing the run beats scattering each value.
+///
+/// Below this length the branch and bookkeeping of run detection costs more than the scatter it
+/// replaces.
+pub const MIN_GROUP_RUN_LENGTH: usize = 4;
+
+/// The number of leading ids sampled by [`has_long_group_runs`].
+const GROUP_RUN_SAMPLE_LEN: usize = 256;
+
+/// Returns whether `group_ids` looks clustered enough for run-based accumulation.
+///
+/// Only the leading ids are sampled, so this stays cheap for large batches. Both accumulation strategies are correct for any ids; this only picks the faster one.
+pub fn has_long_group_runs(group_ids: &[u32]) -> bool {
+    let sample = &group_ids[..group_ids.len().min(GROUP_RUN_SAMPLE_LEN)];
+    let mut run_length = 1;
+    for ids in sample.windows(2) {
+        if ids[0] == ids[1] {
+            run_length += 1;
+            if run_length >= MIN_GROUP_RUN_LENGTH {
+                return true;
+            }
+        } else {
+            run_length = 1;
+        }
+    }
+    false
+}
+
+/// Invoke `f(group_id, start, end)` for each maximal run of equal ids in `group_ids`.
+pub fn for_each_group_run(group_ids: &[u32], mut f: impl FnMut(u32, usize, usize)) {
+    let Some((&first, rest)) = group_ids.split_first() else {
+        return;
+    };
+    let mut group_id = first;
+    let mut start = 0usize;
+    for (idx, &next_group_id) in rest.iter().enumerate() {
+        if next_group_id != group_id {
+            f(group_id, start, idx + 1);
+            group_id = next_group_id;
+            start = idx + 1;
+        }
+    }
+    f(group_id, start, group_ids.len());
 }
