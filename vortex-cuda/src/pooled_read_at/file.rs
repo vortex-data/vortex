@@ -186,6 +186,9 @@ const FILE_MAPPINGS_CACHED_MAX: usize = 64;
 /// on other threads wait for that lock while holding the driver's: on NDS-H SF10 Q10, every
 /// thread stalled for the first ~2 ms of each query. Reusing the mapping also keeps its page
 /// tables filled, so hot scans skip most of the fill work.
+///
+/// Each cached mapping retains a file descriptor for deletion checks, so the cache can
+/// retain up to 64 descriptors between scans.
 static FILE_MAPPINGS: LazyLock<Mutex<FileMappingCache>> =
     LazyLock::new(|| Mutex::new(VecDeque::with_capacity(FILE_MAPPINGS_CACHED_MAX + 1)));
 
