@@ -35,6 +35,7 @@ use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
@@ -53,6 +54,8 @@ use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
+use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
+use vortex_tensor::vector::Vector;
 
 use crate::VortexFormatFactory;
 use crate::VortexSource;
@@ -715,6 +718,56 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
         ],
         &result
     );
+
+    Ok(())
+}
+
+/// `Vector` is an extension type over `FixedSizeList` storage, so the physical schema must look
+/// through the extension type to its storage.
+#[tokio::test]
+async fn test_scan_vector_column() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_tensor::initialize(&session);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new_with_session(session.clone()),
+    ));
+
+    let elements = buffer![
+        1.0f32, 2.0, 3.0, //
+        4.0, 5.0, 6.0, //
+    ]
+    .into_array();
+    let storage = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
+    let vectors = Vector::try_new_vector_array(storage.into_array())?;
+    let array = StructArray::from_fields(&[("embedding", vectors)])?.into_array();
+
+    let mut writer =
+        ObjectStoreWrite::new(Arc::clone(&ctx.store), &"vectors.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT * FROM '/vectors.vortex'")
+        .await?
+        .collect()
+        .await?;
+
+    assert_eq!(
+        result[0].schema().field(0).extension_type_name(),
+        Some(ARROW_VECTOR_EXTENSION_NAME)
+    );
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+    +-----------------+
+    | embedding       |
+    +-----------------+
+    | [1.0, 2.0, 3.0] |
+    | [4.0, 5.0, 6.0] |
+    +-----------------+
+    ");
 
     Ok(())
 }
