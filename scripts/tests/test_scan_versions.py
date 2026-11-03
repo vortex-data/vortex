@@ -87,6 +87,7 @@ def test_runs_each_engine_and_scan_version_with_the_expected_binary(
 ):
     program = f"""#!{sys.executable}
 import json
+import os
 from pathlib import Path
 import sys
 if '--print-queries' in sys.argv:
@@ -94,6 +95,8 @@ if '--print-queries' in sys.argv:
     raise SystemExit()
 def arg(name):
     return sys.argv[sys.argv.index(name) + 1]
+if os.environ.get('CI') == 'true' and ('--runner' not in sys.argv or arg('--runner') == 'unknown'):
+    raise SystemExit('benchmark runner must not be unknown in CI; pass --runner')
 revision = Path(__file__).parent.name
 engine = Path(__file__).name.removesuffix('-bench')
 version = 1 if arg('--scan-v1') == 'true' else 2
@@ -104,6 +107,7 @@ record = dict(name=f'tpch_q{{int(arg("--queries")):02}}/{{engine}}:vortex-file-c
               unit='ns', all_runtimes=samples)
 Path(arg('-o')).write_text(json.dumps(record))
 """
+    monkeypatch.setenv("CI", "true")
     for revision in ("base", "head"):
         directory = tmp_path / revision
         directory.mkdir()

@@ -49,7 +49,16 @@ def command(
     threads: int,
     version: int,
 ) -> list[str]:
-    args = [str(binary), suite, "--formats", "vortex", "--scan-v1", str(version == 1).lower()]
+    args = [
+        str(binary),
+        suite,
+        "--formats",
+        "vortex",
+        "--scan-v1",
+        str(version == 1).lower(),
+        "--runner",
+        "scan-v2-comparison",
+    ]
     for option in options:
         args.extend(["--opt", option])
     if engine == "duckdb":
@@ -284,8 +293,13 @@ def main() -> None:
                         ]
                     )
                     print(f"START {engine} q{query} round={turn} {variant}", flush=True)
-                    with stem.with_suffix(".log").open("w", encoding="utf-8") as log:
-                        subprocess.run(cmd, env=envs[revision], stdout=log, stderr=subprocess.STDOUT, check=True)
+                    log_path = stem.with_suffix(".log")
+                    try:
+                        with log_path.open("w", encoding="utf-8") as log:
+                            subprocess.run(cmd, env=envs[revision], stdout=log, stderr=subprocess.STDOUT, check=True)
+                    except subprocess.CalledProcessError:
+                        print(log_path.read_text(encoding="utf-8")[-8000:], flush=True)
+                        raise
                     value = measurement(
                         stem.with_suffix(".jsonl"),
                         query=query,
