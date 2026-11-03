@@ -293,4 +293,13 @@ mod test {
         );
         assert_arrays_eq!(encoder.reset(), second, &mut ctx);
     }
+
+    #[test]
+    fn encode_u8_with_every_value_and_a_null() -> vortex_error::VortexResult<()> {
+        // 256 distinct values plus the null code need 257 codes, which do not fit in `u8`.
+        let arr = PrimitiveArray::from_option_iter((0..=255u8).map(Some).chain([None])).into_array();
+        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(dict.len(), 257);
+        Ok(())
+    }
 }
