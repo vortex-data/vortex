@@ -958,22 +958,38 @@ pub trait HostSlice<T> {
 /// Copies read and write page-locked memory asynchronously, so the guard waits for them. The
 /// driver stages copies of pageable memory, which no longer read the slice once enqueued.
 fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
+    // The caller may be on a thread with no current CUDA context. Bind before querying,
+    // and keep binding errors separate: even INVALID_VALUE here says nothing about the pointer.
+    if let Err(error) = stream.make_current() {
+        stream.context().record_err::<()>(Err(error));
+        return SyncOnDrop::wait_for(stream);
+    }
+
     let mut memory_type: c_uint = 0;
-    // SAFETY: The driver writes the memory type, or fails for memory it does not know, such as
-    // pageable memory.
-    let known = unsafe {
+    // SAFETY: The context is current and the driver writes the memory type.
+    let result = unsafe {
         sys::cuPointerGetAttribute(
             (&raw mut memory_type).cast(),
             sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
             slice.as_ptr() as sys::CUdeviceptr,
         )
     }
-    .result()
-    .is_ok();
-    if known && memory_type == sys::CU_MEMORYTYPE_HOST {
-        SyncOnDrop::wait_for(stream)
-    } else {
-        SyncOnDrop::none()
+    .result();
+
+    match result {
+        // CUDA accesses pinned host memory directly, without pageable-memory staging.
+        // Wait before ending the borrow so the caller cannot free or modify memory still in use.
+        Ok(()) if memory_type == sys::CU_MEMORYTYPE_HOST => SyncOnDrop::wait_for(stream),
+        Ok(()) => SyncOnDrop::none(),
+        // INVALID_VALUE is expected for unregistered pageable pointers. It is the only
+        // query error that permits relying on pageable-memory staging instead of a wait.
+        Err(DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE)) => SyncOnDrop::none(),
+        Err(error) => {
+            // Context or driver failures do not establish that this memory is pageable.
+            // HostSlice cannot return an error, so record it for the caller and wait conservatively.
+            stream.context().record_err::<()>(Err(error));
+            SyncOnDrop::wait_for(stream)
+        }
     }
 }
 

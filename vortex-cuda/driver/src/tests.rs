@@ -241,6 +241,25 @@ fn empty_allocations() -> Result<(), DriverError> {
     context.check_err()
 }
 
+#[test]
+fn borrowed_host_slice_binds_context() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    // SAFETY: Clearing the calling thread's current context does not destroy it.
+    unsafe { sys::cuCtxSetCurrent(std::ptr::null_mut()) }.result()?;
+
+    let host = [1u8; 16];
+    // SAFETY: No work uses the slice; the guard is dropped below.
+    let (_, guard) = unsafe { host.stream_synced_slice(&stream) };
+    let mut current = std::ptr::null_mut();
+    // SAFETY: The driver writes the calling thread's current context.
+    unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
+    assert_eq!(current, context.cu_ctx());
+    drop(guard);
+    context.check_err()
+}
+
 /// A copy from a borrowed page-locked slice no longer reads it once the copy returns, so the
 /// slice can be reused right away.
 #[test]
