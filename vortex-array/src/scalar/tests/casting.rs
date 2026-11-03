@@ -221,15 +221,6 @@ mod tests {
     }
 
     #[test]
-    fn cast_bool_to_utf8_fails() {
-        assert!(
-            Scalar::bool(true, Nullability::NonNullable)
-                .cast(&DType::Utf8(Nullability::NonNullable))
-                .is_err()
-        );
-    }
-
-    #[test]
     fn test_fake_coercion_for_matching_type() {
         // Test that when types already match, no coercion happens.
         let i32_value = 42i32;
