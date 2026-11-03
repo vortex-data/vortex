@@ -5,6 +5,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -139,5 +140,53 @@ fn terminal_offset_wider_than_view_offsets() -> VortexResult<()> {
     )?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+fn single_valid_patch_with_nulls(
+    #[values(false, true)] repeated_position: bool,
+) -> VortexResult<()> {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let elements = buffer![7i32, 8, 9].into_array();
+    let lists = ListArray::try_new(
+        elements.clone(),
+        buffer![0u32, 0, 3, 3].into_array(),
+        Validity::from_iter([false, true, false]),
+        &mut ctx,
+    )?;
+    let fill = Scalar::null(lists.dtype().clone());
+    let sparse = Sparse::try_new(
+        if repeated_position {
+            buffer![1u32, 3, 3].into_array()
+        } else {
+            buffer![1u32, 3, 5].into_array()
+        },
+        lists.into_array(),
+        7,
+        fill.clone(),
+        &mut ctx,
+    )?;
+
+    let actual = sparse.into_array().execute::<ListViewArray>(&mut ctx)?;
+    if repeated_position {
+        // The final null patch replaces the only valid list at row 3.
+        assert!(actual.offsets().is::<Sparse>());
+        assert_arrays_eq!(actual, ConstantArray::new(fill, 7), &mut ctx);
+    } else {
+        // A single list needs no repeated gather, and the builder remains ready for Arrow export.
+        assert!(actual.is_zero_copy_to_list());
+        assert!(actual.offsets().is::<vortex_array::arrays::Primitive>());
+        let expected = ListArray::try_new(
+            elements,
+            buffer![0u32, 0, 0, 0, 3, 3, 3, 3].into_array(),
+            Validity::from_iter([false, false, false, true, false, false, false]),
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+    }
     Ok(())
 }

@@ -392,8 +392,20 @@ fn execute_sparse_lists(
         .downcast::<ListView>()
         .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
+    // Keep the builder for at most one valid list: there is no repeated element gather to
+    // avoid, and constructing run-end offsets would add setup work. Duplicate positions still
+    // need the metadata path to preserve last-patch-wins semantics.
+    let patch_validity = values.listview_validity().execute_mask(values.len(), ctx)?;
+    let use_shared_elements = patch_validity.true_count() > 1
+        || match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .windows(2)
+                .any(|pair| pair[0] == pair[1])
+        });
+
     // Null lists also have no elements, so null and empty fills take the same path.
-    if fill_list.is_empty() {
+    if fill_list.is_empty() && use_shared_elements {
         return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
     }
 
@@ -410,6 +422,7 @@ fn execute_sparse_lists(
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
+                &patch_validity,
                 fill_value,
                 values_dtype,
                 len,
@@ -425,6 +438,7 @@ fn execute_sparse_lists(
 fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
+    patch_validity: &Mask,
     fill_value: &Scalar,
     values_dtype: Arc<DType>,
     len: usize,
@@ -444,12 +458,6 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     // The fill's elements become an array once, up front. Every gap then appends that same array,
     // so the fill's elements are stored once for the whole result however many gaps reference them.
     let fill_elements = list_scalar_elements_array(fill_value.as_list(), ctx.allocator());
-
-    // One mask for the whole patch array rather than a validity lookup per patch.
-    let patch_validity = patch_values
-        .listview_validity()
-        .execute_mask(patch_values.len(), ctx)
-        .vortex_expect("sparse list validity mask failed to execute");
 
     let mut next_index = 0;
 
