@@ -30,6 +30,7 @@ mod opener;
 mod pruning;
 pub mod reader;
 mod sink;
+mod sort;
 mod source;
 mod stream;
 
