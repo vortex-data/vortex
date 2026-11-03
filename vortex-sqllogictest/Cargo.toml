@@ -11,26 +11,36 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+default = ["datafusion"]
+datafusion = [
+    "dep:datafusion",
+    "dep:datafusion-functions-nested",
+    "dep:datafusion-sqllogictest",
+    "dep:indicatif",
+    "dep:vortex-datafusion",
+]
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bigdecimal = { workspace = true }
-datafusion-sqllogictest = { workspace = true }
+datafusion = { workspace = true, features = ["parquet"], optional = true }
+datafusion-functions-nested = { workspace = true, optional = true }
+datafusion-sqllogictest = { workspace = true, optional = true }
+indicatif = { workspace = true, optional = true }
 regex = { workspace = true }
 rstest = { workspace = true }
 sqllogictest = "0.29.1"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { workspace = true, features = ["tokio"] }
+vortex-datafusion = { workspace = true, optional = true }
 vortex-duckdb = { workspace = true, features = ["static-extensions"] }
 
 [dev-dependencies]
-datafusion = { workspace = true, features = ["parquet"] }
-datafusion-functions-nested.workspace = true
 futures = { workspace = true }
-indicatif = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-vortex-datafusion = { workspace = true }
 
 [lints]
 workspace = true

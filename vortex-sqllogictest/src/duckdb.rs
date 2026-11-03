@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
-use datafusion_sqllogictest::DFColumnType;
 use regex::RegexBuilder;
 use sqllogictest::DBOutput;
 use sqllogictest::Normalizer;
@@ -22,6 +21,8 @@ use vortex_duckdb::duckdb::LogicalType;
 use vortex_duckdb::duckdb::LogicalTypeRef;
 use vortex_duckdb::duckdb::Value;
 use vortex_duckdb::initialize;
+
+use crate::column_type::DFColumnType;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DuckDBTestError {
@@ -335,7 +336,6 @@ impl std::fmt::Display for ValueDisplayAdapter {
 
 #[cfg(test)]
 mod tests {
-    use datafusion_sqllogictest::DFColumnType;
     use rstest::rstest;
     use vortex_duckdb::duckdb::LogicalType;
     use vortex_duckdb::duckdb::Value;
@@ -344,6 +344,7 @@ mod tests {
     use super::ValueDisplayAdapter;
     use super::duckdb_validator;
     use super::try_regex_match;
+    use crate::column_type::DFColumnType;
 
     fn display(value: Value) -> String {
         ValueDisplayAdapter(value).to_string()

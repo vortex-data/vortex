@@ -24,6 +24,11 @@ pub const WORK_DIR_VAR: &str = "WORK_DIR";
 /// `${WORK_DIR}` substitution variable so expected output reads naturally.
 pub const WORK_DIR_TOKEN: &str = "${WORK_DIR}";
 
+#[expect(clippy::ptr_arg, reason = "sqllogictest::Normalizer takes &String")]
+pub fn value_normalizer(s: &String) -> String {
+    s.trim_end().to_string()
+}
+
 /// Replaces every occurrence of `work_dir` in `cell` with [`WORK_DIR_TOKEN`].
 /// Also handles object-store paths, which omit the leading `/`.
 pub fn normalize_work_dir(cell: &str, work_dir: &str) -> String {
