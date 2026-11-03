@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
-use arrow_array::ArrayRef;
 use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
@@ -1591,7 +1590,7 @@ fn test_native_float_cast() -> anyhow::Result<()> {
     DataType::Int64
 )]
 fn test_native_numeric_cast(
-    #[case] values: ArrayRef,
+    #[case] values: arrow_array::ArrayRef,
     #[case] target: DataType,
 ) -> anyhow::Result<()> {
     let batch = RecordBatch::try_from_iter([("a", values)])?;
@@ -1607,12 +1606,7 @@ fn test_native_numeric_cast(
 
 #[rstest]
 fn test_native_list_cast_to_float64(
-    #[values(
-        DataType::Boolean,
-        DataType::Int32,
-        DataType::Int64,
-        DataType::UInt64
-    )]
+    #[values(DataType::Boolean, DataType::Int32, DataType::Int64, DataType::UInt64)]
     element: DataType,
     #[values(false, true)] large: bool,
 ) -> anyhow::Result<()> {
