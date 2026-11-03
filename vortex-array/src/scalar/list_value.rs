@@ -799,6 +799,8 @@ impl<'a> ValueReader<'a> {
             ReaderKind::Null | ReaderKind::Extension(_) | ReaderKind::Nested(_) => {
                 ValidityBits::AllValid
             }
+            // A non-nullable array has no validity to look up.
+            _ if !array.dtype().is_nullable() => ValidityBits::AllValid,
             _ => validity_bits(
                 array
                     .validity()

@@ -6,7 +6,6 @@
 //! The fast check and detailed error path accept the same values. Extension values are checked
 //! against the storage dtype before the extension's own validator runs.
 
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -24,19 +23,31 @@ use crate::scalar::list_value::normalize_list_values;
 
 impl Scalar {
     /// Validate that the given [`ScalarValue`] is compatible with the given [`DType`].
+    ///
+    /// A list may be given in the legacy [`ScalarValue::Tuple`] form, which scalar construction
+    /// converts to [`ScalarValue::List`].
     #[inline]
     pub fn validate(dtype: &DType, value: Option<&ScalarValue>) -> VortexResult<()> {
         if Self::is_compatible(dtype, value) {
             return Ok(());
         }
 
-        Err(Self::incompatible_error(dtype, value))
+        Self::validate_cold(dtype, value)
+    }
+
+    /// The out-of-line part of [`Self::validate`], for values the fast path rejects.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn validate_cold(dtype: &DType, value: Option<&ScalarValue>) -> VortexResult<()> {
+        Self::validate_detailed(dtype, value)
     }
 
     /// Returns `true` if the given [`ScalarValue`] is compatible with the given [`DType`].
     ///
-    /// This is the fast path of [`Self::validate`]. It must accept exactly the values that
-    /// [`Self::validate_detailed`] accepts, but it builds no error messages.
+    /// This is the fast path of [`Self::validate`]. It builds no error messages, and accepts the
+    /// values that [`Self::validate_detailed`] accepts except for lists in the legacy
+    /// [`ScalarValue::Tuple`] form, which only the detailed check accepts. A value it accepts
+    /// therefore needs no list normalization.
     ///
     /// Null values and leaf types are checked inline, so that callers with a known dtype fold the
     /// check away. Other types go to [`Self::is_compatible_nested`].
@@ -68,15 +79,6 @@ impl Scalar {
             }
             (DType::FixedSizeList(elem_dtype, size, _), ScalarValue::List(list)) => {
                 list.len() == *size as usize && list.element_dtype() == elem_dtype.as_ref()
-            }
-            (DType::List(elem_dtype, _), ScalarValue::Tuple(elements)) => elements
-                .iter()
-                .all(|element| Self::is_compatible(elem_dtype, element.as_ref())),
-            (DType::FixedSizeList(elem_dtype, size, _), ScalarValue::Tuple(elements)) => {
-                elements.len() == *size as usize
-                    && elements
-                        .iter()
-                        .all(|element| Self::is_compatible(elem_dtype, element.as_ref()))
             }
             (DType::Map(map, _), ScalarValue::Tuple(entries)) => {
                 let key_dtype = map.key_dtype();
@@ -113,22 +115,6 @@ impl Scalar {
                     && Self::validate_extension_storage(ext_dtype, value).is_ok()
             }
             _ => false,
-        }
-    }
-
-    /// Builds the error for a [`ScalarValue`] that is not compatible with the [`DType`].
-    ///
-    /// Kept out of line so that the formatting code does not count against the hot callers when
-    /// the inliner sizes them.
-    #[cold]
-    #[inline(never)]
-    pub(super) fn incompatible_error(dtype: &DType, value: Option<&ScalarValue>) -> VortexError {
-        match Self::validate_detailed(dtype, value) {
-            Err(err) => err,
-            Ok(()) => vortex_err!(
-                "scalar validation fast path rejected value {value:?} for dtype {dtype}, but the \
-                 detailed check accepted it"
-            ),
         }
     }
 
@@ -365,12 +351,15 @@ mod tests {
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalValue;
+    use crate::scalar::ListValue;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar::UnionValue;
 
-    /// The fast check in `is_compatible` must accept exactly what `validate_detailed` accepts.
+    /// The fast check in `is_compatible` must accept exactly what `validate_detailed` accepts,
+    /// except a list in the legacy tuple form, which only the detailed check accepts so that
+    /// scalar construction can convert it.
     #[test]
     fn fast_and_detailed_checks_agree() -> VortexResult<()> {
         use Nullability::NonNullable;
@@ -398,6 +387,13 @@ mod tests {
         let decimal_dtype = DType::Decimal(DecimalDType::new(3, 0), NonNullable);
         let extension_dtype = DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased());
         let tuple = |values: Vec<Option<ScalarValue>>| Some(ScalarValue::Tuple(values));
+        let list = |element_dtype: &DType, values: Vec<Option<ScalarValue>>| {
+            Some(ScalarValue::List(ListValue::from_values(
+                element_dtype,
+                values,
+            )))
+        };
+        let nullable_i32 = DType::Primitive(PType::I32, Nullable);
 
         let cases = [
             (DType::Null, None, true),
@@ -412,7 +408,7 @@ mod tests {
             (DType::Bool(NonNullable), i32_value(), false),
             (i32_dtype.clone(), i32_value(), true),
             (
-                i32_dtype,
+                i32_dtype.clone(),
                 Some(ScalarValue::Primitive(PValue::I64(1))),
                 false,
             ),
@@ -458,13 +454,29 @@ mod tests {
                 true,
             ),
             (list_dtype.clone(), tuple(vec![i32_value(), None]), false),
+            (
+                list_dtype.clone(),
+                list(&i32_dtype, vec![i32_value(), i32_value()]),
+                true,
+            ),
+            (
+                list_dtype.clone(),
+                list(&nullable_i32, vec![i32_value()]),
+                false,
+            ),
             (list_dtype, i32_value(), false),
             (
                 fsl_dtype.clone(),
                 tuple(vec![i32_value(), i32_value()]),
                 true,
             ),
-            (fsl_dtype, tuple(vec![i32_value()]), false),
+            (fsl_dtype.clone(), tuple(vec![i32_value()]), false),
+            (
+                fsl_dtype.clone(),
+                list(&i32_dtype, vec![i32_value(), i32_value()]),
+                true,
+            ),
+            (fsl_dtype, list(&i32_dtype, vec![i32_value()]), false),
             (
                 map_dtype.clone(),
                 tuple(vec![tuple(vec![i32_value(), None])]),
@@ -520,15 +532,17 @@ mod tests {
         ];
 
         for (dtype, value, expected) in &cases {
+            let legacy_list = matches!(dtype, DType::List(..) | DType::FixedSizeList(..))
+                && matches!(value, Some(ScalarValue::Tuple(_)));
             assert_eq!(
-                Scalar::is_compatible(dtype, value.as_ref()),
+                Scalar::validate_detailed(dtype, value.as_ref()).is_ok(),
                 *expected,
                 "unexpected validity for {dtype} and {value:?}"
             );
             assert_eq!(
                 Scalar::is_compatible(dtype, value.as_ref()),
-                Scalar::validate_detailed(dtype, value.as_ref()).is_ok(),
-                "fast and detailed checks disagree for {dtype} and {value:?}",
+                *expected && !legacy_list,
+                "unexpected fast check for {dtype} and {value:?}",
             );
         }
 

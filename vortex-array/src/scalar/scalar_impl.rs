@@ -76,18 +76,16 @@ impl Scalar {
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     #[inline]
-    pub fn try_new(dtype: DType, mut value: Option<ScalarValue>) -> VortexResult<Self> {
+    pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
         if Self::is_compatible(&dtype, value.as_ref()) {
-            if let Some(value) = value.as_mut() {
-                normalize_list_values(&dtype, value);
-            }
             return Ok(Self { dtype, value });
         }
 
         Self::try_new_fallback(dtype, value)
     }
 
-    /// Converts legacy `F16` values or reports why the value is incompatible.
+    /// Converts legacy `F16` values and legacy tuple-encoded lists, or reports why the value is
+    /// incompatible.
     ///
     /// It owns the parts so their drop code stays out of the canonical construction path.
     #[cold]
@@ -101,7 +99,13 @@ impl Scalar {
 
                 Some(ScalarValue::Primitive(PValue::F16(f16::from_bits(bits))))
             }
-            (_, value) => return Err(Self::incompatible_error(&dtype, value.as_ref())),
+            (_, mut value) => {
+                Self::validate_cold(&dtype, value.as_ref())?;
+                if let Some(value) = value.as_mut() {
+                    normalize_list_values(&dtype, value);
+                }
+                value
+            }
         };
 
         Ok(Self { dtype, value })
@@ -113,7 +117,8 @@ impl Scalar {
     /// # Safety
     ///
     /// The caller must ensure that the given [`DType`] and [`ScalarValue`] are compatible per the
-    /// rules defined in [`Self::validate`].
+    /// rules defined in [`Self::validate`]. A list may be in the legacy [`ScalarValue::Tuple`]
+    /// form only at the top level of `value`.
     pub unsafe fn new_unchecked(dtype: DType, mut value: Option<ScalarValue>) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -123,9 +128,20 @@ impl Scalar {
                 .vortex_expect("Scalar::new_unchecked called with incompatible dtype and value");
         }
 
-        if let Some(value) = value.as_mut() {
+        // Only a top-level list is converted here; a list nested in a tuple must already be in its
+        // `ScalarValue::List` form, which the check below enforces in debug builds.
+        if let Some(value @ ScalarValue::Tuple(_)) = value.as_mut()
+            && is_list_dtype(&dtype)
+        {
             normalize_list_values(&dtype, value);
         }
+
+        #[cfg(debug_assertions)]
+        assert!(
+            Self::is_compatible(&dtype, value.as_ref()),
+            "Scalar::new_unchecked got a list nested in the legacy tuple form for {dtype}"
+        );
+
         Self { dtype, value }
     }
 
@@ -488,6 +504,11 @@ fn partial_cmp_non_null_scalar_values(
         (ScalarValue::Variant(_), ScalarValue::Variant(_)) => None,
         _ => None,
     }
+}
+
+/// Returns `true` for a list or fixed-size list dtype, looking through extensions.
+fn is_list_dtype(dtype: &DType) -> bool {
+    list_element_dtype(dtype).is_some()
 }
 
 /// The element dtype of a list or fixed-size list dtype, looking through extensions.
