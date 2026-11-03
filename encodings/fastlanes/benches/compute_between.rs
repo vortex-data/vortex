@@ -88,7 +88,12 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     ALP::new(bp, alp.exponents(), None).into_array()
 }
 
-const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
+// CodSpeed measures one length: times scale linearly with it, and every type is still covered.
+const BENCH_ARGS: &[usize] = if cfg!(codspeed) {
+    &[2 << 13]
+} else {
+    &[2 << 10, 2 << 13, 2 << 14]
+};
 
 mod primitive {
     use divan::Bencher;
