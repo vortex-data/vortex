@@ -68,8 +68,12 @@ impl CoalesceConfig {
     }
 
     /// Configuration appropriate for local filesystem access.
+    ///
+    /// A local read is a page-cache copy or a fast device read, so bridging a gap costs about as
+    /// much as reading its bytes, while a separate read only costs a syscall. Bridging large gaps
+    /// mostly copies bytes nobody asked for.
     pub const fn file() -> Self {
-        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
+        Self::new(64 << 10, 4 << 20) // 64KB distance, 4MB max
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -439,7 +443,7 @@ mod tests {
     #[test]
     fn test_coalesce_config_file() {
         let config = CoalesceConfig::file();
-        assert_eq!(config.distance, 1 << 20); // 1MB
+        assert_eq!(config.distance, 64 << 10); // 64KB
         assert_eq!(config.max_size, 4 << 20); // 4MB
     }
 
