@@ -2263,7 +2263,7 @@ dependencies = [
  "itertools 0.14.0",
  "lance-bench",
  "mimalloc",
- "parking_lot",
+ "parking_lot 0.12.5",
  "parquet 60.1.0",
  "regex",
  "rstest",
@@ -2596,7 +2596,7 @@ dependencies = [
  "document-features",
  "futures-core",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rustix",
  "signal-hook",
  "signal-hook-mio",
@@ -2738,9 +2738,9 @@ dependencies = [
  "cfg-if",
  "crossbeam-utils",
  "hashbrown 0.14.5",
- "lock_api",
+ "lock_api 0.4.14",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -2801,7 +2801,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store 0.13.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "sqlparser 0.62.0",
  "tempfile",
  "tokio",
@@ -2811,40 +2811,40 @@ dependencies = [
 
 [[package]]
 name = "datafusion"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
  "async-trait",
  "bzip2",
  "chrono",
- "datafusion-catalog 55.1.0",
- "datafusion-catalog-listing 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-datasource-arrow 55.1.0",
+ "datafusion-catalog 56.0.0-dev",
+ "datafusion-catalog-listing 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-datasource-arrow 56.0.0-dev",
  "datafusion-datasource-avro",
- "datafusion-datasource-csv 55.1.0",
- "datafusion-datasource-json 55.1.0",
+ "datafusion-datasource-csv 56.0.0-dev",
+ "datafusion-datasource-json 56.0.0-dev",
  "datafusion-datasource-parquet",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-aggregate 55.1.0",
- "datafusion-functions-nested 55.1.0",
- "datafusion-functions-table 55.1.0",
- "datafusion-functions-window 55.1.0",
- "datafusion-optimizer 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-optimizer 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
- "datafusion-sql 55.1.0",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-aggregate 56.0.0-dev",
+ "datafusion-functions-nested 56.0.0-dev",
+ "datafusion-functions-table 56.0.0-dev",
+ "datafusion-functions-window 56.0.0-dev",
+ "datafusion-optimizer 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-optimizer 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
+ "datafusion-sql 56.0.0-dev",
  "flate2",
  "futures",
  "indexmap 2.14.2",
@@ -2852,7 +2852,7 @@ dependencies = [
  "liblzma",
  "log",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.13.0",
  "parquet 60.1.0",
  "sqlparser 0.63.0",
  "tempfile",
@@ -2869,9 +2869,9 @@ dependencies = [
  "anyhow",
  "clap",
  "custom-labels",
- "datafusion 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
+ "datafusion 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
  "futures",
  "itertools 0.14.0",
  "mimalloc",
@@ -2879,7 +2879,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "parking_lot",
+ "parking_lot 0.12.5",
  "tokio",
  "url",
  "vortex",
@@ -2910,31 +2910,31 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store 0.13.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "tokio",
 ]
 
 [[package]]
 name = "datafusion-catalog"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
  "dashmap",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "itertools 0.15.0",
  "log",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.13.0",
  "tokio",
 ]
 
@@ -2963,20 +2963,20 @@ dependencies = [
 
 [[package]]
 name = "datafusion-catalog-listing"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
- "datafusion-catalog 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
+ "datafusion-catalog 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
  "futures",
  "itertools 0.15.0",
  "log",
@@ -3010,8 +3010,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-common"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ipc 60.1.0",
@@ -3047,8 +3047,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-common-runtime"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "futures",
  "log",
@@ -3079,7 +3079,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store 0.13.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rand 0.9.5",
  "tokio",
  "url",
@@ -3087,8 +3087,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-compression",
@@ -3096,15 +3096,15 @@ dependencies = [
  "bytes",
  "bzip2",
  "chrono",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "flate2",
  "futures",
  "glob",
@@ -3112,7 +3112,7 @@ dependencies = [
  "liblzma",
  "log",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.13.0",
  "pin-project-lite",
  "rand 0.9.5",
  "tokio",
@@ -3147,21 +3147,21 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-arrow"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ipc 60.1.0",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "itertools 0.15.0",
  "object_store 0.14.2",
@@ -3170,22 +3170,22 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-avro"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-avro",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "object_store 0.14.2",
  "tokio",
@@ -3216,20 +3216,20 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-csv"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "object_store 0.14.2",
  "regex",
@@ -3261,20 +3261,20 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-json"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "object_store 0.14.2",
  "tokio",
@@ -3283,31 +3283,31 @@ dependencies = [
 
 [[package]]
 name = "datafusion-datasource-parquet"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-pruning 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-pruning 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "futures",
  "itertools 0.15.0",
  "log",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.13.0",
  "parquet 60.1.0",
  "tokio",
 ]
@@ -3320,8 +3320,8 @@ checksum = "d69bb69d8769e34f76839c960dbde24c1ac0c885a79b6c3c2287bdc56ec67891"
 
 [[package]]
 name = "datafusion-doc"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 
 [[package]]
 name = "datafusion-execution"
@@ -3339,7 +3339,7 @@ dependencies = [
  "futures",
  "log",
  "object_store 0.13.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rand 0.9.5",
  "tempfile",
  "url",
@@ -3347,21 +3347,21 @@ dependencies = [
 
 [[package]]
 name = "datafusion-execution"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-buffer 60.1.0",
  "async-trait",
  "bytes",
  "dashmap",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "futures",
  "log",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.13.0",
  "pin-project-lite",
  "rand 0.9.5",
  "tempfile",
@@ -3394,19 +3394,19 @@ dependencies = [
 
 [[package]]
 name = "datafusion-expr"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
  "async-trait",
  "chrono",
- "datafusion-common 55.1.0",
- "datafusion-doc 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-functions-window-common 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-doc 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-functions-window-common 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "indexmap 2.14.2",
  "itertools 0.15.0",
  "recursive",
@@ -3429,11 +3429,11 @@ dependencies = [
 
 [[package]]
 name = "datafusion-expr-common"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
  "indexmap 2.14.2",
  "itertools 0.15.0",
 ]
@@ -3472,8 +3472,8 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-buffer 60.1.0",
@@ -3483,13 +3483,13 @@ dependencies = [
  "blake3",
  "chrono",
  "chrono-tz",
- "datafusion-common 55.1.0",
- "datafusion-doc 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-macros 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-doc 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-macros 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "hex",
  "itertools 0.15.0",
  "log",
@@ -3525,19 +3525,19 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-aggregate"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-select 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-doc 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-macros 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-doc 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-macros 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "half",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
@@ -3559,13 +3559,13 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-aggregate-common"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
 ]
 
 [[package]]
@@ -3595,21 +3595,21 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-nested"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-ord 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-doc 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-aggregate 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-macros 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-doc 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-aggregate 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-macros 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "itoa",
@@ -3630,22 +3630,22 @@ dependencies = [
  "datafusion-expr 54.1.0",
  "datafusion-physical-expr 54.1.0",
  "datafusion-physical-plan 54.1.0",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
 name = "datafusion-functions-table"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
- "datafusion-catalog 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "parking_lot",
+ "datafusion-catalog 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "parking_lot 0.13.0",
 ]
 
 [[package]]
@@ -3667,17 +3667,17 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-window"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-doc 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions-window-common 55.1.0",
- "datafusion-macros 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-doc 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions-window-common 56.0.0-dev",
+ "datafusion-macros 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "log",
 ]
 
@@ -3693,11 +3693,11 @@ dependencies = [
 
 [[package]]
 name = "datafusion-functions-window-common"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
- "datafusion-common 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
 ]
 
 [[package]]
@@ -3713,10 +3713,10 @@ dependencies = [
 
 [[package]]
 name = "datafusion-macros"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
- "datafusion-doc 55.1.0",
+ "datafusion-doc 56.0.0-dev",
  "quote",
  "syn 3.0.9",
 ]
@@ -3742,15 +3742,15 @@ dependencies = [
 
 [[package]]
 name = "datafusion-optimizer"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "chrono",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-physical-expr 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
  "indexmap 2.14.2",
  "itertools 0.15.0",
  "log",
@@ -3775,28 +3775,28 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "itertools 0.14.0",
- "parking_lot",
+ "parking_lot 0.12.5",
  "petgraph",
  "tokio",
 ]
 
 [[package]]
 name = "datafusion-physical-expr"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-schema 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "half",
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "itertools 0.15.0",
- "parking_lot",
+ "parking_lot 0.13.0",
  "petgraph",
  "recursive",
  "regex",
@@ -3820,15 +3820,15 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-expr-adapter"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "itertools 0.15.0",
 ]
 
@@ -3845,23 +3845,23 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "itertools 0.14.0",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project",
 ]
 
 [[package]]
 name = "datafusion-physical-expr-common"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "chrono",
- "datafusion-common 55.1.0",
- "datafusion-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
  "hashbrown 0.17.1",
  "indexmap 2.14.2",
  "itertools 0.15.0",
- "parking_lot",
+ "parking_lot 0.13.0",
  "pin-project",
  "regex",
 ]
@@ -3886,20 +3886,20 @@ dependencies = [
 
 [[package]]
 name = "datafusion-physical-optimizer"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions-window 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-pruning 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions-window 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-pruning 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "itertools 0.15.0",
  "recursive",
 ]
@@ -3932,15 +3932,15 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "num-traits",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "tokio",
 ]
 
 [[package]]
 name = "datafusion-physical-plan"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "arrow-data 60.1.0",
@@ -3949,16 +3949,16 @@ dependencies = [
  "arrow-schema 60.1.0",
  "async-trait",
  "bytes",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-functions-window-common 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-functions-window-common 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
  "futures",
  "half",
  "hashbrown 0.17.1",
@@ -3966,7 +3966,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "num-traits",
- "parking_lot",
+ "parking_lot 0.13.0",
  "pin-project-lite",
  "serde",
  "serde_json",
@@ -3991,16 +3991,16 @@ dependencies = [
 
 [[package]]
 name = "datafusion-pruning"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
- "datafusion-common 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-expr-common 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-expr-common 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
  "log",
 ]
 
@@ -4015,43 +4015,43 @@ dependencies = [
  "datafusion-execution 54.1.0",
  "datafusion-expr 54.1.0",
  "datafusion-physical-plan 54.1.0",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
 name = "datafusion-session"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow-schema 60.1.0",
  "async-trait",
- "datafusion-common 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-physical-plan 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
  "futures",
- "parking_lot",
+ "parking_lot 0.13.0",
 ]
 
 [[package]]
 name = "datafusion-spark"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "base64 0.23.1",
  "bigdecimal",
  "chrono",
  "crc32fast",
- "datafusion 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-aggregate 55.1.0",
- "datafusion-functions-aggregate-common 55.1.0",
- "datafusion-functions-nested 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-session 55.1.0",
+ "datafusion 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-aggregate 56.0.0-dev",
+ "datafusion-functions-aggregate-common 56.0.0-dev",
+ "datafusion-functions-nested 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-session 56.0.0-dev",
  "log",
  "num-traits",
  "percent-encoding",
@@ -4083,15 +4083,16 @@ dependencies = [
 
 [[package]]
 name = "datafusion-sql"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
+ "arrow-schema 60.1.0",
  "bigdecimal",
  "chrono",
- "datafusion-common 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions-nested 55.1.0",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions-nested 56.0.0-dev",
  "indexmap 2.14.2",
  "log",
  "recursive",
@@ -4102,14 +4103,14 @@ dependencies = [
 
 [[package]]
 name = "datafusion-sqllogictest"
-version = "55.1.0"
-source = "git+https://github.com/apache/datafusion?rev=97ff724f2c20f906277dc29fa8ba66a5824538a7#97ff724f2c20f906277dc29fa8ba66a5824538a7"
+version = "56.0.0-dev"
+source = "git+https://github.com/apache/datafusion?branch=branch-56#1635ed94742c1c060852bc34dc6ebb2302241c7b"
 dependencies = [
  "arrow 60.1.0",
  "async-trait",
  "bigdecimal",
  "clap",
- "datafusion 55.1.0",
+ "datafusion 56.0.0-dev",
  "datafusion-spark",
  "futures",
  "half",
@@ -5226,7 +5227,7 @@ dependencies = [
  "hegeltest-c",
  "hegeltest-macros",
  "miniz_oxide 0.8.9",
- "parking_lot",
+ "parking_lot 0.12.5",
  "paste",
  "rand 0.10.3",
  "rustc-hash",
@@ -5243,7 +5244,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "libm",
  "miniz_oxide 0.8.9",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rand 0.10.3",
  "rustc-hash",
  "tempfile",
@@ -6876,6 +6877,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lock_api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65d91b22da179613dcf4d6ec8349563f52a363f6849e03b00dd0a185ec4a59af"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
 name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7209,7 +7219,7 @@ dependencies = [
  "equivalent",
  "event-listener",
  "futures-util",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "smallvec",
  "tagptr",
@@ -7570,7 +7580,7 @@ dependencies = [
  "http",
  "humantime",
  "itertools 0.14.0",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "thiserror 2.0.21",
  "tokio",
@@ -7605,7 +7615,7 @@ dependencies = [
  "itertools 0.15.0",
  "md-5 0.11.0",
  "nix",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "quick-xml 0.41.0",
  "rand 0.10.3",
@@ -7647,7 +7657,7 @@ version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 dependencies = [
- "parking_lot_core",
+ "parking_lot_core 0.9.12",
 ]
 
 [[package]]
@@ -8058,8 +8068,18 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9cf937ca4e1d0b7578784559063422fc39ae7c5a00f02471f2614d5486fd226"
+dependencies = [
+ "lock_api 0.5.0",
+ "parking_lot_core 0.10.0",
 ]
 
 [[package]]
@@ -8070,7 +8090,19 @@ checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfff060068cc18aa7815010fcaf80c68c7fb9e85fc7f5c0f9bf142c21d19826"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.5",
  "smallvec",
  "windows-link",
 ]
@@ -8768,7 +8800,7 @@ dependencies = [
  "ahash",
  "equivalent",
  "hashbrown 0.16.1",
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -9129,6 +9161,15 @@ name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+dependencies = [
+ "bitflags 2.13.2",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "580c875845b41ecb1564ad1ae4703044cef774145e3d7a94dc2b3fa7c97868fd"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -9849,7 +9890,7 @@ dependencies = [
  "futures-util",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "serial_test_derive",
 ]
 
@@ -10485,7 +10526,7 @@ version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.5",
 ]
 
 [[package]]
@@ -10732,7 +10773,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -11376,7 +11417,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "num_enum",
- "parking_lot",
+ "parking_lot 0.12.5",
  "paste",
  "pin-project-lite",
  "primitive-types",
@@ -11475,7 +11516,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-vcf",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "parquet 56.2.1",
  "parquet 60.1.0",
  "rand 0.10.3",
@@ -11597,7 +11638,7 @@ dependencies = [
  "object_store 0.14.2",
  "object_store_opendal",
  "opendal",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "rstest",
  "tempfile",
@@ -11648,7 +11689,7 @@ dependencies = [
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rand 0.10.3",
  "rstest",
  "rustc-hash",
@@ -11706,7 +11747,7 @@ dependencies = [
  "num-traits",
  "object_store 0.14.2",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "prost 0.14.4",
  "rstest",
  "rustix",
@@ -11732,7 +11773,7 @@ version = "0.1.0"
 dependencies = [
  "half",
  "libloading",
- "parking_lot",
+ "parking_lot 0.12.5",
  "smallvec",
  "vortex-array",
 ]
@@ -11768,20 +11809,20 @@ dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
  "async-trait",
- "datafusion 55.1.0",
- "datafusion-catalog 55.1.0",
- "datafusion-common 55.1.0",
- "datafusion-common-runtime 55.1.0",
- "datafusion-datasource 55.1.0",
- "datafusion-execution 55.1.0",
- "datafusion-expr 55.1.0",
- "datafusion-functions 55.1.0",
- "datafusion-functions-nested 55.1.0",
- "datafusion-physical-expr 55.1.0",
- "datafusion-physical-expr-adapter 55.1.0",
- "datafusion-physical-expr-common 55.1.0",
- "datafusion-physical-plan 55.1.0",
- "datafusion-pruning 55.1.0",
+ "datafusion 56.0.0-dev",
+ "datafusion-catalog 56.0.0-dev",
+ "datafusion-common 56.0.0-dev",
+ "datafusion-common-runtime 56.0.0-dev",
+ "datafusion-datasource 56.0.0-dev",
+ "datafusion-execution 56.0.0-dev",
+ "datafusion-expr 56.0.0-dev",
+ "datafusion-functions 56.0.0-dev",
+ "datafusion-functions-nested 56.0.0-dev",
+ "datafusion-physical-expr 56.0.0-dev",
+ "datafusion-physical-expr-adapter 56.0.0-dev",
+ "datafusion-physical-expr-common 56.0.0-dev",
+ "datafusion-physical-plan 56.0.0-dev",
+ "datafusion-pruning 56.0.0-dev",
  "futures",
  "insta",
  "itertools 0.14.0",
@@ -11855,7 +11896,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "paste",
  "prost 0.14.4",
  "reqwest 0.13.5",
@@ -11879,7 +11920,7 @@ dependencies = [
 name = "vortex-edition"
 version = "0.1.0"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.5",
  "vortex-error",
  "vortex-session",
 ]
@@ -11919,7 +11960,7 @@ name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
  "itertools 0.14.0",
- "parking_lot",
+ "parking_lot 0.12.5",
  "rstest",
  "tracing",
  "vortex-array",
@@ -11994,7 +12035,7 @@ dependencies = [
  "mimalloc",
  "moka",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "prost 0.14.4",
  "rand 0.10.3",
@@ -12096,7 +12137,7 @@ dependencies = [
  "glob",
  "itertools 0.14.0",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "pin-project-lite",
  "rstest",
  "smol",
@@ -12141,7 +12182,7 @@ dependencies = [
  "futures",
  "jni",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "roaring",
  "rstest",
  "thiserror 2.0.21",
@@ -12192,7 +12233,7 @@ dependencies = [
  "moka",
  "object_store 0.14.2",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "paste",
  "pin-project-lite",
  "prost 0.14.4",
@@ -12244,7 +12285,7 @@ dependencies = [
 name = "vortex-metrics"
 version = "0.1.0"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.12.5",
  "sketches-ddsketch",
 ]
 
@@ -12335,7 +12376,7 @@ dependencies = [
  "log",
  "memmap2",
  "object_store 0.14.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "prost 0.14.4",
  "pyo3",
  "pyo3-bytes",
@@ -12395,7 +12436,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
- "parking_lot",
+ "parking_lot 0.12.5",
  "roaring",
  "rstest",
  "tracing",
@@ -12430,7 +12471,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "lasso",
- "parking_lot",
+ "parking_lot 0.12.5",
  "vortex-error",
  "vortex-utils",
 ]
@@ -12488,8 +12529,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bigdecimal",
- "datafusion 55.1.0",
- "datafusion-functions-nested 55.1.0",
+ "datafusion 56.0.0-dev",
+ "datafusion-functions-nested 56.0.0-dev",
  "datafusion-sqllogictest",
  "futures",
  "indicatif",
@@ -12549,7 +12590,7 @@ dependencies = [
  "clap",
  "console_error_panic_hook",
  "crossterm",
- "datafusion 55.1.0",
+ "datafusion 56.0.0-dev",
  "env_logger",
  "flatbuffers",
  "futures",
