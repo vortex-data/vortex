@@ -214,15 +214,16 @@ mod tests {
     #[test]
     fn nested_constant_field_reduces_through_select_and_storage() -> VortexResult<()> {
         static EXT_ID: CachedId = CachedId::new("test.measurement");
-        let storage_array = StructArray::from_fields(&[(
-            "value",
-            ConstantArray::new(42i32, 1).into_array(),
-        )])?;
+        let storage_array =
+            StructArray::from_fields(&[("value", ConstantArray::new(42i32, 1).into_array())])?;
         let storage = Scalar::struct_(storage_array.dtype().clone(), [Scalar::from(42i32)]);
         let dtype = ForeignExtDType::from_parts(*EXT_ID, vec![], storage.dtype().clone())?;
         let measurement = Scalar::extension_ref(dtype, storage);
         let array = StructArray::from_fields(&[
-            ("measurement", ConstantArray::new(measurement, 3).into_array()),
+            (
+                "measurement",
+                ConstantArray::new(measurement, 3).into_array(),
+            ),
             ("other", buffer![1i32, 2, 3].into_array()),
         ])?
         .into_array();

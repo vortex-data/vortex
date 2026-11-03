@@ -80,9 +80,9 @@ impl GetItem {
         field_name: &FieldName,
     ) -> VortexResult<Option<T>> {
         if let Some(scalar) = struct_node.as_constant() {
-            return Ok(Some(struct_node.new_constant(Self::constant_field(
-                scalar, field_name,
-            )?)));
+            return Ok(Some(
+                struct_node.new_constant(Self::constant_field(scalar, field_name)?),
+            ));
         }
 
         if let Some(selection) = struct_node
@@ -216,11 +216,10 @@ impl ScalarFnVTable for GetItem {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         if let Some(scalar) = input.as_constant() {
-            return Ok(ConstantArray::new(
-                Self::constant_field(scalar, field_name)?,
-                input.len(),
-            )
-            .into_array());
+            return Ok(
+                ConstantArray::new(Self::constant_field(scalar, field_name)?, input.len())
+                    .into_array(),
+            );
         }
 
         let input = input.execute::<StructArray>(ctx)?;
@@ -427,7 +426,7 @@ mod tests {
             validity,
         )?
         .into_array();
-        let expected = array.clone().get_item("a")?;
+        let expected = array.get_item("a")?;
         let selected = ScalarFnArray::try_new(Select.bind(selection), [array])?.into_array();
         let item = GetItem::try_new(selected, "a")?.into_array().optimize()?;
 
