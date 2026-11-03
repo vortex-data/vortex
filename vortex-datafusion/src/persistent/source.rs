@@ -408,6 +408,12 @@ impl FileSource for VortexSource {
         self.vortex_predicate.clone()
     }
 
+    // Pushed-down predicates are reported as `PushedDown::Yes`, so the scan applies them exactly
+    // and DataFusion may derive equivalences (such as constant columns) from them.
+    fn exact_filter(&self) -> Option<Arc<dyn PhysicalExpr>> {
+        self.vortex_predicate.clone()
+    }
+
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
         &self.df_metrics
     }
@@ -598,6 +604,7 @@ mod tests {
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+    use datafusion_datasource::source::DataSource;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
     use datafusion_expr::ScalarUDF;
@@ -751,6 +758,34 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    #[test]
+    fn pushed_down_equality_filter_makes_column_constant() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Eq,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+        )) as PhysicalExprRef;
+
+        let result =
+            source.try_pushdown_filters(vec![Arc::clone(&filter)], &ConfigOptions::new())?;
+        assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?;
+        assert_eq!(updated_source.exact_filter().as_ref(), Some(&filter));
+
+        let config =
+            FileScanConfigBuilder::new(ObjectStoreUrl::local_filesystem(), updated_source).build();
+        let column_a = Arc::new(Column::new("a", 0)) as PhysicalExprRef;
+        let column_b = Arc::new(Column::new("b", 1)) as PhysicalExprRef;
+        let eq_properties = config.eq_properties();
+        assert!(eq_properties.is_expr_constant(&column_a).is_some());
+        assert!(eq_properties.is_expr_constant(&column_b).is_none());
         Ok(())
     }
 
