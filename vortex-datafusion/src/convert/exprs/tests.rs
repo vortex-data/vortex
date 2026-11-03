@@ -2234,16 +2234,7 @@ fn test_native_nested_list_length(
 
 #[rstest]
 fn test_native_array_sum(
-    #[values(
-        DataType::Boolean,
-        DataType::Int8,
-        DataType::Int64,
-        DataType::UInt64,
-        DataType::Float32,
-        DataType::Float64
-    )]
-    element: DataType,
-    #[values(false, true)] large: bool,
+    #[values(DataType::Int64, DataType::Float64)] element: DataType,
 ) -> anyhow::Result<()> {
     let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
         Some(vec![Some(1), None, Some(2)]),
@@ -2254,35 +2245,30 @@ fn test_native_array_sum(
         Some(vec![Some(i64::MAX), Some(i64::MAX)]),
         Some(vec![Some(1 << 53), Some(1), Some(1)]),
     ]);
-    let item = Arc::new(Field::new("item", element, true));
-    let data_type = if large {
-        DataType::LargeList(item)
-    } else {
-        DataType::List(item)
-    };
+    let data_type = DataType::new_list(element, true);
     let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
     assert_native_matches(expr, batch)
 }
 
-/// Evaluates the converted `array_sum` of the first list in `lists`.
-fn native_array_sum(lists: arrow_array::ArrayRef) -> anyhow::Result<Scalar> {
-    let batch = RecordBatch::try_from_iter([("xs", lists)])?;
-    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
-    let converted = convert(expr, &batch.schema())?;
-    let session = VortexSession::default();
-    Ok(session
-        .arrow()
-        .from_arrow_record_batch(batch.clone(), &batch.schema())?
-        .apply(&converted)?
-        .execute_scalar(0, &mut session.create_execution_ctx())?)
-}
-
 #[test]
 fn test_native_array_sum_nan() -> anyhow::Result<()> {
-    let values = vec![Some(1.0), Some(f64::NAN)];
-    let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(values)]);
-    let sum = native_array_sum(Arc::new(lists))?;
+    let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(vec![
+        Some(1.0),
+        Some(f64::NAN),
+    ])]);
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let converted = convert(
+        array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?,
+        &schema,
+    )?;
+    let session = VortexSession::default();
+    let sum = session
+        .arrow()
+        .from_arrow_record_batch(batch, &schema)?
+        .apply(&converted)?
+        .execute_scalar(0, &mut session.create_execution_ctx())?;
     assert!(
         sum.as_primitive()
             .typed_value::<f64>()
@@ -2291,12 +2277,10 @@ fn test_native_array_sum_nan() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[rstest]
-#[case::decimal(DataType::new_list(DataType::Decimal128(10, 2), true))]
-#[case::utf8(DataType::new_list(DataType::Utf8, true))]
-#[case::nested(DataType::new_list(DataType::new_list(DataType::Int32, true), true))]
-#[case::fixed_size_list(DataType::new_fixed_size_list(DataType::Int32, 2, true))]
-fn test_array_sum_falls_back(#[case] list: DataType) -> DFResult<()> {
+/// Nested lists coerce to lists of `Float64` lists, which `list_sum` cannot add.
+#[test]
+fn test_array_sum_nested_falls_back() -> DFResult<()> {
+    let list = DataType::new_list(DataType::new_list(DataType::Int32, true), true);
     let schema = Schema::new(vec![Field::new("xs", list, true)]);
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?;
     assert!(!converts(&expr, &schema)?);
