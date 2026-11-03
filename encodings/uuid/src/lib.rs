@@ -158,13 +158,16 @@ mod tests {
         let uuid = |leading_byte: u8| {
             let mut bytes = [0u8; 16];
             bytes[0] = leading_byte;
-            Scalar::fixed_size_list(
-                DType::Primitive(PType::U8, Nullability::NonNullable),
-                bytes
-                    .into_iter()
-                    .map(|byte| Scalar::primitive(byte, Nullability::NonNullable))
-                    .collect(),
-                Nullability::NonNullable,
+            Scalar::extension::<Uuid>(
+                UuidMetadata::default(),
+                Scalar::fixed_size_list(
+                    DType::Primitive(PType::U8, Nullability::NonNullable),
+                    bytes
+                        .into_iter()
+                        .map(|byte| Scalar::primitive(byte, Nullability::NonNullable))
+                        .collect(),
+                    Nullability::NonNullable,
+                ),
             )
         };
         assert_eq!(

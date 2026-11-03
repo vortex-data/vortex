@@ -26,6 +26,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
+use crate::dtype::StructFields;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::Scalar;
 
@@ -54,9 +56,9 @@ use crate::scalar::Scalar;
 ///
 /// # Results and partials
 ///
-/// Results and partial states are those of `A` over the storage dtype. Results are not converted
-/// back to `E`. For example, the minimum and maximum of a timestamp column are raw `i64` values
-/// in the column's time unit.
+/// Results and partial states are those of `A` over the storage dtype, except that their value
+/// fields, named by [`StorageResultMapping`], hold values of `E`. For example, the minimum and
+/// maximum of a timestamp column are timestamps, as with plain `min_max`.
 ///
 /// Partial states can only be combined when the aggregate, options, and full input dtype match.
 /// This includes extension metadata, so timestamp partials with different time units must not be
@@ -109,13 +111,38 @@ use crate::scalar::Scalar;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct ExtensionStoragePushdown<A: AggregateFnVTable, E: ExtVTable> {
+pub struct ExtensionStoragePushdown<A: StorageResultMapping, E: ExtVTable> {
     aggregate: A,
     ext: E,
     id: AggregateFnId,
 }
 
-impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
+/// An aggregate that names the _value fields_ of its partial and result, which hold values of its
+/// input.
+///
+/// [`ExtensionStoragePushdown`] runs the aggregate on storage values, so the value fields hold
+/// storage values, and the pushdown gives them the extension dtype back. A value field is named by
+/// its index in a struct dtype because its dtype cannot identify it: over `Bool` storage, the
+/// `is_sorted` field of [`IsSorted`] has the storage dtype but holds no input value. The indices
+/// **must** name exactly the fields that hold input values. An index out of range, or any index
+/// into a dtype that is not a struct, panics when the pushdown resolves its dtypes, and an index on
+/// a field of another dtype can fail when the pushdown converts a partial to a scalar. Other
+/// mistakes, such as a missing index, silently give a field the wrong dtype.
+///
+/// The pushdown calls [`finalize`] with its own partial states and dtypes: the value fields hold
+/// extension values, and `args.dtype` is the extension dtype. So `finalize` **must** only move or
+/// drop the value fields, and it **must not** depend on `args.dtype`.
+///
+/// [`finalize`]: AggregateFnVTable::finalize
+/// [`IsSorted`]: crate::aggregate_fn::fns::is_sorted::IsSorted
+pub trait StorageResultMapping: AggregateFnVTable {
+    /// The indices of the value fields of the partial dtype.
+    const PARTIAL_VALUE_FIELDS: &'static [usize];
+    /// The indices of the value fields of the return dtype.
+    const RETURN_VALUE_FIELDS: &'static [usize];
+}
+
+impl<A: StorageResultMapping, E: ExtVTable> ExtensionStoragePushdown<A, E> {
     /// Push `aggregate` down into the storage of extension type `ext`.
     ///
     /// Only do this when `aggregate` over the storage is correct for `ext`; see
@@ -126,17 +153,19 @@ impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
         Self { aggregate, ext, id }
     }
 
-    /// The storage dtype of `dtype`, if it is an extension dtype of type `E`.
-    fn storage_dtype<'a>(&self, dtype: &'a DType) -> Option<&'a DType> {
+    /// The extension dtype of `dtype`, if it is an extension dtype of type `E`.
+    fn ext_dtype<'a>(&self, dtype: &'a DType) -> Option<&'a ExtDTypeRef> {
         dtype
             .as_extension_opt()
             .filter(|ext_dtype| ext_dtype.is::<E>())
-            .map(|ext_dtype| ext_dtype.storage_dtype())
     }
 
     /// Resolve the dtypes of the storage aggregate `A` over the storage dtype of `args.dtype`.
+    ///
+    /// The value fields of the return and partial dtypes in `args` have the extension dtype, so `A`
+    /// needs dtypes of its own.
     fn storage_dtypes(&self, args: AggregateArgs<'_, A::Options>) -> VortexResult<AggregateDTypes> {
-        let dtype = self.storage_dtype(args.dtype).ok_or_else(|| {
+        let ext_dtype = self.ext_dtype(args.dtype).ok_or_else(|| {
             vortex_err!(
                 "Aggregate function {} expects extension type {}, got {}",
                 self.id,
@@ -144,7 +173,11 @@ impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
                 args.dtype
             )
         })?;
-        AggregateDTypes::try_new(&self.aggregate, args.options, dtype.clone())
+        AggregateDTypes::try_new(
+            &self.aggregate,
+            args.options,
+            ext_dtype.storage_dtype().clone(),
+        )
     }
 
     /// Accumulate a storage batch into `state` through an [`Accumulator`] of `A`, so that the
@@ -175,7 +208,7 @@ impl<A: AggregateFnVTable, E: ExtVTable> ExtensionStoragePushdown<A, E> {
     }
 }
 
-impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStoragePushdown<A, E> {
+impl<A: StorageResultMapping, E: ExtVTable> AggregateFnVTable for ExtensionStoragePushdown<A, E> {
     type Options = A::Options;
     type Partial = A::Partial;
 
@@ -192,13 +225,17 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
     }
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        let ext_dtype = self.ext_dtype(input_dtype)?;
         self.aggregate
-            .return_dtype(options, self.storage_dtype(input_dtype)?)
+            .return_dtype(options, ext_dtype.storage_dtype())
+            .map(|dtype| wrap_value_fields(dtype, A::RETURN_VALUE_FIELDS, ext_dtype))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        let ext_dtype = self.ext_dtype(input_dtype)?;
         self.aggregate
-            .partial_dtype(options, self.storage_dtype(input_dtype)?)
+            .partial_dtype(options, ext_dtype.storage_dtype())
+            .map(|dtype| wrap_value_fields(dtype, A::PARTIAL_VALUE_FIELDS, ext_dtype))
     }
 
     fn empty_partial(&self, args: AggregateArgs<'_, Self::Options>) -> VortexResult<Self::Partial> {
@@ -213,8 +250,16 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let storage_dtypes = self.storage_dtypes(args)?;
+
+        // An extension value is stored as its storage value, so only the dtype of the partial
+        // changes. A null partial and a null field stay null.
+        let storage_scalar = Scalar::try_new(
+            storage_dtypes.partial_dtype.clone(),
+            scalar.value().cloned(),
+        )?;
+
         self.aggregate
-            .partial_from_scalar(storage_dtypes.args(args.options), scalar)
+            .partial_from_scalar(storage_dtypes.args(args.options), &storage_scalar)
     }
 
     fn merge_partials(
@@ -234,8 +279,13 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         let storage_dtypes = self.storage_dtypes(args)?;
-        self.aggregate
-            .to_scalar(storage_dtypes.args(args.options), partial)
+        let storage_scalar = self
+            .aggregate
+            .to_scalar(storage_dtypes.args(args.options), partial)?;
+
+        // The reverse of `partial_from_scalar`. `Scalar::try_new` also runs the value check of `E`,
+        // as plain `min_max` does when it wraps its extrema.
+        Scalar::try_new(args.partial_dtype.clone(), storage_scalar.into_value())
     }
 
     fn is_saturated(
@@ -310,9 +360,10 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         args: AggregateArgs<'_, Self::Options>,
         states: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        let storage_dtypes = self.storage_dtypes(args)?;
-        self.aggregate
-            .finalize(storage_dtypes.args(args.options), states)
+        // The states have the partial dtype of this aggregate, so their value fields hold values
+        // of `E`. `StorageResultMapping` requires that `A` finalizes them as they are, with these
+        // `args`.
+        self.aggregate.finalize(args, states)
     }
 
     fn finalize_scalar(
@@ -321,9 +372,32 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
         partial: &Self::Partial,
     ) -> VortexResult<Scalar> {
         let storage_dtypes = self.storage_dtypes(args)?;
-        self.aggregate
-            .finalize_scalar(storage_dtypes.args(args.options), partial)
+        let storage_result = self
+            .aggregate
+            .finalize_scalar(storage_dtypes.args(args.options), partial)?;
+
+        Scalar::try_new(args.return_dtype.clone(), storage_result.into_value())
     }
+}
+
+/// Give the fields `value_fields` of the struct `dtype` the extension dtype `ext_dtype`, with the
+/// nullability of each field.
+fn wrap_value_fields(dtype: DType, value_fields: &[usize], ext_dtype: &ExtDTypeRef) -> DType {
+    if value_fields.is_empty() {
+        return dtype;
+    }
+
+    let struct_fields = dtype.as_struct_fields();
+    let mut field_dtypes: Vec<DType> = struct_fields.fields().collect();
+    for &idx in value_fields {
+        let nullability = field_dtypes[idx].nullability();
+        field_dtypes[idx] = DType::Extension(ext_dtype.with_nullability(nullability));
+    }
+
+    DType::Struct(
+        StructFields::new(struct_fields.names().clone(), field_dtypes),
+        dtype.nullability(),
+    )
 }
 
 #[cfg(test)]
@@ -331,67 +405,113 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::ExtensionStoragePushdown;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::DynGroupedAccumulator;
+    use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::is_sorted::IsSorted;
     use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
+    use crate::aggregate_fn::fns::is_sorted::make_is_sorted_partial_dtype;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
     use crate::arrays::ExtensionArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::extension::ExtVTable;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    #[test]
-    fn pushes_down_into_storage() -> VortexResult<()> {
-        let session = VortexSession::empty();
-        let aggregate = ExtensionStoragePushdown::new(MinMax, Timestamp);
-        session.aggregate_fns().register(aggregate.clone());
-        assert!(
-            session
-                .aggregate_fns()
-                .find_plugin(&aggregate.id())
-                .is_some()
+    /// A column of nullable timestamps in milliseconds.
+    fn timestamps<const N: usize>(values: [Option<i64>; N]) -> ArrayRef {
+        ExtensionArray::new(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter(values).into_array(),
+        )
+        .into_array()
+    }
+
+    /// Accumulate `batches` with `min_max` pushed down into the storage of `ext` and with plain
+    /// `min_max`, and check that both give the same partial and the same result.
+    #[track_caller]
+    fn assert_matches_plain_min_max(ext: impl ExtVTable, batches: &[ArrayRef]) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = batches[0].dtype();
+        let mut pushdown = Accumulator::try_new(
+            ExtensionStoragePushdown::new(MinMax, ext),
+            NumericalAggregateOpts::default(),
+            dtype.clone(),
+        )?;
+        let mut plain =
+            Accumulator::try_new(MinMax, NumericalAggregateOpts::default(), dtype.clone())?;
+        for batch in batches {
+            pushdown.accumulate(batch, &mut ctx)?;
+            plain.accumulate(batch, &mut ctx)?;
+        }
+
+        assert_eq!(pushdown.partial_scalar()?, plain.partial_scalar()?);
+        assert_eq!(pushdown.finish()?, plain.finish()?);
+        Ok(())
+    }
+
+    /// A timestamp column whose `len` rows all hold `value`.
+    fn constant_timestamps(value: i64, len: usize) -> ArrayRef {
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+        let scalar =
+            Scalar::extension_ref(ext_dtype, Scalar::primitive(value, Nullability::Nullable));
+
+        ConstantArray::new(scalar, len).into_array()
+    }
+
+    /// A timestamp column whose storage is dictionary encoded, so `min_max` runs the kernel of the
+    /// dictionary over the storage dtypes.
+    fn dictionary_timestamps() -> ArrayRef {
+        let storage = DictArray::new(
+            buffer![1u32, 0, 2, 1].into_array(),
+            PrimitiveArray::from_option_iter([Some(3_000i64), None, Some(1_000)]).into_array(),
         );
 
-        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-        let storage =
-            PrimitiveArray::from_option_iter([Some(3_000i64), None, Some(1_000)]).into_array();
-        let array = ExtensionArray::new(ext_dtype.clone(), storage.clone()).into_array();
+        ExtensionArray::new(
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased(),
+            storage.into_array(),
+        )
+        .into_array()
+    }
 
-        let mut ctx = session.create_execution_ctx();
-        let mut acc = Accumulator::try_new(
-            aggregate,
-            NumericalAggregateOpts::default(),
-            DType::Extension(ext_dtype),
-        )?;
-        acc.accumulate(&array, &mut ctx)?;
-
-        let mut expected = Accumulator::try_new(
-            MinMax,
-            NumericalAggregateOpts::default(),
-            storage.dtype().clone(),
-        )?;
-        expected.accumulate(&storage, &mut ctx)?;
-
-        assert_eq!(acc.finish()?, expected.finish()?);
-        Ok(())
+    #[rstest]
+    #[case::flat(vec![timestamps([Some(3_000), None, Some(1_000)])])]
+    // The `Chunked` kernel sends the partial of the chunked batch out through `to_scalar` and back
+    // through `partial_from_scalar`, before the next batch merges into it.
+    #[case::chunked(vec![
+        ChunkedArray::from_iter([timestamps([Some(3_000), None]), timestamps([Some(1_000)])])
+            .into_array(),
+        timestamps([Some(500)]),
+    ])]
+    #[case::constant(vec![constant_timestamps(2_000, 3), constant_timestamps(1_000, 3)])]
+    #[case::dictionary(vec![dictionary_timestamps()])]
+    fn timestamp_min_max_matches_plain_min_max(#[case] batches: Vec<ArrayRef>) -> VortexResult<()> {
+        assert_matches_plain_min_max(Timestamp, &batches)
     }
 
     #[test]
@@ -424,43 +544,6 @@ mod tests {
         expected.accumulate(&batch([Some(1_000), Some(500)]), &mut ctx)?;
 
         assert_eq!(first.finish()?, expected.finish()?);
-        Ok(())
-    }
-
-    #[test]
-    fn accumulates_constant_batches() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
-        let constant = |value: i64| {
-            ConstantArray::new(
-                Scalar::extension_ref(
-                    ext_dtype.clone(),
-                    Scalar::primitive(value, Nullability::Nullable),
-                ),
-                3,
-            )
-            .into_array()
-        };
-
-        let mut acc = Accumulator::try_new(
-            ExtensionStoragePushdown::new(MinMax, Timestamp),
-            NumericalAggregateOpts::default(),
-            DType::Extension(ext_dtype.clone()),
-        )?;
-        acc.accumulate(&constant(2_000), &mut ctx)?;
-        acc.accumulate(&constant(1_000), &mut ctx)?;
-
-        let mut expected = Accumulator::try_new(
-            MinMax,
-            NumericalAggregateOpts::default(),
-            ext_dtype.storage_dtype().clone(),
-        )?;
-        expected.accumulate(
-            &PrimitiveArray::from_option_iter([Some(2_000i64), Some(1_000)]).into_array(),
-            &mut ctx,
-        )?;
-
-        assert_eq!(acc.finish()?, expected.finish()?);
         Ok(())
     }
 
@@ -522,29 +605,63 @@ mod tests {
         Ok(())
     }
 
+    /// The `Chunked` kernel sends the partial of the chunked batch out through `to_scalar` and back
+    /// through `partial_from_scalar`. Its first value is null, and its last value must come back
+    /// as a storage value that the second batch can compare with.
     #[test]
-    fn min_max_over_dates_matches_storage() -> VortexResult<()> {
+    fn is_sorted_over_chunked_timestamps() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
-        let storage =
-            PrimitiveArray::from_option_iter([Some(20i32), None, Some(-3), Some(7)]).into_array();
-        let array = ExtensionArray::new(ext_dtype.clone(), storage.clone()).into_array();
+        let chunked =
+            ChunkedArray::from_iter([timestamps([None, Some(1_000)]), timestamps([Some(2_000)])])
+                .into_array();
 
         let mut acc = Accumulator::try_new(
-            ExtensionStoragePushdown::new(MinMax, Date),
-            NumericalAggregateOpts::default(),
-            DType::Extension(ext_dtype),
+            ExtensionStoragePushdown::new(IsSorted, Timestamp),
+            IsSortedOptions { strict: false },
+            chunked.dtype().clone(),
         )?;
-        acc.accumulate(&array, &mut ctx)?;
+        acc.accumulate(&chunked, &mut ctx)?;
+        acc.accumulate(&timestamps([Some(3_000)]), &mut ctx)?;
 
-        let mut expected = Accumulator::try_new(
+        assert_eq!(
+            acc.partial_scalar()?.dtype(),
+            &make_is_sorted_partial_dtype(chunked.dtype())
+        );
+        assert!(bool::try_from(&acc.finish()?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn min_max_over_dates_matches_plain_min_max() -> VortexResult<()> {
+        let dates = ExtensionArray::new(
+            Date::new(TimeUnit::Days, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter([Some(20i32), None, Some(-3), Some(7)]).into_array(),
+        );
+        assert_matches_plain_min_max(Date, &[dates.into_array()])
+    }
+
+    /// Grouped accumulation finalizes partial states that already hold timestamps.
+    #[test]
+    fn grouped_min_max_matches_plain_min_max() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements = timestamps([Some(3_000), None, Some(1_000), Some(2_000)]);
+        let groups =
+            FixedSizeListArray::new(elements.clone(), 2, Validity::NonNullable, 2).into_array();
+
+        let mut pushdown = GroupedAccumulator::try_new(
+            ExtensionStoragePushdown::new(MinMax, Timestamp),
+            NumericalAggregateOpts::default(),
+            elements.dtype().clone(),
+        )?;
+        pushdown.accumulate_list(&groups, &mut ctx)?;
+        let mut plain = GroupedAccumulator::try_new(
             MinMax,
             NumericalAggregateOpts::default(),
-            storage.dtype().clone(),
+            elements.dtype().clone(),
         )?;
-        expected.accumulate(&storage, &mut ctx)?;
+        plain.accumulate_list(&groups, &mut ctx)?;
 
-        assert_eq!(acc.finish()?, expected.finish()?);
+        assert_arrays_eq!(pushdown.finish()?, plain.finish()?, &mut ctx);
         Ok(())
     }
 }

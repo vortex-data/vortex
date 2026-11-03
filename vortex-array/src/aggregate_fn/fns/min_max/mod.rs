@@ -34,6 +34,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::StorageResultMapping;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -536,6 +537,12 @@ impl AggregateFnVTable for MinMax {
     ) -> VortexResult<Scalar> {
         self.to_scalar(args, partial)
     }
+}
+
+impl StorageResultMapping for MinMax {
+    // `min` and `max` are the value fields of both the partial and the result.
+    const PARTIAL_VALUE_FIELDS: &'static [usize] = &[0, 1];
+    const RETURN_VALUE_FIELDS: &'static [usize] = &[0, 1];
 }
 
 #[cfg(test)]

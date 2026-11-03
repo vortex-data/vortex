@@ -32,6 +32,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::StorageResultMapping;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::arrays::Constant;
 use crate::arrays::Null;
@@ -580,6 +581,12 @@ impl AggregateFnVTable for IsSorted {
         // The empty state is vacuously sorted, so the verdict stands on its own.
         Ok(Scalar::bool(partial.is_sorted, Nullability::NonNullable))
     }
+}
+
+impl StorageResultMapping for IsSorted {
+    // `first_value` and `last_value` are the value fields of the partial. The result is a `Bool`.
+    const PARTIAL_VALUE_FIELDS: &'static [usize] = &[2, 3];
+    const RETURN_VALUE_FIELDS: &'static [usize] = &[];
 }
 
 #[expect(
