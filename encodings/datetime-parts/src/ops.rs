@@ -5,7 +5,7 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ProbeState;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
@@ -78,7 +78,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
 
 /// Reads one timestamp part out of `slot`, through the probe so a repeated read keeps the
 /// child's preparation.
-fn part_at<T: NativePType>(
+fn part_at<T: IntegerPType>(
     state: &mut ProbeState<'_, DateTimeParts>,
     slot: usize,
     name: &'static str,

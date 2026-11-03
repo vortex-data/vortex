@@ -140,7 +140,8 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
                 // the same result dtype as the original.
                 let target_dtype = days.dtype().with_nullability(c.dtype().nullability());
 
-                // Narrowed days, such as u16, cannot hold every literal's days.
+                // A valid timestamp literal's days can fall outside the compressed child's range.
+                // Decline the rewrite so the comparison kernel can handle that bound.
                 let Ok(days_scalar) = Scalar::from(days_value).cast(&target_dtype) else {
                     return Ok(None);
                 };

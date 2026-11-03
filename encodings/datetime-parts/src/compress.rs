@@ -84,7 +84,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
     let seconds_ptr = &mut seconds.spare_capacity_mut()[..length];
 
     if matches!(time_unit, TimeUnit::Seconds) {
-        let all_fit = split_slice_seconds(days_ptr, seconds_ptr, timestamps);
+        let all_days_fit_i32 = split_slice_seconds(days_ptr, seconds_ptr, timestamps);
 
         // SAFETY: `split_slice_seconds` initialized all `length` elements of both buffers.
         unsafe {
@@ -97,7 +97,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
                 PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
                 timestamps,
                 time_unit,
-                all_fit,
+                all_days_fit_i32,
                 ctx,
             )?,
             seconds: seconds.into_array(),
@@ -108,7 +108,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
     let mut subseconds: BufferMut<i32> = BufferMut::with_capacity(timestamps.len());
     let subseconds_ptr = &mut subseconds.spare_capacity_mut()[..length];
 
-    let all_fit = match time_unit {
+    let all_days_fit_i32 = match time_unit {
         TimeUnit::Nanoseconds => {
             split_slice::<1_000_000_000>(days_ptr, seconds_ptr, subseconds_ptr, timestamps)
         }
@@ -133,7 +133,7 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
             PrimitiveArray::new(days.freeze(), temporal_values.validity()?),
             timestamps,
             time_unit,
-            all_fit,
+            all_days_fit_i32,
             ctx,
         )?,
         seconds: seconds.into_array(),
@@ -142,14 +142,17 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
 }
 
 /// Keeps widened days only when a non-null day exceeds the `i32` range.
+///
+/// The split loops may truncate days while writing the candidate `i32` buffer. Keep that buffer
+/// only if all days fit or the non-null bounds confirm that only null slots were truncated.
 fn widen_days_if_needed(
     days: PrimitiveArray,
     timestamps: &[i64],
     time_unit: TimeUnit,
-    all_fit: bool,
+    all_days_fit_i32: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if all_fit {
+    if all_days_fit_i32 {
         return Ok(days.into_array());
     }
 
@@ -177,8 +180,9 @@ fn widen_days_if_needed(
 
 /// Adds 2^31 to the days and converts to unsigned, placing in-range days below 2^32.
 ///
-/// An out-of-range value sets a bit above bit 31. OR-ing the offsets preserves those bits, so the
-/// loops can check the whole slice without a branch for each timestamp.
+/// Days below `i32::MIN` become large unsigned values; days above `i32::MAX` reach at least 2^32.
+/// Both set a bit above bit 31. The input must come from splitting an `i64` timestamp, whose days
+/// leave enough room for the bias addition in `i64`.
 #[inline]
 fn day_offset(days: i64) -> u64 {
     (days - i64::from(i32::MIN)).cast_unsigned()
@@ -194,7 +198,9 @@ fn split_slice<const DIVISOR: i64>(
     subseconds: &mut [MaybeUninit<i32>],
     timestamps: &[i64],
 ) -> bool {
-    let mut day_offsets = 0u64;
+    // OR preserves any high bits from `day_offset`, so the final high bits are zero only if every
+    // day fits i32. `widen_days_if_needed` checks this result before keeping the narrow buffer.
+    let mut day_range_bits = 0u64;
 
     // Computing chunks of 4 elements lets LLVM optimize stores into
     // a 16-byte vector store per chunk.
@@ -211,7 +217,7 @@ fn split_slice<const DIVISOR: i64>(
         let mut subsecond_buf = [0i32; 4];
         for k in 0..4 {
             let parts = timestamp::split_with_divisor::<DIVISOR>(timestamp[k]);
-            day_offsets |= day_offset(parts.days);
+            day_range_bits |= day_offset(parts.days);
             day_buf[k] = parts.days.as_();
             second_buf[k] = parts.seconds;
             subsecond_buf[k] = parts.subseconds;
@@ -230,13 +236,13 @@ fn split_slice<const DIVISOR: i64>(
         .zip(subseconds_rem);
     for (((&ts, day), second), subsecond) in remainder {
         let parts = timestamp::split_with_divisor::<DIVISOR>(ts);
-        day_offsets |= day_offset(parts.days);
+        day_range_bits |= day_offset(parts.days);
         day.write(parts.days.as_());
         second.write(parts.seconds);
         subsecond.write(parts.subseconds);
     }
 
-    day_offsets >> 32 == 0
+    day_range_bits >> 32 == 0
 }
 
 /// Initializes the days and seconds slices for second timestamps.
@@ -248,15 +254,17 @@ fn split_slice_seconds(
     seconds: &mut [MaybeUninit<i32>],
     timestamps: &[i64],
 ) -> bool {
-    let mut day_offsets = 0u64;
+    // OR preserves any high bits from `day_offset`, so a later in-range day cannot hide overflow.
+    // `widen_days_if_needed` checks this result before keeping the narrow buffer.
+    let mut day_range_bits = 0u64;
     for ((day, second), ts) in days.iter_mut().zip(seconds).zip(timestamps) {
         let parts = timestamp::split_with_divisor::<1>(*ts);
-        day_offsets |= day_offset(parts.days);
+        day_range_bits |= day_offset(parts.days);
         day.write(parts.days.as_());
         second.write(parts.seconds);
     }
 
-    day_offsets >> 32 == 0
+    day_range_bits >> 32 == 0
 }
 
 #[cfg(test)]
@@ -283,6 +291,7 @@ mod tests {
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
+    use super::day_offset;
     use crate::DateTimeParts;
     use crate::TemporalParts;
     use crate::array::DateTimePartsArraySlotsExt;
@@ -294,6 +303,23 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[rstest]
+    #[case::empty(&[])]
+    #[case::zero(&[0])]
+    #[case::boundaries(&[i64::from(i32::MIN), i64::from(i32::MAX)])]
+    #[case::below_min(&[i64::from(i32::MIN) - 1])]
+    #[case::above_max(&[i64::from(i32::MAX) + 1])]
+    #[case::both_overflows(&[i64::from(i32::MIN) - 1, 0, i64::from(i32::MAX) + 1, 0])]
+    fn test_day_range_check(#[case] days: &[i64]) -> VortexResult<()> {
+        let day_range_bits = days.iter().fold(0u64, |bits, &day| bits | day_offset(day));
+        assert_eq!(
+            day_range_bits >> 32 == 0,
+            days.iter().all(|&day| i32::try_from(day).is_ok())
+        );
+
+        Ok(())
+    }
 
     #[rstest]
     #[case(Validity::NonNullable)]

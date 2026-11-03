@@ -3,8 +3,8 @@
 
 //! Splits and combines individual timestamp counts.
 //!
-//! Days use `i64` so every timestamp can be represented. Seconds and subseconds fit `i32`. The
-//! array splitter can narrow the days component when the values fit.
+//! [`TimestampParts`] preserves the full storage range of a timestamp. Array compression can
+//! narrow the days component when the values fit.
 
 use num_traits::AsPrimitive;
 use vortex_array::extension::datetime::TimeUnit;
@@ -15,12 +15,21 @@ use vortex_error::vortex_err;
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 
 /// Components of a Unix timestamp relative to 1970-01-01 00:00:00 UTC.
+///
+/// [`split`] divides toward zero, so seconds and subseconds are signed remainders, including for
+/// timestamps before the epoch.
 pub struct TimestampParts {
     /// Days since the Unix epoch.
+    ///
+    /// Uses `i64` because splitting an `i64` timestamp in seconds or milliseconds can exceed the
+    /// `i32` days range.
     pub days: i64,
-    /// Seconds within the day, with magnitude less than [`SECONDS_PER_DAY`].
+    /// Seconds within the day. [`split`] produces values from -86,399 to 86,399, which fit `i32`.
     pub seconds: i32,
     /// Subseconds within the second, in the units of the original timestamp.
+    ///
+    /// [`split`] produces a magnitude less than the number of units per second. Even at nanosecond
+    /// precision, this is less than 1,000,000,000, so `i32` suffices.
     pub subseconds: i32,
 }
 
@@ -170,13 +179,19 @@ mod tests {
     }
 
     #[rstest]
-    #[case::seconds(TimeUnit::Seconds)]
-    #[case::milliseconds(TimeUnit::Milliseconds)]
-    #[case::microseconds(TimeUnit::Microseconds)]
-    #[case::nanoseconds(TimeUnit::Nanoseconds)]
-    fn test_split_storage_extremes(#[case] unit: TimeUnit) -> VortexResult<()> {
+    #[case::seconds(TimeUnit::Seconds, 1)]
+    #[case::milliseconds(TimeUnit::Milliseconds, 1_000)]
+    #[case::microseconds(TimeUnit::Microseconds, 1_000_000)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds, 1_000_000_000)]
+    fn test_split_storage_extremes(
+        #[case] unit: TimeUnit,
+        #[case] ticks_per_second: i64,
+    ) -> VortexResult<()> {
         for ts in [i64::MAX, i64::MIN] {
-            assert_eq!(combine(split(ts, unit)?, unit)?, ts);
+            let parts = split(ts, unit)?;
+            assert!(i64::from(parts.seconds).abs() < SECONDS_PER_DAY);
+            assert!(i64::from(parts.subseconds).abs() < ticks_per_second);
+            assert_eq!(combine(parts, unit)?, ts);
         }
 
         Ok(())
