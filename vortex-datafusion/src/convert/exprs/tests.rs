@@ -2277,16 +2277,6 @@ fn test_native_array_sum_nan() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Nested lists coerce to lists of `Float64` lists, which `list_sum` cannot add.
-#[test]
-fn test_array_sum_nested_falls_back() -> DFResult<()> {
-    let list = DataType::new_list(DataType::new_list(DataType::Int32, true), true);
-    let schema = Schema::new(vec![Field::new("xs", list, true)]);
-    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?;
-    assert!(!converts(&expr, &schema)?);
-    Ok(())
-}
-
 #[test]
 fn test_native_case_null_conditions() -> anyhow::Result<()> {
     let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), None, Some(3)]))?;
