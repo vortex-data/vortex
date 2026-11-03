@@ -73,6 +73,7 @@ Terms:
 | EXT-V7 | Extension scalars skip the storage dtype check | S2 | probe |
 | EXT-V8 | The `Timestamp` value check panics on out-of-range values | S2 | code |
 | EXT-V9 | `Timestamp` rejects valid values outside the range of jiff | S2 | code |
+| EXT-V10 | `Date` Display panics on valid storage values | S2 | code |
 | EXT-N1 | A nullability change can panic | S2 | probe |
 | EXT-N2 | The spatial validators accept nullable nested levels | S2 | code |
 | EXT-S1 | A constant extension column has two shapes | S3 | code |
@@ -463,9 +464,26 @@ Terms:
 - **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) removes the range check, and
   `Display` prints the raw count for a value that jiff cannot show. #11014, merged on 2026-11-02,
   made the wrap in `min_max` fallible, which covers other types whose values can fail the check.
-  `replace_time_zone` and `TemporalMatcher::to_jiff` already return errors for values outside the
-  range of jiff (`vortex-array/src/scalar_fn/fns/replace_time_zone.rs:285-288`,
-  `vortex-array/src/extension/datetime/matcher.rs:61-76`).
+  `TemporalMetadata::to_jiff` returns an error for values outside the range of jiff
+  (`vortex-array/src/extension/datetime/matcher.rs:61-76`). `replace_time_zone` did not always
+  reject those values: its same-zone `raise` shortcut returned them unchanged. The author's
+  commit `94c7ead8a0` on 2026-11-03 moves the jiff conversion before that shortcut. Local review
+  commit `24a7085f84` adds conversion context and checks the specific error, with an in-range
+  control for both timezone targets. This review commit is local and not pushed.
+
+### EXT-V10: `Date` Display panics on valid storage values
+
+- **Locations:** `vortex-array/src/extension/datetime/date.rs:70-77` uses the panicking
+  `Span::days` and `Span::milliseconds` setters, then adds the span to `EPOCH` with `+`.
+  `Date::unpack_native` in the same file accepts every `i32` days value and every `i64`
+  milliseconds value.
+- **Observed:** Formatting a valid value such as days = 10_000_000 can panic because jiff cannot
+  represent it. This follows from the source. No reproduction ran in this review.
+- **Expected:** Every accepted value must be safe to format. The display range must not reduce
+  the storage range of `Date` (X31).
+- **Fix:** A follow-up PR based on `develop`: use `TimeUnit::to_jiff_span` and `checked_add`, then
+  print `{value}{unit}` if either fails. This follows the fallback pattern of `TimestampValue`. The
+  follow-up is not started and needs confirmation before implementation.
 
 ### EXT-N1: A nullability change can panic
 

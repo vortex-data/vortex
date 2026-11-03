@@ -251,15 +251,25 @@ implementations that they change into `vortex-aggregates`.
 
 - Write the path-consistency helper first, because U1 and U2 use it. It merged as #11013.
 - Land U1 to U8 as separate PRs. U9 is listed in phase 2, but it can land at any time.
-- Finish [#10953](https://github.com/vortex-data/vortex/pull/10953) with maintainer commits
-  instead of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
+- Finish [#10953](https://github.com/vortex-data/vortex/pull/10953) with maintainer commits instead
+  of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
   `DateTimeParts` days wrap (EXT-S3). The maintainer commits of 2026-10-30 merge `develop`, update
   the binding tests that expect the old range, and drop the `min_max/extension.rs` change that
   #11014 owns. In place of the days range check, the split keeps `i32` days, and it rebuilds the
   days part as `i64` only when a non-null value does not fit. On 2026-11-02 a maintainer commit
-  merged `develop` again and kept the dtype check of U2 in the compare kernel. The PR waits for a
-  review. Part 4 has the local benchmark runs, because CodSpeed has no comparison with `develop`
-  for the changed `split_temporal` cases.
+  merged `develop` again and kept the dtype check of U2 in the compare kernel. The PR received a
+  review on 2026-11-03. The author's `94c7ead8a0` checks min/max on the widened days, reuses
+  `parts.days` in `day_offset`, and converts through jiff before the same-zone `raise` shortcut. The
+  overflow reply only covers parts produced by `split`. Local review commits `ab81a788e5`,
+  `24a7085f84`, and `df5feb4baa` address scalar overflow, the conversion error regression, and
+  fixture/benchmark cleanups. With the maintainer's approval, `d6e73bd40e` removes the cached-bounds
+  fast path and its duplicate loop variants, test cases, and benchmark inputs. All four commits are
+  local and not pushed. The two benchmark runs and default-writer probe are in part 4. They support
+  removing the fast path: the millisecond gain is 11 to 13%, but the tested writer passes no exact
+  bounds to `split_temporal`. Seconds gain nothing from caching. The final head `d6e73bd40e` versus
+  the PR's `develop` base `d8e7467f8b` shows a repeatable 12.9% millisecond split slowdown and no
+  slowdown in the other units. Part 4 records the two runs per revision, the table, and the checks.
+  All requested scoped checks passed.
 - Land the spatial fix (EXT-N2) in two PRs. The first makes the spatial validators require non-null
   nested levels and the spatial Arrow importers convert or fail. The second makes the other Arrow
   importers fail on data outside the domain instead of declining, for example the `Vector` importer
@@ -507,6 +517,7 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 | EXT-V3 | U7, merged in #11014 |
 | EXT-V4, EXT-V5, EXT-V8 | U5, merged in #11015 |
 | EXT-V9 | [#10953](https://github.com/vortex-data/vortex/pull/10953) (X31) |
+| EXT-V10 | A follow-up PR on `develop`, outside the phases. It gives the `Display` of `Date` the fallback of `Timestamp` |
 | EXT-V6 | Phase 6. The trait allows a type without a value check, so a type adds one only where its values have constraints |
 | EXT-N1 | U4 (merged in #11012) as the interim fix, and the storage declaration of phase 1 |
 | EXT-N2 | The spatial nullability PR, before the strict reads of phase 1 ("Order constraints", item 6) |

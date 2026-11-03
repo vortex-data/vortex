@@ -191,10 +191,60 @@ Three more PRs touch this work:
   wrap to #11014. In place of the days range check, the split keeps `i32` days. It rebuilds only
   the days part as `i64` when a non-null value does not fit. On 2026-11-02 a maintainer commit
   merged `develop` again (`0387205e35`). The compare kernel keeps the dtype check of U2, and the
-  PR waits for a review. The PR changes the parameters of the `split_temporal` benchmark, so
-  CodSpeed cannot compare it with `develop`. One local run of each side on 2026-11-02 measured the
-  ordinary split at -4.8% for seconds, +6.8% for milliseconds, +0.4% for microseconds and -5.6%
-  for nanoseconds. The noise of one run is about 5%, so these runs show no clear slowdown.
+  PR received a review with three inline threads and a PR comment on 2026-11-03. The author's
+  commit `94c7ead8a0` checks min/max on the widened days instead of on the timestamps, reuses
+  `parts.days` in `day_offset`, and converts through jiff before the same-zone `raise` shortcut
+  in `replace_time_zone`. Two threads are fixed in code. The overflow reply applies to parts
+  from `split`, but not to parts read from files or supplied to `DateTimeParts::try_new`.
+
+  Four separate review commits are ready locally on `ct/timestamp-full-range-review`:
+  `ab81a788e5` makes scalar reconstruction and part conversion fallible, `24a7085f84` checks the
+  `replace_time_zone` conversion error and an in-range control, and `df5feb4baa` restores the
+  extreme fixture, covers all six comparisons against an extreme constant, and removes dead
+  benchmark code. With the maintainer's approval, `d6e73bd40e` removes the cached-bounds fast path,
+  duplicate loop variants, and cache-only test and benchmark parameters. They are not pushed.
+  The hot `combine_parts` decode loop is unchanged, because its overflow risk predates this PR.
+
+  `d6e73bd40e` removed the fast path after the following measurements and writer probe. At the
+  local head before the removal, `df5feb4baa`, two runs of
+  `cargo bench -p vortex-datetime-parts --bench split_temporal -- split` measured these medians
+  on arm64 with rustc 1.99.1, the bench profile, and 65,536 rows:
+
+  | Unit | Run 1 uncached / cached | Run 2 uncached / cached |
+  | --- | ---: | ---: |
+  | Seconds | 19.20 / 20.08 microseconds | 19.20 / 19.70 microseconds |
+  | Milliseconds | 36.66 / 31.81 microseconds | 34.91 / 30.93 microseconds |
+
+  The default writer probe passed for seconds and milliseconds, with and without nulls.
+  `cached_bounds` returned `None` for all four 65,536-row arrays and the smaller stats arrays.
+  `CompressingStrategy` computes statistics after coalescing, but `CanonicalValidity` rebuilds
+  the extension and primitive arrays before scheme selection and drops those cached bounds.
+  The maintainer approved removing the fast path: the millisecond microbenchmark gains 11 to 13%,
+  but the tested writer cannot use it. Seconds are 3 to 5% slower with cached bounds.
+  The temporary instrumentation and probe are removed.
+
+  The final local head `d6e73bd40e` was compared with the PR's `develop` base, `d8e7467f8b`,
+  using the same final benchmark harness and inputs on both revisions. Two runs per revision
+  used baseline/candidate/candidate/baseline order and at least two seconds per case. The table
+  shows medians of the two run medians, in microseconds. The compiler was rustc 1.99.1 on
+  arm64, with the bench profile (16 codegen units and no LTO) and 65,536 rows.
+
+  | Unit | Develop | Final head | Change |
+  | --- | ---: | ---: | ---: |
+  | Seconds | 19.62 | 18.89 | -3.7% |
+  | Milliseconds | 30.66 | 34.60 | +12.9% |
+  | Microseconds | 30.73 | 30.68 | -0.1% |
+  | Nanoseconds | 30.70 | 30.66 | -0.1% |
+
+  The millisecond slowdown repeats in both runs. The other units show no slowdown in this
+  comparison. These measurements cover the split, not file-write throughput. Extreme inputs
+  at the final head take 63.62 microseconds for seconds and 80.16 for milliseconds. They have
+  no valid baseline result because `develop` does not preserve their full-range days.
+
+  Final checks passed: scoped Clippy with all targets, all features, and `-D warnings`, pinned
+  formatting with `nightly-2026-09-10`, 218 DateTimeParts/BtrBlocks tests, and 159 targeted array
+  tests for `replace_time_zone`, timestamps, and min/max. The approved local hooks also passed
+  Rust and TOML formatting. Java, Python, CUDA, and workspace-wide tests were not run.
 - [#11056](https://github.com/vortex-data/vortex/pull/11056) folds `ext_storage` and `get_item`
   over constants and bypasses `select`. A reviewer asked whether it breaks the opacity of extension
   types, and requested changes on 2026-10-30. The maintainer approved it the same day, because it
