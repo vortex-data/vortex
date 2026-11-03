@@ -158,9 +158,9 @@ impl VTable for ALP {
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Patches::new(
+                Patches::from_metadata(
                     len,
-                    p.offset()?,
+                    &p,
                     indices,
                     values,
                     chunk_offsets,

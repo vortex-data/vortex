@@ -290,6 +290,32 @@ impl Patches {
         })
     }
 
+    /// Reconstruct patches from serialized metadata and their child arrays.
+    ///
+    /// Preserves the number of patches sliced off within the first chunk. Metadata without this
+    /// field defaults to zero for compatibility with older arrays.
+    pub fn from_metadata(
+        array_len: usize,
+        metadata: &PatchesMetadata,
+        indices: ArrayRef,
+        values: ArrayRef,
+        chunk_offsets: Option<ArrayRef>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let mut patches = Self::new(
+            array_len,
+            metadata.offset()?,
+            indices,
+            values,
+            chunk_offsets,
+            ctx,
+        )?;
+        if patches.chunk_offsets.is_some() {
+            patches.offset_within_chunk = Some(usize::try_from(metadata.offset_within_chunk())?);
+        }
+        Ok(patches)
+    }
+
     /// Construct new patches without validating any of the arguments
     ///
     /// # Safety
@@ -1369,12 +1395,41 @@ mod test {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
+    use crate::dtype::PType;
     use crate::patches::Patches;
+    use crate::patches::PatchesMetadata;
     use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::unchunked(false)]
+    #[case::chunked(true)]
+    fn test_from_metadata_without_offset_within_chunk(#[case] chunked: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let metadata = PatchesMetadata::new(
+            3,
+            0,
+            PType::U32,
+            chunked.then_some(3),
+            chunked.then_some(PType::U32),
+            None,
+        );
+        let patches = Patches::from_metadata(
+            3072,
+            &metadata,
+            buffer![7u32, 1029, 2051].into_array(),
+            buffer![11i32, 22, 33].into_array(),
+            chunked.then(|| buffer![0u32, 1, 2].into_array()),
+            &mut ctx,
+        )?;
+
+        assert_eq!(patches.offset_within_chunk(), chunked.then_some(0));
+        assert_eq!(patches.search_index(1029, &mut ctx)?, SearchResult::Found(1));
+        Ok(())
+    }
 
     #[test]
     fn test_filter() {

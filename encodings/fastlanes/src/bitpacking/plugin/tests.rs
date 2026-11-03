@@ -14,6 +14,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::PatchedArraySlotsExt;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
@@ -424,29 +425,77 @@ fn test_decode_blocked_bitpacked_patches() -> VortexResult<()> {
     Ok(())
 }
 
-/// Chunked patches sliced mid-chunk must survive serde. `Patches::to_metadata` writes
-/// `offset_within_chunk`, but the deserializer rebuilds the patches with `Patches::new`, which
-/// resets it to 0, so chunked lookups after the round trip miss the first patches of every chunk.
-#[test]
-fn serde_roundtrip_sliced_chunked_patches() -> VortexResult<()> {
+/// Slicing removes individual patches while retaining the first chunk's original offset.
+#[rstest]
+#[case::v1(false)]
+#[case::v2(true)]
+fn serde_roundtrip_sliced_chunked_patches(
+    #[case] blocked: bool,
+    #[values(500, 1500)] start: usize,
+) -> VortexResult<()> {
     let mut ctx = PLUGIN_SESSION.create_execution_ctx();
     // Every 7th value does not fit 11 bits and becomes a patch, in every chunk.
     let values =
         PrimitiveArray::from_iter((0u32..4096).map(|i| if i % 7 == 0 { 5000 } else { i % 2048 }));
     let encoded = BitPackedData::encode(&values.clone().into_array(), 11, &mut ctx)?;
     // Slice mid-chunk while still encoded, as the slice kernel does.
-    let sliced = <BitPacked as vortex_array::arrays::slice::SliceKernel>::slice(
-        encoded.as_view(),
-        500..4096,
-        &mut ctx,
-    )?
-    .ok_or_else(|| vortex_err!("BitPacked slices"))?;
+    let sliced = <BitPacked as SliceKernel>::slice(encoded.as_view(), start..4096, &mut ctx)?
+        .ok_or_else(|| vortex_err!("BitPacked slices"))?;
+    let sliced = if blocked {
+        // Represent the same sliced blocks as v2 without relying on a blocked slice kernel.
+        let view = sliced.as_::<BitPacked>();
+        let num_blocks = (usize::from(view.offset()) + view.len()).div_ceil(1024);
+        let block_offsets = PrimitiveArray::from_iter(
+            (0..=u32::try_from(num_blocks)?).map(|block| block * 11 * 128),
+        );
+        BitPacked::try_new_with_block_offsets(
+            view.packed().clone(),
+            PType::U32,
+            view.validity()?,
+            view.patches(),
+            block_offsets.into_array(),
+            view.len(),
+            view.offset(),
+        )?
+        .into_array()
+    } else {
+        sliced
+    };
     let read = roundtrip(&sliced)?;
-    let expected = values.into_array().slice(500..4096)?;
-    // Row 529 is original row 1029 = 7 * 147: the first patch of the second chunk.
+    assert_eq!(read.as_::<BitPacked>().bit_widths().is_global(), !blocked);
+    let expected = values.into_array().slice(start..4096)?;
+    // Probe the first patch of the second retained chunk (row 529 when start is 500).
+    let patch_index = ((start / 1024 + 1) * 1024).next_multiple_of(7) - start;
     assert_eq!(
-        read.execute_scalar(529, &mut ctx)?,
-        expected.execute_scalar(529, &mut ctx)?
+        read.execute_scalar(patch_index, &mut ctx)?,
+        expected.execute_scalar(patch_index, &mut ctx)?
     );
+    assert_arrays_eq!(read, expected, &mut ctx);
+
+    let indices = PrimitiveArray::from_iter([
+        u32::try_from(patch_index - 1)?,
+        u32::try_from(patch_index)?,
+        u32::try_from(patch_index + 1)?,
+    ])
+    .into_array();
+    let taken = read
+        .take(indices.clone())?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_arrays_eq!(taken, expected.take(indices)?, &mut ctx);
+
+    let read_patches = read.as_::<BitPacked>().patches().unwrap();
+    let expected_patches = sliced.as_::<BitPacked>().patches().unwrap();
+    assert_eq!(
+        read_patches.offset_within_chunk(),
+        expected_patches.offset_within_chunk()
+    );
+    let resliced = read_patches.slice(800..read.len(), &mut ctx)?.unwrap();
+    let expected_resliced = expected_patches.slice(800..sliced.len(), &mut ctx)?.unwrap();
+    assert_eq!(
+        resliced.offset_within_chunk(),
+        expected_resliced.offset_within_chunk()
+    );
+    assert_arrays_eq!(resliced.indices(), expected_resliced.indices(), &mut ctx);
+    assert_arrays_eq!(resliced.values(), expected_resliced.values(), &mut ctx);
     Ok(())
 }
