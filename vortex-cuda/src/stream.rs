@@ -280,13 +280,9 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<CUresu
 
 #[cfg(test)]
 mod tests {
-    use super::padded_device_allocation_len;
-    use crate::CanonicalCudaExt;
-    use crate::CudaSession;
-    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
-    use crate::device_buffer::cuda_backing_allocation;
     use std::mem::size_of;
     use std::sync::LazyLock;
+
     use vortex::array::Canonical;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -295,6 +291,12 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
+
+    use super::padded_device_allocation_len;
+    use crate::CanonicalCudaExt;
+    use crate::CudaSession;
+    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+    use crate::device_buffer::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
