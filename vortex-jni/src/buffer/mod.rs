@@ -75,11 +75,21 @@ pub(crate) fn import_buffers(
     buffers: JObject,
 ) -> Result<ArrayData, JNIError> {
     let addresses = env
-        .call_method(&buffers, jni::jni_str!("addresses"), jni::jni_sig!("()[J"), &[])?
+        .call_method(
+            &buffers,
+            jni::jni_str!("addresses"),
+            jni::jni_sig!("()[J"),
+            &[],
+        )?
         .l()?;
     let addresses = env.cast_local::<JLongArray>(addresses)?;
     let capacities = env
-        .call_method(&buffers, jni::jni_str!("capacities"), jni::jni_sig!("()[J"), &[])?
+        .call_method(
+            &buffers,
+            jni::jni_str!("capacities"),
+            jni::jni_sig!("()[J"),
+            &[],
+        )?
         .l()?;
     let capacities = env.cast_local::<JLongArray>(capacities)?;
     let count = addresses.len(env)?;
@@ -100,7 +110,8 @@ pub(crate) fn import_buffers(
             Ok::<_, JNIError>((
                 i32::try_from(index).map_err(|_| vortex_err!("invalid Java buffer index"))?,
                 usize::try_from(address).map_err(|_| vortex_err!("invalid Java buffer address"))?,
-                usize::try_from(capacity).map_err(|_| vortex_err!("invalid Java buffer capacity"))?,
+                usize::try_from(capacity)
+                    .map_err(|_| vortex_err!("invalid Java buffer capacity"))?,
             ))
         })
         .collect::<Result<Vec<_>, _>>()?;

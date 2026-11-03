@@ -94,12 +94,12 @@ fn test_release_from_native_thread() -> VortexResult<()> {
         let object = env.new_object(
             jni::jni_str!("java/util/concurrent/Semaphore"),
             jni::jni_sig!("(I)V"),
-            &[jni::JValue::Int(0)],
+            &[JValue::Int(0)],
         )?;
         let weak = env.new_object(
             jni::jni_str!("java/lang/ref/WeakReference"),
             jni::jni_sig!("(Ljava/lang/Object;)V"),
-            &[jni::JValue::Object(&object)],
+            &[JValue::Object(&object)],
         )?;
         let batch = Arc::new(JavaBuffers {
             vm: vm.clone(),
