@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests of the `Widen` encoding.
+//! Tests of the `Widen` encoding over integer and decimal values.
 //!
-//! The named fixtures cover signed and unsigned values, each kind of validity and a single row.
-//! The `compute` tests run their operations over them.
+//! The named integer fixtures cover signed and unsigned values, each kind of validity and a single
+//! row, and the `compute` tests run their operations over them. The `decimal` modules build their
+//! own decimal fixtures, and compare each result with the result on the canonical array.
 
 mod aggregates;
 mod compute;
+mod decimal;
+mod decimal_fallback;
 mod encoding;
 mod numeric;
+mod serde;
 
 use std::sync::LazyLock;
 
