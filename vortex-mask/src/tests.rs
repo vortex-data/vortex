@@ -246,11 +246,15 @@ fn mask_concat(tc: TestCase) {
 fn mask_from_excluded(tc: TestCase) {
     let len = draw_len(&tc);
     let bits = draw_bits(&tc, len);
-    let excluded: Vec<bool> = bits.iter().map(|&b| !b).collect();
-    assert_matches_model(
-        &Mask::from_excluded_indices(len, model_indices(&excluded)),
-        &bits,
-    );
+    let mut excluded = Vec::new();
+    for (i, _) in bits.iter().enumerate().filter(|&(_, &b)| !b) {
+        let copies = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        for _ in 0..copies {
+            let pos = tc.draw(gs::integers::<usize>().max_value(excluded.len()));
+            excluded.insert(pos, i);
+        }
+    }
+    assert_matches_model(&Mask::from_excluded_indices(len, excluded), &bits);
 }
 
 #[hegel::test]
