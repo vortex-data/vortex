@@ -24,6 +24,7 @@ use vortex::expr::get_item;
 use vortex::expr::lit;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::transform::find_between;
 use vortex::expr::transform::replace;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
@@ -125,7 +126,9 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
             || lit(true),
             |expr| replace(expr, &root(), self.scope_projection.clone()),
         );
-        expression.bind(scope)
+        // A join bounds its probe keys from both sides. Each comparison would decode the keys
+        // again, while a between decodes them once.
+        find_between(expression.bind(scope)?)
     }
 }
 
@@ -163,8 +166,14 @@ mod tests {
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::NoOp;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::error::VortexResult;
     use vortex::expr::Expression;
     use vortex::expr::root;
+    use vortex::scalar_fn::fns::between::Between;
+    use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 
     use super::DataFusionDynamicFilter;
     use crate::convert::exprs::DefaultExpressionConverter;
@@ -181,15 +190,26 @@ mod tests {
         ))
     }
 
-    fn convert(expression: Arc<dyn PhysicalExpr>) -> Option<Expression> {
+    fn at_most(value: i32) -> Arc<dyn PhysicalExpr> {
+        Arc::new(BinaryExpr::new(
+            Arc::new(Column::new("key", 0)),
+            DFOperator::LtEq,
+            Arc::new(Literal::new(ScalarValue::Int32(Some(value)))),
+        ))
+    }
+
+    fn filter(expression: Arc<dyn PhysicalExpr>) -> DataFusionDynamicFilter {
         let schema = Arc::new(Schema::new(vec![Field::new("key", DataType::Int32, false)]));
         DataFusionDynamicFilter {
-            expression: Arc::clone(&expression),
+            expression,
             schema,
             scope_projection: root(),
             converter: Arc::new(DefaultExpressionConverter::default()),
         }
-        .convert_conjuncts(&expression)
+    }
+
+    fn convert(expression: Arc<dyn PhysicalExpr>) -> Option<Expression> {
+        filter(Arc::clone(&expression)).convert_conjuncts(&expression)
     }
 
     #[test]
@@ -202,5 +222,19 @@ mod tests {
     #[test]
     fn converts_nothing_without_a_supported_conjunct() {
         assert_eq!(convert(Arc::new(NoOp::new())), None);
+    }
+
+    #[test]
+    fn merges_key_bounds_into_a_between() -> VortexResult<()> {
+        let scope = DType::struct_(
+            [(
+                "key",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )],
+            Nullability::NonNullable,
+        );
+        let current = filter(and(at_least(1), at_most(5))).current(&scope)?;
+        assert!(current.is::<Between>(), "{current}");
+        Ok(())
     }
 }
