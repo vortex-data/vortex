@@ -4,15 +4,22 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
+use arrow_array::Int8Array;
 use arrow_array::Int32Array;
+use arrow_array::Int64Array;
+use arrow_array::ListArray;
 use arrow_array::RecordBatch;
 use arrow_array::RunArray;
 use arrow_array::StringArray;
 use arrow_array::StructArray;
+use arrow_array::UInt8Array;
 use arrow_array::UInt32Array;
+use arrow_array::UInt64Array;
 use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
 use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -1558,6 +1565,77 @@ fn test_native_float_cast() -> anyhow::Result<()> {
 }
 
 #[rstest]
+#[case::bool_to_f64(
+    Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])),
+    DataType::Float64
+)]
+#[case::i8_to_f64(
+    Arc::new(Int8Array::from(vec![Some(i8::MIN), Some(i8::MAX), None])),
+    DataType::Float64
+)]
+#[case::i64_to_f64(
+    Arc::new(Int64Array::from(vec![Some(i64::MIN), Some(i64::MAX), Some((1 << 53) + 1), None])),
+    DataType::Float64
+)]
+#[case::u64_to_f64(
+    Arc::new(UInt64Array::from(vec![Some(u64::MAX), Some((1 << 53) + 1), None])),
+    DataType::Float64
+)]
+#[case::u8_to_i16(
+    Arc::new(UInt8Array::from(vec![Some(u8::MAX), Some(0), None])),
+    DataType::Int16
+)]
+#[case::u32_to_i64(
+    Arc::new(UInt32Array::from(vec![Some(u32::MAX), Some(0), None])),
+    DataType::Int64
+)]
+fn test_native_numeric_cast(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            target,
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
+fn test_native_list_cast_to_float64(
+    #[values(DataType::Boolean, DataType::Int32, DataType::Int64, DataType::UInt64)]
+    element: DataType,
+    #[values(false, true)] large: bool,
+) -> anyhow::Result<()> {
+    let list_type = |element: DataType| {
+        let item = Arc::new(Field::new("item", element, true));
+        if large {
+            DataType::LargeList(item)
+        } else {
+            DataType::List(item)
+        }
+    };
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(-1), None, Some((1 << 53) + 1)]),
+        Some(vec![]),
+        None,
+        Some(vec![Some(0), Some(1)]),
+    ]);
+    let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &list_type(element))?)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("xs", 0)),
+            list_type(DataType::Float64),
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
 #[case::narrow(DataType::Int8)]
 #[case::signedness(DataType::UInt32)]
 #[case::string(DataType::Utf8)]
@@ -1583,6 +1661,30 @@ fn test_cast_options_fall_back() -> DFResult<()> {
             safe: true,
             format_options: DEFAULT_FORMAT_OPTIONS,
         }),
+    ));
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+#[rstest]
+#[case::fixed_size_list(
+    DataType::new_fixed_size_list(DataType::Int32, 2, true),
+    DataType::new_list(DataType::Float64, true)
+)]
+#[case::non_nullable_elements(
+    DataType::new_list(DataType::Int32, true),
+    DataType::new_list(DataType::Float64, false)
+)]
+#[case::string_elements(
+    DataType::new_list(DataType::Utf8, true),
+    DataType::new_list(DataType::Float64, true)
+)]
+fn test_list_cast_falls_back(#[case] source: DataType, #[case] target: DataType) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("xs", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        target,
+        None,
     ));
     assert!(!converts(&expr, &schema)?);
     Ok(())

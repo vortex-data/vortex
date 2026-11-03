@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::cast_keeping_nullability;
+use crate::arrays::widen::compute::constant_fits_values;
 use crate::arrays::widen::compute::ptype_holding_values_and_scalar;
 use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
@@ -20,15 +20,30 @@ impl FillNullReduce for Widen {
         array: ArrayView<'_, Self>,
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value)? else {
+        if !fill_value.dtype().eq_ignore_nullability(array.dtype()) {
             return Ok(None);
-        };
+        }
 
-        // The values widen to a type that holds the fill value. When only the logical type holds
-        // it, the result is a plain array of the logical type.
-        let widened = cast_keeping_nullability(array.values(), ptype)?;
+        let values = array.values();
+        let dtype = match values.dtype() {
+            DType::Primitive(..) => {
+                let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value)? else {
+                    return Ok(None);
+                };
+
+                DType::Primitive(ptype, values.dtype().nullability())
+            }
+            DType::Decimal(..)
+                if constant_fits_values(fill_value, values.dtype()) == Some(true) =>
+            {
+                values.dtype().clone()
+            }
+            // Decimal fills outside the child precision use the canonical fill kernel.
+            _ => return Ok(None),
+        };
+        let widened = values.cast(dtype.clone())?;
         let fill_value =
-            fill_value.cast(&DType::Primitive(ptype, fill_value.dtype().nullability()))?;
+            fill_value.cast(&dtype.with_nullability(fill_value.dtype().nullability()))?;
         let filled = widened.fill_null(fill_value)?;
         let dtype = array.dtype().with_nullability(filled.dtype().nullability());
 

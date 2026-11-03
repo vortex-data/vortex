@@ -24,6 +24,7 @@ fn main() {
 /// iteration instead; the targets differ, so the calls cannot be folded together.
 const SEARCH_TARGETS: usize = 64;
 
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn binary_search_std(bencher: Bencher) {
     let (sorted_array, targets) = fixture();

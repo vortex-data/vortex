@@ -74,7 +74,8 @@
     "varbinview_fill_null": 2,
     "varbinview_try_new": 6,
     "varbinview_zip": 2,
-    "widen": 46
+    "widen": 46,
+    "widen_decimal": 6
   },
   "vortex-buffer": {
     "allocation": 35,

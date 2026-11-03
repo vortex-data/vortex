@@ -621,6 +621,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -1216,5 +1217,104 @@ mod tests {
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
         Ok(())
+    }
+
+    /// Lists `[0, 1, 2]`, `[]`, `[3, 4, 5]`, `[6, 7]`, `[8, 9]`. When nullable, the third is null
+    /// and keeps its elements.
+    fn create_ten_element_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        ListArray::try_new(
+            PrimitiveArray::from_iter(0..10i32).into_array(),
+            buffer![0u32, 3, 3, 6, 8, 10].into_array(),
+            validity,
+            &mut ctx,
+        )
+        .expect("array is valid")
+        .into_array()
+    }
+
+    /// Slices of one list share its whole `elements`, so every chunk but the first starts at a
+    /// nonzero offset and every chunk but the last leaves trailing elements unreferenced.
+    fn sliced_chunks(array: &ArrayRef, cuts: &[usize]) -> VortexResult<Vec<ArrayRef>> {
+        let mut bounds = vec![0];
+        bounds.extend_from_slice(cuts);
+        bounds.push(array.len());
+        bounds
+            .windows(2)
+            .map(|range| array.slice(range[0]..range[1]))
+            .collect()
+    }
+
+    fn chunked_flat() -> Arc<dyn LayoutStrategy> {
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()))
+    }
+
+    /// A list strategy that keeps every chunk, so a multi-chunk stream reaches the list writer.
+    fn chunked_list_strategy() -> ListLayoutStrategy {
+        ListLayoutStrategy::default()
+            .with_elements(chunked_flat())
+            .with_offsets(chunked_flat())
+            .with_validity(chunked_flat())
+    }
+
+    async fn assert_round_trips<S: LayoutStrategy>(
+        strategy: &S,
+        chunks: Vec<ArrayRef>,
+        expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let chunked = ChunkedArray::try_new(chunks, expected.dtype().clone())?.into_array();
+        let (segments, layout, session) = write_layout(strategy, chunked).await?;
+        let reader =
+            layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
+
+        let len = expected.len();
+        let expr = root().bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(0..len as u64), &expr, MaskFuture::new_true(len))?
+            .await?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::one_cut(&[2], false)]
+    #[case::two_cuts(&[1, 3], false)]
+    #[case::null_and_empty_at_cuts(&[1, 3], true)]
+    #[tokio::test]
+    async fn sliced_list_chunks_round_trip(
+        #[case] cuts: &[usize],
+        #[case] nullable: bool,
+    ) -> VortexResult<()> {
+        let list = create_ten_element_list_array(nullable);
+        let chunks = sliced_chunks(&list, cuts)?;
+        assert_round_trips(&chunked_list_strategy(), chunks, list).await
+    }
+
+    #[tokio::test]
+    async fn sliced_nested_list_chunks_round_trip() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = ListArray::try_new(
+            PrimitiveArray::from_iter(0..12i32).into_array(),
+            buffer![0u32, 2, 2, 5, 7, 9, 12].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let outer = ListArray::try_new(
+            inner,
+            buffer![0u32, 2, 3, 5, 6].into_array(),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let strategy = chunked_list_strategy().with_elements(Arc::new(chunked_list_strategy()));
+        assert_round_trips(&strategy, sliced_chunks(&outer, &[1, 2])?, outer).await
     }
 }

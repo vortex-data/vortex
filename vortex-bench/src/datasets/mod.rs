@@ -17,6 +17,7 @@ pub mod data_downloads;
 pub mod feature_vectors;
 pub mod nested_lists;
 pub mod nested_structs;
+pub mod sparse_wide;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;

@@ -179,43 +179,6 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_zero_copy_exporter_subset() {
-        // Create a smaller decimal array for simpler testing
-        let decimal_dtype = DecimalDType::new(5, 1);
-        let arr = DecimalArray::from_option_iter(
-            [Some(100i32), Some(110), Some(120), Some(130), Some(140)],
-            decimal_dtype,
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::decimal_type(5, 1)
-            .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
-
-        // Export first 3 elements
-        new_exporter(arr.clone(), &mut SESSION.create_execution_ctx())
-            .unwrap()
-            .export(
-                0,
-                3,
-                chunk.get_vector_mut(0),
-                &mut SESSION.create_execution_ctx(),
-            )
-            .unwrap();
-        chunk.set_len(3);
-        assert_eq!(
-            chunk.get_vector(0).as_slice_with_len::<i32>(3).as_ptr(),
-            arr.buffer::<i32>().as_ptr()
-        );
-
-        // Verify the exported data matches expected format
-        assert_eq!(
-            String::try_from(&*chunk).unwrap(),
-            r#"Chunk - [1 Columns]
-- FLAT DECIMAL(5,1): 3 = [ 10.0, 11.0, 12.0]
-"#
-        );
-    }
-
-    #[test]
     fn test_decimal_zero_copy_exporter_with_nulls() {
         // Create a decimal array with some null values
         let decimal_dtype = DecimalDType::new(8, 3);

@@ -59,58 +59,52 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        self.record_err(self.bind_to_thread());
+        // Errors here have nowhere to go: they would be recorded in the context being dropped.
+        let _ = self.make_current();
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
-            self.record_err(unsafe { sys::cuEventDestroy_v2(event) }.result());
+            let _ = unsafe { sys::cuEventDestroy_v2(event) };
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
-        self.record_err(
-            unsafe {
-                if self.primary {
-                    sys::cuDevicePrimaryCtxRelease_v2(self.device)
-                } else {
-                    sys::cuCtxDestroy_v2(self.context)
-                }
+        let _ = unsafe {
+            if self.primary {
+                sys::cuDevicePrimaryCtxRelease_v2(self.device)
+            } else {
+                sys::cuCtxDestroy_v2(self.context)
             }
-            .result(),
-        );
+        };
     }
 }
 
 impl CudaContext {
     /// Retains the primary context of the device with `ordinal`.
     pub fn new(ordinal: usize) -> Result<Arc<Self>, DriverError> {
-        let device = Self::device(ordinal)?;
+        let (device, has_async_alloc) = Self::device(ordinal)?;
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the retained context.
         unsafe { sys::cuDevicePrimaryCtxRetain(&raw mut context, device) }.result()?;
-        Self::wrap(device, context, ordinal, true)
+        Self::wrap(device, has_async_alloc, context, ordinal, true)
     }
 
     /// Creates a context separate from the device's primary context, with `cuCtxCreate` flags.
     pub fn new_non_primary(ordinal: usize, flags: u32) -> Result<Arc<Self>, DriverError> {
-        let device = Self::device(ordinal)?;
+        let (device, has_async_alloc) = Self::device(ordinal)?;
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the created context.
         unsafe { sys::cuCtxCreate_v2(&raw mut context, flags, device) }.result()?;
-        Self::wrap(device, context, ordinal, false)
+        Self::wrap(device, has_async_alloc, context, ordinal, false)
     }
 
-    fn device(ordinal: usize) -> Result<sys::CUdevice, DriverError> {
+    /// The device with `ordinal`, and whether its allocations can be stream-ordered.
+    ///
+    /// Query capabilities before retaining or creating a context, so a query failure cannot
+    /// leak it. After acquisition, `wrap` establishes ownership before binding can fail.
+    fn device(ordinal: usize) -> Result<(sys::CUdevice, bool), DriverError> {
         result::init()?;
-        result::device::get(
+        let device = result::device::get(
             i32::try_from(ordinal).map_err(|_| DriverError(CUresult::CUDA_ERROR_INVALID_VALUE))?,
-        )
-    }
-
-    fn wrap(
-        device: sys::CUdevice,
-        context: sys::CUcontext,
-        ordinal: usize,
-        primary: bool,
-    ) -> Result<Arc<Self>, DriverError> {
+        )?;
         // SAFETY: `device` is valid.
         let pools = unsafe {
             result::device::get_attribute(
@@ -118,15 +112,26 @@ impl CudaContext {
                 sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED,
             )
         }?;
+        Ok((device, pools > 0))
+    }
+
+    fn wrap(
+        device: sys::CUdevice,
+        has_async_alloc: bool,
+        context: sys::CUcontext,
+        ordinal: usize,
+        primary: bool,
+    ) -> Result<Arc<Self>, DriverError> {
         let context = Arc::new(Self {
             device,
             context,
             ordinal,
-            has_async_alloc: pools > 0,
+            has_async_alloc,
             primary,
             error_state: AtomicU32::new(0),
             events: Mutex::new(Vec::new()),
         });
+        // On failure, dropping the context releases or destroys it.
         context.bind_to_thread()?;
         Ok(context)
     }
@@ -190,6 +195,14 @@ impl CudaContext {
         if self.error_state.load(Ordering::Relaxed) != 0 {
             self.check_err()?;
         }
+        self.make_current()
+    }
+
+    /// Makes this context current on the calling thread, leaving recorded errors in place.
+    ///
+    /// Cleanup and access tracking bind with this: an unrelated recorded error must not make
+    /// them skip a free or a record, nor be consumed where it cannot be reported.
+    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
         let mut current = std::ptr::null_mut();
         // SAFETY: The driver writes the current context.
         unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
@@ -202,7 +215,13 @@ impl CudaContext {
 
     /// Blocks until all work in the context completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.bind_to_thread()?;
+        self.check_err()?;
+        self.synchronize_in_place()
+    }
+
+    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
+    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
+        self.make_current()?;
         // SAFETY: The context is current.
         unsafe { sys::cuCtxSynchronize() }.result()
     }
@@ -238,8 +257,18 @@ impl CudaContext {
     }
 
     /// Loads a module from a cubin, fatbin or PTX image.
-    pub fn load_module(self: &Arc<Self>, image: &[u8]) -> Result<Arc<CudaModule>, DriverError> {
-        CudaModule::load(self, image)
+    ///
+    /// # Safety
+    ///
+    /// `image` must contain a valid, complete cubin or fatbin, with all referenced data
+    /// within the slice, or PTX text with a terminating NUL byte within the slice.
+    /// The driver receives only a pointer, not the slice length.
+    pub unsafe fn load_module(
+        self: &Arc<Self>,
+        image: &[u8],
+    ) -> Result<Arc<CudaModule>, DriverError> {
+        // SAFETY: Under the caller's guarantees.
+        unsafe { CudaModule::load(self, image) }
     }
 
     /// A timing-disabled event from the pool, or a new one.
@@ -247,7 +276,7 @@ impl CudaContext {
         if let Some(event) = self.events.lock().pop() {
             return Ok(event);
         }
-        self.bind_to_thread()?;
+        self.make_current()?;
         let mut event = std::ptr::null_mut();
         // SAFETY: The context is current; the driver writes the new event.
         unsafe {
@@ -282,9 +311,17 @@ impl CudaContext {
     }
 
     /// Keeps an error from a call that cannot return it, such as in `Drop`.
+    ///
+    /// An earlier error that was not yet checked is kept instead, as it is likely the cause.
     pub fn record_err<T>(&self, result: Result<T, DriverError>) {
         if let Err(error) = result {
-            self.error_state.store(error.0.0, Ordering::Relaxed);
+            // A failed exchange means an earlier error is pending, which takes precedence.
+            let _ = self.error_state.compare_exchange(
+                0,
+                error.0.0,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
         }
     }
 }

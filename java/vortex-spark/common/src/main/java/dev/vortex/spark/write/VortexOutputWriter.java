@@ -6,9 +6,6 @@ package dev.vortex.spark.write;
 import dev.vortex.api.Session;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.io.NativeWritable;
-import dev.vortex.relocated.org.apache.arrow.c.ArrowArray;
-import dev.vortex.relocated.org.apache.arrow.c.ArrowSchema;
-import dev.vortex.relocated.org.apache.arrow.c.Data;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.memory.RootAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.BigIntVector;
@@ -217,20 +214,7 @@ public final class VortexOutputWriter extends OutputWriter {
 
         vectorSchemaRoot.setRowCount(batchRows.size());
 
-        // Export via Arrow C Data Interface and write to Vortex
-        try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
-                ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
-            Data.exportVectorSchemaRoot(allocator, vectorSchemaRoot, null, arrowArray, arrowSchema);
-
-            try {
-                vortexWriter.writeBatch(arrowArray.memoryAddress(), arrowSchema.memoryAddress());
-            } finally {
-                // Native code only borrows the schema, so the children the export allocated are ours to release.
-                if (arrowSchema.snapshot().release != 0) {
-                    arrowSchema.release();
-                }
-            }
-        }
+        vortexWriter.writeBatch(vectorSchemaRoot, allocator);
 
         vectorSchemaRoot.clear();
         batchRows.clear();
