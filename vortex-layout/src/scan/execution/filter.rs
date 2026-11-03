@@ -3,6 +3,7 @@
 
 mod ordering;
 
+use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,6 +13,8 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -39,6 +42,7 @@ use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
+use crate::plan::physical::Eval;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
@@ -47,6 +51,7 @@ use crate::plan::physical::optimize;
 use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
+use crate::plan::physical::pipeline::ValueCache;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
@@ -57,6 +62,9 @@ pub struct FilterPlans {
     predicates: Vec<PlanRef>,
     /// A metadata-only pruning plan per original conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+    /// Per predicate, whether it is an infallible cross-column OR, evaluated over every row of
+    /// a chunk's range rather than through its selection.
+    whole: Vec<bool>,
     dynamic_indices: Vec<usize>,
     ordering: AdaptiveOrder,
 }
@@ -68,7 +76,7 @@ impl FilterPlans {
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let expression = FilterExpr::new(find_between(expression)?);
-        let predicates = expression
+        let predicates: Vec<PlanRef> = expression
             .conjuncts()
             .iter()
             .map(|expr| {
@@ -99,6 +107,21 @@ impl FilterPlans {
                 }
             })
             .collect::<VortexResult<_>>()?;
+        // Sparse filtering through a cross-column OR filters each encoded input. Evaluate safe
+        // disjunctions over the chunk's rows, as the V1 struct filter does.
+        let whole = expression
+            .conjuncts()
+            .iter()
+            .zip(&predicates)
+            .map(|(expr, plan)| {
+                plan.as_opt::<Eval>().is_some_and(|eval| {
+                    eval.expression()
+                        .as_scalar()
+                        .and_then(|function| function.as_opt::<Binary>())
+                        .is_some_and(|operator| *operator == Operator::Or)
+                }) && infallible(expr)
+            })
+            .collect();
         let dynamic_indices = (0..expression.conjuncts().len())
             .filter(|&index| expression.dynamic_updates(index).is_some())
             .collect();
@@ -107,6 +130,7 @@ impl FilterPlans {
             expression,
             predicates,
             pruning,
+            whole,
             dynamic_indices,
         })
     }
@@ -115,6 +139,13 @@ impl FilterPlans {
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
+}
+
+fn infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|function| function.signature().is_infallible())
+        && expression.children().iter().all(infallible)
 }
 
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
@@ -172,6 +203,9 @@ struct ActiveConjunct {
     index: usize,
     version: Option<u64>,
     evaluation: Evaluation,
+    /// Whether the conjunct runs over every row of the selection's range, its mask then
+    /// covering the range rather than only the selected rows.
+    whole: bool,
     mask: MaskScan,
     started: Option<Instant>,
     cpu_ns: u128,
@@ -185,6 +219,7 @@ impl ActiveConjunct {
         index: usize,
         version: Option<u64>,
         evaluation: Evaluation,
+        whole: bool,
     ) -> VortexResult<Self> {
         let learn = matches!(evaluation, Evaluation::Filter { recheck: false })
             && scan
@@ -194,7 +229,12 @@ impl ActiveConjunct {
         let started = (learn || tracing::enabled!(tracing::Level::DEBUG)).then(Instant::now);
         // Dense demand keeps vectorized evaluation cheaper than gathering almost every row.
         // Random access and selective predicates retain demand all the way to their leaves.
-        let plan = if matches!(evaluation, Evaluation::Filter { .. })
+        let whole = whole
+            && matches!(evaluation, Evaluation::Filter { .. })
+            && scan.access_mode() == AccessMode::Scan
+            && !selected.mask.all_true();
+        let plan = if !whole
+            && matches!(evaluation, Evaluation::Filter { .. })
             && scan.access_mode() == AccessMode::Scan
             && !selected.mask.all_true()
             && selected.mask.true_count().saturating_mul(2) >= selected.mask.len()
@@ -208,7 +248,11 @@ impl ActiveConjunct {
             plan,
             vec![Split {
                 rows: selected.scope.rows.clone(),
-                mask: selected.mask.clone(),
+                mask: if whole {
+                    Mask::new_true(selected.mask.len())
+                } else {
+                    selected.mask.clone()
+                },
             }],
         )?
         .with_row_offset(scan.row_offset)
@@ -219,6 +263,7 @@ impl ActiveConjunct {
             index,
             version,
             evaluation,
+            whole,
             mask: MaskScan::from_pipeline(pipeline, &scan.locations),
             started,
             cpu_ns,
@@ -240,13 +285,20 @@ struct RecheckStats {
 /// them without IO.
 pub(super) fn segments_read<'a>(
     session: &VortexSession,
+    values: &ValueCache,
     plans: impl Iterator<Item = &'a PlanRef>,
     rows: Range<u64>,
     mask: &Mask,
 ) -> VortexResult<Vec<SegmentId>> {
     let mut segments = Vec::new();
     for plan in plans {
-        segments.extend(Scan::segments(session, plan, rows.clone(), mask)?);
+        segments.extend(Scan::segments_with_value_cache(
+            session,
+            plan,
+            rows.clone(),
+            mask,
+            values,
+        )?);
     }
     segments.sort_unstable();
     segments.dedup();
@@ -317,11 +369,16 @@ impl FilterPlanner {
         let selected = self.selected.as_mut().vortex_expect("selected rows exist");
         let finished = active.started.map(|_| Instant::now());
         let input = selected.mask.true_count();
-        vortex_ensure_eq!(result.len(), input);
-        selected.mask = selected.mask.intersect_by_rank(&match active.evaluation {
-            Evaluation::Prune => !result,
-            Evaluation::Filter { .. } => result,
-        });
+        selected.mask = if active.whole {
+            vortex_ensure_eq!(result.len(), selected.mask.len());
+            (&selected.mask).bitand(&result)
+        } else {
+            vortex_ensure_eq!(result.len(), input);
+            selected.mask.intersect_by_rank(&match active.evaluation {
+                Evaluation::Prune => !result,
+                Evaluation::Filter { .. } => result,
+            })
+        };
         if let Some(finished) = finished {
             active.cpu_ns += finished.elapsed().as_nanos();
         }
@@ -420,6 +477,7 @@ impl FilterPlanner {
                         dynamic.index,
                         Some(version),
                         Evaluation::Prune,
+                        false,
                     )?);
                     return Ok(true);
                 }
@@ -567,12 +625,14 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
+                &self.scan.values,
                 self.filter.predicates.iter(),
                 rows.clone(),
                 &selected.mask,
             )?;
             let projection = segments_read(
                 session,
+                &self.scan.values,
                 std::iter::once(&self.scan.projection),
                 rows,
                 &selected.mask,
@@ -612,6 +672,7 @@ impl Planner for FilterPlanner {
                 index,
                 version,
                 Evaluation::Filter { recheck },
+                self.filter.whole[index],
             )?);
             return Ok(PlannerOutput::Continue);
         }

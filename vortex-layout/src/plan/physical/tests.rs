@@ -693,6 +693,11 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
         .as_opt::<Pack>()
         .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
 
+    assert_eq!(empty_struct.row_count(), 3);
+    assert_eq!(
+        empty_struct.dtype(),
+        &DType::Struct(StructFields::empty(), Nullability::NonNullable)
+    );
     assert_eq!(empty_struct.nfields(), 0);
     assert_eq!(empty_struct.children().len(), 0);
     Ok(())

@@ -48,6 +48,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use object_store::ObjectMeta;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
@@ -84,7 +85,9 @@ use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::scan_v2::initial_ranges;
+use crate::persistent::scan_v2::rebalance_batches;
 use crate::persistent::scan_v2::scan_planner;
+use crate::persistent::source::FileVersion;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -123,10 +126,10 @@ pub(crate) struct VortexOpener {
     /// Partitions of one file read through one source, so a chunk straddling a partition
     /// boundary and the file's metadata segments are read once, as they are for V1 through the
     /// shared layout reader.
-    pub segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    pub segment_sources: Arc<DashMap<FileVersion, Weak<dyn SegmentSource>>>,
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, pruned zones and dictionary values, built once per file.
-    pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    pub scan_caches: Arc<DashMap<FileVersion, WeakScanCache>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -146,6 +149,8 @@ pub(crate) struct VortexOpener {
     pub scan_v2: bool,
     /// Startup work shared by every file opened on this execution partition.
     pub initial_chunks: Arc<AtomicUsize>,
+    /// The engine's target batch size, which an unfiltered V2 scan rebalances its tail to.
+    pub batch_size: usize,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -230,6 +235,7 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
         let initial_chunks = Arc::clone(&self.initial_chunks);
         let scan_concurrency = self.scan_concurrency;
+        let batch_size = self.batch_size;
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -329,6 +335,34 @@ impl FileOpener for VortexOpener {
             // Check if there are rows in this file. If not, we can save
             // ourselves some work and return an empty stream.
             if vxf.row_count() == 0 {
+                return Ok(stream::empty().boxed());
+            }
+
+            let byte_range = file
+                .range
+                .as_ref()
+                .map(|range| -> DFResult<Range<u64>> {
+                    Ok(Range {
+                        start: u64::try_from(range.start).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range start is negative")
+                        })?,
+                        end: u64::try_from(range.end).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range end is negative")
+                        })?,
+                    })
+                })
+                .transpose()?;
+
+            // Coarse row boundaries are independent of the projection and predicates. Empty
+            // byte partitions can finish before adapting or converting those expressions.
+            let v2_rows = if scan_v2 {
+                byte_range
+                    .clone()
+                    .map(|bytes| partition_row_range(bytes, file.object_meta.size, vxf.row_count()))
+            } else {
+                None
+            };
+            if v2_rows.as_ref().is_some_and(Range::is_empty) {
                 return Ok(stream::empty().boxed());
             }
 
@@ -471,21 +505,6 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            let byte_range = file
-                .range
-                .as_ref()
-                .map(|range| -> DFResult<Range<u64>> {
-                    Ok(Range {
-                        start: u64::try_from(range.start).map_err(|_| {
-                            exec_datafusion_err!("Vortex file range start is negative")
-                        })?,
-                        end: u64::try_from(range.end).map_err(|_| {
-                            exec_datafusion_err!("Vortex file range end is negative")
-                        })?,
-                    })
-                })
-                .transpose()?;
-
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
             let native_limit = limit
@@ -502,14 +521,12 @@ impl FileOpener for VortexOpener {
                 )?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
+            let rebalance = limit.is_none() && native_filter.is_none() && residual_filter.is_none();
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
-                scan_file.segments = shared_segment_source(
-                    &segment_sources,
-                    &file.object_meta.location,
-                    scan_file.segments,
-                );
-                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                scan_file.segments =
+                    shared_segment_source(&segment_sources, &file.object_meta, scan_file.segments);
+                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter);
@@ -518,12 +535,7 @@ impl FileOpener for VortexOpener {
                     let len = (bytes.end - bytes.start).max(1);
                     usize::try_from(file.object_meta.size.div_ceil(len)).unwrap_or(usize::MAX)
                 });
-                if let Some(bytes) = byte_range {
-                    // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
-                    if rows.is_empty() {
-                        return Ok(stream::empty().boxed());
-                    }
+                if let Some(rows) = v2_rows {
                     builder = builder.with_row_range(rows);
                 }
                 if let Some(selection) = file
@@ -565,7 +577,12 @@ impl FileOpener for VortexOpener {
                 let root = scan_planner(Arc::clone(&scan), bulk_start..scan.rows().end);
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, initial, map_batch))
+                let batches = driver.run(scan, root, initial, map_batch);
+                Ok(if rebalance {
+                    rebalance_batches(batches, batch_size)
+                } else {
+                    batches
+                })
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -772,10 +789,15 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
     Ok(false)
 }
 
-/// Returns the scan cache other partitions of `path` are planning with, or registers a new one.
-/// A scan holds its cache until its stream ends, so the cache lives as long as one scan.
-fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) -> ScanCache {
-    match scan_caches.entry(path.clone()) {
+/// Returns the scan cache for this object version, or registers a new one.
+/// Live streams for this file version own the cache; the registry holds only a weak reference.
+/// The last stream releases the cache, even if the multi-file scan is still running.
+fn shared_scan_cache(
+    scan_caches: &DashMap<FileVersion, WeakScanCache>,
+    meta: &ObjectMeta,
+) -> ScanCache {
+    let path = &meta.location;
+    match scan_caches.entry(FileVersion(meta.clone())) {
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing scan cache for {path}");
@@ -794,14 +816,15 @@ fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) ->
     }
 }
 
-/// Returns the segment source other partitions of `path` are reading through, or registers
+/// Returns the segment source other scans of this object version read through, or registers
 /// `fresh` as that source. Like the layout readers, a source lives only as long as one scan.
 fn shared_segment_source(
-    segment_sources: &DashMap<Path, Weak<dyn SegmentSource>>,
-    path: &Path,
+    segment_sources: &DashMap<FileVersion, Weak<dyn SegmentSource>>,
+    meta: &ObjectMeta,
     fresh: Arc<dyn SegmentSource>,
 ) -> Arc<dyn SegmentSource> {
-    match segment_sources.entry(path.clone()) {
+    let path = &meta.location;
+    match segment_sources.entry(FileVersion(meta.clone())) {
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing segment source for {path}");
@@ -1273,6 +1296,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1684,6 +1708,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1777,6 +1802,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1961,6 +1987,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2027,6 +2054,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2244,6 +2272,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             initial_chunks: Default::default(),
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
