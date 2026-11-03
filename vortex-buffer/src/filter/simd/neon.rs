@@ -12,9 +12,9 @@ use core::arch::aarch64::vst1_u8;
 use core::arch::aarch64::vst1q_u8;
 use core::arch::aarch64::vtbl1_u8;
 
-use super::super::slice::MaskBits;
-use super::super::slice::for_each_mask_word;
-use super::super::slice::low_bits_mask;
+use super::super::bits::MaskBits;
+use super::super::bits::for_each_mask_word;
+use super::super::bits::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
 use super::compress_lut;
@@ -64,8 +64,8 @@ macro_rules! neon_compress_kernel {
     ) => {
         /// # Safety
         ///
-        /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// The pointer contract of [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "deliberate submask narrowing"
@@ -127,8 +127,8 @@ macro_rules! neon_compress_kernel {
 
         /// # Safety
         ///
-        /// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        /// The pointer contract of [`compress`](super::compress) /
+        /// [`compress_in_place`](super::compress_in_place) must hold.
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,

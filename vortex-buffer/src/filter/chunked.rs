@@ -5,22 +5,16 @@
 
 use std::mem::MaybeUninit;
 
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_mask::MaskValues;
-
-use super::buffer::byte_compress_density_threshold;
-use super::buffer::useful_cached_indices;
-use super::buffer::useful_cached_slices;
-use super::byte_compress;
-use super::simd_compress;
-use super::simd_compress::SLACK_BYTES;
-use super::slice::MaskBits;
-use super::slice::compact_by_bitmap;
-use super::slice::compact_runs_by_bitmap;
-use super::slice::low_bits_mask;
-use crate::dtype::NativePType;
+use super::Repr;
+use super::Selection;
+use super::bits::MaskBits;
+use super::bits::low_bits_mask;
+use super::compact_bits;
+use super::simd::SLACK_BYTES;
+use crate::BitBuffer;
+use crate::Buffer;
+use crate::BufferAllocatorRef;
+use crate::BufferMut;
 
 /// Number of values in each chunk of a [`ChunkDecoder`].
 pub const FILTER_CHUNK_LEN: usize = 1024;
@@ -43,10 +37,6 @@ const fn max_sparse_values<T>() -> usize {
     }
 }
 
-/// Chunks without a SIMD kernel whose runs of selected values average at least this many bytes
-/// copy each run. Shorter runs are faster to compact with byte compress.
-const MIN_RUN_BYTES: usize = 96;
-
 /// Number of mask bytes read to assemble the words of a chunk at an arbitrary bit offset.
 const CHUNK_WORD_BYTES: usize = FILTER_CHUNK_LEN / 8 + 8;
 
@@ -65,15 +55,15 @@ pub unsafe trait ChunkDecoder<T> {
     fn decode_indices(&self, chunk_idx: usize, indices: &[usize], dst: &mut [MaybeUninit<T>]);
 }
 
-/// Filters the values of `decoder` by `mask`, and decodes only the chunks that hold selected
-/// values.
+/// Filters the values of `decoder` by `selection`, and decodes only the chunks that hold
+/// selected values.
 ///
 /// Value `i` of the filtered array is value `offset + i` of the decoded chunks, so `offset` skips
-/// the values at the start of the first chunk.
+/// the values at the start of the first chunk. The decoded chunks must hold at least
+/// `offset + selection.len()` values.
 ///
-/// The mask is applied one chunk at a time. The filter uses the cached slices or the cached
-/// indices of the mask when they are useful, in that order, and otherwise uses its bitmap. Each chunk takes the first strategy that
-/// matches:
+/// The selection is applied one chunk at a time, in the representation that `selection` holds.
+/// Each chunk takes the first strategy that matches:
 ///
 /// | Selected values in the chunk | Strategy                                    |
 /// | ---------------------------- | ------------------------------------------- |
@@ -82,26 +72,25 @@ pub unsafe trait ChunkDecoder<T> {
 /// | at most the sparse limit     | decode only the selected values             |
 /// | otherwise                    | decode to scratch, then compact the scratch |
 ///
-/// The sparse limit is 16, 32, 64 or 160 for values of 1, 2, 4 or 8 bytes, because a wider
-/// chunk costs more to decode.
+/// The sparse limit is 16, 32, 64 or 160 for values of 1, 2, 4 or 8 or more bytes, because a
+/// wider chunk costs more to decode.
 ///
-/// The scratch buffer stays in cache. The filter compacts it by copying the slices, or with the
-/// SIMD kernel that a plain buffer filter chooses for the density of the chunk. When no SIMD
-/// kernel applies, the filter copies each run of set bits if the runs are long, and otherwise
-/// uses byte compress or the bit walk.
-pub fn filter_chunked<T: NativePType>(
+/// The scratch buffer stays in cache. The filter compacts it by copying the slices or gathering
+/// the indices, or from a bitmap with the same strategy ladder as [`filter_buffer`].
+///
+/// [`filter_buffer`]: super::filter_buffer
+pub fn filter_chunked<T: Copy>(
     decoder: &impl ChunkDecoder<T>,
     offset: usize,
-    mask: &MaskValues,
+    selection: Selection<'_>,
     allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    let mut filter = ChunkedFilter::new(decoder, mask.true_count(), allocator);
-    if let Some(slices) = useful_cached_slices(mask) {
-        filter.push_slices(offset, slices);
-    } else if let Some(indices) = useful_cached_indices(mask) {
-        filter.push_mask_indices(offset, indices);
-    } else {
-        filter.push_bitmap(offset, mask);
+    let mut filter = ChunkedFilter::new(decoder, selection.true_count, allocator);
+
+    match selection.repr {
+        Repr::Bitmap(bits) => filter.push_bitmap(offset, bits),
+        Repr::Indices(indices) => filter.push_mask_indices(offset, indices),
+        Repr::Slices(slices) => filter.push_slices(offset, slices),
     }
 
     filter.finish()
@@ -130,7 +119,7 @@ struct ChunkedFilter<'a, T, D> {
     scratch: Scratch<T>,
 }
 
-impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
+impl<'a, T: Copy, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
     fn new(decoder: &'a D, true_count: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             decoder,
@@ -161,10 +150,9 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
         self.written += indices.len();
     }
 
-    /// Filters chunk by chunk from the bitmap of `mask`.
-    fn push_bitmap(&mut self, offset: usize, mask: &MaskValues) {
-        let len = mask.len();
-        let bits = mask.bit_buffer();
+    /// Filters chunk by chunk from the bitmap `bits`.
+    fn push_bitmap(&mut self, offset: usize, bits: &BitBuffer) {
+        let len = bits.len();
         let bits_bytes = bits.inner().as_slice();
         let mut words = [0u64; CHUNK_WORDS];
         let mut indices = [0usize; MAX_SPARSE_VALUES];
@@ -204,9 +192,13 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
                 let src =
                     &self.scratch.decode(self.decoder, chunk_idx)[chunk_offset..][..chunk_len];
                 let dst = &mut self.values.spare_capacity_mut()[self.written..];
+                let bits = MaskBits::Words {
+                    words,
+                    len: chunk_len,
+                };
                 // SAFETY: the words select only values of `src` and clear any bits past
                 // `chunk_len`, and the output has room for every selected value plus the slack.
-                let written = unsafe { compact_words(src, words, selected, dst) };
+                let written = unsafe { compact_bits(src, bits, selected, dst) };
                 debug_assert_eq!(written, selected);
                 self.written += selected;
             }
@@ -313,64 +305,6 @@ impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
     }
 }
 
-/// Copies the `selected` values of `src` selected by `words` to `dst` and returns the number
-/// copied.
-///
-/// The kernel is the SIMD kernel that [`filter_buffer`](super::buffer::filter_buffer) chooses for
-/// the density, if any. Otherwise, runs of set bits that average at least [`MIN_RUN_BYTES`] are
-/// copied run by run, and shorter runs use byte compress or the bit walk.
-///
-/// # Safety
-///
-/// `words` must hold `src.len()` bits with any bits past `src.len()` cleared, and `dst` must hold
-/// every selected value plus [`SLACK_BYTES`].
-unsafe fn compact_words<T: Copy>(
-    src: &[T],
-    words: &[u64],
-    selected: usize,
-    dst: &mut [MaybeUninit<T>],
-) -> usize {
-    let bits = MaskBits::Words {
-        words,
-        len: src.len(),
-    };
-    let density = selected as f64 / src.len() as f64;
-
-    // SAFETY: forwarded from the caller contract.
-    unsafe {
-        if let Some(written) = simd_compress::compress_bits(src, bits, density, dst) {
-            written
-        } else if has_long_runs::<T>(words, selected) {
-            compact_runs_by_bitmap(src, bits, dst)
-        } else if density >= byte_compress_density_threshold::<T>() {
-            byte_compress::compress_words(src, words, dst)
-        } else {
-            compact_by_bitmap(src, bits, dst)
-        }
-    }
-}
-
-/// Returns whether the runs of the `selected` set bits of `words` average at least
-/// [`MIN_RUN_BYTES`] of `T`.
-// Inlining this check into `compact_words` makes the bit walk up to 1.3x slower on x86-64.
-#[inline(never)]
-fn has_long_runs<T>(words: &[u64], selected: usize) -> bool {
-    // The run walk copies at most one word of values at a time, so narrow values never qualify.
-    if 64 * size_of::<T>() < MIN_RUN_BYTES {
-        return false;
-    }
-
-    // A run that crosses a word boundary counts once in each word, as the run walk copies it. The
-    // count stops at the first word that takes it past `max_runs`, because a popcount is not a
-    // native instruction on baseline x86-64.
-    let max_runs = selected * size_of::<T>() / MIN_RUN_BYTES;
-    let mut runs = 0;
-    words.iter().all(|&word| {
-        runs += (word & !(word << 1)).count_ones() as usize;
-        runs <= max_runs
-    })
-}
-
 /// Loads the `len <= FILTER_CHUNK_LEN` mask bits starting at bit `start` of `bytes` into
 /// `words`, with any bits past `len` cleared.
 #[inline]
@@ -427,16 +361,15 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rstest::rstest;
-    use vortex_buffer::BitBuffer;
-    use vortex_buffer::BufferAllocatorRef;
-    use vortex_mask::Mask;
 
+    use super::BufferAllocatorRef;
     use super::ChunkDecoder;
     use super::FILTER_CHUNK_LEN;
     use super::filter_chunked;
-    use crate::dtype::NativePType;
+    use crate::BitBuffer;
+    use crate::filter::Selection;
 
-    /// The representation that the test mask caches.
+    /// The representation of the test selection.
     #[derive(Clone, Copy, Debug)]
     enum Cached {
         Bitmap,
@@ -461,7 +394,11 @@ mod tests {
         }
     }
 
-    fn check<T: NativePType + From<u8>>(bits: &BitBuffer, offset: usize, cached: Cached) {
+    fn check<T: Copy + PartialEq + std::fmt::Debug + From<u8>>(
+        bits: &BitBuffer,
+        offset: usize,
+        cached: Cached,
+    ) {
         let padded_len = (offset + bits.len()).next_multiple_of(FILTER_CHUNK_LEN);
         let values = (0..padded_len)
             .map(|i| {
@@ -474,18 +411,23 @@ mod tests {
             .filter_map(|(i, selected)| selected.then_some(values[offset + i]))
             .collect::<Vec<T>>();
 
-        let mask = match cached {
-            Cached::Bitmap => Mask::from_buffer(bits.clone()),
-            Cached::Slices => Mask::from_slices(bits.len(), bits.set_slices().collect()),
-            Cached::Indices => Mask::from_indices(bits.len(), bits.set_indices()),
+        let slices = bits.set_slices().collect::<Vec<_>>();
+        let indices = bits.set_indices().collect::<Vec<_>>();
+        // SAFETY: all three representations come from `bits`.
+        let selection = unsafe {
+            match cached {
+                Cached::Bitmap => Selection::from_bitmap_unchecked(bits, bits.true_count()),
+                Cached::Slices => {
+                    Selection::from_slices_unchecked(bits.len(), &slices, bits.true_count())
+                }
+                Cached::Indices => Selection::from_indices_unchecked(bits.len(), &indices),
+            }
         };
-        let Mask::Values(mask) = mask else {
-            unreachable!("the patterns select some but not all values")
-        };
+
         let filtered = filter_chunked(
             &SliceDecoder(&values),
             offset,
-            &mask,
+            selection,
             BufferAllocatorRef::static_ref(),
         );
         assert_eq!(filtered.as_slice(), expected);
@@ -496,7 +438,7 @@ mod tests {
         #[values(0.001, 0.01, 0.05, 0.2, 0.5, 0.9, 0.999)] density: f64,
         #[values(0, 3, 1000)] offset: usize,
         #[values(0, 5)] bit_offset: usize,
-        #[values(Cached::Bitmap, Cached::Indices)] cached: Cached,
+        #[values(Cached::Bitmap, Cached::Slices, Cached::Indices)] cached: Cached,
     ) {
         let mut rng = StdRng::seed_from_u64(42);
         let bits = (0..5000 + bit_offset)
@@ -508,9 +450,10 @@ mod tests {
         check::<u16>(&bits, offset, cached);
         check::<u32>(&bits, offset, cached);
         check::<u64>(&bits, offset, cached);
+        check::<u128>(&bits, offset, cached);
     }
 
-    /// Runs long enough that the cached slices are used rather than the bitmap.
+    /// Runs of selected values, some of which cross chunk boundaries.
     #[rstest]
     fn filter_chunked_runs_matches_expected(
         #[values(9, 12, 200, 3000)] run_len: usize,
@@ -526,12 +469,12 @@ mod tests {
         check::<u16>(&bits, offset, cached);
         check::<u32>(&bits, offset, cached);
         check::<u64>(&bits, offset, cached);
+        check::<u128>(&bits, offset, cached);
     }
 
     #[rstest]
     fn filter_chunked_full_and_empty_chunks(#[values(0, 3)] offset: usize) {
-        // One whole chunk of selected values in every three chunks. The density stays low enough
-        // for the cached indices to be used.
+        // One whole chunk of selected values in every three chunks.
         let bits = (0..5000)
             .map(|i| ((i + offset) / FILTER_CHUNK_LEN).is_multiple_of(3))
             .collect::<BitBuffer>();

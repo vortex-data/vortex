@@ -15,7 +15,8 @@
 //! | mask selects one contiguous run | zero-copy slice       |
 //! | child is entirely null          | null constant array   |
 //!
-//! Fixed-width canonical arrays then use the strategy ladder in [`buffer`].
+//! Fixed-width canonical arrays then use the strategy ladder in [`vortex_buffer::filter`], with
+//! the mask representation that [`buffer`] chooses.
 
 use std::ops::Range;
 
@@ -48,12 +49,8 @@ use crate::validity::Validity;
 mod bitbuffer;
 mod bool;
 pub(crate) mod buffer;
-pub(crate) mod byte_compress;
-pub(crate) mod chunked;
 mod fixed_size_list;
 mod listview;
-mod simd_compress;
-mod slice;
 mod struct_;
 mod take;
 mod union;

@@ -23,6 +23,7 @@ use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BitIterator;
+use vortex_buffer::filter::Selection;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -866,7 +867,47 @@ impl MaskValues {
             MaskIter::Indices(self.indices())
         }
     }
+
+    /// Returns the representation of the mask that is cheapest to filter with, for
+    /// [`vortex_buffer::filter`].
+    ///
+    /// This uses the cached slices if there is one slice or their runs average at least 8 values,
+    /// then the cached indices if the density is at most 0.5, and otherwise the bitmap. It does
+    /// not build a representation that is not cached.
+    pub fn selection(&self) -> Selection<'_> {
+        // SAFETY: the mask validated its cached slices and indices when it created them, and it
+        // holds the true count of its bitmap.
+        unsafe {
+            if let Some(slices) = self.useful_cached_slices() {
+                Selection::from_slices_unchecked(self.len(), slices, self.true_count)
+            } else if let Some(indices) = self.useful_cached_indices() {
+                Selection::from_indices_unchecked(self.len(), indices)
+            } else {
+                Selection::from_bitmap_unchecked(&self.buffer, self.true_count)
+            }
+        }
+    }
+
+    fn useful_cached_slices(&self) -> Option<&[(usize, usize)]> {
+        self.cached_slices().filter(|slices| {
+            slices.len() == 1 || self.true_count / slices.len() >= SELECTION_MIN_AVERAGE_RUN_LEN
+        })
+    }
+
+    fn useful_cached_indices(&self) -> Option<&[usize]> {
+        if self.density <= SELECTION_INDICES_MAX_DENSITY {
+            self.cached_indices()
+        } else {
+            None
+        }
+    }
 }
+
+/// The smallest average run length for which [`MaskValues::selection`] uses the cached slices.
+const SELECTION_MIN_AVERAGE_RUN_LEN: usize = 8;
+
+/// The largest density for which [`MaskValues::selection`] uses the cached indices.
+const SELECTION_INDICES_MAX_DENSITY: f64 = 0.5;
 
 /// Iterator over the indices or slices of a mask.
 pub enum MaskIter<'a> {
