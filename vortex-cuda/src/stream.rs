@@ -22,6 +22,8 @@ use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::ValidAsZeroBits;
 use vortex_cuda_driver::result::stream;
+use vortex_cuda_driver::sys::CUresult;
+use vortex_cuda_driver::sys::CUstream;
 
 use crate::CudaDeviceBuffer;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -196,47 +198,62 @@ pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
 ///
 /// # Errors
 ///
-/// Returns an error if registering the stream callback fails or if the callback
-/// channel closes unexpectedly.
+/// Returns an error if registering the stream callback fails, if the preceding work failed on
+/// the device, or if the callback channel closes unexpectedly.
 pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
-    rx.recv()
+    let status = rx
+        .recv()
         .await
-        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
+        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))?;
+    status
+        .result()
+        .map_err(|e| vortex_err!("CUDA stream work failed: {}", e))
 }
 
-/// Registers a host function callback on the stream.
+/// Registers a callback on the stream.
+///
+/// The driver runs the callback exactly once, even after a device error, so the receiver always
+/// gets the status of the preceding work and the sender is always freed.
 ///
 /// # Returns
 ///
-/// An async receiver that receives a message when all preceding work on the
-/// stream completes.
+/// An async receiver that receives the status of all preceding work on the stream once it
+/// completes.
 ///
 /// # Errors
 ///
-/// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<()>> {
-    let (tx, rx) = async_channel::bounded::<()>(1);
-
-    let tx_ptr = Box::into_raw(Box::new(tx));
-
+/// Returns an error if registering the callback fails.
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<CUresult>> {
+    // Bind before handing the sender to raw ownership, which a failed bind would leak.
     stream
         .context()
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
-    /// Called from CUDA driver thread when all preceding work on the stream completes.
-    unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
+    let (tx, rx) = async_channel::bounded::<CUresult>(1);
+    let tx_ptr = Box::into_raw(Box::new(tx));
+
+    /// Called from CUDA driver thread when all preceding work on the stream completes or fails.
+    unsafe extern "C" fn callback(
+        _stream: CUstream,
+        status: CUresult,
+        user_data: *mut std::ffi::c_void,
+    ) {
         // SAFETY: The memory of `tx` is manually managed has not been freed
         // before. We have unique ownership and can therefore free it.
-        let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
+        let tx = unsafe { Box::from_raw(user_data as *mut Sender<CUresult>) };
 
         // The callback sends once into an empty capacity-one channel.
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
         //  is closed and sends will fail.
-        if let Err(_e) = tx.try_send(()) {
-            warn!(error = ?_e, "register_stream_callback send failed due to error");
+        if let Err(_e) = tx.try_send(status) {
+            warn!(
+                status = status.0,
+                error = ?_e,
+                "CUDA stream callback receiver unavailable"
+            );
         }
     }
 
@@ -245,7 +262,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<Receiver<()>> {
     // 2. Valid function pointer with the the correct signature
     // 3. Valid user data pointer which is consumed exactly once
     unsafe {
-        stream::launch_host_function(
+        stream::add_callback(
             stream.cu_stream(),
             callback,
             tx_ptr as *mut std::ffi::c_void,
