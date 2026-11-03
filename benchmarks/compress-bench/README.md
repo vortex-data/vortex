@@ -92,7 +92,8 @@ changes can be measured against the same dataset across commits. Source Parquet 
 level 3 and are generated and cached during data preparation, outside the timed operations.
 The normal suite loads these files separately for each selected format; its usual reader batch
 sizes and writer settings apply. This includes measuring both compression and decompression by
-default, with complete serialized sizes in the existing tables and ingestion JSONL.
+default, with the existing size metrics in the tables and ingestion JSONL. Vortex and Arrow IPC
+count complete files; the current Parquet metric counts bytes before the footer.
 
 ## GPU decompression
 
