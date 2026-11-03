@@ -63,7 +63,7 @@ impl PrunePlanner {
         let pruning: Vec<_> = scan
             .filter
             .iter()
-            .flat_map(|filter| filter.pruning().cloned())
+            .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
             .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
