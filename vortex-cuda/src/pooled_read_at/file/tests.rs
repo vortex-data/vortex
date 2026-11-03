@@ -530,16 +530,16 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     Ok(())
 }
 
-/// A mapping evicted from the cache while a reader uses it is unmapped when releasing cached
+/// A mapping removed from the cache while a reader uses it is unmapped when releasing cached
 /// mappings returns after that reader closed, as cold-cache eviction needs.
 #[crate::test]
-async fn evicted_mappings_are_unmapped_before_release_returns() -> VortexResult<()> {
+async fn uncached_mappings_are_unmapped_before_release_returns() -> VortexResult<()> {
     let _cache = MAPPING_CACHE.lock();
     let (_runtime, reader, file) = mapped_reader()?;
     if reader.mapped.is_none() {
         return Ok(());
     }
-    // Evict the reader's mapping, as opening more files than the cache holds would.
+    // Remove the cache's reference while the reader still holds the mapping.
     FILE_MAPPINGS.lock().clear();
     drop(reader);
     release_file_mappings();
