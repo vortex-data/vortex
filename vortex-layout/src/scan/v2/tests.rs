@@ -552,6 +552,100 @@ fn smaller_chunks_keep_file_alignment() {
     );
 }
 
+/// Runs `rows` of a prepared scan as one chunk, as an engine that cuts its own units of work does,
+/// and returns its batches in row order.
+async fn run_single_chunk(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
+    let io = scan.io();
+    let mut run = Run::new();
+    run.admit(
+        Box::new(ChunkPlanner::single(
+            Arc::clone(scan),
+            rows.clone(),
+            scan.selection().clone(),
+            None,
+        )),
+        WorkScope {
+            file_ordinal: 0,
+            rows,
+        },
+        io.session(),
+    );
+    let mut batches = Vec::new();
+    loop {
+        match run.advance()? {
+            Progress::Batch(batch) => batches.push(batch),
+            Progress::Spawn(scope, chunk) => {
+                run.admit(chunk, scope, io.session());
+            }
+            Progress::RootDone(_) if run.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => break,
+            Progress::Waiting => std::future::poll_fn(|cx| run.poll_completion(cx)).await?,
+        }
+    }
+    batches.sort_by_key(|batch| batch.scope.rows.start);
+    Ok(batches)
+}
+
+/// A single chunk spans stored chunks and the chunk grid. Its projection is cut into batches of
+/// at most the scan's `max_batch_rows`, 65,536 by default, and is one batch when uncapped.
+#[rstest]
+#[case::default(None, vec![0..65_536, 65_536..131_072, 131_072..140_000])]
+#[case::uncapped(Some(usize::MAX), vec![0..140_000])]
+#[tokio::test]
+async fn single_chunk_batches_follow_max_batch_rows(
+    #[case] max_batch_rows: Option<usize>,
+    #[case] expected: Vec<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    const STORED_CHUNK_ROWS: usize = 70_000;
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let arrays = (0..3)
+        .map(|index| {
+            let start = i32::try_from(index * STORED_CHUNK_ROWS)?;
+            let end = start + i32::try_from(STORED_CHUNK_ROWS)?;
+            Ok((
+                sequence.advance(),
+                PrimitiveArray::from_iter(start..end).into_array(),
+            ))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let layout = chunked_flat()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter(arrays.into_iter().map(Ok)))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let mut scan = builder(&session, &segments, &layout)?;
+    if let Some(max_batch_rows) = max_batch_rows {
+        scan = scan.with_max_batch_rows(max_batch_rows);
+    }
+    let scan = Arc::new(scan.prepare()?);
+
+    let rows = 0..2 * STORED_CHUNK_ROWS as u64;
+    let batches = run_single_chunk(&scan, rows.clone()).await?;
+    assert_eq!(
+        batches
+            .iter()
+            .map(|batch| batch.scope.rows.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let arrays: Vec<ArrayRef> = batches.into_iter().map(|batch| batch.array).collect();
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, layout.dtype().clone())?.into_array(),
+        PrimitiveArray::from_iter(0..i32::try_from(rows.end)?),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let session = new_session().with_tokio();

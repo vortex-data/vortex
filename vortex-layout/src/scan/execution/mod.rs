@@ -41,6 +41,7 @@ pub(crate) use self::chunk::rows_per_chunk;
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub(crate) use self::projection::MAX_BATCH_ROWS;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
@@ -102,6 +103,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// The most rows a projection batch of densely selected rows holds.
+    pub(super) max_batch_rows: usize,
 }
 
 impl PreparedScan {

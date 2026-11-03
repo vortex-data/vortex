@@ -267,7 +267,7 @@ impl Planner for PartPlanner {
                         (Some(kept), Some(again)) => Some(kept & &again),
                         (kept, again) => kept.or(again),
                     };
-                    Box::new(ChunkPlanner::new(scan, part, selection, kept))
+                    Box::new(ChunkPlanner::single(scan, part, selection, kept))
                 }
             };
             let planner: Box<dyn Planner> = if self.scan.filter().is_some() {

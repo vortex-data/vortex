@@ -49,6 +49,7 @@ use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
+use crate::scan::execution::MAX_BATCH_ROWS;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
@@ -100,6 +101,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    max_batch_rows: usize,
 }
 
 impl ScanBuilder {
@@ -113,6 +115,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            max_batch_rows: MAX_BATCH_ROWS,
         }
     }
 
@@ -158,6 +161,17 @@ impl ScanBuilder {
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Caps the rows of a batch the projection of densely selected rows emits, 65,536 by default.
+    /// Converting a batch to Arrow copies it whole, so a consumer that does gains from small
+    /// batches; one that reads a batch in vectors of its own, as DuckDB does, gains from batches
+    /// as large as its units of work, each of which slices and decodes the segments it overlaps
+    /// once.
+    pub fn with_max_batch_rows(mut self, max_batch_rows: usize) -> Self {
+        assert!(max_batch_rows > 0, "a batch holds at least one row");
+        self.max_batch_rows = max_batch_rows;
         self
     }
 
@@ -228,6 +242,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            max_batch_rows: self.max_batch_rows,
         })
     }
 }
