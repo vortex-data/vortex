@@ -9,7 +9,6 @@ use vortex_array::dtype::NativePType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -60,7 +59,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
                 subseconds,
             },
             options.unit,
-        );
+        )?;
 
         Ok(Scalar::extension::<Timestamp>(
             options.clone(),
@@ -86,11 +85,54 @@ fn part_at<T: NativePType>(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<T> {
-    Ok(state
+    state
         .slot(slot)?
         .ok_or_else(|| vortex_err!("DateTimeParts {name} slot is missing"))?
         .execute_scalar(index, ctx)?
         .as_primitive()
-        .as_::<T>()
-        .vortex_expect("timestamp part fits its native type"))
+        .as_opt::<T>()
+        .flatten()
+        .ok_or_else(|| {
+            vortex_err!(
+                "DateTimeParts {name} at index {index} is null or does not fit {}",
+                T::PTYPE
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
+
+    use super::*;
+
+    #[rstest]
+    #[case::days_overflow(i64::MAX, 0, "overflow")]
+    #[case::seconds_out_of_range(0, i64::from(i32::MAX) + 1, "seconds at index 0")]
+    fn test_scalar_invalid_parts(
+        #[case] days: i64,
+        #[case] seconds: i64,
+        #[case] message: &str,
+    ) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        let mut ctx = session.create_execution_ctx();
+        let array = DateTimeParts::try_new(
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::NonNullable).erased()),
+            buffer![days].into_array(),
+            ConstantArray::new(seconds, 1).into_array(),
+            ConstantArray::new(0i32, 1).into_array(),
+        )?;
+        let error = array.execute_scalar(0, &mut ctx).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+
+        Ok(())
+    }
 }
