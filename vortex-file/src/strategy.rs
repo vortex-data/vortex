@@ -67,6 +67,8 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    /// The null fraction at or above which nullable columns are written with the sparse layout.
+    sparse_min_null_fraction: Option<f64>,
 }
 
 impl WriteStrategyBuilder {
@@ -85,7 +87,19 @@ impl WriteStrategyBuilder {
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
+            sparse_min_null_fraction: None,
         }
+    }
+
+    /// Write every nullable column, at any nesting level, with at least `min_null_fraction` of
+    /// its rows null as a sparse layout, which stores only its present rows and drops everything
+    /// nested beneath its null rows. Each level decides from its own data.
+    ///
+    /// **Note**: this is an unstable and experimental layout. Only the v2 scan reads it, and the
+    /// `vortex.sparse` layout must be in an enabled edition for the file to be written.
+    pub fn with_sparse_layout(mut self, min_null_fraction: f64) -> Self {
+        self.sparse_min_null_fraction = Some(min_null_fraction);
+        self
     }
 
     /// Override the row block size used for row repartitioning and zoned statistics.
@@ -256,6 +270,10 @@ impl WriteStrategyBuilder {
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
                 .with_field_writers(self.field_writers);
+
+        if let Some(min_null_fraction) = self.sparse_min_null_fraction {
+            table_strategy = table_strategy.with_sparse_layout(min_null_fraction);
+        }
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.

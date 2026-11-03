@@ -12258,6 +12258,7 @@ dependencies = [
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
+ "vortex-sparse",
  "vortex-utils",
 ]
 

@@ -323,3 +323,6 @@ fn chunk_stream<A: Send + 'static>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod sparse_tests;
