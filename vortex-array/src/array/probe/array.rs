@@ -295,6 +295,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -349,8 +350,8 @@ mod tests {
         let mut once = array.probe();
         let mut repeated = array.repeated_probe();
         for (index, value) in expected.into_iter().enumerate() {
-            assert_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(value));
-            assert_eq!(
+            assert_scalars_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(value));
+            assert_scalars_eq!(
                 repeated.execute_scalar(index, &mut ctx)?,
                 Scalar::from(value)
             );
@@ -377,8 +378,8 @@ mod tests {
             for (index, value) in expected.iter().enumerate().rev() {
                 assert_eq!(once.execute_is_valid(index, &mut ctx)?, value.is_some());
                 assert_eq!(repeated.execute_is_valid(index, &mut ctx)?, value.is_some());
-                assert_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(*value));
-                assert_eq!(
+                assert_scalars_eq!(once.execute_scalar(index, &mut ctx)?, Scalar::from(*value));
+                assert_scalars_eq!(
                     repeated.execute_scalar(index, &mut ctx)?,
                     Scalar::from(*value)
                 );

@@ -22,6 +22,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::scalar_impl::partial_cmp_tuple_values;
 
 /// A scalar value representing a struct with named fields.
 ///
@@ -61,43 +62,20 @@ impl Display for StructScalar<'_> {
 
 impl PartialEq for StructScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return false;
-        }
-
-        match (self.fields_iter(), other.fields_iter()) {
-            (Some(lhs), Some(rhs)) => lhs.zip(rhs).all(|(l_s, r_s)| l_s == r_s),
-            (None, None) => true,
-            (Some(_), None) | (None, Some(_)) => false,
-        }
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self.fields.is_some()
+            && self.fields == other.fields
     }
 }
 
-impl Eq for StructScalar<'_> {}
-
-/// Ord is not implemented since it's undefined for different field DTypes
+/// Orders two structs field by field, or returns `None` if either struct is null or the dtypes
+/// differ. Null fields order before non-null fields.
 impl PartialOrd for StructScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-
-        match (self.fields_iter(), other.fields_iter()) {
-            (Some(lhs), Some(rhs)) => {
-                for (l_s, r_s) in lhs.zip(rhs) {
-                    match l_s.partial_cmp(&r_s)? {
-                        Ordering::Equal => continue,
-                        Ordering::Less => return Some(Ordering::Less),
-                        Ordering::Greater => return Some(Ordering::Greater),
-                    }
-                }
-            }
-            (None, None) => return Some(Ordering::Equal),
-            (Some(_), None) => return Some(Ordering::Greater),
-            (None, Some(_)) => return Some(Ordering::Less),
-        }
-
-        Some(Ordering::Equal)
+        partial_cmp_tuple_values(self.dtype, self.fields?, other.fields?)
     }
 }
 

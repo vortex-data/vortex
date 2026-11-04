@@ -68,7 +68,7 @@ impl StatsRewriteRule for SpatialDistancePrune {
         // Casts any primitive radius (filters arrive uncoerced, so integer literals are
         // legitimate); a null or non-primitive (e.g. extension-typed) literal has no value to
         // reason about, decline and scan, never error.
-        let Ok(radius) = f64::try_from(radius) else {
+        let Ok(radius) = f64::try_from(radius.scalar()) else {
             return Ok(None);
         };
         // A NaN radius has no sound proof: `distance <op> NaN` is not a total order, so the chunk

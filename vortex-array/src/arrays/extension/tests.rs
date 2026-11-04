@@ -46,6 +46,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -151,7 +152,7 @@ fn test_valid_values_keep_the_extension_dtype(#[case] storage: Scalar) -> Vortex
     let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(scalar.dtype(), &DType::Extension(ext_dtype));
-    assert_eq!(array.execute_scalar(0, &mut ctx)?, scalar);
+    assert_scalars_eq!(array.execute_scalar(0, &mut ctx)?, scalar);
     assert_arrays_eq!(array, ConstantArray::new(scalar, 2), &mut ctx);
 
     Ok(())

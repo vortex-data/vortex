@@ -48,6 +48,7 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_contains::PreparedSetData;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -373,7 +374,10 @@ fn test_constant_needle_gives_a_constant(
         Some(value) => Scalar::bool(value, Nullability::Nullable),
         None => Scalar::null(DType::Bool(Nullability::Nullable)),
     };
-    assert_eq!(result.as_constant(), Some(&expected));
+    assert_scalars_eq!(
+        result.as_constant().expect("constant result"),
+        expected
+    );
     Ok(())
 }
 

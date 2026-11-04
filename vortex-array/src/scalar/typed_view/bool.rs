@@ -37,19 +37,20 @@ impl Display for BoolScalar<'_> {
 
 impl PartialEq for BoolScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self.value.is_some()
+            && self.value == other.value
     }
 }
 
+/// Orders two values, or returns `None` if either is null or the dtypes differ, matching
+/// [`Scalar`](crate::scalar::Scalar) comparison semantics.
 impl PartialOrd for BoolScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BoolScalar<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.value.cmp(&other.value)
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
+            return None;
+        }
+        Some(self.value.as_ref()?.cmp(other.value.as_ref()?))
     }
 }
 
@@ -244,11 +245,10 @@ mod test {
         let null_bool2 = null_scalar2.as_bool();
         let non_null_bool = non_null_scalar.as_bool();
 
-        // Two nulls are equal
-        assert_eq!(null_bool1, null_bool2);
-
-        // Null != non-null
+        // A null is equal to nothing, including another null.
+        assert_ne!(null_bool1, null_bool2);
         assert_ne!(null_bool1, non_null_bool);
+        assert_ne!(non_null_bool, null_bool1);
     }
 
     #[test]
@@ -292,8 +292,9 @@ mod test {
         assert_eq!(false_bool.partial_cmp(&true_bool), Some(Ordering::Less));
         assert_eq!(true_bool.partial_cmp(&false_bool), Some(Ordering::Greater));
         for present in [false_bool, true_bool] {
-            assert_eq!(null_bool.partial_cmp(&present), Some(Ordering::Less));
-            assert_eq!(present.partial_cmp(&null_bool), Some(Ordering::Greater));
+            // A null is unordered with every value.
+            assert_eq!(null_bool.partial_cmp(&present), None);
+            assert_eq!(present.partial_cmp(&null_bool), None);
         }
     }
 }

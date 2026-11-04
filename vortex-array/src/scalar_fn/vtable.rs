@@ -30,6 +30,7 @@ use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarKey;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -428,7 +429,7 @@ impl ReduceNode for ExpressionReduceNode<'_> {
     }
 
     fn as_constant(&self) -> Option<&Scalar> {
-        self.expression.as_opt::<Literal>()
+        self.expression.as_opt::<Literal>().map(ScalarKey::scalar)
     }
 
     fn new_constant(&self, value: Scalar) -> Self {

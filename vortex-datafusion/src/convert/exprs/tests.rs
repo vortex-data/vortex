@@ -623,7 +623,7 @@ fn test_expr_from_df_literal() -> DFResult<()> {
 fn convert_literal(expr: Arc<dyn PhysicalExpr>) -> anyhow::Result<Scalar> {
     convert(expr, &Schema::empty())?
         .as_opt::<Literal>()
-        .cloned()
+        .map(|literal| literal.scalar().clone())
         .ok_or_else(|| anyhow::anyhow!("Expected a literal expression"))
 }
 

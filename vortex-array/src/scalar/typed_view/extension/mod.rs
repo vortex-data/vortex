@@ -113,8 +113,6 @@ impl PartialEq for ExtScalar<'_> {
     }
 }
 
-impl Eq for ExtScalar<'_> {}
-
 // Ord is not implemented since it's undefined for different Extension DTypes
 impl PartialOrd for ExtScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

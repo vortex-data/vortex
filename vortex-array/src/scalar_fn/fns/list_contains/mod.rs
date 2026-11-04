@@ -857,12 +857,14 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarKey;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
     use crate::scalar_fn::fns::list_contains::PreparedSet;
     use crate::scalar_fn::fns::list_contains::PreparedSetData;
     use crate::scalar_fn::fns::literal::Literal;
     use crate::validity::Validity;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -1625,7 +1627,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let whole = result.clone().execute::<BoolArray>(&mut ctx)?.into_array();
         for row in 0..result.len() {
-            assert_eq!(
+            assert_scalars_eq!(
                 result.execute_scalar(row, &mut ctx)?,
                 whole.execute_scalar(row, &mut ctx)?,
                 "row {row}"
@@ -2005,7 +2007,7 @@ mod tests {
         let expr = list_contains_opts(lit(set.clone()), lit(needle.clone()), options)
             .bind(&DType::Primitive(I32, Nullability::Nullable))?
             .optimize()?;
-        assert_eq!(expr.as_opt::<Literal>(), Some(&expected));
+        assert_eq!(expr.as_opt::<Literal>(), Some(&ScalarKey::new(expected.clone())));
 
         let array = ListContains::try_new_opts(
             ConstantArray::new(set, 3).into_array(),
@@ -2014,7 +2016,10 @@ mod tests {
         )?
         .into_array()
         .optimize()?;
-        assert_eq!(array.as_constant(), Some(&expected));
+        assert_scalars_eq!(
+            array.as_constant().expect("constant result"),
+            expected
+        );
         Ok(())
     }
 
@@ -2084,7 +2089,10 @@ mod tests {
         let expr = list_contains(lit(null_list.clone()), root())
             .bind(&dtype)?
             .optimize()?;
-        assert_eq!(expr.child(0).as_opt::<Literal>(), Some(&null_list));
+        assert_eq!(
+            expr.child(0).as_opt::<Literal>(),
+            Some(&ScalarKey::new(null_list))
+        );
         Ok(())
     }
 }

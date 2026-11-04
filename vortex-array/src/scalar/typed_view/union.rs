@@ -89,11 +89,11 @@ impl Display for UnionScalar<'_> {
 
 impl PartialEq for UnionScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self.value.is_some()
+            && self.value == other.value
     }
 }
-
-impl Eq for UnionScalar<'_> {}
 
 impl<'a> UnionScalar<'a> {
     /// Attempts to create a union scalar view from a [`DType`] and optional [`ScalarValue`].

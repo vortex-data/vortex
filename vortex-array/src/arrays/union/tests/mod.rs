@@ -32,6 +32,7 @@ use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -179,7 +180,7 @@ fn outer_nulls_are_independent_from_inner_nulls() -> VortexResult<()> {
         array.execute_scalar(0, &mut ctx)?,
         Scalar::union(variants.clone(), 5, 10i32.into(), Nullability::Nullable)?
     );
-    assert_eq!(
+    assert_scalars_eq!(
         array.execute_scalar(1, &mut ctx)?,
         Scalar::null(DType::Union(variants.clone(), Nullability::Nullable))
     );
@@ -212,7 +213,7 @@ fn masking_adds_outer_nulls_only() -> VortexResult<()> {
         masked.validity()?.execute_mask(masked.len(), &mut ctx)?,
         Mask::from_iter([true, false, true])
     );
-    assert_eq!(
+    assert_scalars_eq!(
         masked.execute_scalar(1, &mut ctx)?,
         Scalar::null(DType::Union(variants()?, Nullability::Nullable))
     );
@@ -293,13 +294,13 @@ fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
             .iter_children()
             .find(|child| child.dtype() == &unselected_dtype)
             .ok_or_else(|| vortex_err!("No child with dtype {unselected_dtype}"))?;
-        assert_eq!(
+        assert_scalars_eq!(
             unselected.execute_scalar(0, &mut ctx)?,
             Scalar::default_value(&unselected_dtype)
         );
 
         for index in 0..canonical.len() {
-            assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
+            assert_scalars_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
         }
     }
 
@@ -348,7 +349,7 @@ fn serde_roundtrip() -> VortexResult<()> {
 
         assert_eq!(decoded.variants(), array.variants());
         for index in 0..len {
-            assert_eq!(
+            assert_scalars_eq!(
                 decoded.array().execute_scalar(index, &mut execution_ctx)?,
                 array.execute_scalar(index, &mut execution_ctx)?
             );

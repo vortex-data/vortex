@@ -18,6 +18,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -188,11 +189,11 @@ fn test_nullable_elements_and_nullable_lists() {
             .unwrap(),
         Some(10u16).into()
     );
-    assert_eq!(
+    assert_scalars_eq!(
         first_list
             .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
-        None::<u16>.into()
+        Scalar::from(None::<u16>)
     );
 
     // Second list is null (but elements would be [Some(20), Some(30)]).
@@ -217,17 +218,17 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // Check individual elements of the third list.
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
-    assert_eq!(
+    assert_scalars_eq!(
         third_list
             .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
-        None::<u16>.into()
+        Scalar::from(None::<u16>)
     );
-    assert_eq!(
+    assert_scalars_eq!(
         third_list
             .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
-        None::<u16>.into()
+        Scalar::from(None::<u16>)
     );
 }
 

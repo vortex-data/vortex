@@ -115,8 +115,8 @@ pub(super) fn short_circuit(
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
     }
 
-    // An all-null chunk is a null `ConstantArray`, and `Scalar` orders null below every value, so
-    // comparing it in a kernel would give false instead of null.
+    // An all-null chunk is a null `ConstantArray`, which a kernel comparing its scalar would turn
+    // into false instead of null.
     if arr.as_constant().is_some_and(|v| v.is_null()) {
         return Ok(Some(
             ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),

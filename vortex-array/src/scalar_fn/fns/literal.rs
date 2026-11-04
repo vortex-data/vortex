@@ -17,6 +17,7 @@ use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarKey;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -30,7 +31,7 @@ use crate::scalar_fn::ScalarFnVTable;
 pub struct Literal;
 
 impl ScalarFnVTable for Literal {
-    type Options = Scalar;
+    type Options = ScalarKey;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("vortex.literal");
@@ -40,7 +41,7 @@ impl ScalarFnVTable for Literal {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some(instance.into()),
+                value: Some(instance.scalar().into()),
             }
             .encode_to_vec(),
         ))
@@ -58,6 +59,7 @@ impl ScalarFnVTable for Literal {
                 .ok_or_else(|| vortex_err!("Literal metadata missing value"))?,
             session,
         )
+        .map(ScalarKey::from)
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -70,7 +72,7 @@ impl ScalarFnVTable for Literal {
 
     fn fmt_sql(
         &self,
-        scalar: &Scalar,
+        scalar: &ScalarKey,
         _expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
@@ -83,16 +85,16 @@ impl ScalarFnVTable for Literal {
 
     fn execute(
         &self,
-        scalar: &Scalar,
+        scalar: &ScalarKey,
         args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(scalar.clone(), args.row_count()).into_array())
+        Ok(ConstantArray::new(scalar.scalar().clone(), args.row_count()).into_array())
     }
 
     fn validity<T: ReduceNode>(
         &self,
-        scalar: &Scalar,
+        scalar: &ScalarKey,
         node: &T,
     ) -> VortexResult<ReduceNodeValidity<T>> {
         Ok(ReduceNodeValidity::Reduced(

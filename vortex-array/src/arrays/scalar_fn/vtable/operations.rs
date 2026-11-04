@@ -98,6 +98,7 @@ mod tests {
     use crate::scalar_fn::fns::literal::Literal;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
+    use crate::scalar::ScalarKey;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -210,7 +211,7 @@ mod tests {
 
     #[test]
     fn rejects_literal() {
-        let scalar_fn = TypedScalarFnInstance::new(Literal, Scalar::from(1i32)).erased();
+        let scalar_fn = TypedScalarFnInstance::new(Literal, ScalarKey::from(Scalar::from(1i32))).erased();
 
         let Err(err) = ScalarFnArray::try_new_with_len(scalar_fn.clone(), vec![], 3) else {
             panic!("ScalarFnArray::try_new_with_len must reject a literal");

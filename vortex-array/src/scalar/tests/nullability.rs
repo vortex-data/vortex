@@ -18,6 +18,8 @@ mod tests {
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::assert_scalars_eq;
+    use crate::scalar::ScalarKey;
 
     #[rstest]
     fn null_can_cast_to_anything_nullable(
@@ -114,12 +116,19 @@ mod tests {
         let casted = list_with_null.cast(&target_u8_nullable).unwrap();
         assert_eq!(casted.dtype(), &target_u8_nullable);
         assert_eq!(
-            casted.as_list().elements().unwrap(),
-            vec![
+            casted
+                .as_list()
+                .elements()
+                .unwrap()
+                .into_iter()
+                .map(ScalarKey::new)
+                .collect::<Vec<_>>(),
+            [
                 Scalar::from(Some(6u8)),
                 Scalar::from(None::<u8>),
                 Scalar::from(Some(10u8))
             ]
+            .map(ScalarKey::new)
         );
 
         // Cast to non-nullable U16 elements should fail because we have null elements.
@@ -635,7 +644,7 @@ mod tests {
             Nullability::Nullable,
         ));
 
-        assert_eq!(null_list1, null_list2);
+        assert_scalars_eq!(null_list1, null_list2);
 
         // Different sizes should still be equal if both null.
         let null_list3 = Scalar::null(DType::FixedSizeList(

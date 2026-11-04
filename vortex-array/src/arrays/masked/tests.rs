@@ -22,6 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -37,11 +38,11 @@ fn test_repeated_probe_preserves_masked_nulls() -> VortexResult<()> {
     let expected = [Some(1i32), None, Some(3)];
     let mut probe = array.repeated_probe();
     for index in [1, 2, 0, 1] {
-        assert_eq!(
+        assert_scalars_eq!(
             probe.execute_scalar(index, &mut ctx)?,
             Scalar::from(expected[index])
         );
-        assert_eq!(
+        assert_scalars_eq!(
             array.execute_scalar(index, &mut ctx)?,
             Scalar::from(expected[index])
         );

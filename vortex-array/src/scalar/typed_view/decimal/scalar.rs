@@ -187,11 +187,11 @@ impl<'a> DecimalScalar<'a> {
 
 impl PartialEq for DecimalScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.decimal_value == other.decimal_value
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self.decimal_value.is_some()
+            && self.decimal_value == other.decimal_value
     }
 }
-
-impl Eq for DecimalScalar<'_> {}
 
 /// Ord is not implemented since it's undefined for different PTypes
 impl PartialOrd for DecimalScalar<'_> {
@@ -199,7 +199,7 @@ impl PartialOrd for DecimalScalar<'_> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.decimal_value.partial_cmp(&other.decimal_value)
+        self.decimal_value?.partial_cmp(&other.decimal_value?)
     }
 }
 

@@ -62,6 +62,7 @@ use vortex::extension::datetime::Timestamp;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
+use vortex::scalar::ScalarKey;
 use vortex::scalar::ScalarValue;
 use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
@@ -830,6 +831,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalUuid(
 unsafe fn literal_scalar<'a>(ptr: jlong, role: &str) -> Result<&'a Scalar, JNIError> {
     let expr = unsafe { expr_ref(ptr) };
     expr.as_opt::<Literal>()
+        .map(ScalarKey::scalar)
         .ok_or_else(|| vortex_err!("{role} must be a literal expression, got {expr}").into())
 }
 

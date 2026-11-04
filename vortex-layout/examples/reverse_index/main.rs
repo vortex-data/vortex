@@ -45,6 +45,7 @@ use vortex_array::expr::lit;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarKey;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -194,7 +195,7 @@ impl IndexVTable for ReverseIndex {
             // does not model that, so decline rather than claim it incorrectly.
             return Ok(None);
         }
-        let target = target.clone();
+        let target = target.scalar().clone();
 
         Ok(Some(IndexQueryPlan {
             exactness: IndexExactness::Exact,
@@ -287,7 +288,7 @@ pub struct Builder {
     dtype: DType,
     /// Deduplicated by scalar equality; sorted into key order in `finish`, which is what gives
     /// the key column a useful zone map.
-    postings: HashMap<Scalar, RoaringBitmap>,
+    postings: HashMap<ScalarKey, RoaringBitmap>,
     allocator: BufferAllocatorRef,
 }
 
@@ -307,7 +308,7 @@ impl IndexBuilder for Builder {
                 continue;
             }
             self.postings
-                .entry(value)
+                .entry(ScalarKey::new(value))
                 .or_default()
                 .insert(u32::try_from(row_offset + idx as u64)?);
         }
@@ -321,9 +322,10 @@ impl IndexBuilder for Builder {
             allocator,
         } = self;
 
-        let mut entries: Vec<(Scalar, RoaringBitmap)> = postings.into_iter().collect();
+        let mut entries: Vec<(ScalarKey, RoaringBitmap)> = postings.into_iter().collect();
         entries.sort_by(|(a, _), (b, _)| {
-            a.partial_cmp(b)
+            a.scalar()
+                .partial_cmp(b.scalar())
                 .vortex_expect("keys were all decoded from the same column, so they share a dtype")
         });
 

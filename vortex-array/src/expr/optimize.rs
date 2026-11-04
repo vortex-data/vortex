@@ -208,7 +208,7 @@ mod tests {
             .child(1)
             .as_opt::<Literal>()
             .ok_or_else(|| vortex_err!("expected a bare literal RHS, got {optimized}"))?;
-        assert_eq!(rhs, &Scalar::primitive(3.0f64, Nullability::NonNullable));
+        assert_eq!(rhs.scalar(), &Scalar::primitive(3.0f64, Nullability::NonNullable));
         Ok(())
     }
 

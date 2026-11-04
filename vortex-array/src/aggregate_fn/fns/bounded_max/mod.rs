@@ -391,6 +391,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -434,7 +435,7 @@ mod tests {
 
         acc.accumulate(&array, &mut ctx)?;
 
-        assert_eq!(acc.finish()?, Scalar::null(array.dtype().as_nullable()));
+        assert_scalars_eq!(acc.finish()?, Scalar::null(array.dtype().as_nullable()));
         Ok(())
     }
 
@@ -477,7 +478,7 @@ mod tests {
         acc.accumulate(&unknown, &mut ctx)?;
         acc.accumulate(&values, &mut ctx)?;
 
-        assert_eq!(acc.finish()?, Scalar::null(unknown.dtype().as_nullable()));
+        assert_scalars_eq!(acc.finish()?, Scalar::null(unknown.dtype().as_nullable()));
         Ok(())
     }
 
@@ -521,7 +522,7 @@ mod tests {
             state: BoundedMaxState::Unknown,
         })?;
 
-        assert_eq!(acc.finish()?, Scalar::null(values.dtype().as_nullable()));
+        assert_scalars_eq!(acc.finish()?, Scalar::null(values.dtype().as_nullable()));
         Ok(())
     }
 

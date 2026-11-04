@@ -268,6 +268,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -295,7 +296,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Min, NumericalAggregateOpts::default(), dtype)?;
 
-        assert_eq!(
+        assert_scalars_eq!(
             acc.finish()?,
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );

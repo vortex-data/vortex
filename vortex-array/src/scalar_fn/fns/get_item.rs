@@ -290,6 +290,7 @@ mod tests {
     use crate::scalar_fn::fns::select::FieldSelection;
     use crate::scalar_fn::fns::select::Select;
     use crate::validity::Validity;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -481,7 +482,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::Nullable)
         };
 
-        assert_eq!(item.as_::<Constant>().scalar(), &expected);
+        assert_scalars_eq!(item.as_::<Constant>().scalar(), &expected);
         assert_eq!(item.len(), len);
         Ok(())
     }

@@ -44,6 +44,7 @@ use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::session::ArraySessionExt;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -278,7 +279,7 @@ fn scalar_access_preserves_variable_entry_counts_and_utf8_pairs() -> VortexResul
     assert_eq!(array.entry_count_at(2, &mut ctx), 0);
     assert_eq!(array.entry_count_at(3, &mut ctx), 3);
     for (index, expected) in expected.into_iter().enumerate() {
-        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected);
+        assert_scalars_eq!(array.execute_scalar(index, &mut ctx)?, expected);
     }
 
     Ok(())
@@ -666,7 +667,7 @@ fn builder_appends_existing_map_arrays() -> VortexResult<()> {
         Scalar::null(source.dtype().clone()),
     ];
     for index in 0..6 {
-        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected[index % 3]);
+        assert_scalars_eq!(array.execute_scalar(index, &mut ctx)?, expected[index % 3]);
     }
     assert_eq!(
         array.execute_scalar(0, &mut ctx)?,
@@ -714,7 +715,7 @@ fn canonicalizes_empty_constant_and_chunked_maps() -> VortexResult<()> {
         Scalar::null(dtype),
     ];
     for index in 0..6 {
-        assert_eq!(
+        assert_scalars_eq!(
             canonical.as_map().execute_scalar(index, &mut ctx)?,
             expected[index % 3]
         );
@@ -747,7 +748,7 @@ fn serde_roundtrip_uses_registered_map_vtable() -> VortexResult<()> {
 
     let mut ctx = session.create_execution_ctx();
     for index in 0..len {
-        assert_eq!(
+        assert_scalars_eq!(
             decoded.execute_scalar(index, &mut ctx)?,
             array.execute_scalar(index, &mut ctx)?
         );

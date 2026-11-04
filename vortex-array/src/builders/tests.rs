@@ -63,6 +63,7 @@ use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -414,8 +415,8 @@ fn compare_to_canonical_methods<F>(
     for i in 0..array_direct.len() {
         let scalar_direct = array_direct.execute_scalar(i, ctx).unwrap();
         let scalar_indirect = array_indirect.execute_scalar(i, ctx).unwrap();
-        assert_eq!(scalar_direct, expected[i]);
-        assert_eq!(scalar_indirect, expected[i]);
+        assert_scalars_eq!(scalar_direct, expected[i]);
+        assert_scalars_eq!(scalar_indirect, expected[i]);
     }
 }
 
@@ -882,7 +883,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
 /// Helper function to compare scalars, handling special cases like lists.
 fn assert_scalars_equal(actual: &Scalar, expected: &Scalar, dtype: &DType, index: usize) {
     assert_eq!(actual.dtype(), dtype);
-    assert_eq!(
+    assert_scalars_eq!(
         actual, expected,
         "Scalar mismatch at index {index} for dtype {dtype:?}"
     );
@@ -1235,7 +1236,7 @@ fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
     assert_eq!(built.dtype(), array.dtype());
     assert_eq!(built.len(), 2 * array.len());
     for index in 0..built.len() {
-        assert_eq!(
+        assert_scalars_eq!(
             built.execute_scalar(index, &mut ctx)?,
             array.execute_scalar(index % array.len(), &mut ctx)?
         );
@@ -1405,14 +1406,14 @@ fn test_validity_survives_chunked_children(
 
     assert_eq!(built.dtype(), array.dtype());
     assert_eq!(built.len(), 2 * array.len() + 1);
-    assert_eq!(
+    assert_scalars_eq!(
         built.execute_scalar(array.len(), &mut ctx)?,
         Scalar::null(array.dtype().clone())
     );
     for index in 0..array.len() {
         let expected = array.execute_scalar(index, &mut ctx)?;
-        assert_eq!(built.execute_scalar(index, &mut ctx)?, expected);
-        assert_eq!(
+        assert_scalars_eq!(built.execute_scalar(index, &mut ctx)?, expected);
+        assert_scalars_eq!(
             built.execute_scalar(array.len() + 1 + index, &mut ctx)?,
             expected
         );

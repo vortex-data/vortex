@@ -24,7 +24,10 @@ pub(super) fn check_variant_identical(
         return Ok(false);
     }
     for idx in 0..lhs.len() {
-        if lhs.execute_scalar(idx, ctx)? != rhs.execute_scalar(idx, ctx)? {
+        if !lhs
+            .execute_scalar(idx, ctx)?
+            .eq_nulls_equal(&rhs.execute_scalar(idx, ctx)?)
+        {
             return Ok(false);
         }
     }

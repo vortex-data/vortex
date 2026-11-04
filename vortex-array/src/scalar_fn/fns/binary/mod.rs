@@ -212,7 +212,7 @@ impl ScalarFnVTable for Binary {
         let rhs = expr.child(1);
 
         let is_literal_null =
-            |expr: &BoundExpression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
+            |expr: &BoundExpression| expr.as_opt::<Literal>().is_some_and(|value| value.is_null());
 
         // Binding already rejected ill-typed comparisons such as `int_col = null_utf8`, so a
         // comparison against a null literal always evaluates to null.

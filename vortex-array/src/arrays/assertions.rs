@@ -11,6 +11,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+use crate::scalar::Scalar;
 
 fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
     indices.into_iter().format(",")
@@ -34,7 +35,12 @@ fn find_mismatched_indices(
 ) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
     (0..left.len())
-        .filter(|i| left.execute_scalar(*i, ctx).unwrap() != right.execute_scalar(*i, ctx).unwrap())
+        .filter(|i| {
+            !left
+                .execute_scalar(*i, ctx)
+                .unwrap()
+                .eq_nulls_equal(&right.execute_scalar(*i, ctx).unwrap())
+        })
         .collect()
 }
 
@@ -53,9 +59,63 @@ macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr, $ctx:expr) => {{
         use $crate::IntoArray as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
-        let expected = $expected.try_into().unwrap();
-        assert_eq!(arr_ref.execute_scalar($n, $ctx).unwrap(), expected);
+        let expected: $crate::scalar::Scalar = $expected.try_into().unwrap();
+        $crate::assert_scalars_eq!(arr_ref.execute_scalar($n, $ctx).unwrap(), expected);
     }};
+}
+
+/// Asserts that two scalars are the same value, treating two nulls of the same dtype as equal.
+///
+/// [`Scalar`](crate::scalar::Scalar)'s `==` follows comparison semantics and is `false` when
+/// either side is null, so `assert_eq!` cannot check that a computation returned a null. This
+/// macro compares with [`Scalar::eq_nulls_equal`](crate::scalar::Scalar::eq_nulls_equal)
+/// instead. Each operand may be a `Scalar` or a `&Scalar`.
+///
+/// # Example
+///
+/// ```
+/// use vortex_array::assert_scalars_eq;
+/// use vortex_array::dtype::DType;
+/// use vortex_array::dtype::Nullability;
+/// use vortex_array::dtype::PType;
+/// use vortex_array::scalar::Scalar;
+///
+/// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+/// assert_scalars_eq!(null, null.clone());
+/// assert_scalars_eq!(&null, null, "nulls of the same dtype are the same value");
+/// ```
+#[macro_export]
+macro_rules! assert_scalars_eq {
+    ($left:expr, $right:expr $(,)?) => {
+        $crate::arrays::assert_scalars_eq_impl(&$left, &$right, ::core::option::Option::None)
+    };
+    ($left:expr, $right:expr, $($arg:tt)+) => {
+        $crate::arrays::assert_scalars_eq_impl(
+            &$left,
+            &$right,
+            ::core::option::Option::Some(::core::format_args!($($arg)+)),
+        )
+    };
+}
+
+/// Implementation of [`assert_scalars_eq!`].
+#[doc(hidden)]
+#[track_caller]
+#[expect(clippy::panic)]
+pub fn assert_scalars_eq_impl<L, R>(left: &L, right: &R, message: Option<std::fmt::Arguments<'_>>)
+where
+    L: std::borrow::Borrow<Scalar> + ?Sized,
+    R: std::borrow::Borrow<Scalar> + ?Sized,
+{
+    let (left, right) = (left.borrow(), right.borrow());
+    if !left.eq_nulls_equal(right) {
+        match message {
+            Some(message) => panic!(
+                "assertion `left == right` failed: {message}\n  left: {left:?}\n right: {right:?}"
+            ),
+            None => panic!("assertion `left == right` failed\n  left: {left:?}\n right: {right:?}"),
+        }
+    }
 }
 
 /// Asserts that the scalar at position `$n` in array `$arr` is null.

@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -47,6 +46,7 @@ use crate::match_smallest_list_offset_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
+use super::uniform_value;
 use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
@@ -478,9 +478,9 @@ fn tile_fixed_size_list_elements(
         return Canonical::empty(element_dtype).into_array();
     }
 
-    match values.iter().all_equal_value() {
-        Ok(uniform) => ConstantArray::new(uniform.clone(), elements_len).into_array(),
-        Err(_) => {
+    match uniform_value(values) {
+        Some(uniform) => ConstantArray::new(uniform.clone(), elements_len).into_array(),
+        None => {
             let mut elements_builder =
                 builder_with_capacity_in(element_dtype, values.len(), allocator);
             for value in values {
@@ -552,6 +552,7 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+    use crate::assert_scalars_eq;
 
     /// A shared session for these constant-array tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -566,7 +567,7 @@ mod tests {
             .execute::<NullArray>(&mut ctx)
             .unwrap();
         assert_eq!(actual.len(), 42);
-        assert_eq!(
+        assert_scalars_eq!(
             actual.execute_scalar(33, &mut ctx).unwrap(),
             Scalar::null(DType::Null)
         );
@@ -704,7 +705,7 @@ mod tests {
         assert_eq!(canonical_const.dtype(), list_scalar.dtype());
         assert_eq!(canonical_const.len(), 2);
         for index in 0..2 {
-            assert_eq!(
+            assert_scalars_eq!(
                 canonical_const.execute_scalar(index, &mut ctx).unwrap(),
                 list_scalar
             );
@@ -952,7 +953,7 @@ mod tests {
             elements.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::from(100i32)
         );
-        assert_eq!(
+        assert_scalars_eq!(
             elements.execute_scalar(1, &mut ctx).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );

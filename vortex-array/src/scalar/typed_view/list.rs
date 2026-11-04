@@ -18,6 +18,7 @@ use vortex_error::vortex_panic;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::scalar_impl::partial_cmp_tuple_values;
 
 /// A scalar value representing a list or fixed-size list (array) of elements.
 ///
@@ -69,22 +70,20 @@ impl Display for ListScalar<'_> {
 
 impl PartialEq for ListScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.elements() == other.elements()
+        self.dtype.eq_ignore_nullability(other.dtype)
+            && self.elements.is_some()
+            && self.elements == other.elements
     }
 }
 
-impl Eq for ListScalar<'_> {}
-
-/// Ord is not implemented since it's undefined for different element DTypes
+/// Orders two lists element by element and then by length, or returns `None` if either list is
+/// null or the dtypes differ. Null elements order before non-null elements.
 impl PartialOrd for ListScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self
-            .element_dtype
-            .eq_ignore_nullability(other.element_dtype)
-        {
+        if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.elements().partial_cmp(&other.elements())
+        partial_cmp_tuple_values(self.dtype, self.elements?, other.elements?)
     }
 }
 

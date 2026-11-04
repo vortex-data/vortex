@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -81,7 +82,7 @@ fn test_cast_identity(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify values are unchanged
     for i in 0..array.len().min(10) {
-        assert_eq!(
+        assert_scalars_eq!(
             array
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -147,7 +148,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         assert_eq!(non_nullable.len(), array.len());
 
         for i in 0..array.len().min(10) {
-            assert_eq!(
+            assert_scalars_eq!(
                 array
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -163,7 +164,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         assert_eq!(back_to_nullable.len(), array.len());
 
         for i in 0..array.len().min(10) {
-            assert_eq!(
+            assert_scalars_eq!(
                 array
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -195,7 +196,7 @@ fn test_cast_to_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     assert_eq!(nullable.len(), array.len());
 
     for i in 0..array.len().min(10) {
-        assert_eq!(
+        assert_scalars_eq!(
             array
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -211,7 +212,7 @@ fn test_cast_to_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     assert_eq!(back.len(), array.len());
 
     for i in 0..array.len().min(10) {
-        assert_eq!(
+        assert_scalars_eq!(
             array
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -320,7 +321,7 @@ fn test_cast_to_primitive(
         let casted = casted
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_eq!(
+        assert_scalars_eq!(
             original
                 .cast(&target_dtype)
                 .vortex_expect("cast should succeed in conformance test"),
@@ -328,7 +329,7 @@ fn test_cast_to_primitive(
             "{i} {original} {casted}"
         );
         if test_round_trip {
-            assert_eq!(
+            assert_scalars_eq!(
                 original,
                 casted
                     .cast(original.dtype())

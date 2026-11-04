@@ -17,6 +17,7 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::ScalarKey;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 struct TestI32Ext;
@@ -163,8 +164,8 @@ fn test_ext_scalar_hash() {
     );
 
     let mut set = HashSet::new();
-    set.insert(scalar2);
-    set.insert(scalar1);
+    set.insert(ScalarKey::new(scalar2));
+    set.insert(ScalarKey::new(scalar1));
 
     // Same value should hash the same
     assert_eq!(set.len(), 1);
@@ -174,7 +175,7 @@ fn test_ext_scalar_hash() {
         EmptyMetadata,
         Scalar::primitive(43i32, Nullability::NonNullable),
     );
-    set.insert(scalar3);
+    set.insert(ScalarKey::new(scalar3));
     assert_eq!(set.len(), 2);
 }
 

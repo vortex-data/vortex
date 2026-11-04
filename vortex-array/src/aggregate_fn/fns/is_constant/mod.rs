@@ -243,7 +243,7 @@ impl IsConstantPartial {
                 self.first_value = Some(value);
             }
             Some(first) => {
-                if *first != value {
+                if !first.eq_nulls_equal(&value) {
                     self.is_constant = false;
                 }
             }

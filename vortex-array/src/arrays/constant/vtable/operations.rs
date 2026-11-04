@@ -45,6 +45,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
     use crate::scalar::Scalar;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -77,7 +78,7 @@ mod tests {
 
         let actual = array.execute_scalar(1, &mut ctx)?;
         assert_eq!(actual.dtype(), null.dtype());
-        assert_eq!(actual, null);
+        assert_scalars_eq!(actual, null);
 
         Ok(())
     }

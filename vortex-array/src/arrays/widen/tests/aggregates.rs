@@ -60,6 +60,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::assert_scalars_eq;
 
 /// Every aggregate that applies to integers, and whether the `Widen` aggregate kernel serves it.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {
@@ -144,20 +145,20 @@ pub(super) fn assert_aggregate_batches<T: Debug, C: IntoArray>(
             if let Some(partial) = partial {
                 let mut reference = aggregate.accumulator(dtype)?;
                 reference.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
-                assert_eq!(partial, reference.flush()?, "{aggregate} on {values:?}");
+                assert_scalars_eq!(partial, reference.flush()?, "{aggregate} on {values:?}");
             }
         }
 
         actual.accumulate(&encoded, ctx)?;
         expected.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
-        assert_eq!(
+        assert_scalars_eq!(
             actual.partial_scalar()?,
             expected.partial_scalar()?,
             "{aggregate} after {values:?}"
         );
     }
 
-    assert_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
+    assert_scalars_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
 
     Ok(())
 }

@@ -35,6 +35,7 @@ use num_traits::Signed;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
+use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -340,7 +341,7 @@ fn assert_decimal_results(
         let expected_value = expected
             .as_ref()
             .vortex_expect("non-overflowing decimal lane must have an expected value");
-        assert_eq!(
+        assert_scalars_eq!(
             actual,
             expected_value,
             "Decimal binary numeric operation failed for encoding {} at index {}: \
@@ -510,7 +511,7 @@ fn test_binary_numeric_with_scalar<T>(
             for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate()
             {
                 if let Some(expected) = expected {
-                    assert_eq!(
+                    assert_scalars_eq!(
                         actual,
                         expected,
                         "Binary numeric operation failed for encoding {} at index {idx}: \

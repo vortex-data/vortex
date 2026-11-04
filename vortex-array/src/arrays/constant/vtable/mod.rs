@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -71,7 +70,7 @@ impl ArrayHash for ConstantData {
 
 impl ArrayEq for ConstantData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        self.scalar == other.scalar
+        self.scalar.eq_nulls_equal(&other.scalar)
     }
 }
 
@@ -308,6 +307,15 @@ fn append_constant_list_run(
     }
 }
 
+/// Returns the value every scalar in `values` holds, treating nulls as equal, or `None` if they
+/// differ or `values` is empty.
+fn uniform_value(values: &[Scalar]) -> Option<&Scalar> {
+    let (first, rest) = values.split_first()?;
+    rest.iter()
+        .all(|value| value.eq_nulls_equal(first))
+        .then_some(first)
+}
+
 /// Appends the list `scalar` to a [`ListViewBuilder`] `n` times, storing its elements once.
 fn append_repeated_list_run<O: OffsetBuilderPType, S: OffsetBuilderPType>(
     builder: &mut ListViewBuilder<O, S>,
@@ -360,9 +368,9 @@ fn append_constant_fixed_size_list_run(
         return Ok(());
     };
 
-    let tile = match elements.iter().all_equal_value() {
-        Ok(uniform) => ConstantArray::new(uniform.clone(), elements.len()).into_array(),
-        Err(_) => {
+    let tile = match uniform_value(&elements) {
+        Some(uniform) => ConstantArray::new(uniform.clone(), elements.len()).into_array(),
+        None => {
             let mut tile_builder =
                 builder_with_capacity_in(builder.element_dtype(), elements.len(), ctx.allocator());
             for element in &elements {
@@ -448,6 +456,7 @@ mod tests {
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
+    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -460,7 +469,7 @@ mod tests {
         assert_eq!(array.dtype(), scalar.dtype());
         assert_eq!(array.len(), len);
         for index in 0..len {
-            assert_eq!(&array.execute_scalar(index, ctx)?, scalar);
+            assert_scalars_eq!(&array.execute_scalar(index, ctx)?, scalar);
         }
         Ok(())
     }

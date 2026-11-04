@@ -1415,6 +1415,7 @@ mod tests {
     use crate::builders::VarBinViewBuilder;
     use crate::builders::varbinview::VarBinViewArray;
     use crate::dtype::DType;
+    use crate::assert_scalars_eq;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
@@ -1889,7 +1890,7 @@ mod tests {
                 || Scalar::null(DType::Utf8(Nullability::Nullable)),
                 |value| Scalar::utf8(value, Nullability::Nullable),
             );
-            assert_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
+            assert_scalars_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
         }
         assert_arrays_eq!(actual, expected, &mut ctx);
     }
@@ -1943,7 +1944,7 @@ mod tests {
                 || Scalar::null(DType::Utf8(Nullability::Nullable)),
                 |value| Scalar::utf8(value, Nullability::Nullable),
             );
-            assert_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
+            assert_scalars_eq!(actual.execute_scalar(index, &mut ctx).unwrap(), expected);
         }
         assert_arrays_eq!(actual, expected.into_array(), &mut ctx);
     }

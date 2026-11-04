@@ -364,7 +364,7 @@ impl MutTypedStatsSetRef<'_, '_> {
 
     fn combine_bound<S: StatType<Scalar>>(&mut self, other: &TypedStatsSetRef) -> VortexResult<()>
     where
-        S::Bound: StatBound<Scalar> + Debug + Eq + PartialEq,
+        S::Bound: StatBound<Scalar> + Debug + PartialEq,
     {
         match (self.get_scalar_bound::<S>(), other.get_scalar_bound::<S>()) {
             (Some(m1), Some(m2)) => {

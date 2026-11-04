@@ -45,7 +45,8 @@ impl IndexOrd<Scalar> for SearchSortedArray<'_> {
             .probe
             .borrow_mut()
             .execute_scalar(idx, &mut self.ctx.borrow_mut())?;
-        Ok(scalar.partial_cmp(elem))
+        // Sorted arrays place nulls first, so search with the nulls-first order.
+        Ok(scalar.cmp_nulls_first(elem))
     }
 
     fn index_len(&self) -> usize {
