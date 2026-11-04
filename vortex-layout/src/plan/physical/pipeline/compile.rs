@@ -153,6 +153,7 @@ impl Compiler<'_> {
             scan.clone(),
             slice,
             filter,
+            self.core.decoded.clone(),
         ))))
     }
 }

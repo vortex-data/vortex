@@ -203,6 +203,11 @@ impl RowClaim {
         &self.rows
     }
 
+    /// The liveness this claim reports to.
+    pub fn liveness(&self) -> &Liveness {
+        &self.liveness
+    }
+
     /// Releases every row outside `rows`, which must lie within the claim.
     ///
     /// # Panics

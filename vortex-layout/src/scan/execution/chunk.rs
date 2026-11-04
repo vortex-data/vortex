@@ -136,4 +136,14 @@ impl Planner for ChunkPlanner {
         }
         Ok(PlannerOutput::Done)
     }
+
+    /// The chunks not planned yet: an emitted chunk claims its own rows.
+    fn remaining_rows(&self) -> Option<Range<u64>> {
+        let start = self
+            .chunks
+            .as_slice()
+            .first()
+            .map_or(self.rows.end, |chunk| chunk.start);
+        Some(start.max(self.rows.start)..self.rows.end)
+    }
 }

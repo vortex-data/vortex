@@ -6,8 +6,10 @@
 
 use std::collections::VecDeque;
 use std::ops::Range;
+use std::sync::Arc;
 
 use rstest::rstest;
+use rustc_hash::FxHashMap;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -38,6 +40,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::Liveness;
 use vortex_session::registry::ReadContext;
 
 use super::port::SourceEnd;
@@ -1011,5 +1014,38 @@ fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
         PrimitiveArray::from_iter([118, 101]).into_array(),
         &mut SESSION.create_execution_ctx()
     );
+    Ok(())
+}
+
+/// Scans sharing decoded segments read and decode a segment once while live work claims the
+/// rows it serves, and read it again once that work has finished.
+#[test]
+fn decoded_segments_are_shared_while_their_rows_are_claimed() -> VortexResult<()> {
+    let mut store = Store::default();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = store.chunked(&a, &[7, 13])?.new_plan()?;
+    let liveness = Liveness::new();
+    let segment_rows: SegmentRows = Arc::new(
+        [(SegmentId::from(0), 0..7), (SegmentId::from(1), 7..ROWS)]
+            .into_iter()
+            .collect::<FxHashMap<_, _>>(),
+    );
+    let decoded = DecodedSegments::new(liveness.clone(), segment_rows);
+    let scan = |rows: Range<u64>| -> VortexResult<Run> {
+        let mask = Mask::new_true((rows.end - rows.start) as usize);
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?
+            .with_decoded_segments(decoded.clone());
+        drive(&store, scan, delivery(Delivery::Fifo))
+    };
+
+    let claim = liveness.claim(0..ROWS);
+    assert_eq!(segments_read(&scan(0..ROWS)?.events), [0, 1]);
+    let rows = 3..17;
+    let again = scan(rows.clone())?;
+    assert_eq!(reads(&again.events), 0);
+    assert_view(&a, &rows, &Mask::new_true(14), again.arrays)?;
+
+    drop(claim);
+    assert_eq!(segments_read(&scan(rows)?.events), [0, 1]);
     Ok(())
 }
