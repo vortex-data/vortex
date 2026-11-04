@@ -12,6 +12,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -50,20 +51,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 // [(string_count, avg_len, unique_chars)]
-const BENCH_ARGS: &[(usize, usize, u8)] = &[
-    (200, 4, 4),
-    (200, 4, 8),
-    (200, 16, 4),
-    (200, 16, 8),
-    (200, 64, 4),
-    (200, 64, 8),
-    (500, 4, 4),
-    (500, 4, 8),
-    (500, 16, 4),
-    (500, 16, 8),
-    (500, 64, 4),
-    (500, 64, 8),
-];
+const BENCH_ARGS: &[(usize, usize, u8)] = if cfg!(codspeed) {
+    &[(500, 4, 4), (500, 16, 4), (500, 64, 4), (500, 64, 8)]
+} else {
+    &[
+        (200, 4, 4),
+        (200, 4, 8),
+        (200, 16, 4),
+        (200, 16, 8),
+        (200, 64, 4),
+        (200, 64, 8),
+        (500, 4, 4),
+        (500, 4, 8),
+        (500, 16, 4),
+        (500, 16, 8),
+        (500, 64, 4),
+        (500, 64, 8),
+    ]
+};
 
 #[divan::bench(args = BENCH_ARGS)]
 fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
@@ -97,7 +102,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
-    let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
+    let constant = ConstantArray::new(needle(&array, &mut ctx), len);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -123,7 +128,7 @@ fn canonicalize_compare(
     let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
         .unwrap()
         .into_array();
-    let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
+    let constant = ConstantArray::new(needle(&array, &mut ctx), len);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
@@ -141,17 +146,21 @@ fn canonicalize_compare(
 }
 
 // [(chunk_size, string_count, avg_len, unique_chars)]
-const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = &[
-    (20, 100, 16, 4),
-    (20, 100, 16, 16),
-    (20, 100, 16, 64),
-    (20, 50, 8, 4),
-    (20, 50, 8, 16),
-    (20, 50, 8, 64),
-    (10, 150, 4, 4),
-    (10, 150, 16, 4),
-    (10, 150, 64, 4),
-];
+const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = if cfg!(codspeed) {
+    &[(20, 100, 16, 4), (20, 50, 8, 4), (10, 150, 64, 4)]
+} else {
+    &[
+        (20, 100, 16, 4),
+        (20, 100, 16, 16),
+        (20, 100, 16, 64),
+        (20, 50, 8, 4),
+        (20, 50, 8, 16),
+        (20, 50, 8, 64),
+        (10, 150, 4, 4),
+        (10, 150, 16, 4),
+        (10, 150, 64, 4),
+    ]
+};
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
 fn chunked_canonicalize_into(
@@ -183,6 +192,10 @@ fn chunked_into_canonical(
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| array.clone().execute::<Canonical>(ctx));
+}
+
+fn needle(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Scalar {
+    array.execute_scalar(0, ctx).unwrap()
 }
 
 /// Helper function to generate random string data.

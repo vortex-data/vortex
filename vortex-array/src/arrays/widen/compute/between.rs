@@ -9,7 +9,7 @@ use crate::arrays::Constant;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::constant_fits_values;
-use crate::arrays::widen::compute::constant_in_values_ptype;
+use crate::arrays::widen::compute::constant_in_values_dtype;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
@@ -28,8 +28,8 @@ impl BetweenReduce for Widen {
             && constant_fits_values(lower, values.dtype()) == Some(true)
             && constant_fits_values(upper, values.dtype()) == Some(true)
         {
-            let lower = constant_in_values_ptype(lower, values, array.len())?;
-            let upper = constant_in_values_ptype(upper, values, array.len())?;
+            let lower = constant_in_values_dtype(lower, values, array.len())?;
+            let upper = constant_in_values_dtype(upper, values, array.len())?;
             return values
                 .clone()
                 .between(lower, upper, options.clone())

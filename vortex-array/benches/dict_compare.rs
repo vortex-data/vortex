@@ -42,12 +42,20 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<MemorySession>()
 });
 
-const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
-    // length, unique_values
-    (50_000, 2),
-    (50_000, 64),
-    (50_000, 2048),
-];
+const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        // length, unique_values
+        (50_000, 2),
+        (50_000, 2048),
+    ]
+} else {
+    &[
+        // length, unique_values
+        (50_000, 2),
+        (50_000, 64),
+        (50_000, 2048),
+    ]
+};
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
@@ -108,17 +116,27 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
         })
 }
 
-const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = &[
-    (1_000, 10_000),
-    (2_000, 10_000),
-    (2_500, 10_000),
-    (3_333, 10_000),
-    (5_000, 10_000),
-    (7_500, 10_000),
-    (9_999, 10_000),
-    (10_000, 10_000),
-    (20_000, 10_000),
-];
+const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        (1_000, 10_000),
+        (5_000, 10_000),
+        (9_999, 10_000),
+        (10_000, 10_000),
+        (20_000, 10_000),
+    ]
+} else {
+    &[
+        (1_000, 10_000),
+        (2_000, 10_000),
+        (2_500, 10_000),
+        (3_333, 10_000),
+        (5_000, 10_000),
+        (7_500, 10_000),
+        (9_999, 10_000),
+        (10_000, 10_000),
+        (20_000, 10_000),
+    ]
+};
 
 #[divan::bench(args = CODES_AND_VALUES_LENGTHS)]
 fn bench_compare_sliced_dict_primitive(

@@ -9,6 +9,7 @@ use vortex_mask::Mask;
 
 use super::SESSION;
 use super::all_invalid;
+use super::assert_compare_matches_canonical;
 use super::canonical;
 use super::non_nullable;
 use super::one_row;
@@ -18,7 +19,6 @@ use super::stored_ptype;
 use super::unsigned;
 use super::widen;
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
@@ -49,26 +49,6 @@ use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
-
-/// Asserts that `lhs op rhs` and `rhs op lhs` equal the same compares of the canonical operands.
-#[track_caller]
-fn assert_compare_matches_canonical(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    operator: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let canonical_lhs = canonical(lhs, ctx)?;
-    let canonical_rhs = canonical(rhs, ctx)?;
-
-    let expected = canonical_lhs.binary(canonical_rhs.clone(), operator)?;
-    assert_arrays_eq!(lhs.binary(rhs.clone(), operator)?, expected, ctx);
-
-    let expected = canonical_rhs.binary(canonical_lhs, operator)?;
-    assert_arrays_eq!(rhs.binary(lhs.clone(), operator)?, expected, ctx);
-
-    Ok(())
-}
 
 /// Slice, filter and mask run on the values, so each result is a `Widen`. The conformance suites
 /// check the values.
@@ -251,6 +231,14 @@ fn test_fill_null(
 #[case::constant_if_false(
     signed().into_array(),
     ConstantArray::new(1_000i64, 5).into_array(),
+)]
+#[case::constant_if_true(
+    ConstantArray::new(1_000i64, 5).into_array(),
+    signed().into_array(),
+)]
+#[case::nullable_if_false(
+    ConstantArray::new(1_000i64, 5).into_array(),
+    partially_valid().into_array(),
 )]
 #[case::widen_both(
     signed().into_array(),

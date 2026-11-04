@@ -70,9 +70,9 @@ pub struct DictLayoutConstraints {
     /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
     /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
     ///
-    /// The codes dtype is determined upfront from this constraint:
-    /// - [`PType::U8`] when max_len <= 255
-    /// - [`PType::U16`] when max_len > 255
+    /// The codes dtype is chosen upfront and is at most [`PType::U16`]. Primitive dictionaries
+    /// use [`PType::U8`] when `max_len <= 256` or the value domain fits in 256 entries including
+    /// any null entry. String and binary dictionaries use [`PType::U8`] when `max_len <= 255`.
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
     pub max_len: u16,

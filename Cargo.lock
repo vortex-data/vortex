@@ -11706,11 +11706,6 @@ dependencies = [
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
- "arrow-arith 60.1.0",
- "arrow-array 60.1.0",
- "arrow-buffer 60.1.0",
- "arrow-cast 60.1.0",
- "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -11869,6 +11864,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "smallvec",
  "vortex-array",
  "vortex-bench-support",
  "vortex-buffer",
@@ -12174,6 +12170,7 @@ name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
  "arrow-array 60.1.0",
+ "arrow-buffer 60.1.0",
  "arrow-data 60.1.0",
  "arrow-schema 60.1.0",
  "async-fs",
@@ -12416,7 +12413,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-row 60.1.0",
- "arrow-schema 60.1.0",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",

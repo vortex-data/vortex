@@ -15,11 +15,8 @@ use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
-/// Zips the values of a [`Widen`] in the `if_true` branch with the `if_false` branch, when that is
-/// another `Widen` or a constant, at the type that holds both. Any other `if_false` declines.
-///
-/// [`ZipExecuteAdaptor`](crate::scalar_fn::fns::zip::ZipExecuteAdaptor) runs this kernel only for
-/// the `if_true` branch, so a `Widen` in the `if_false` branch takes the default path.
+/// Zips the values of a [`Widen`] with another `Widen` or a constant at the type that holds both.
+/// The adaptor normalizes either branch to `array` and adjusts the mask accordingly.
 impl ZipKernel for Widen {
     fn zip(
         array: ArrayView<'_, Self>,

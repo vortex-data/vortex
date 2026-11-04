@@ -705,15 +705,18 @@ enum CastPushdown {
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
 fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPushdown> {
-    use DataType::*;
     let options = cast.cast_options();
     if options.safe || options.format_options != DEFAULT_FORMAT_OPTIONS {
         return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
-    let target = cast.cast_type();
-    Ok(match (&source, target) {
-        _ if source == *target => CastPushdown::Drop,
+    classify_cast_types(&source, cast.cast_type())
+}
+
+fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastPushdown> {
+    use DataType::*;
+    Ok(match (source, target) {
+        _ if source == target => CastPushdown::Drop,
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))
@@ -724,10 +727,21 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
         (Int8, Int16 | Int32 | Int64)
         | (Int16, Int32 | Int64)
         | (Int32, Int64)
-        | (UInt8, UInt16 | UInt32 | UInt64)
-        | (UInt16, UInt32 | UInt64)
-        | (UInt32, UInt64)
+        | (UInt8, UInt16 | UInt32 | UInt64 | Int16 | Int32 | Int64)
+        | (UInt16, UInt32 | UInt64 | Int32 | Int64)
+        | (UInt32, UInt64 | Int64)
         | (Float32, Float64) => CastPushdown::Keep,
+        // Arrow and Vortex both convert with `as f64`: integers round to nearest and never fail,
+        // booleans become 1.0 or 0.0.
+        (Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64, Float64) => {
+            CastPushdown::Keep
+        }
+        // A list cast casts each element. Vortex has no `FixedSizeList` to `List` cast.
+        (List(from) | LargeList(from), List(to) | LargeList(to))
+            if to.is_nullable() || !from.is_nullable() =>
+        {
+            classify_cast_types(from.data_type(), to.data_type())?
+        }
         _ => return Err(Unconverted::Unsupported),
     })
 }

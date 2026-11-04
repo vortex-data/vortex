@@ -3,8 +3,6 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::panic::AssertUnwindSafe;
-use std::panic::catch_unwind;
 use std::sync::Arc;
 
 use vortex::array::ArrayId;
@@ -83,6 +81,10 @@ impl CudaSession {
     }
 
     /// Creates a new CUDA session with the provided context and stream pool capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream_pool_capacity` is zero.
     pub fn with_stream_pool_capacity(
         context: Arc<CudaContext>,
         stream_pool_capacity: usize,
@@ -131,20 +133,11 @@ impl CudaSession {
     /// Unlike [`Default::default`], this returns an error instead of panicking when CUDA cannot be
     /// initialized.
     pub fn try_default() -> VortexResult<Self> {
-        // The driver crate panics rather than returning an error when the CUDA driver library
-        // cannot be loaded, so catch any unwind here to uphold this constructor's no-panic contract.
-        match catch_unwind(AssertUnwindSafe(|| -> VortexResult<Self> {
-            let context = CudaContext::new(0)
-                .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
-            let this = Self::new(context);
-            initialize_cuda(&this);
-            Ok(this)
-        })) {
-            Ok(result) => result,
-            Err(_) => Err(vortex_err!(
-                "failed to initialize CUDA: the driver library is unavailable"
-            )),
-        }
+        let context = CudaContext::new(0)
+            .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
+        let this = Self::new(context);
+        initialize_cuda(&this);
+        Ok(this)
     }
 
     /// Creates a new CUDA execution context.

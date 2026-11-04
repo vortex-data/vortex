@@ -12,6 +12,7 @@ use jiff::tz::TimeZone;
 use prost::Message;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -277,17 +278,22 @@ fn replace(
             "Invalid ambiguity policy {policy:?}: expected raise, earliest, latest, or null"
         );
     }
+    // Convert first so the same-timezone shortcut cannot pass values outside jiff's range through.
+    let timestamp = match unit {
+        TimeUnit::Seconds => JiffTimestamp::from_second(value),
+        TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value),
+        TimeUnit::Microseconds => JiffTimestamp::from_microsecond(value),
+        TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value)),
+        TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
+    }
+    .map_err(|error| {
+        VortexError::from(error)
+            .with_context(format!("replace_time_zone() cannot convert {value}{unit}"))
+    })?;
     // Keeping the same timezone does not introduce a new ambiguity to reject.
     if source == target && policy == "raise" {
         return Ok(Some(value));
     }
-    let timestamp = match unit {
-        TimeUnit::Seconds => JiffTimestamp::from_second(value)?,
-        TimeUnit::Milliseconds => JiffTimestamp::from_millisecond(value)?,
-        TimeUnit::Microseconds => JiffTimestamp::from_microsecond(value)?,
-        TimeUnit::Nanoseconds => JiffTimestamp::from_nanosecond(i128::from(value))?,
-        TimeUnit::Days => vortex_bail!("Timestamp cannot use day units"),
-    };
     let wall_time = source.to_datetime(timestamp);
     let ambiguous = target.to_ambiguous_timestamp(wall_time);
     let timestamp = match ambiguous.offset() {
@@ -313,6 +319,7 @@ fn replace(
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -324,6 +331,7 @@ mod tests {
     use super::ReplaceTimeZoneOptions;
     use super::replace;
     use super::resolve_zone;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::ExtensionArray;
@@ -549,6 +557,51 @@ mod tests {
         );
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::end_of_9999(TimeUnit::Microseconds, 253_402_214_400_000_000)]
+    #[case::storage_min(TimeUnit::Seconds, i64::MIN)]
+    fn rejects_timestamps_beyond_jiff_range(
+        #[case] unit: TimeUnit,
+        #[case] value: i64,
+        #[values(None, Some("America/New_York"))] target: Option<&str>,
+    ) -> VortexResult<()> {
+        let input = ExtensionArray::new(
+            Timestamp::new(unit, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter([Some(0i64), Some(value)]).into_array(),
+        );
+        let expr = replace_time_zone(
+            root(),
+            lit("raise"),
+            ReplaceTimeZoneOptions {
+                time_zone: target.map(Into::into),
+                null_on_non_existent: false,
+            },
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = input
+            .into_array()
+            .apply(&expr)
+            .and_then(|array| array.execute::<Canonical>(&mut ctx));
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("cannot convert"), "{error}");
+        assert!(
+            error
+                .source()
+                .is_some_and(|source| source.is::<jiff::Error>())
+        );
+
+        let control = ExtensionArray::new(
+            Timestamp::new(unit, Nullability::Nullable).erased(),
+            PrimitiveArray::from_option_iter([Some(0i64)]).into_array(),
+        );
+        control
+            .into_array()
+            .apply(&expr)?
+            .execute::<Canonical>(&mut ctx)?;
+
         Ok(())
     }
 }

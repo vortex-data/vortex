@@ -85,8 +85,14 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
 
 // Batch short iterations to reduce variation in the fastest walltime sample.
 // The NEON cases still vary on unchanged code, so keep those measurements local.
+// AVX2 with 80 selections still varies with batching. Retain its 64-selection case in CI.
 #[vortex_bench_support::cpu_features(exclude = ["neon"])]
-#[divan::bench(args = [64, 80], sample_size = 16)]
+#[divan::bench(
+    args = [64, 80].into_iter().filter(|&count| {
+        env!("VORTEX_BENCH_VARIANT") != "avx2" || count != 80
+    }),
+    sample_size = 16,
+)]
 fn threshold(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, indices) = threshold_fixture(selected_per_chunk);
 
@@ -423,8 +429,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
         })
 }
 
-// These are the element runs emitted by a sparse FSL gather. The baseline materializes those
-// runs inside the measured operation, reproducing the previous BitPacked take path.
+// These are the element runs emitted by a sparse FSL gather.
 fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (ArrayRef, ArrayRef) {
     const ROWS: usize = 512;
     const SELECTED: usize = 16;
@@ -458,25 +463,13 @@ fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (Arr
 #[divan::bench(args = [768, 1024, 1536])]
 fn embedding_runs(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [768, 1024, 1536])]
-fn embedding_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
-    let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 #[divan::bench(args = [512, 1024, 2048, 4096])]
 fn embedding_code_runs(bencher: Bencher, dimension: usize) {
     let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [512, 1024, 2048, 4096])]
-fn embedding_code_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
-    let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 // Short runs share chunks; long runs visit distant chunks. Neither crosses the full-decode
@@ -508,13 +501,7 @@ fn fragmented_runs_fixture(run_length: usize) -> (ArrayRef, ArrayRef) {
 #[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
 fn fragmented_runs(bencher: Bencher, run_length: usize) {
     let (packed, indices) = fragmented_runs_fixture(run_length);
-    bench_piecewise_take(bencher, packed, indices, false);
-}
-
-#[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
-fn fragmented_runs_expanded_baseline(bencher: Bencher, run_length: usize) {
-    let (packed, indices) = fragmented_runs_fixture(run_length);
-    bench_piecewise_take(bencher, packed, indices, true);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
 // Isolated runs cannot amortize a whole-chunk decode across neighboring runs. Offsets near
@@ -559,30 +546,16 @@ fn isolated_runs<T: NativePType>(bencher: Bencher, (run_length, offset): (usize,
     )
     .unwrap()
     .into_array();
-    bench_piecewise_take(bencher, packed, indices, false);
+    bench_piecewise_take(bencher, packed, indices);
 }
 
-fn bench_piecewise_take(
-    bencher: Bencher,
-    packed: ArrayRef,
-    indices: ArrayRef,
-    expanded_baseline: bool,
-) {
+fn bench_piecewise_take(bencher: Bencher, packed: ArrayRef, indices: ArrayRef) {
     bencher
         .counter(ItemsCount::new(indices.len()))
         .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(indices, ctx)| {
-            let indices = if expanded_baseline {
-                indices
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)
-                    .unwrap()
-                    .into_array()
-            } else {
-                indices.clone()
-            };
             packed
-                .take(indices)
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
