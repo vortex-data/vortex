@@ -44,6 +44,7 @@ use super::synthetic::row_dtype;
 use super::*;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
+use crate::arrays::shared::Shared;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
@@ -739,6 +740,37 @@ fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexRe
     )
     .into_array();
     assert_view(&expected, &(0..4), &mask, result.arrays)
+}
+
+#[rstest]
+fn random_access_keeps_sparse_numeric_dictionary_kernels_visible(
+    #[values(AccessMode::Scan, AccessMode::RandomAccess)] mode: AccessMode,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        PrimitiveArray::from_option_iter((0..1536i32).map(|row| (row != 1).then_some(row)))
+            .into_array();
+    let codes =
+        PrimitiveArray::from_option_iter([Some(1535u32), Some(1), None, Some(0), Some(1535)])
+            .into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let plan = lower(&layout)?;
+    let cache = ValueCache::default();
+    for _ in 0..2 {
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..5)])?
+            .with_value_cache(cache.clone())
+            .with_access_mode(mode);
+        let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+        assert!(result.arrays.iter().all(|array| {
+            array.as_::<Dict>().values().is::<Shared>() == (mode == AccessMode::Scan)
+        }));
+        assert_arrays_eq!(
+            join(plan.dtype(), result.arrays)?,
+            PrimitiveArray::from_option_iter([Some(1535i32), None, None, Some(0), Some(1535)]),
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+    Ok(())
 }
 
 #[test]
