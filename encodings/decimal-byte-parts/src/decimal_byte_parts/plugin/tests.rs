@@ -18,6 +18,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::i256;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySessionExt;
@@ -44,6 +45,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 ))]
 #[case::wider_i64_storage(DecimalByteParts::encode(
     &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::wider_i128_storage(DecimalByteParts::encode(
+    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::wider_i256_storage(DecimalByteParts::encode(
+    &DecimalArray::new(
+        buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+        DecimalDType::new(2, 0), Validity::NonNullable,
+    ),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::wider_i256_storage_all_null(DecimalByteParts::encode(
+    &DecimalArray::new(
+        buffer![i256::from_parts(1 << 127, 0); 3],
+        DecimalDType::new(2, 0), Validity::AllInvalid,
+    ),
     &mut SESSION.create_execution_ctx(),
 ))]
 #[case::redundant_lower_parts(DecimalByteParts::try_new_with_lower_parts(

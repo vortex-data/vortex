@@ -15,26 +15,11 @@ use vortex::array::dtype::i256;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
-use vortex::encodings::decimal_byte_parts::split_decimal;
 use vortex::error::VortexResult;
 use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
-
-/// Encode a canonical decimal as byte parts, splitting wide values into lower parts.
-fn encode_byte_parts(
-    decimal: &DecimalArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<DecimalBytePartsArray> {
-    let parts = split_decimal(decimal, ctx)?;
-    DecimalByteParts::try_new_with_lower_parts(
-        parts.msp,
-        parts.lower_parts,
-        decimal.decimal_dtype(),
-    )
-}
 
 pub struct DecimalBytePartsV2Fixture;
 
@@ -61,7 +46,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
             wide_128_dtype,
             Validity::NonNullable,
         );
-        let wide_128_arr = encode_byte_parts(&wide_128, ctx)?;
+        let wide_128_arr = DecimalByteParts::encode(&wide_128, ctx)?;
 
         // Negative values, so the sign extension above the MSP is exercised on read back.
         let wide_128_negative = DecimalArray::new(
@@ -71,7 +56,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
             wide_128_dtype,
             Validity::NonNullable,
         );
-        let wide_128_negative_arr = encode_byte_parts(&wide_128_negative, ctx)?;
+        let wide_128_negative_arr = DecimalByteParts::encode(&wide_128_negative, ctx)?;
 
         // An `i256` magnitude beyond 128 bits, so all three lower parts are populated, with
         // nulls to pin that validity is carried by the MSP alone.
@@ -84,7 +69,7 @@ impl FlatLayoutFixture for DecimalBytePartsV2Fixture {
             wide_256_dtype,
             Validity::from_iter((0..N).map(|i| i % 7 != 0)),
         );
-        let wide_256_arr = encode_byte_parts(&wide_256, ctx)?;
+        let wide_256_arr = DecimalByteParts::encode(&wide_256, ctx)?;
 
         let arr = StructArray::try_new(
             FieldNames::from([

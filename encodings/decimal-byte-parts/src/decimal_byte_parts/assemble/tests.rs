@@ -41,6 +41,7 @@ use vortex_session::VortexSession;
 
 use super::assemble_decimal;
 use crate::decimal_byte_parts::split_decimal;
+use crate::decimal_byte_parts::testing::full_width_lower_part_count;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -129,7 +130,8 @@ fn assert_form(decoded: &ArrayRef, decimal_dtype: DecimalDType, child_precision:
 
 fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
     let mut ctx = SESSION.create_execution_ctx();
-    let parts = split_decimal(&decimal, &mut ctx)?;
+    let lower_part_count = full_width_lower_part_count(decimal.values_type());
+    let parts = split_decimal(&decimal, lower_part_count, &mut ctx)?;
     assemble_decimal(
         &parts.msp,
         &parts.lower_parts,
@@ -166,7 +168,7 @@ fn test_split_without_valid_rows(
             validity,
         )
     });
-    let parts = split_decimal(&decimal, &mut ctx)?;
+    let parts = split_decimal(&decimal, full_width_lower_part_count(values_type), &mut ctx)?;
     assert!(parts.msp.is::<Constant>());
     assert!(parts.lower_parts.iter().all(|part| part.is::<Constant>()));
     assert_eq!(parts.msp.len(), len);
@@ -213,8 +215,9 @@ fn test_split_zeroes_null_words(
             .collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
-    let parts = split_decimal(&decimal, &mut ctx)?;
-    assert_eq!(parts.lower_parts.len(), if wide_256 { 3 } else { 1 });
+    let lower_part_count = if wide_256 { 3 } else { 1 };
+    let parts = split_decimal(&decimal, lower_part_count, &mut ctx)?;
+    assert_eq!(parts.lower_parts.len(), lower_part_count);
     assert_eq!(
         parts.msp.dtype(),
         &DType::Primitive(PType::I64, decimal.dtype().nullability())
@@ -265,7 +268,7 @@ fn test_split_narrow_decimal_reuses_values(
     let decimal = DecimalArray::new(buffer![1i32, 2, 3], DecimalDType::new(9, 0), validity);
     let values_ptr = decimal.buffer::<i32>().as_ptr();
 
-    let parts = split_decimal(&decimal, &mut ctx)?;
+    let parts = split_decimal(&decimal, 0, &mut ctx)?;
     assert!(parts.lower_parts.is_empty());
     assert_eq!(parts.msp.dtype().as_ptype(), PType::I32);
     let msp = parts.msp.clone().execute::<PrimitiveArray>(&mut ctx)?;

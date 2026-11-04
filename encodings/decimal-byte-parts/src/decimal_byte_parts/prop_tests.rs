@@ -149,8 +149,9 @@ fn decoded_survives_encode_then_decode(tc: TestCase) {
 ///
 /// Starting from the encoded side reaches part counts `split_decimal` never produces, so this
 /// covers layouts the property above cannot generate. It compares decoded values rather than
-/// the arrays themselves because re-encoding normalizes the part count: splitting an `i256`
-/// always yields three lower parts, whatever the original array carried.
+/// the arrays themselves because re-encoding normalizes the part count:
+/// [`DecimalByteParts::encode`] uses the fewest lower parts that hold the valid values, whatever
+/// the original array carried.
 #[hegel::test]
 fn encoded_survives_decode_then_encode(tc: TestCase) {
     let (array, _len) = draw_encoded(&tc);

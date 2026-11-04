@@ -88,4 +88,15 @@ pub(super) mod arrays {
             _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
         }
     }
+
+    /// The number of lower parts that holds every value of `values_type`, so the split and
+    /// assembly benchmarks keep the shape of each storage width.
+    pub(crate) fn full_width_lower_part_count(values_type: DecimalType) -> usize {
+        match values_type {
+            DecimalType::I64 => 0,
+            DecimalType::I128 => 1,
+            DecimalType::I256 => 3,
+            _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
+        }
+    }
 }
