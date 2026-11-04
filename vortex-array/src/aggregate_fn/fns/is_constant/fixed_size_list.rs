@@ -7,6 +7,7 @@ use super::arrays_value_equal;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::optimizer::ArrayOptimizer;
 
 /// Check if a fixed-size list array is constant by comparing each list's elements.
 ///
@@ -19,9 +20,9 @@ pub(super) fn check_fixed_size_list_constant(
         return Ok(true);
     }
 
-    let first_elements = f.fixed_size_list_elements_at(0)?;
+    let first_elements = f.fixed_size_list_elements_at(0)?.optimize_ctx(ctx)?;
     for i in 1..f.len() {
-        let current_elements = f.fixed_size_list_elements_at(i)?;
+        let current_elements = f.fixed_size_list_elements_at(i)?.optimize_ctx(ctx)?;
         if !arrays_value_equal(&first_elements, &current_elements, ctx)? {
             return Ok(false);
         }

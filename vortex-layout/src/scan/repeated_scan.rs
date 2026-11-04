@@ -23,6 +23,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
@@ -283,9 +284,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 let arrays = buffer(tasks, ordered, concurrency)
                     .filter_map(|array| future::ready(array.transpose()))
                     .boxed();
+                let session = self.session.clone();
                 let mapped = limit_rows(arrays, limit).map(move |array| {
                     let map_fn = Arc::clone(&map_fn);
-                    handle.spawn_cpu(move || map_fn(array?))
+                    let session = session.clone();
+                    // The limit can slice the last array lazily, so reduce it before the map, as
+                    // the scan tasks do for every other array. This is free for the arrays that
+                    // the limit leaves whole.
+                    handle.spawn_cpu(move || map_fn(array?.optimize_ctx(&session)?))
                 });
                 buffer(mapped, ordered, concurrency)
             }

@@ -57,6 +57,7 @@ use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -614,6 +615,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::Slice(range) => {
                 current_array = current_array
                     .slice(range)
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("slice operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
@@ -623,6 +625,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 }
                 current_array = current_array
                     .take(indices)
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("take operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
@@ -638,6 +641,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::Filter(mask_val) => {
                 current_array = current_array
                     .filter(mask_val)
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("filter operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
@@ -647,6 +651,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                         ConstantArray::new(v.clone(), current_array.len()).into_array(),
                         Operator::from(op),
                     )
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("compare operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i, &mut ctx) {
                     vortex_panic!(
@@ -659,6 +664,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::Cast(to) => {
                 let cast_result = current_array
                     .cast(to.clone())
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("cast operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i, &mut ctx) {
                     vortex_panic!(
@@ -682,12 +688,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
             Action::FillNull(fill_value) => {
                 current_array = current_array
                     .fill_null(fill_value.clone())
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("fill_null operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::Mask(mask_val) => {
                 current_array = current_array
                     .mask(mask_val.into_array())
+                    .and_then(|array| array.optimize_ctx(&ctx))
                     .vortex_expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }

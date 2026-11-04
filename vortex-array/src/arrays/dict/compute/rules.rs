@@ -20,19 +20,46 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::slice::slice_constant_code;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
+
+pub(crate) const RULES: ReduceRuleSet<Dict> = ReduceRuleSet::new(&[&DictConstantCodesRule]);
+
+/// Keep only the referenced value when every code is the same.
+///
+/// Lazy codes, such as a filter or a slice of the codes, can reduce to a constant code only after
+/// the dictionary is built, so the filter and slice kernels cannot see it.
+#[derive(Debug)]
+struct DictConstantCodesRule;
+
+impl ArrayReduceRule<Dict> for DictConstantCodesRule {
+    fn reduce(&self, array: ArrayView<'_, Dict>) -> VortexResult<Option<ArrayRef>> {
+        let Some(code) = array.codes().as_opt::<Constant>() else {
+            return Ok(None);
+        };
+
+        // A single value is the reduced form, so stop here to reach a fixpoint.
+        if array.values().len() <= 1 {
+            return Ok(None);
+        }
+
+        slice_constant_code(array, code.scalar(), array.len())
+    }
+}
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),

@@ -30,6 +30,7 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -212,8 +213,8 @@ fn zip_impl(
 
     // `append_to_builder` requires exact dtype equality, so normalize branch
     // nullability to the output dtype before appending slices into the builder.
-    let if_true = if_true.cast(return_type.clone())?;
-    let if_false = if_false.cast(return_type.clone())?;
+    let if_true = if_true.cast(return_type.clone())?.optimize_ctx(ctx)?;
+    let if_false = if_false.cast(return_type.clone())?.optimize_ctx(ctx)?;
 
     zip_impl_with_builder(
         &if_true,
