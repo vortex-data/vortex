@@ -1,0 +1,232 @@
+/* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
+   Edit the system, then run tools/site-styles.mjs; do not edit here.
+   Made by: node tools/site-styles.mjs <site> --sections docs,focus
+   sha256 35d41bda602e2f40e7e3af7c16d5e3d1ee7710b5793573ddefac533960a26f49 */
+
+/* ------------------------------------------------------------------ docs
+   docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
+   vx-docs on <body>, data-theme="system" on <html> (so the tokens follow the OS without a script),
+   and the frame's classes below. Everything inside the nav, the rail and main is what Sphinx
+   writes. Type is in rem (1rem is 16px), so text follows the reader's default size. */
+.vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; }
+.vx-docs *, .vx-docs ::before, .vx-docs ::after { box-sizing: border-box; }
+.vx-docs svg { width: 16px; height: 16px; flex: none; fill: currentColor; }
+.vx-docs summary { list-style: none; cursor: pointer; }
+.vx-docs summary::-webkit-details-marker { display: none; }
+.vx-docs-skip { position: absolute; z-index: 9; left: var(--space-8); top: -6rem; padding: var(--space-8) var(--space-12); background: var(--surface); color: var(--ink); border: 1px solid var(--edge); border-radius: var(--radius-control); }
+.vx-docs-skip:focus { top: var(--space-8); }
+/* The phone menu's checkbox: hidden, with its label in the header. It takes focus only where the
+   menu shows. */
+.vx-docs-toggle { display: none; position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.vx-docs-label,
+.vx-docs-crumbs,
+.vx-docs-toc p,
+.vx-docs-fold > summary,
+.vx-docs-nav .toctree-l1 > a,
+.vx-docs-main p.rubric,
+.vx-docs-main dl.field-list > dt,
+.vx-docs-main .highlight::before { font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
+
+/* The header: Header's docs variant, solid, with a search form in place of the Ctrl K button. */
+.vx-docs-header { display: flex; align-items: center; gap: var(--space-24); height: 64px; padding: 0 var(--page-pad); border-bottom: 1px solid var(--line); }
+.vx-docs-brand { display: flex; align-items: center; gap: var(--space-12); color: var(--ink); text-decoration: none; }
+.vx-docs-brand img { display: block; width: auto; height: 24px; }
+.vx-docs-brand .vx-docs-label { padding-left: var(--space-12); border-left: 1px solid var(--edge); line-height: 16px; }
+.vx-docs-search { position: relative; display: flex; align-items: center; width: 360px; margin: 0 auto; color: var(--ink-muted); }
+.vx-docs-search svg { position: absolute; left: var(--space-12); pointer-events: none; }
+.vx-docs-search input { width: 100%; height: var(--control-md); padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 0.875rem var(--font-sans); transition: border-color var(--vx-motion); }
+.vx-docs-search input:hover { border-color: var(--ink-muted); }
+.vx-docs-search input::placeholder { color: var(--ink-muted); opacity: 1; }
+.vx-docs-links { display: flex; align-items: center; gap: var(--space-16); margin-left: auto; font: 500 0.75rem/1.3 var(--font-mono); }
+.vx-docs-links a { display: flex; color: var(--ink-muted); text-decoration: none; transition: color var(--vx-motion); }
+.vx-docs-links a:hover { color: var(--ink); }
+.vx-docs-menu, .vx-docs-links .is-narrow { display: none; }
+.vx-docs-menu, .vx-docs-links .is-narrow { place-items: center; width: var(--control-md); height: var(--control-md); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink-body); cursor: pointer; }
+
+/* The frame: a 260px nav, the page column on surface, and a 220px "On this page" rail. The page
+   column holds the breadcrumb, the folded contents, main, and the links under it. Only main is
+   role="main", which Sphinx search reads for its snippets. */
+.vx-docs-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--page-pad); }
+.vx-docs-nav, .vx-docs-toc { grid-row: 1; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
+.vx-docs-page { grid-column: 2; grid-row: 1; min-width: 0; padding: var(--space-24) var(--space-48) var(--space-64); background: var(--surface); border-inline: 1px solid var(--line); }
+.vx-docs-main { font-size: 1.0625rem; line-height: 1.7; }
+.vx-docs-toc { grid-column: 3; padding: var(--space-32) 0 var(--space-32) var(--space-24); }
+
+/* DocsNav: the toctree. Top-level pages are the mono group labels; the current page is a raised fill. */
+.vx-docs-nav { padding: var(--space-16) var(--space-12) var(--space-32) 0; font-size: 0.875rem; line-height: 1.3; }
+.vx-docs-nav ul, .vx-docs-toc ul, .vx-docs-crumbs ol { list-style: none; margin: 0; padding: 0; }
+.vx-docs-nav li { position: relative; }
+.vx-docs-nav ul ul { padding-left: var(--space-12); }
+.vx-docs-nav .toctree-l1 { margin-top: var(--space-8); }
+.vx-docs-nav a { display: flex; align-items: center; min-height: var(--control-md); padding: var(--space-4) var(--space-32) var(--space-4) var(--space-8); border-radius: var(--radius-control); color: var(--ink-body); text-decoration: none; transition: background-color var(--vx-motion), color var(--vx-motion); }
+.vx-docs-nav a:hover, .vx-docs-nav summary:hover { background: var(--wash); color: var(--ink); }
+.vx-docs-nav a:active { background: var(--edge); }
+.vx-docs-nav a[aria-current="page"] { background: var(--raised); color: var(--ink); font-weight: 500; }
+.vx-docs-nav summary { position: absolute; top: 0; right: 0; width: var(--control-md); height: var(--control-md); border-radius: var(--radius-control); color: var(--ink-muted); }
+.vx-docs-nav summary::after,
+.vx-docs-fold > summary::after { content: ""; position: absolute; inset: var(--space-8); background: currentColor; mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z'/></svg>") center / contain no-repeat; transition: rotate var(--vx-motion); }
+.vx-docs-nav details[open] > summary::after,
+.vx-docs-fold[open] > summary::after { rotate: 90deg; }
+
+/* Toc: the page's sections on a line rail. With no scroll spy there is no current tick. */
+.vx-docs-toc p { margin: 0 0 var(--space-12); }
+.vx-docs-toc ul ul { padding-left: var(--space-12); }
+.vx-docs-toc nav > ul { border-left: 1px solid var(--line); }
+.vx-docs-toc a, .vx-docs-fold a { display: block; margin-left: -1px; padding: var(--space-4) 0 var(--space-4) var(--space-16); font-size: 0.875rem; line-height: 1.4; color: var(--ink-muted); text-decoration: none; overflow-wrap: anywhere; transition: color var(--vx-motion); }
+.vx-docs-toc a:hover, .vx-docs-fold a:hover { color: var(--ink); }
+/* The same contents, folded above the page on screens too narrow for the rail. */
+.vx-docs-fold { display: none; margin: 0 0 var(--space-24); border: 1px solid var(--line); border-radius: var(--radius-card); }
+.vx-docs-fold > summary { position: relative; padding: var(--space-8) var(--space-12); line-height: 20px; }
+.vx-docs-fold > summary::after { inset: var(--space-12) var(--space-12) auto auto; width: 16px; height: 16px; }
+.vx-docs-fold ul { list-style: none; margin: 0 var(--space-12) var(--space-12); padding: 0; }
+.vx-docs-fold ul ul { margin: 0; padding-left: var(--space-12); }
+
+/* Breadcrumb, previous and next, and the edit link. */
+.vx-docs-crumbs ol { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0 0 var(--space-16); }
+.vx-docs-crumbs li + li::before { content: "/" / ""; margin-right: var(--space-8); }
+.vx-docs-crumbs a { color: inherit; text-decoration: none; }
+.vx-docs-crumbs a:hover { color: var(--ink); }
+.vx-docs-pager { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); margin-top: var(--space-64); }
+.vx-docs-pager a { padding: var(--space-12) var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-card); color: var(--ink); text-decoration: none; line-height: 1.4; transition: background-color var(--vx-motion); }
+.vx-docs-pager a:hover { background: var(--wash); }
+.vx-docs-pager a:active { background: var(--edge); }
+.vx-docs-pager .vx-docs-label { display: block; margin-bottom: var(--space-4); }
+.vx-docs-pager .is-next { grid-column: 2; text-align: right; }
+.vx-docs-edit { margin: var(--space-48) 0 0; font-size: 0.875rem; }
+.vx-docs-edit a { color: var(--ink-muted); transition: color var(--vx-motion); }
+.vx-docs-edit a:hover { color: var(--ink); }
+
+/* The footer: Footer, solid. */
+.vx-docs-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16) var(--space-24); padding: var(--space-16) var(--page-pad); border-top: 1px solid var(--line); font: 400 0.75rem/1.5 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-footer p { flex: 1 1 420px; min-width: 0; margin: 0; }
+.vx-docs-footer nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); }
+.vx-docs-footer a { color: inherit; text-decoration: none; }
+.vx-docs-footer a:hover, .vx-docs-footer p a { color: var(--ink); }
+
+/* The reading column. :where() keeps the flow margins below any element's own. */
+.vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-20); }
+.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple, dl.footnote)) { max-width: 68ch; }
+.vx-docs-main li + li { margin-top: var(--space-4); }
+.vx-docs-main li::marker { color: var(--ink-muted); }
+.vx-docs-main :is(h1, h2, h3, h4) { scroll-margin-top: var(--space-16); font-family: var(--font-mono); font-weight: 500; line-height: 1.25; color: var(--ink); text-wrap: balance; }
+.vx-docs-main h1 { margin: 0 0 var(--space-24); font-size: 1.75rem; letter-spacing: -0.03em; }
+.vx-docs-main h2 { margin: var(--space-48) 0 var(--space-12); font-size: 1.375rem; letter-spacing: -0.02em; }
+.vx-docs-main h3 { margin: var(--space-32) 0 var(--space-8); font-size: 1.125rem; }
+.vx-docs-main h4 { margin: var(--space-24) 0 var(--space-8); font-size: 1rem; }
+.vx-docs-main strong { font-weight: 600; color: var(--ink); }
+.vx-docs-main a { color: var(--ink); text-decoration: underline 1px color-mix(in srgb, var(--ink) 30%, transparent); text-underline-offset: 3px; transition: color var(--vx-motion), text-decoration-color var(--vx-motion); }
+.vx-docs-main a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
+.vx-docs-main a:has(> code) { text-decoration: none; }
+.vx-docs-main hr { margin: var(--space-32) 0; border: 0; border-top: 1px solid var(--line); }
+.vx-docs-main blockquote { padding-left: var(--space-16); border-left: 2px solid var(--edge); }
+.vx-docs-main img { max-width: 100%; height: auto; }
+.vx-docs-main figcaption { margin-top: var(--space-8); font-size: 0.875rem; line-height: 1.5; color: var(--ink-muted); }
+.vx-docs-main figcaption p { margin: 0; }
+.vx-docs-main p.rubric { margin: var(--space-24) 0 var(--space-8); }
+.vx-docs-main a.headerlink { display: inline-flex; margin-left: var(--space-8); vertical-align: middle; font-size: 0; opacity: 0; transition: opacity var(--vx-motion); }
+.vx-docs-main a.headerlink::before { content: ""; width: 16px; height: 16px; background: var(--ink-muted); mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M440-280H280q-83 0-141.5-58.5T80-480q0-83 58.5-141.5T280-680h160v80H280q-50 0-85 35t-35 85q0 50 35 85t85 35h160v80ZM320-440v-80h320v80H320Zm200 160v-80h160q50 0 85-35t35-85q0-50-35-85t-85-35H520v-80h160q83 0 141.5 58.5T880-480q0 83-58.5 141.5T680-280H520Z'/></svg>") center / contain no-repeat; }
+.vx-docs-main :hover > a.headerlink, .vx-docs-main a.headerlink:focus-visible { opacity: 1; }
+
+/* Inline code: CodeBlock's inline code. */
+.vx-docs-main code.literal { padding: 1px var(--space-4); font: 400 0.875em/1 var(--font-mono); color: var(--ink); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: border-color var(--vx-motion); }
+.vx-docs-main a:hover > code.literal { border-color: var(--ink); }
+
+/* CodeBlock: Pygments' classes on the four syntax tokens, under a label from highlight-<lang>. */
+.vx-docs-main div[class*="highlight-"] > .highlight { background: var(--raised); border-radius: var(--radius-card); overflow: hidden; }
+.vx-docs-main :where(div[class*="highlight-"]) > .highlight::before { content: "Text"; display: block; padding: var(--space-8) var(--space-16); border-bottom: 1px solid var(--edge); line-height: 20px; }
+.vx-docs-main :is(.highlight-default, .highlight-python, .highlight-pycon) > .highlight::before { content: "Python"; }
+.vx-docs-main :is(.highlight-bash, .highlight-sh, .highlight-shell, .highlight-console) > .highlight::before { content: "Shell"; }
+.vx-docs-main .highlight-rust > .highlight::before { content: "Rust"; }
+.vx-docs-main .highlight-sql > .highlight::before { content: "SQL"; }
+.vx-docs-main .highlight-java > .highlight::before { content: "Java"; }
+.vx-docs-main .highlight-kotlin > .highlight::before { content: "Kotlin"; }
+.vx-docs-main .highlight-c > .highlight::before { content: "C"; }
+.vx-docs-main .highlight-cpp > .highlight::before { content: "C++"; }
+.vx-docs-main .highlight-json > .highlight::before { content: "JSON"; }
+.vx-docs-main .highlight-toml > .highlight::before { content: "TOML"; }
+.vx-docs-main .highlight-xml > .highlight::before { content: "XML"; }
+.vx-docs-main .highlight-cmake > .highlight::before { content: "CMake"; }
+.vx-docs-main .highlight-protobuf > .highlight::before { content: "Protobuf"; }
+.vx-docs-main .highlight pre { margin: 0; padding: var(--space-16); overflow-x: auto; font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); tab-size: 4; }
+.vx-docs-main .highlight :is(.k, .kn, .kd, .kr, .kt, .kp, .ow, .nt) { color: var(--syntax-keyword); }
+.vx-docs-main .highlight :is(.nf, .fm, .nc, .nb, .bp, .nd, .ne, .nn) { color: var(--syntax-function); }
+.vx-docs-main .highlight :is(.s, .s1, .s2, .sa, .sb, .sc, .sd, .se, .sh, .si, .sx, .m, .mi, .mf, .mh, .mo, .il, .kc) { color: var(--syntax-string); }
+.vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs, .cp, .gp) { color: var(--syntax-comment); }
+.vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs) { font-style: italic; }
+
+/* Callout: an admonition. The icon carries the kind: info, or warning for what can go wrong. */
+.vx-docs-main .admonition { position: relative; padding: var(--space-12) var(--space-16) var(--space-12) var(--space-48); background: var(--raised); border-radius: var(--radius-card); font-size: 0.875rem; line-height: 1.55; }
+.vx-docs-main .admonition::before { content: ""; position: absolute; left: var(--space-16); top: 13px; width: 20px; height: 20px; background: var(--ink); mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Z'/></svg>") center / contain no-repeat; }
+.vx-docs-main :is(.warning, .caution, .attention, .danger, .error)::before { mask-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='m40-120 440-760 440 760H40Zm138-80h604L480-720 178-200Zm302-40q17 0 28.5-11.5T520-280q0-17-11.5-28.5T480-320q-17 0-28.5 11.5T440-280q0 17 11.5 28.5T480-240Zm-40-120h80v-200h-80v200Z'/></svg>"); }
+.vx-docs-main .admonition > * { margin-bottom: var(--space-8); }
+.vx-docs-main .admonition > :last-child { margin-bottom: 0; }
+.vx-docs-main p.admonition-title { margin-bottom: 2px; font-weight: 600; color: var(--ink); }
+
+/* Tables: the tables section's heads and hairline rows. */
+.vx-docs-main table.docutils { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.vx-docs-main table.docutils th { padding: var(--space-8) var(--space-24) var(--space-8) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main table.docutils td { padding: var(--space-8) var(--space-24) var(--space-8) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.vx-docs-main :is(td, th) > p { margin: 0; }
+
+/* The API reference: a signature on raised, then its description and fields. */
+.vx-docs-main :is(dl.py, dl.c) { margin: var(--space-32) 0; }
+.vx-docs-main :is(dl.py, dl.c) :is(dl.py, dl.c) { margin: var(--space-24) 0; }
+.vx-docs-main dt.sig { padding: var(--space-8) var(--space-12); background: var(--raised); border-radius: var(--radius-control); font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); overflow-wrap: anywhere; }
+.vx-docs-main dt.sig .sig-name { font-weight: 600; color: var(--ink); }
+.vx-docs-main dt.sig :is(.sig-prename, .sig-paren) { color: var(--ink-muted); }
+.vx-docs-main dt.sig em.property, .vx-docs-main dt.sig .k { font-style: normal; color: var(--syntax-keyword); }
+.vx-docs-main dt.sig em { font-style: normal; }
+.vx-docs-main dt.sig a { text-decoration: none; }
+.vx-docs-main :is(dl.py, dl.c) > dd { margin: var(--space-12) 0 0 var(--space-24); }
+.vx-docs-main dl.field-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-8) var(--space-24); font-size: 1rem; }
+.vx-docs-main dl.field-list > dt { padding-top: var(--space-4); }
+.vx-docs-main dl.field-list > dt .colon { display: none; }
+.vx-docs-main dl.field-list > dd { margin: 0; }
+.vx-docs-main dl.field-list > dd > :last-child { margin-bottom: 0; }
+
+/* Footnotes, the indexes, and search. */
+.vx-docs-main aside.footnote { display: flex; gap: var(--space-8); font-size: 0.875rem; color: var(--ink-muted); }
+.vx-docs-main aside.footnote > p { margin: 0; }
+.vx-docs-main table.indextable { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.vx-docs-main table.indextable td { padding: var(--space-4) var(--space-16) var(--space-4) 0; vertical-align: top; }
+.vx-docs-main table.indextable ul { margin: 0; padding: 0; list-style: none; }
+.vx-docs-main table.indextable tr.cap td { padding-top: var(--space-24); font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main :is(.genindex-jumpbox, .modindex-jumpbox) { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.vx-docs-main form:not([role]) { display: flex; gap: var(--space-8); }
+.vx-docs-main form:not([role]) input { height: var(--control-md); padding: 0 var(--space-12); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 0.875rem var(--font-sans); }
+.vx-docs-main form:not([role]) input[type="text"] { flex: 1; min-width: 0; }
+.vx-docs-main form:not([role]) input[type="submit"] { cursor: pointer; }
+.vx-docs-main ul.search { padding: 0; list-style: none; }
+.vx-docs-main ul.search > li { padding: var(--space-16) 0; border-bottom: 1px solid var(--line); }
+.vx-docs-main ul.search p.context { margin: var(--space-4) 0 0; font-size: 0.875rem; color: var(--ink-muted); }
+.vx-docs-main span.highlighted { background: var(--accent-soft); color: var(--ink); }
+
+@media (max-width: 1120px) {
+  .vx-docs-layout { grid-template-columns: 260px minmax(0, 1fr); }
+  .vx-docs-layout > .vx-docs-toc { display: none; }
+  .vx-docs-fold { display: block; }
+}
+@media (max-width: 760px) {
+  .vx-docs-layout { display: block; padding: 0; }
+  .vx-docs-layout > .vx-docs-nav { display: none; position: static; max-height: none; padding: var(--space-8) var(--page-pad) var(--space-24); border-bottom: 1px solid var(--line); }
+  .vx-docs-toggle { display: block; }
+  .vx-docs-toggle:checked ~ .vx-docs-layout .vx-docs-nav { display: block; }
+  .vx-docs-search { display: none; }
+  .vx-docs-menu, .vx-docs-links .is-narrow { display: grid; }
+  .vx-docs-page { padding: var(--space-24) var(--page-pad) var(--space-48); border: 0; }
+  .vx-docs-main dl.field-list { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .vx-docs-main table.genindextable, .vx-docs-main table.genindextable :is(tbody, tr, td) { display: block; }
+}
+@media (max-width: 640px) {
+  .vx-docs-header { gap: var(--space-16); }
+  .vx-docs-brand .vx-docs-label, .vx-docs-links .is-wide { display: none; }
+  .vx-docs-links { gap: var(--space-12); }
+}
+
+/* ------------------------------------------------------------------ focus
+   One rule for every focusable element, last so that it wins over the resets above. The docs'
+   phone menu is a hidden checkbox, so its label shows the checkbox's ring. Rows and
+   segments inside a clipped container draw it inside their edge. */
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.vx-docs-toggle:focus-visible ~ .vx-docs-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button):focus-visible { outline-offset: -2px; }

@@ -4,14 +4,17 @@
 {%- else %}
   {%- set titlesuffix = "" %}
 {%- endif %}
-<html lang="{{ language }}" data-content_root="{{ content_root }}">
+{%- set github = "https://github.com/vortex-data/vortex" %}
+<html lang="{{ language }}" data-content_root="{{ content_root }}" data-theme="system">
 <head>
   <meta charset="{{ encoding }}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   {{- metatags }}
   {%- block htmltitle %}
   <title>{{ title|striptags|e }}{{ titlesuffix }}</title>
   {%- endblock %}
+  {%- if meta and meta.description %}
+  <meta name="description" content="{{ meta.description|e }}" />
+  {%- endif %}
   <meta property="og:title" content="{{ title|striptags|e }}" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="{{ project|e }}" />
@@ -41,43 +44,72 @@
   {%- endif %}
   {%- block extrahead %}{% endblock %}
 </head>
-<body class="page-{{ pagename|replace('/', '-')|e }}">
-<a class="skip-link" href="#main">{{ _('Skip to content') }}</a>
-<input type="checkbox" id="nav-toggle" class="visually-hidden" />
-<header class="header">
-  <label for="nav-toggle" class="nav-toggle" aria-label="{{ _('Toggle navigation') }}">
-    <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" d="M1 3.5h14M1 8h14M1 12.5h14"/></svg>
+<body class="vx-docs page-{{ pagename|replace('/', '-')|e }}">
+<a class="vx-docs-skip" href="#main">{{ _('Skip to content') }}</a>
+<input type="checkbox" id="nav-toggle" class="vx-docs-toggle" aria-label="{{ _('Show the site navigation') }}" />
+<header class="vx-docs-header">
+  <label for="nav-toggle" class="vx-docs-menu" aria-hidden="true">
+    <svg viewBox="0 -960 960 960"><path d="M120-240v-80h720v80H120Zm0-200v-80h720v80H120Zm0-200v-80h720v80H120Z"/></svg>
   </label>
-  <a class="logo" href="{{ pathto(root_doc)|e }}">
-    <img class="only-light" src="{{ pathto('_static/vortex_logo.svg', 1) }}" alt="" width="24" height="24" />
-    <img class="only-dark" src="{{ pathto('_static/vortex_logo_dark_theme.svg', 1) }}" alt="" width="24" height="24" />
-    <span>Vortex</span>
+  <a class="vx-docs-brand" href="{{ pathto(root_doc)|e }}">
+    <picture>
+      <source srcset="{{ pathto('_static/vortex_wordmark.svg', 1) }}" media="(prefers-color-scheme: light)" />
+      <img src="{{ pathto('_static/vortex_wordmark_dark_theme.svg', 1) }}" alt="Vortex" width="83" height="24" />
+    </picture>
+    <span class="vx-docs-label">{{ _('Docs') }}</span>
   </a>
-  <form class="search" role="search" action="{{ pathto('search') }}" method="get">
-    <input type="search" name="q" placeholder="{{ _('Search') }}" aria-label="{{ _('Search the docs') }}" />
+  <form class="vx-docs-search" role="search" action="{{ pathto('search') }}" method="get">
+    <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/></svg>
+    <input type="search" name="q" placeholder="{{ _('Search the docs') }}" aria-label="{{ _('Search the docs') }}" />
   </form>
-  <nav class="extlinks" aria-label="{{ _('External links') }}">
-    <a href="https://github.com/vortex-data/vortex">GitHub</a>
-    <a href="https://pypi.org/project/vortex-data">PyPI</a>
-    <a href="https://crates.io/crates/vortex">crates.io</a>
+  <nav class="vx-docs-links" aria-label="{{ _('Project links') }}">
+    <a class="is-narrow" href="{{ pathto('search') }}" aria-label="{{ _('Search the docs') }}"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/></svg></a>
+    <a href="{{ github }}" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <a class="is-wide" href="https://pypi.org/project/vortex-data">PyPI</a>
+    <a class="is-wide" href="https://crates.io/crates/vortex">crates.io</a>
   </nav>
 </header>
-<div class="layout">
-  <nav class="sidebar" id="nav" aria-label="{{ _('Site navigation') }}">
+<div class="vx-docs-layout">
+  <nav class="vx-docs-nav" id="nav" aria-label="{{ _('Site navigation') }}">
     {{ vortex_globaltoc }}
   </nav>
-  <main id="main" class="content" role="main">
-    {%- block body %}{% endblock %}
-    <footer class="footer">
-      {%- if page_source_suffix %}
-      <a href="https://github.com/vortex-data/vortex/edit/develop/docs/{{ pagename }}{{ page_source_suffix }}">{{ _('Edit this page') }}</a> ·
+  <div class="vx-docs-page">
+    {%- if parents or pagename != root_doc %}
+    <nav class="vx-docs-crumbs" aria-label="{{ _('Breadcrumb') }}">
+      <ol>
+        <li><a href="{{ pathto(root_doc)|e }}">{{ _('Docs') }}</a></li>
+        {%- for p in parents %}
+        <li><a href="{{ p.link|e }}">{{ p.title }}</a></li>
+        {%- endfor %}
+        <li aria-current="page">{{ title|striptags|e }}</li>
+      </ol>
+    </nav>
+    {%- endif %}
+    {%- if display_toc %}
+    <details class="vx-docs-fold">
+      <summary>{{ _('On this page') }}</summary>
+      {{ toc }}
+    </details>
+    {%- endif %}
+    <main id="main" class="vx-docs-main" role="main">
+      {%- block body %}{% endblock %}
+    </main>
+    {%- if page_source_suffix %}
+    <p class="vx-docs-edit"><a href="{{ github }}/edit/develop/docs/{{ pagename }}{{ page_source_suffix }}">{{ _('Edit this page') }}</a></p>
+    {%- endif %}
+    {%- if prev or next %}
+    <nav class="vx-docs-pager" aria-label="{{ _('Previous and next') }}">
+      {%- if prev %}
+      <a href="{{ prev.link|e }}"><span class="vx-docs-label">{{ _('Previous') }}</span>{{ prev.title }}</a>
       {%- endif %}
-      © {{ copyright|e }}.
-      {%- if show_sphinx %} {% trans sphinx_version=sphinx_version|e %}Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> {{ sphinx_version }}.{% endtrans %}{% endif %}
-    </footer>
-  </main>
+      {%- if next %}
+      <a class="is-next" href="{{ next.link|e }}"><span class="vx-docs-label">{{ _('Next') }}</span>{{ next.title }}</a>
+      {%- endif %}
+    </nav>
+    {%- endif %}
+  </div>
   {%- if display_toc %}
-  <aside class="pagetoc">
+  <aside class="vx-docs-toc">
     <nav aria-label="{{ _('On this page') }}">
       <p>{{ _('On this page') }}</p>
       {{ toc }}
@@ -85,5 +117,14 @@
   </aside>
   {%- endif %}
 </div>
+<footer class="vx-docs-footer">
+  <p>Copyright © Vortex a Series of LF Projects, LLC. For web site terms of use, trademark policy and other project policies please see <a href="https://lfprojects.org/policies">lfprojects.org/policies</a>.</p>
+  <nav aria-label="{{ _('Project') }}">
+    <a href="https://vortex.dev/charter.pdf">{{ _('Charter') }}</a>
+    <a href="https://lfprojects.org/policies/code-of-conduct/">{{ _('Code of conduct') }}</a>
+    <a href="{{ github }}/blob/develop/SECURITY.md">{{ _('Security') }}</a>
+    <a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/vortex">{{ _('Calendar') }}</a>
+  </nav>
+</footer>
 </body>
 </html>
