@@ -147,14 +147,20 @@ fn consistency(#[case] arrays: VortexResult<(FoRArray, PrimitiveArray)>) -> Vort
 fn slice_keeps_chunk_alignment(#[case] start: usize, #[case] end: usize) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = unsigned()?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array
+        .into_array()
+        .slice(start..end)?
+        .optimize_ctx(&*SESSION)?;
     assert_arrays_eq!(sliced, expected.into_array().slice(start..end)?, &mut ctx);
 
     if let Some(sliced) = sliced.as_opt::<FoR>() {
         assert_eq!(usize::from(sliced.offset()), start % FL_CHUNK_SIZE);
         // Slicing a slice composes offsets.
         let len = end - start;
-        let inner: ArrayRef = sliced.array().slice(len / 3..len)?;
+        let inner: ArrayRef = sliced
+            .array()
+            .slice(len / 3..len)?
+            .optimize_ctx(&*SESSION)?;
         let expected = unsigned()?.1.into_array().slice(start + len / 3..end)?;
         assert_arrays_eq!(inner, expected, &mut ctx);
     }

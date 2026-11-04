@@ -296,7 +296,7 @@ fn test_repeated_casts_terminate_without_nested_widen() -> VortexResult<()> {
     for precision in [4, 9, 18, 38, 76, 4, 2] {
         let decimal_dtype = DecimalDType::new(precision, 0);
         let target = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        array = array.cast(target)?;
+        array = array.cast(target)?.optimize_ctx(&*SESSION)?;
         if let Some(widen) = array.as_opt::<Widen>() {
             assert!(!widen.values().is::<Widen>());
             assert_eq!(widen.values().dtype(), source.dtype());
@@ -335,7 +335,10 @@ fn test_same_canonical_width(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let source_ptr = array.buffer_handle().as_host().as_ptr();
-    let casted = array.into_array().cast(expected.dtype().clone())?;
+    let casted = array
+        .into_array()
+        .cast(expected.dtype().clone())?
+        .optimize_ctx(&*SESSION)?;
     assert!(!casted.is::<Widen>());
 
     let executed = casted.execute::<DecimalArray>(&mut ctx)?;

@@ -21,10 +21,8 @@ impl FilterReduce for Dict {
             return slice_constant_code(array, code.scalar(), mask.true_count());
         }
 
+        // `DictConstantCodesRule` collapses the result if the filtered codes reduce to a constant.
         let codes = array.codes().filter(mask.clone())?;
-        if let Some(code) = codes.as_opt::<Constant>() {
-            return slice_constant_code(array, code.scalar(), codes.len());
-        }
         inherit_selection_stats(array.codes(), &codes);
 
         // SAFETY: Selection preserves the integer code type and non-null code bounds, so every code
