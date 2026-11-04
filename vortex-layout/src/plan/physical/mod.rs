@@ -20,6 +20,7 @@ mod plans;
 pub(crate) mod selection;
 pub use plans::register_pack_partition_rules;
 pub use plans::register_row_idx_partition_rules;
+mod slots;
 mod typed;
 mod vtable;
 

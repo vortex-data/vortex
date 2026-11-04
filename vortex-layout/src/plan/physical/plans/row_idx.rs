@@ -18,16 +18,16 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
+use crate::partition::NodeNeeds;
+use crate::partition::PartitionRule;
+use crate::partition::PartitionRuleAdapter;
+use crate::partition::PartitionSession;
 use crate::partition::PartitionedExpression;
+use crate::partition::PartitionedPlan;
+use crate::partition::PartitionedPlanSlot;
 use crate::partition::Partitions;
-use crate::partition::partition_expression;
+use crate::partition::PlanSlot;
 use crate::partition::positional_name;
-use crate::partition_session::FieldIndex;
-use crate::partition_session::NodeTouches;
-use crate::partition_session::PartitionRule;
-use crate::partition_session::PartitionRuleAdapter;
-use crate::partition_session::PartitionSession;
-use crate::partition_session::PartitionedPlan;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
@@ -112,16 +112,19 @@ impl PlanVTable for RowIdx {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RowIdxSlot {
     Child,
     RowIdx,
 }
 
-impl From<RowIdxSlot> for FieldIndex {
+impl PartitionedPlanSlot for RowIdxSlot {}
+
+impl From<RowIdxSlot> for PlanSlot {
     fn from(slot: RowIdxSlot) -> Self {
         match slot {
             RowIdxSlot::Child => 0,
-            RowIdxSlot::RowIdx => FieldIndex::MAX,
+            RowIdxSlot::RowIdx => PlanSlot::MAX,
         }
     }
 }
@@ -145,20 +148,22 @@ pub fn register_row_idx_partition_rules(session: &PartitionSession) {
 /// row_idx as $ reads its child
 struct RowIdxRootRule;
 impl PartitionRule<RowIdx> for RowIdxRootRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches<RowIdxSlot>>> {
-        let slots = vec![RowIdxSlot::Child];
-        let replacement = BoundExpression::new_root(node.dtype().clone());
-        Ok(Some(NodeTouches { slots, replacement }))
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<RowIdxSlot>>> {
+        Ok(Some(NodeNeeds::new([(
+            RowIdxSlot::Child,
+            node.dtype().clone(),
+        )])))
     }
 }
 
 /// row_idx as a non-root reads nothing and generates a virtual output slot
 struct RowIdxFnRule;
 impl PartitionRule<RowIdx> for RowIdxFnRule {
-    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches<RowIdxSlot>>> {
-        let slots = vec![RowIdxSlot::RowIdx];
-        let replacement = BoundExpression::new_root(row_idx_dtype());
-        Ok(Some(NodeTouches { slots, replacement }))
+    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeNeeds<RowIdxSlot>>> {
+        Ok(Some(NodeNeeds::new([(
+            RowIdxSlot::RowIdx,
+            row_idx_dtype(),
+        )])))
     }
 }
 
@@ -173,10 +178,10 @@ pub fn plan_row_idx_expression(
     session: &VortexSession,
 ) -> VortexResult<PlanRef> {
     let row_count = child.row_count();
-    let partitioned = match partition_expression(&expression, &RowIdx, session)? {
+    let partitioned = match RowIdx.partition(&expression, session)? {
         PartitionedExpression::One(slot, expr) => {
             let source = match slot {
-                Some(slot) if slot == FieldIndex::from(RowIdxSlot::RowIdx) => {
+                Some(slot) if slot == PlanSlot::from(RowIdxSlot::RowIdx) => {
                     RowIdxPlan::new(row_count).into_plan()
                 }
                 Some(_) => child,
@@ -193,11 +198,14 @@ pub fn plan_row_idx_expression(
         }
         PartitionedExpression::Many(partitioned) => partitioned,
     };
-    let Partitions { root, partitions } = partitioned;
+    let Partitions {
+        combiner: root,
+        partitions,
+    } = partitioned;
 
     let mut plans = Vec::with_capacity(partitions.len());
     for partition in partitions {
-        let source = if partition.slot == FieldIndex::from(RowIdxSlot::RowIdx) {
+        let source = if partition.slot == PlanSlot::from(RowIdxSlot::RowIdx) {
             RowIdxPlan::new(row_count).into_plan()
         } else {
             child.clone()
