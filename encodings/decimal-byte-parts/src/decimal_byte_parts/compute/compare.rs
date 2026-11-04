@@ -612,15 +612,14 @@ mod tests {
         )
     }
 
-    /// Narrow parts cannot hold every constant of their precision: a constant above the parts'
-    /// range answers by its sign, and a word above a lower part's range sits above every value
-    /// in that part.
+    /// A constant beyond the narrow MSP's range answers by its sign. Constants with matching
+    /// high words still compare their lower words.
     #[test]
-    fn narrow_parts_match_decimal() -> VortexResult<()> {
+    fn narrow_msp_matches_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(38, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i16, 0, -1, 3], validity.clone()).into_array();
-        let lower = buffer![5u16, 7, 9, u16::MAX].into_array();
+        let lower = buffer![5u64, 7, 9, u64::from(u16::MAX)].into_array();
         let array = DecimalByteParts::try_new_with_lower_parts(msp, vec![lower], dtype)?;
 
         let values: Vec<i128> = vec![
@@ -650,15 +649,14 @@ mod tests {
         )
     }
 
-    /// Middle lower parts can also be narrow. A word above a middle part's range decides the
-    /// answer before the less significant parts.
+    /// A differing middle word decides the answer before the less significant parts.
     #[test]
-    fn narrow_middle_parts_match_decimal() -> VortexResult<()> {
+    fn middle_parts_match_decimal() -> VortexResult<()> {
         let dtype = DecimalDType::new(76, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
-        let upper = buffer![5u8, 7, u8::MAX, 0].into_array();
-        let middle = buffer![9u16, u16::MAX, 0, 3].into_array();
+        let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
+        let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
         let lower = buffer![2u64, u64::MAX, 4, 0].into_array();
         let array =
             DecimalByteParts::try_new_with_lower_parts(msp, vec![upper, middle, lower], dtype)?;
