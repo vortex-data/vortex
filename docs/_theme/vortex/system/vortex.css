@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 bbde517d36436ca64863159b42abb1f61150aecfb211dba63804711f4fa0c0da */
+   sha256 3afb47f3470f302f939a24fb07872fe6a585d884564eefd609f740763c36ba68 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -24,7 +24,6 @@
 .vx-docs-fold > summary,
 .vx-docs-nav .toctree-l1 > a,
 .vx-docs-main p.rubric,
-.vx-docs-main dl.field-list > dt,
 .vx-docs-main .highlight::before { font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
 
 /* The header: Header's docs variant, solid, with a search form in place of the Ctrl K button. */
@@ -174,18 +173,25 @@
 /* The API reference: a signature on raised, then its description and fields. */
 .vx-docs-main :is(dl.py, dl.c) { margin: var(--space-32) 0; }
 .vx-docs-main :is(dl.py, dl.c) :is(dl.py, dl.c) { margin: var(--space-24) 0; }
-.vx-docs-main dt.sig { padding: var(--space-8) var(--space-12); background: var(--raised); border-radius: var(--radius-control); font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); overflow-wrap: anywhere; }
+.vx-docs-main dt.sig { padding: var(--space-8) var(--space-12); background: var(--raised); border-radius: var(--radius-control); font: 400 0.875rem/1.6 var(--font-mono); color: var(--syntax-plain); overflow-wrap: anywhere; }
 .vx-docs-main dt.sig .sig-name { font-weight: 600; color: var(--ink); }
 .vx-docs-main dt.sig :is(.sig-prename, .sig-paren) { color: var(--ink-muted); }
 .vx-docs-main dt.sig .property, .vx-docs-main dt.sig .k { font-style: normal; color: var(--syntax-keyword); }
 .vx-docs-main dt.sig em { font-style: normal; }
 .vx-docs-main dt.sig a { text-decoration: none; }
+/* Types read apart from names and punctuation, as in a code block. */
+.vx-docs-main dt.sig :is(a.reference, .sig-return-typehint) { color: var(--syntax-type); }
+.vx-docs-main dt.sig a.reference:hover { text-decoration: underline; }
 .vx-docs-main :is(dl.py, dl.c) > dd { margin: var(--space-12) 0 0 var(--space-24); }
 .vx-docs-main dl.field-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-8) var(--space-24); font-size: 1rem; }
-.vx-docs-main dl.field-list > dt { padding-top: var(--space-4); }
+/* The labels (Parameters, Return type) are ink in the headings' voice, so each field reads as a group. */
+.vx-docs-main dl.field-list > dt { padding-top: var(--space-4); font: 600 0.875rem/1.5 var(--font-mono); color: var(--ink); }
 .vx-docs-main dl.field-list > dt .colon { display: none; }
 .vx-docs-main dl.field-list > dd { margin: 0; }
 .vx-docs-main dl.field-list > dd > :last-child { margin-bottom: 0; }
+/* A linked type is a type, as in the signature, not an inline code chip: a row of chips reads as boxes. */
+.vx-docs-main dl.field-list a.reference > code.xref { padding: 0; background: none; border: 0; color: var(--syntax-type); }
+.vx-docs-main dl.field-list a.reference:hover > code.xref { text-decoration: underline; }
 
 /* Footnotes, the indexes, and search. */
 .vx-docs-main aside.footnote { display: flex; gap: var(--space-8); font-size: 0.875rem; color: var(--ink-muted); }
