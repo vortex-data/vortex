@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -22,6 +23,36 @@ use vortex_arrow::ArrowSession;
 ///
 /// For these types, we use the logical schema's type instead of the DType's natural Arrow
 /// conversion, since Vortex's Arrow executor can produce these types when requested.
+///
+/// A physical field takes the metadata of its logical field, including the `ARROW:extension:name`
+/// and `ARROW:extension:metadata` entries that name an Arrow extension type. So every logical
+/// field, including a nested one, must name the same extension type with the same metadata as the
+/// field that [`ArrowSession::to_arrow_field`] exports for the file's dtype, or both must name
+/// none. Otherwise the scan would label plain values with an extension type, read extension values
+/// as their plain storage, or give the values the parameters of another type, so the schema fails
+/// instead. A dtype that cannot be exported fails too. In particular:
+///
+/// - A missing `ARROW:extension:metadata` entry matches an empty one, since writers differ on
+///   whether they write an empty entry for a type without parameters.
+/// - When only the metadata differs, the logical field still matches if
+///   [`ArrowSession::from_arrow_field`] imports it as the file's dtype, ignoring nullability, since
+///   writers can serialize the same parameters differently. A field that fails to import does not
+///   match.
+/// - A temporal dtype such as [`Timestamp`] exports as a native Arrow type with no extension type,
+///   so its logical field must name none.
+/// - A dictionary field names the extension type of its values on itself, since Arrow gives the
+///   values no field of their own. Its value type must match the file's dtype like the type of any
+///   other field.
+/// - A run-end field names the extension type of its values on its values field, since the Arrow
+///   import and export read it from there (`run_end_values_field` and `export_values` in
+///   `vortex-arrow`). So its values field must match the file's dtype instead, and the run-end
+///   field itself must name none.
+/// - The `entries` field of a map has no Vortex dtype, so no export names an extension type on it,
+///   and it must name none.
+/// - A [`Null`](DType::Null) dtype has no values to mislabel, so it matches a logical field that
+///   names any extension type. The values of a run-end or dictionary field over it are not checked.
+///
+/// [`Timestamp`]: vortex::extension::datetime::Timestamp
 pub fn calculate_physical_schema(
     dtype: &DType,
     reference_logical_schema: &Schema,
@@ -51,7 +82,8 @@ pub fn calculate_physical_schema(
                 Some(logical_field) => {
                     let arrow_type = calculate_physical_field_type(
                         &field_dtype,
-                        logical_field.data_type(),
+                        logical_field,
+                        None,
                         arrow_session,
                     )?;
                     Ok(
@@ -74,15 +106,61 @@ pub fn calculate_physical_schema(
 
 /// Calculate the physical Arrow type for a field, preferring the logical type when the
 /// DType doesn't roundtrip cleanly.
+///
+/// Fails when `logical_field` does not match `dtype`, as [`calculate_physical_schema`] describes.
+/// `parent_path` is the path of the field that contains `logical_field`, or `None` for a top-level
+/// column. Errors name `logical_field` by its path.
 fn calculate_physical_field_type(
     dtype: &DType,
-    logical_type: &DataType,
+    logical_field: &Field,
+    parent_path: Option<&ColumnPath<'_>>,
     arrow_session: &ArrowSession,
 ) -> DFResult<DataType> {
-    // An extension dtype has the layout of its storage dtype, and the field metadata that names the
-    // extension comes from the logical field. So the layout checks below use the storage dtype.
-    // Temporal dtypes export as native Arrow types (see `ArrowSession::to_arrow_field`), which only
-    // the default arm matches.
+    let path = ColumnPath {
+        parent: parent_path,
+        name: logical_field.name(),
+    };
+    let logical_type = logical_field.data_type();
+
+    // A `Null` dtype skips the run-end and dictionary checks below, since the checks of the values
+    // would reject it under value types such as `Utf8`.
+    let is_null_dtype = matches!(dtype, DType::Null);
+    if is_null_dtype
+        && matches!(
+            logical_type,
+            DataType::RunEndEncoded(..) | DataType::Dictionary(..)
+        )
+    {
+        return Ok(logical_type.clone());
+    }
+
+    // Run-end and dictionary types lose their encoding, so the executor encodes the values into the
+    // logical type, and the checks apply to the values.
+    if let DataType::RunEndEncoded(_, logical_values) = logical_type {
+        ensure_no_extension_type(logical_field, "Run-end", &path)?;
+        calculate_physical_field_type(dtype, logical_values, Some(&path), arrow_session)?;
+        return Ok(logical_type.clone());
+    }
+    if let DataType::Dictionary(_, value_type) = logical_type {
+        // Arrow gives dictionary values no field of their own, so they keep the name, metadata, and
+        // path of the dictionary field.
+        let logical_values = logical_field
+            .clone()
+            .with_data_type(value_type.as_ref().clone());
+        calculate_physical_field_type(dtype, &logical_values, parent_path, arrow_session)?;
+        return Ok(logical_type.clone());
+    }
+
+    let exported_field = arrow_session
+        .to_arrow_field(logical_field.name(), dtype)
+        .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?;
+    if !is_null_dtype {
+        ensure_extension_type_matches(dtype, logical_field, &exported_field, &path, arrow_session)?;
+    }
+
+    // An extension column has the Arrow layout of its storage, and the check above matched its
+    // extension type, so the layout checks use the storage dtype. Temporal dtypes export as native
+    // Arrow types (see `ArrowSession::to_arrow_field`), which only the default arm matches.
     let mut storage_dtype = dtype;
     while let DType::Extension(ext) = storage_dtype {
         storage_dtype = ext.storage_dtype();
@@ -90,9 +168,6 @@ fn calculate_physical_field_type(
 
     // Check if the logical type is one that doesn't roundtrip through DType
     Ok(match logical_type {
-        // Dictionary types lose their encoding when converted to DType
-        DataType::Dictionary(..) => logical_type.clone(),
-
         // Non-view string/binary types become view types after roundtrip
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
             if storage_dtype.is_binary() || storage_dtype.is_utf8() {
@@ -104,9 +179,6 @@ fn calculate_physical_field_type(
             }
         }
 
-        // RunEndEncoded loses its encoding
-        DataType::RunEndEncoded(..) => logical_type.clone(),
-
         // For struct types, recursively check each field.
         DataType::Struct(logical_fields) => {
             if let DType::Struct(struct_dtype, _) = storage_dtype {
@@ -116,10 +188,11 @@ fn calculate_physical_field_type(
                     .zip(struct_dtype.fields())
                     .map(|(name, field_dtype)| {
                         match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
-                            Some(logical_field) => {
+                            Some(logical_child) => {
                                 let arrow_type = calculate_physical_field_type(
                                     &field_dtype,
-                                    logical_field.data_type(),
+                                    logical_child,
+                                    Some(&path),
                                     arrow_session,
                                 )?;
                                 Ok(
@@ -128,7 +201,7 @@ fn calculate_physical_field_type(
                                         arrow_type,
                                         field_dtype.is_nullable(),
                                     )
-                                    .with_metadata(logical_field.metadata().clone()),
+                                    .with_metadata(logical_child.metadata().clone()),
                                 )
                             }
                             None => arrow_session
@@ -153,7 +226,8 @@ fn calculate_physical_field_type(
             if let DType::List(elem_dtype, _) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
-                    logical_elem.data_type(),
+                    logical_elem,
+                    Some(&path),
                     arrow_session,
                 )?;
                 let physical_field = Field::new(
@@ -179,7 +253,8 @@ fn calculate_physical_field_type(
             if let DType::FixedSizeList(elem_dtype, ..) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
-                    logical_elem.data_type(),
+                    logical_elem,
+                    Some(&path),
                     arrow_session,
                 )?;
                 let physical_field = Field::new(
@@ -204,6 +279,11 @@ fn calculate_physical_field_type(
                     "Failed to convert dtype to arrow: Vortex DType is {dtype} which is not compatible with {logical_type}"
                 ));
             };
+            let entries_path = ColumnPath {
+                parent: Some(&path),
+                name: logical_entries.name(),
+            };
+            ensure_no_extension_type(logical_entries, "Map entries", &entries_path)?;
             let DataType::Struct(logical_fields) = logical_entries.data_type() else {
                 return Err(exec_datafusion_err!(
                     "Failed to convert dtype to arrow: Arrow Map entries must be a Struct, got {:?}",
@@ -220,7 +300,8 @@ fn calculate_physical_field_type(
                 logical_fields[0].name(),
                 calculate_physical_field_type(
                     &map_dtype.key_dtype(),
-                    logical_fields[0].data_type(),
+                    &logical_fields[0],
+                    Some(&entries_path),
                     arrow_session,
                 )?,
                 false,
@@ -230,7 +311,8 @@ fn calculate_physical_field_type(
                 logical_fields[1].name(),
                 calculate_physical_field_type(
                     &map_dtype.value_dtype(),
-                    logical_fields[1].data_type(),
+                    &logical_fields[1],
+                    Some(&entries_path),
                     arrow_session,
                 )?,
                 logical_fields[1].is_nullable(),
@@ -247,7 +329,8 @@ fn calculate_physical_field_type(
             if let DType::List(elem_dtype, _) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
-                    logical_elem.data_type(),
+                    logical_elem,
+                    Some(&path),
                     arrow_session,
                 )?;
                 let physical_field = Field::new(
@@ -269,29 +352,141 @@ fn calculate_physical_field_type(
         }
         // All other types roundtrip cleanly, use the session-aware Arrow Field inference
         // (canonical for non-extension dtypes, plugin-routed for extensions like UUID).
-        _ => arrow_session
-            .to_arrow_field("", dtype)
-            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
-            .data_type()
-            .clone(),
+        _ => exported_field.data_type().clone(),
     })
+}
+
+/// Fails when `logical_field` does not name the Arrow extension type of `dtype`, which
+/// `exported_field` names, as [`calculate_physical_schema`] describes.
+fn ensure_extension_type_matches(
+    dtype: &DType,
+    logical_field: &Field,
+    exported_field: &Field,
+    path: &ColumnPath<'_>,
+    arrow_session: &ArrowSession,
+) -> DFResult<()> {
+    let expected = FieldExtensionType::of(exported_field);
+    let actual = FieldExtensionType::of(logical_field);
+    if actual == expected {
+        return Ok(());
+    }
+
+    let only_metadata_differs = matches!(
+        (expected, actual),
+        (
+            FieldExtensionType::Named { name: expected_name, .. },
+            FieldExtensionType::Named { name: actual_name, .. },
+        ) if expected_name == actual_name
+    );
+    if only_metadata_differs
+        && arrow_session
+            .from_arrow_field(logical_field)
+            .is_ok_and(|imported| imported.eq_ignore_nullability(dtype))
+    {
+        return Ok(());
+    }
+
+    Err(exec_datafusion_err!(
+        "Field {path} must name {expected} for Vortex DType {dtype}, got {actual}"
+    ))
+}
+
+/// Fails when `field` names an Arrow extension type. `kind` names the kind of field, such as
+/// `Run-end`, at the start of the error message.
+fn ensure_no_extension_type(field: &Field, kind: &str, path: &ColumnPath<'_>) -> DFResult<()> {
+    match FieldExtensionType::of(field) {
+        FieldExtensionType::Plain => Ok(()),
+        actual => Err(exec_datafusion_err!(
+            "{kind} field {path} must name no Arrow extension type, got {actual}"
+        )),
+    }
+}
+
+/// The names of the Arrow fields from a top-level column down to a nested field, which error
+/// messages join with `.`, such as `col.entries.key`.
+struct ColumnPath<'a> {
+    /// The path of the field that contains this one, or `None` for a top-level column.
+    parent: Option<&'a ColumnPath<'a>>,
+    name: &'a str,
+}
+
+impl fmt::Display for ColumnPath<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(parent) = self.parent {
+            write!(f, "{parent}.")?;
+        }
+        f.write_str(self.name)
+    }
+}
+
+/// The Arrow extension type that a field names in its `ARROW:extension:name` and
+/// `ARROW:extension:metadata` entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldExtensionType<'a> {
+    /// The field names no extension type.
+    Plain,
+    /// The field names the extension type `name` with `metadata`, which is empty when the field has
+    /// no metadata entry, as [`calculate_physical_schema`] describes.
+    Named { name: &'a str, metadata: &'a str },
+}
+
+impl<'a> FieldExtensionType<'a> {
+    fn of(field: &'a Field) -> Self {
+        match field.extension_type_name() {
+            Some(name) => Self::Named {
+                name,
+                metadata: field.extension_type_metadata().unwrap_or_default(),
+            },
+            None => Self::Plain,
+        }
+    }
+}
+
+impl fmt::Display for FieldExtensionType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Plain => f.write_str("no Arrow extension type"),
+            Self::Named { name, metadata: "" } => write!(f, "Arrow extension type {name}"),
+            Self::Named { name, metadata } => {
+                write!(
+                    f,
+                    "Arrow extension type {name} with metadata \"{metadata}\""
+                )
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use arrow_schema::FieldRef;
     use arrow_schema::Fields;
+    use arrow_schema::TimeUnit as ArrowTimeUnit;
+    use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+    use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+    use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::EmptyMetadata;
+    use vortex::array::ExecutionCtx;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
     use vortex::dtype::extension::ExtDType;
     use vortex::dtype::extension::ExtId;
     use vortex::dtype::extension::ExtVTable;
+    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::extension::datetime::TimeUnit;
+    use vortex::extension::datetime::Timestamp;
     use vortex::scalar::ScalarValue;
     use vortex::session::registry::CachedId;
+    use vortex::session::registry::Id;
+    use vortex_arrow::ArrowExport;
+    use vortex_arrow::ArrowExportOptions;
+    use vortex_arrow::ArrowExportVTable;
+    use vortex_json::Json;
 
     use super::*;
 
@@ -632,6 +827,9 @@ mod tests {
         Ok(())
     }
 
+    /// The Vortex ID of [`AnyStorage`], which its Arrow export also uses as the extension name.
+    const ANY_STORAGE: &str = "test.any_storage";
+
     /// An extension type that accepts every storage dtype, so one type can wrap each layout.
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct AnyStorage;
@@ -641,7 +839,7 @@ mod tests {
         type NativeValue<'a> = &'a ScalarValue;
 
         fn id(&self) -> ExtId {
-            static ID: CachedId = CachedId::new("test.any_storage");
+            static ID: CachedId = CachedId::new(ANY_STORAGE);
             *ID
         }
 
@@ -665,62 +863,488 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_extension_storage_layouts_preserved() -> anyhow::Result<()> {
-        let item = || Arc::new(Field::new("item", DataType::Int32, false));
-        let entries = Field::new_struct(
-            "entries",
-            vec![
-                Field::new("key", DataType::Int32, false),
-                Field::new("value", DataType::Int32, false),
-            ],
-            false,
-        );
-        let logical_schema = Schema::new(vec![
-            Field::new("utf8_col", DataType::Utf8, true),
-            Field::new("list_col", DataType::List(item()), true),
-            Field::new("fsl_col", DataType::FixedSizeList(item(), 3), true),
-            Field::new("map_col", DataType::Map(Arc::new(entries), false), true),
-            Field::new("listview_col", DataType::ListView(item()), true),
-        ]);
+    // The physical schema exports the dtype of every field, so `AnyStorage` needs an exporter.
+    impl ArrowExportVTable for AnyStorage {
+        fn arrow_ext_id(&self) -> Id {
+            self.id()
+        }
 
-        let int32 = || DType::Primitive(PType::I32, Nullability::NonNullable);
-        let extension = |storage_dtype| -> VortexResult<DType> {
-            Ok(DType::Extension(
-                ExtDType::<AnyStorage>::try_new(EmptyMetadata, storage_dtype)?.erased(),
-            ))
-        };
-        let dtype = DType::Struct(
-            StructFields::from_iter([
-                ("utf8_col", extension(DType::Utf8(Nullability::Nullable))?),
-                (
-                    "list_col",
-                    extension(DType::list(int32(), Nullability::Nullable))?,
-                ),
-                (
-                    "fsl_col",
-                    extension(DType::FixedSizeList(
-                        Arc::new(int32()),
-                        3,
-                        Nullability::Nullable,
-                    ))?,
-                ),
-                (
-                    "map_col",
-                    extension(DType::map(int32(), int32(), false, Nullability::Nullable)?)?,
-                ),
-                // Vortex has one list dtype, which the table can also read as a `ListView`.
-                (
-                    "listview_col",
-                    extension(DType::list(int32(), Nullability::Nullable))?,
-                ),
-            ]),
+        fn vortex_id(&self) -> Id {
+            self.id()
+        }
+
+        fn to_arrow_field(
+            &self,
+            name: &str,
+            dtype: &DType,
+            session: &ArrowSession,
+        ) -> VortexResult<Option<Field>> {
+            let storage_field =
+                session.to_arrow_field(name, dtype.as_extension().storage_dtype())?;
+            Ok(Some(with_extension(storage_field, ANY_STORAGE, None)))
+        }
+
+        fn execute_arrow(
+            &self,
+            array: ArrayRef,
+            _target: &Field,
+            _options: &ArrowExportOptions,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrowExport> {
+            // The schema tests never execute an array.
+            Ok(ArrowExport::Unsupported(array))
+        }
+    }
+
+    /// Calculates the physical schema of a file whose only column has `dtype`, for a table whose
+    /// only field is `logical_field`. The Arrow session exports [`AnyStorage`] but cannot import
+    /// it, and it exports and imports [`Json`].
+    fn single_column_physical_schema(logical_field: &Field, dtype: DType) -> DFResult<Schema> {
+        let arrow_session = ArrowSession::default();
+        arrow_session.register_exporter(Arc::new(AnyStorage));
+        arrow_session.register_exporter(Arc::new(Json));
+        arrow_session.register_importer(Arc::new(Json));
+
+        let file_dtype = DType::struct_(
+            [(logical_field.name().as_str(), dtype)],
             Nullability::NonNullable,
         );
 
-        let physical_schema =
-            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
-        assert_eq!(physical_schema, logical_schema);
+        calculate_physical_schema(
+            &file_dtype,
+            &Schema::new(vec![logical_field.clone()]),
+            &arrow_session,
+        )
+    }
+
+    /// Asserts that the physical schema rejects `logical_field` over `dtype` with an error that
+    /// contains `expected`.
+    #[track_caller]
+    fn assert_physical_schema_error(logical_field: &Field, dtype: DType, expected: &str) {
+        let error = single_column_physical_schema(logical_field, dtype)
+            .expect_err("the physical schema must reject the table field");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+
+    /// Wraps `storage_dtype` in [`AnyStorage`].
+    fn any_storage(storage_dtype: DType) -> DType {
+        DType::Extension(
+            ExtDType::<AnyStorage>::try_new(EmptyMetadata, storage_dtype)
+                .vortex_expect("AnyStorage accepts every storage dtype")
+                .erased(),
+        )
+    }
+
+    /// The [`Json`] dtype over nullable `utf8` storage. Its export has an empty metadata entry.
+    fn json() -> DType {
+        DType::Extension(
+            ExtDType::<Json>::try_new(EmptyMetadata, utf8())
+                .vortex_expect("Json accepts utf8 storage")
+                .erased(),
+        )
+    }
+
+    /// Names the Arrow extension type `name` on `field`, with `metadata` if it is given.
+    fn with_extension(mut field: Field, name: &str, metadata: Option<&str>) -> Field {
+        field
+            .metadata_mut()
+            .insert(EXTENSION_TYPE_NAME_KEY.to_owned(), name.to_owned());
+        if let Some(metadata) = metadata {
+            field
+                .metadata_mut()
+                .insert(EXTENSION_TYPE_METADATA_KEY.to_owned(), metadata.to_owned());
+        }
+
+        field
+    }
+
+    /// A nullable field `col` of `data_type` that names [`AnyStorage`].
+    fn any_storage_column(data_type: DataType) -> Field {
+        with_extension(Field::new("col", data_type, true), ANY_STORAGE, None)
+    }
+
+    fn int32() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    fn utf8() -> DType {
+        DType::Utf8(Nullability::Nullable)
+    }
+
+    fn int32_field(name: &str) -> Field {
+        Field::new(name, DataType::Int32, false)
+    }
+
+    fn int32_item() -> FieldRef {
+        Arc::new(int32_field("item"))
+    }
+
+    fn utf8_column() -> Field {
+        Field::new("col", DataType::Utf8, true)
+    }
+
+    fn utf8_item() -> Field {
+        Field::new_list_field(DataType::Utf8, true)
+    }
+
+    fn utf8_values() -> Field {
+        Field::new("values", DataType::Utf8, true)
+    }
+
+    fn utf8_dictionary() -> Field {
+        Field::new_dictionary("col", DataType::Int32, DataType::Utf8, true)
+    }
+
+    /// The entries field `entries` of a map, with the fields `key` and `value`.
+    fn map_entries(key: Field, value: Field) -> Field {
+        Field::new_struct("entries", vec![key, value], false)
+    }
+
+    /// A map field `col` with the entries field `entries`.
+    fn map_column(entries: Field) -> Field {
+        Field::new("col", DataType::Map(Arc::new(entries), false), true)
+    }
+
+    fn int32_map() -> DataType {
+        DataType::Map(
+            Arc::new(map_entries(int32_field("key"), int32_field("value"))),
+            false,
+        )
+    }
+
+    fn int32_map_dtype() -> DType {
+        DType::map(int32(), int32(), false, Nullability::Nullable)
+            .vortex_expect("Int32 is a valid map key")
+    }
+
+    /// A run-end field `col` with `Int32` run ends and the values field `values`.
+    fn run_end(values: Field) -> Field {
+        Field::new(
+            "col",
+            DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", DataType::Int32, false)),
+                Arc::new(values),
+            ),
+            true,
+        )
+    }
+
+    fn timestamp() -> DType {
+        DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased())
+    }
+
+    fn timestamp_column() -> Field {
+        Field::new(
+            "col",
+            DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+            true,
+        )
+    }
+
+    /// A table field that matches the extension type of the file dtype keeps its type and metadata.
+    #[rstest]
+    // The layout checks read the storage of an extension column.
+    #[case::utf8_storage(any_storage_column(DataType::Utf8), any_storage(utf8()))]
+    #[case::list_storage(
+        any_storage_column(DataType::List(int32_item())),
+        any_storage(DType::list(int32(), Nullability::Nullable))
+    )]
+    // Vortex has one list dtype, which the table can read as a `ListView` instead of a `List`.
+    #[case::list_view_storage(
+        any_storage_column(DataType::ListView(int32_item())),
+        any_storage(DType::list(int32(), Nullability::Nullable))
+    )]
+    #[case::fixed_size_list_storage(
+        any_storage_column(DataType::FixedSizeList(int32_item(), 3)),
+        any_storage(DType::FixedSizeList(Arc::new(int32()), 3, Nullability::Nullable))
+    )]
+    #[case::map_storage(any_storage_column(int32_map()), any_storage(int32_map_dtype()))]
+    // A run-end field names the extension type of its values on its values field.
+    #[case::extension_values_over_extension(
+        run_end(with_extension(utf8_values(), ANY_STORAGE, None)),
+        any_storage(utf8())
+    )]
+    #[case::extension_values_in_struct(
+        Field::new_struct(
+            "col",
+            vec![run_end(with_extension(utf8_values(), ANY_STORAGE, None)).with_name("a")],
+            true
+        ),
+        DType::struct_([("a", any_storage(utf8()))], Nullability::Nullable)
+    )]
+    #[case::extension_values_in_list(
+        Field::new_list(
+            "col",
+            run_end(with_extension(utf8_values(), ANY_STORAGE, None)).with_name("item"),
+            true
+        ),
+        DType::list(any_storage(utf8()), Nullability::Nullable)
+    )]
+    // A dictionary field names the extension type of its values on itself.
+    #[case::extension_dictionary_over_extension(
+        with_extension(utf8_dictionary(), ANY_STORAGE, None),
+        any_storage(utf8())
+    )]
+    // A field names the outer extension type of an extension stored in another one.
+    #[case::extension_over_nested_extension(
+        with_extension(utf8_column(), ANY_STORAGE, None),
+        any_storage(json())
+    )]
+    // The export of `AnyStorage` has no metadata entry, which matches an empty one.
+    #[case::empty_metadata_over_no_metadata(
+        with_extension(utf8_column(), ANY_STORAGE, Some("")),
+        any_storage(utf8())
+    )]
+    // The export of `Json` has an empty metadata entry, which matches a missing one.
+    #[case::no_metadata_over_empty_metadata(
+        with_extension(utf8_column(), "arrow.json", None),
+        json()
+    )]
+    // `Json` imports the metadata `{}` as the same dtype as its own empty metadata.
+    #[case::equivalent_metadata(with_extension(utf8_column(), "arrow.json", Some("{}")), json())]
+    // A temporal dtype exports as a native Arrow type with no extension type.
+    #[case::plain_column_over_temporal(timestamp_column(), timestamp())]
+    fn test_extension_type_match_accepted(
+        #[case] logical_field: Field,
+        #[case] dtype: DType,
+    ) -> DFResult<()> {
+        assert_eq!(
+            single_column_physical_schema(&logical_field, dtype)?,
+            Schema::new(vec![logical_field])
+        );
+
+        Ok(())
+    }
+
+    /// The physical schema rejects a table field that does not match the extension type of the file
+    /// dtype, as [`calculate_physical_schema`] describes, and the error names the field's path.
+    #[rstest]
+    #[case::plain_column_over_extension(
+        utf8_column(),
+        any_storage(utf8()),
+        "Field col must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got no Arrow extension type"
+    )]
+    #[case::extension_column_over_plain(
+        with_extension(utf8_column(), ANY_STORAGE, None),
+        utf8(),
+        "Field col must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_column_over_temporal(
+        with_extension(timestamp_column(), "test.other", None),
+        timestamp(),
+        "Field col must name no Arrow extension type for Vortex DType vortex.timestamp[ms](i64?), got Arrow extension type test.other"
+    )]
+    #[case::other_extension_name(
+        with_extension(utf8_column(), "test.other", None),
+        any_storage(utf8()),
+        "Field col must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got Arrow extension type test.other"
+    )]
+    // The session cannot import `AnyStorage`, so other metadata cannot import as its dtype.
+    #[case::other_extension_metadata(
+        with_extension(utf8_column(), ANY_STORAGE, Some("other")),
+        any_storage(utf8()),
+        "Field col must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got Arrow extension type test.any_storage with metadata \"other\""
+    )]
+    // `Json` declines to import invalid metadata.
+    #[case::invalid_extension_metadata(
+        with_extension(utf8_column(), "arrow.json", Some("x")),
+        json(),
+        "Field col must name Arrow extension type arrow.json for Vortex DType vortex.json(utf8?), got Arrow extension type arrow.json with metadata \"x\""
+    )]
+    #[case::inner_extension_over_nested_extension(
+        with_extension(utf8_column(), "arrow.json", None),
+        any_storage(json()),
+        "Field col must name Arrow extension type test.any_storage for Vortex DType test.any_storage(vortex.json(utf8?)), got Arrow extension type arrow.json"
+    )]
+    #[case::plain_dictionary_over_extension(
+        utf8_dictionary(),
+        any_storage(utf8()),
+        "Field col must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got no Arrow extension type"
+    )]
+    #[case::extension_dictionary_over_plain(
+        with_extension(utf8_dictionary(), ANY_STORAGE, None),
+        utf8(),
+        "Field col must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_element_in_dictionary_over_plain(
+        Field::new_dictionary(
+            "col",
+            DataType::Int32,
+            DataType::List(Arc::new(with_extension(utf8_item(), ANY_STORAGE, None))),
+            true
+        ),
+        DType::list(utf8(), Nullability::Nullable),
+        "Field col.item must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_values_over_plain(
+        run_end(with_extension(utf8_values(), ANY_STORAGE, None)),
+        utf8(),
+        "Field col.values must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::plain_values_over_extension(
+        run_end(utf8_values()),
+        any_storage(utf8()),
+        "Field col.values must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got no Arrow extension type"
+    )]
+    #[case::extension_run_end_over_extension(
+        with_extension(
+            run_end(with_extension(utf8_values(), ANY_STORAGE, None)),
+            ANY_STORAGE,
+            None
+        ),
+        any_storage(utf8()),
+        "Run-end field col must name no Arrow extension type, got Arrow extension type test.any_storage"
+    )]
+    #[case::plain_values_in_struct_over_extension(
+        Field::new_struct("col", vec![run_end(utf8_values()).with_name("a")], true),
+        DType::struct_([("a", any_storage(utf8()))], Nullability::Nullable),
+        "Field col.a.values must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got no Arrow extension type"
+    )]
+    #[case::extension_values_in_list_over_plain(
+        Field::new_list(
+            "col",
+            run_end(with_extension(utf8_values(), ANY_STORAGE, None)).with_name("item"),
+            true
+        ),
+        DType::list(utf8(), Nullability::Nullable),
+        "Field col.item.values must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::plain_element_over_extension(
+        Field::new_list("col", utf8_item(), true),
+        DType::list(any_storage(utf8()), Nullability::Nullable),
+        "Field col.item must name Arrow extension type test.any_storage for Vortex DType test.any_storage(utf8?), got no Arrow extension type"
+    )]
+    #[case::extension_element_over_plain(
+        Field::new_list("col", with_extension(utf8_item(), ANY_STORAGE, None), true),
+        DType::list(utf8(), Nullability::Nullable),
+        "Field col.item must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_fixed_size_list_element_over_plain(
+        Field::new_fixed_size_list("col", with_extension(utf8_item(), ANY_STORAGE, None), 3, true),
+        DType::FixedSizeList(Arc::new(utf8()), 3, Nullability::Nullable),
+        "Field col.item must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_list_view_element_over_plain(
+        Field::new(
+            "col",
+            DataType::ListView(Arc::new(with_extension(utf8_item(), ANY_STORAGE, None))),
+            true
+        ),
+        DType::list(utf8(), Nullability::Nullable),
+        "Field col.item must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_struct_child_over_plain(
+        Field::new_struct(
+            "col",
+            vec![with_extension(Field::new("a", DataType::Utf8, true), ANY_STORAGE, None)],
+            true
+        ),
+        DType::struct_([("a", utf8())], Nullability::Nullable),
+        "Field col.a must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_map_key_over_plain(
+        map_column(map_entries(
+            with_extension(int32_field("key"), ANY_STORAGE, None),
+            int32_field("value")
+        )),
+        int32_map_dtype(),
+        "Field col.entries.key must name no Arrow extension type for Vortex DType i32, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_map_value_over_plain(
+        map_column(map_entries(
+            int32_field("key"),
+            with_extension(int32_field("value"), ANY_STORAGE, None)
+        )),
+        int32_map_dtype(),
+        "Field col.entries.value must name no Arrow extension type for Vortex DType i32, got Arrow extension type test.any_storage"
+    )]
+    #[case::extension_map_entries(
+        map_column(with_extension(
+            map_entries(int32_field("key"), int32_field("value")),
+            ANY_STORAGE,
+            None
+        )),
+        int32_map_dtype(),
+        "Map entries field col.entries must name no Arrow extension type, got Arrow extension type test.any_storage"
+    )]
+    fn test_extension_type_mismatch_rejected(
+        #[case] logical_field: Field,
+        #[case] dtype: DType,
+        #[case] expected: &str,
+    ) {
+        assert_physical_schema_error(&logical_field, dtype, expected);
+    }
+
+    /// The values of a run-end or dictionary field get the layout checks of any field, since the
+    /// executor encodes the values into the logical type.
+    #[rstest]
+    #[case::run_end(run_end(utf8_values()))]
+    #[case::dictionary(utf8_dictionary())]
+    fn test_encoded_values_layout_mismatch_rejected(#[case] logical_field: Field) {
+        assert_physical_schema_error(
+            &logical_field,
+            int32(),
+            "Failed to convert dtype to arrow: Vortex DType is i32 which is not compatible with Utf8",
+        );
+    }
+
+    /// The physical schema exports the dtype of every field, so a dtype that the session cannot
+    /// export fails, even under a table field whose layout matches its storage.
+    #[test]
+    fn test_unexportable_dtype_rejected() {
+        let file_dtype = DType::struct_([("col", any_storage(utf8()))], Nullability::NonNullable);
+        let logical_schema = Schema::new(vec![utf8_column()]);
+
+        // The default session has no exporter for `AnyStorage`.
+        let error =
+            calculate_physical_schema(&file_dtype, &logical_schema, &ArrowSession::default())
+                .expect_err("a dtype that the session cannot export must fail");
+        assert!(
+            error.to_string().contains(
+                "Failed to convert dtype to arrow: extension type cannot be converted to Arrow without a plugin: test.any_storage(utf8?)"
+            ),
+            "{error}"
+        );
+    }
+
+    /// A `Null` file column has no values to mislabel, so it matches a table field that names any
+    /// extension type, with the physical type `Null` and the table field's metadata. A run-end or
+    /// dictionary field over it keeps its type, which the executor fills with nulls.
+    #[rstest]
+    #[case::extension_column(
+        with_extension(Field::new("col", DataType::Utf8View, true), ANY_STORAGE, None),
+        DType::Null,
+        with_extension(Field::new("col", DataType::Null, true), ANY_STORAGE, None)
+    )]
+    #[case::extension_element(
+        Field::new_list(
+            "col",
+            with_extension(Field::new_list_field(DataType::Utf8View, true), ANY_STORAGE, None),
+            true
+        ),
+        DType::list(DType::Null, Nullability::Nullable),
+        Field::new_list(
+            "col",
+            with_extension(Field::new_list_field(DataType::Null, true), ANY_STORAGE, None),
+            true
+        )
+    )]
+    #[case::run_end(run_end(utf8_values()), DType::Null, run_end(utf8_values()))]
+    #[case::run_end_in_struct(
+        Field::new_struct("col", vec![run_end(utf8_values()).with_name("a")], true),
+        DType::struct_([("a", DType::Null)], Nullability::Nullable),
+        Field::new_struct("col", vec![run_end(utf8_values()).with_name("a")], true)
+    )]
+    #[case::dictionary(utf8_dictionary(), DType::Null, utf8_dictionary())]
+    fn test_null_dtype_accepted(
+        #[case] logical_field: Field,
+        #[case] dtype: DType,
+        #[case] physical_field: Field,
+    ) -> DFResult<()> {
+        assert_eq!(
+            single_column_physical_schema(&logical_field, dtype)?,
+            Schema::new(vec![physical_field])
+        );
 
         Ok(())
     }
