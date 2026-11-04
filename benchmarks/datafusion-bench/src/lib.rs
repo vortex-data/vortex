@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod latency_store;
 pub mod metrics;
 pub mod tracer;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::file_format::csv::CsvFormat;
@@ -16,6 +18,7 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use latency_store::LatencyStore;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
@@ -90,9 +93,18 @@ pub fn make_object_store(
             Ok(gcs)
         }
         _ => {
-            let fs = Arc::new(LocalFileSystem::default());
-            session
-                .register_object_store(&Url::parse("file:/")?, Arc::<LocalFileSystem>::clone(&fs));
+            let fs: Arc<dyn ObjectStore> = match std::env::var("VORTEX_SIM_GET_LATENCY_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                // EXPERIMENT: emulate object storage round trips on local files.
+                Some(ms) => Arc::new(LatencyStore::new(
+                    LocalFileSystem::default(),
+                    Duration::from_millis(ms),
+                )),
+                None => Arc::new(LocalFileSystem::default()),
+            };
+            session.register_object_store(&Url::parse("file:/")?, Arc::clone(&fs));
             Ok(fs)
         }
     }

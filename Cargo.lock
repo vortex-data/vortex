@@ -2801,6 +2801,8 @@ name = "datafusion-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "clap",
  "custom-labels",
  "datafusion 55.2.0",
