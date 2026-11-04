@@ -24,25 +24,25 @@
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.13.23",
-    "apache-arrow": "^21.1.0",
+    "@tanstack/react-virtual": "^3.14.23",
+    "apache-arrow": "^21.2.0",
     "d3-hierarchy": "^3.1.2",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
-    "@storybook/addon-docs": "^10.3.5",
-    "@storybook/react-vite": "^10.3.5",
-    "@tailwindcss/vite": "^4.2.4",
+    "@storybook/addon-docs": "^10.6.5",
+    "@storybook/react-vite": "^10.6.5",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/d3-hierarchy": "^3.1.7",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "storybook": "^10.3.5",
-    "tailwindcss": "^4.2.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "storybook": "^10.6.5",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.0.10"
+    "vite": "^8.3.5"
   },
   "trustedDependencies": []
 }
