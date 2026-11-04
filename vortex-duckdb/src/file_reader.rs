@@ -273,6 +273,7 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
+        .with_prefetch_feedback(global.prefetch_feedback.clone())
 }
 
 /// What a thread's split yields next.

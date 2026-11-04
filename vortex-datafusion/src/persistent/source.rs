@@ -34,6 +34,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::PrefetchFeedback;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -205,6 +206,9 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// What the V2 scans of every file learn about their filtered chunks' projection reads.
+    /// Pushdowns change the filter or projection it describes, so they start a new one.
+    prefetch_feedback: PrefetchFeedback,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -243,6 +247,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            prefetch_feedback: PrefetchFeedback::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -370,6 +375,7 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
             scan_caches: Arc::clone(&self.scan_caches),
+            prefetch_feedback: self.prefetch_feedback.clone(),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
@@ -493,6 +499,7 @@ impl FileSource for VortexSource {
         }
 
         let mut source = self.clone();
+        source.prefetch_feedback = PrefetchFeedback::default();
 
         // Combine new filters with existing predicate for file pruning.
         // This full predicate is used by FilePruner to eliminate files.
@@ -564,6 +571,7 @@ impl FileSource for VortexSource {
         projection: &ProjectionExprs,
     ) -> DFResult<Option<Arc<dyn FileSource>>> {
         let mut source = self.clone();
+        source.prefetch_feedback = PrefetchFeedback::default();
         source.projection = self.projection.try_merge(projection)?;
         Ok(Some(Arc::new(source)))
     }

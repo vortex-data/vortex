@@ -50,6 +50,7 @@ pub use crate::scan::execution::ChunkPlanner;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
 use crate::scan::execution::PROJECTED_ROWS_PER_CHUNK;
+pub use crate::scan::execution::PrefetchFeedback;
 pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
@@ -100,6 +101,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    prefetch: Option<PrefetchFeedback>,
 }
 
 impl ScanBuilder {
@@ -113,6 +115,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            prefetch: None,
         }
     }
 
@@ -153,6 +156,14 @@ impl ScanBuilder {
     /// Selects rows by strictly sorted file-local indices.
     pub fn with_row_indices(self, row_indices: StrictSortedBuffer<u64>) -> Self {
         self.with_selection(Selection::IncludeByIndex(row_indices))
+    }
+
+    /// Shares what this scan's filtered chunks learn about their projection reads with the other
+    /// scans given `feedback`. Share it only between scans of the same filter and projection,
+    /// such as one table scan's files; otherwise the scans of one file's filter share their own.
+    pub fn with_prefetch_feedback(mut self, feedback: PrefetchFeedback) -> Self {
+        self.prefetch = Some(feedback);
+        self
     }
 
     /// Sets the root row offset used by row-index expressions.
@@ -215,6 +226,10 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let prefetch = self
+            .prefetch
+            .or_else(|| filter.as_ref().map(|filter| filter.feedback.clone()))
+            .unwrap_or_default();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -225,6 +240,7 @@ impl ScanBuilder {
             locations: file.locations,
             projection,
             filter,
+            prefetch,
             row_offset: self.row_offset,
             values,
             chunk_rows,

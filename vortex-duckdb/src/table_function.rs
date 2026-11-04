@@ -37,6 +37,7 @@ use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::layout::scan::v2::PrefetchFeedback;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -184,6 +185,8 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    /// What the V2 scans of every file learn about their filtered chunks' projection reads.
+    pub prefetch_feedback: PrefetchFeedback,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -359,6 +362,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
         scan_v2: crate::scan_v2(),
+        prefetch_feedback: PrefetchFeedback::default(),
     })
 }
 

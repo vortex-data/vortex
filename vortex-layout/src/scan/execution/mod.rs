@@ -43,6 +43,7 @@ pub(crate) use self::chunk::rows_per_chunk;
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub use self::filter::PrefetchFeedback;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
@@ -97,6 +98,9 @@ pub struct PreparedScan {
     pub(super) projection: PlanRef,
     /// The filter's conjuncts, their plans and their pruning plans.
     pub(super) filter: Option<Arc<FilterPlans>>,
+    /// What the scan's filtered chunks learn about their projection reads, and share with the
+    /// scans that read the same feedback.
+    pub(super) prefetch: PrefetchFeedback,
     /// The global row index of the root row domain's first row.
     pub(super) row_offset: u64,
     /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
