@@ -657,7 +657,19 @@ impl Scan {
         rows: Range<u64>,
         mask: &Mask,
     ) -> VortexResult<Vec<SegmentId>> {
+        Self::segments_with_value_cache(session, plan, rows, mask, &ValueCache::default())
+    }
+
+    /// Lists reads after accounting for whole values already retained by the file's scans.
+    pub(crate) fn segments_with_value_cache(
+        session: &VortexSession,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+        values: &ValueCache,
+    ) -> VortexResult<Vec<SegmentId>> {
         let mut core = Core::new(session.clone(), 0);
+        core.values = values.clone();
         core.compile(plan, rows, mask)?;
         let mut segments = core.segments;
         segments.sort_unstable();

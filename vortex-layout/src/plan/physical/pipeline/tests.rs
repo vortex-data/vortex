@@ -15,6 +15,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBin;
@@ -24,11 +26,16 @@ use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -619,6 +626,37 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
     Ok(())
 }
 
+/// Splitting filtered dictionary codes to match another field preserves nulls and row order.
+#[rstest]
+#[case::alternating(Sel::EveryOther)]
+#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
+fn pack_splits_filtered_dictionary_codes(
+    #[case] sel: Sel,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
+    let codes = PrimitiveArray::from_option_iter(
+        (0..ROWS).map(|row| (row % 5 != 0).then_some((row % 3) as u8)),
+    )
+    .into_array();
+    let dict = DictArray::try_new(codes.clone(), values.clone())?.into_array();
+    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
+    let expected =
+        StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?.into_array();
+    let dictionary = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![dictionary, store.chunked(&other, &[7, 5, 8])?],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = sel.mask(ROWS as usize);
+    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
 /// A take reads its values over their whole domain and its codes over the selection, including
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
 /// whole. Later scans sharing its value cache reuse the values and read only the codes; a scan
@@ -778,7 +816,7 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
         .clone();
     let plan = PackPlan::try_new(
         fields,
-        vortex_array::dtype::Nullability::NonNullable,
+        Nullability::NonNullable,
         ROWS,
         vec![column.clone(), column],
         None,
@@ -968,4 +1006,102 @@ fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
         &mut SESSION.create_execution_ctx()
     );
     Ok(())
+}
+
+#[rstest]
+#[case::alternating(Sel::EveryOther)]
+#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
+fn pack_splits_filtered_values(
+    #[case] sel: Sel,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        PrimitiveArray::from_option_iter((0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)))
+            .into_array();
+    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
+    let expected =
+        StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
+            .into_array();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![store.flat(&values)?, store.chunked(&other, &[7, 5, 8])?],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = sel.mask(ROWS as usize);
+    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
+#[rstest]
+#[case::select(false)]
+#[case::aliases(true)]
+fn direct_projection_preserves_field_order_and_aliases(#[case] aliases: bool) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, _) = two_columns(&mut store)?;
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let (expression, expected) = if aliases {
+        (
+            pack(
+                [
+                    ("x", get_item("b", root())),
+                    ("y", get_item("a", root())),
+                    ("z", get_item("a", root())),
+                ],
+                Nullability::NonNullable,
+            ),
+            StructArray::from_fields(&[("x", b), ("y", a.clone()), ("z", a)])?.into_array(),
+        )
+    } else {
+        (
+            select(["b", "a"], root()),
+            StructArray::from_fields(&[("b", b), ("a", a)])?.into_array(),
+        )
+    };
+    let expression = expression.bind(plan.dtype())?;
+    let plan = EvalPlan::try_new(expression, plan)?.into_plan();
+    let rows = 2..18;
+    let mask = Sel::EveryOther.mask(16);
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
+        for order in [Delivery::Fifo, Delivery::Lifo] {
+            let result = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
+            assert_view(&expected, &rows, &mask, result.arrays)?;
+        }
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::alternating(Sel::EveryOther)]
+#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
+fn pack_splits_filtered_extension_components(
+    #[case] sel: Sel,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = ExtensionArray::new(
+        Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
+        PrimitiveArray::from_option_iter(
+            (0..ROWS).map(|row| (row % 5 != 0).then_some(row as i64 * 1_000_000)),
+        )
+        .into_array(),
+    )
+    .into_array();
+    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
+    let expected =
+        StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
+            .into_array();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![store.flat(&values)?, store.chunked(&other, &[7, 5, 8])?],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = sel.mask(ROWS as usize);
+    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }

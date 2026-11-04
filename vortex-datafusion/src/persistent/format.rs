@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use arrow_schema::DataType;
 use arrow_schema::Schema;
@@ -35,6 +36,7 @@ use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
+use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
@@ -67,9 +69,11 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::CachedVortexMetadata;
 use super::sink::VortexSink;
+use super::source::SharedScanState;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
@@ -127,6 +131,7 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 /// [`ListingTable`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingTable.html
 /// [`ListingOptions`]: https://docs.rs/datafusion/latest/datafusion/datasource/listing/struct.ListingOptions.html
 pub struct VortexFormat {
+    scan_states: DashMap<(ObjectStoreUrl, usize), Weak<SharedScanState>>,
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
@@ -459,10 +464,25 @@ impl VortexFormat {
     /// Creates a format with explicit [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
         Self {
+            scan_states: DashMap::default(),
             session,
             opts,
             expression_converter: None,
         }
+    }
+
+    fn shared_scan_state(
+        &self,
+        store_url: ObjectStoreUrl,
+        store: Arc<dyn ObjectStore>,
+    ) -> Arc<SharedScanState> {
+        let store_id = Arc::as_ptr(&store) as *const () as usize;
+        let mut entry = self.scan_states.entry((store_url, store_id)).or_default();
+        entry.upgrade().unwrap_or_else(|| {
+            let shared = Arc::new(SharedScanState::for_store(store));
+            *entry = Arc::downgrade(&shared);
+            shared
+        })
     }
 
     /// Returns the format-specific configuration that will be copied into the
@@ -741,6 +761,11 @@ impl FileFormat for VortexFormat {
 
         source = source
             .with_file_metadata_cache(state.runtime_env().cache_manager.get_file_metadata_cache());
+        if source.options().scan_v2 && source.vortex_reader_factory.is_none() {
+            let store_url = file_scan_config.object_store_url.clone();
+            let store = state.runtime_env().object_store(&store_url)?;
+            source = source.with_scan_state(self.shared_scan_state(store_url, store));
+        }
 
         let conf = FileScanConfigBuilder::from(file_scan_config)
             .with_source(Arc::new(source))
@@ -814,6 +839,7 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExprs;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
+    use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::array::stats::StatsSet;
     use vortex::dtype::Nullability;
@@ -826,6 +852,28 @@ mod tests {
     use crate::convert::DefaultExpressionConverter;
     use crate::convert::ProcessedProjection;
     use crate::convert::scalar_from_df;
+
+    #[test]
+    fn scan_state_is_scoped_to_store_instance_and_released() {
+        let format = VortexFormat::new(VortexSession::default());
+        let url = ObjectStoreUrl::local_filesystem();
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let weak_store = Arc::downgrade(&store);
+        let first = format.shared_scan_state(url.clone(), Arc::clone(&store));
+        let second = format.shared_scan_state(url.clone(), Arc::clone(&store));
+        assert!(Arc::ptr_eq(&first, &second));
+
+        let other = format.shared_scan_state(url, Arc::new(InMemory::new()));
+        assert!(!Arc::ptr_eq(&first, &other));
+
+        let weak_state = Arc::downgrade(&first);
+        drop(store);
+        assert!(weak_store.upgrade().is_some());
+        drop(first);
+        drop(second);
+        assert!(weak_state.upgrade().is_none());
+        assert!(weak_store.upgrade().is_none());
+    }
 
     #[test]
     fn lossy_bound_cast_does_not_prove_constant() -> VortexResult<()> {

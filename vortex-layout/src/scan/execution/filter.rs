@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,6 +10,8 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -33,6 +36,7 @@ use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
+use crate::plan::physical::Eval;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
@@ -40,6 +44,7 @@ use crate::plan::physical::Zoned;
 use crate::plan::physical::optimize;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
+use crate::plan::physical::pipeline::ValueCache;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
@@ -47,9 +52,18 @@ use crate::segments::SegmentId;
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
     expression: FilterExpr,
-    predicates: Vec<PlanRef>,
+    predicates: Vec<PredicatePlan>,
     /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+}
+
+struct PredicatePlan {
+    plan: PlanRef,
+    /// An infallible predicate evaluated in the original row domain, without gathering and
+    /// scattering its boolean result through the current selection.
+    whole: bool,
+    /// Dense infallible predicates can intersect masks without gathering their boolean output.
+    dense_whole: bool,
 }
 
 impl FilterPlans {
@@ -67,7 +81,20 @@ impl FilterPlans {
                     plan_row_idx_expression(expr.clone(), root.clone())?,
                     session,
                 )?;
-                Ok(FilterPlan::new(plan).into_plan())
+                // Sparse filtering through a cross-column OR filters each encoded input.
+                // Evaluate safe disjunctions first, as the V1 struct filter does.
+                let whole_predicate = plan.as_opt::<Eval>().is_some_and(|eval| {
+                    eval.expression()
+                        .as_scalar()
+                        .and_then(|function| function.as_opt::<Binary>())
+                        .is_some_and(|operator| *operator == Operator::Or)
+                }) && infallible(expr);
+                let dense_whole = infallible(expr);
+                Ok(PredicatePlan {
+                    plan: FilterPlan::new(plan).into_plan(),
+                    whole: whole_predicate,
+                    dense_whole,
+                })
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -101,6 +128,13 @@ impl FilterPlans {
     }
 }
 
+fn infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|function| function.signature().is_infallible())
+        && expression.children().iter().all(infallible)
+}
+
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
@@ -130,7 +164,7 @@ pub(super) struct FilterPlanner {
     selected: Option<SelectedRows>,
     filter: Arc<FilterPlans>,
     remaining: BitVec,
-    active: Option<(usize, ScanAdaptor)>,
+    active: Option<(usize, bool, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -141,13 +175,20 @@ pub(super) struct FilterPlanner {
 /// them without IO.
 pub(super) fn segments_read<'a>(
     session: &VortexSession,
+    values: &ValueCache,
     plans: impl Iterator<Item = &'a PlanRef>,
     rows: Range<u64>,
     mask: &Mask,
 ) -> VortexResult<Vec<SegmentId>> {
     let mut segments = Vec::new();
     for plan in plans {
-        segments.extend(Scan::segments(session, plan, rows.clone(), mask)?);
+        segments.extend(Scan::segments_with_value_cache(
+            session,
+            plan,
+            rows.clone(),
+            mask,
+            values,
+        )?);
     }
     segments.sort_unstable();
     segments.dedup();
@@ -200,7 +241,7 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, adaptor)) = &mut self.active {
+        if let Some((_, _, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -212,7 +253,7 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
+            Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
@@ -227,12 +268,17 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                &self.scan.values,
+                self.filter
+                    .predicates
+                    .iter()
+                    .map(|predicate| &predicate.plan),
                 rows.clone(),
                 &selected.mask,
             )?;
             let projection = segments_read(
                 session,
+                &self.scan.values,
                 std::iter::once(&self.scan.projection),
                 rows,
                 &selected.mask,
@@ -260,7 +306,7 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, adaptor)) = &mut self.active {
+        if let Some((index, whole, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
@@ -273,8 +319,13 @@ impl Planner for FilterPlanner {
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
-            vortex_ensure_eq!(result.len(), input);
-            selected.mask = selected.mask.intersect_by_rank(&result);
+            if *whole {
+                vortex_ensure_eq!(result.len(), selected.mask.len());
+                selected.mask = (&selected.mask).bitand(&result);
+            } else {
+                vortex_ensure_eq!(result.len(), input);
+                selected.mask = selected.mask.intersect_by_rank(&result);
+            }
             tracing::debug!(
                 row_start = selected.scope.rows.start,
                 row_end = selected.scope.rows.end,
@@ -295,18 +346,28 @@ impl Planner for FilterPlanner {
         }
         if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
+            let predicate = &self.filter.predicates[index];
+            // Match MaskStage's dense evaluation threshold, but retain the original row
+            // domain so combining conjuncts needs no boolean gather and rank intersection.
+            let whole =
+                predicate.whole || (predicate.dense_whole && selected.mask.density() >= 0.2);
             let scan = Scan::try_new(
                 self.scan.session.clone(),
-                self.filter.predicates[index].clone(),
+                self.filter.predicates[index].plan.clone(),
                 vec![Split {
                     rows: selected.scope.rows.clone(),
-                    mask: selected.mask.clone(),
+                    mask: if whole {
+                        Mask::new_true(selected.mask.len())
+                    } else {
+                        selected.mask.clone()
+                    },
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
             self.active = Some((
                 index,
+                whole,
                 ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
             ));
             return Ok(PlannerOutput::Continue);
