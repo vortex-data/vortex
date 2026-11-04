@@ -179,14 +179,11 @@ pub trait DictionaryParts {
     /// The DuckDB vector of the dictionary values.
     fn values(&self) -> &ReusableDict;
 
-    /// The number of dictionary values.
-    fn values_len(&self) -> usize;
-
     /// The identity of the Vortex values array. Exporters with the same key share `values`.
     fn values_key(&self) -> usize;
 
-    /// Write the codes of rows `offset..offset + codes.len()` into `codes`, each plus `base`.
-    fn write_codes(&self, offset: usize, base: u32, codes: &mut [u32]);
+    /// Write the codes of rows `offset..offset + codes.len()` into `codes`.
+    fn write_codes(&self, offset: usize, codes: &mut [u32]);
 }
 
 fn new_array_exporter(

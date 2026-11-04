@@ -89,14 +89,6 @@ impl VectorRef {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
-    /// Copy the first `count` rows of `src` into this vector, starting at row `offset`.
-    ///
-    /// `src` can be of any vector type. This vector must be flat and have capacity for
-    /// `offset + count` rows. Nested children and string data are copied too.
-    pub fn copy_from(&mut self, src: &VectorRef, count: usize, offset: usize) {
-        unsafe { cpp::duckdb_vx_vector_copy(src.as_ptr(), self.as_ptr(), count as _, offset as _) }
-    }
-
     /// Creates a dictionary vector for a given values vector and selection vector.
     ///
     /// A dictionary holds a strong reference to all memory it uses.

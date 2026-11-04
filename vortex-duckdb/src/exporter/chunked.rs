@@ -6,11 +6,9 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
 use crate::duckdb::SelectionVector;
-use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
@@ -24,10 +22,10 @@ use crate::exporter::new_array_exporter_with_flatten;
 /// crosses chunk boundaries is exported as follows:
 ///
 /// - If every chunk in the range is a dictionary over the same values, the range becomes one
-///   dictionary vector over those values, with no copy.
-/// - If every chunk is a dictionary and their values together are not longer than the range, the
-///   values are joined into one dictionary for the range.
-/// - Otherwise, the range is sliced and canonicalized, and exported as a flat vector.
+///   dictionary vector over those values, with no copy. DuckDB sees the same dictionary as for
+///   the single-chunk ranges, so its dictionary caches still apply.
+/// - Otherwise, the range is sliced and canonicalized, and exported as a flat vector. Joining
+///   different dictionaries would give each range a new dictionary, which DuckDB cannot cache.
 struct ChunkedExporter {
     array: ArrayRef,
     chunk_offsets: Vec<usize>,
@@ -98,7 +96,8 @@ impl ChunkedExporter {
         pieces
     }
 
-    /// Export `pieces` as one dictionary vector, or return `false` if the chunks cannot share one.
+    /// Export `pieces` as one dictionary vector, or return `false` if the chunks are not all
+    /// dictionaries over the same values.
     fn export_dictionary(&self, pieces: &[Piece], len: usize, vector: &mut VectorRef) -> bool {
         let Some(dicts) = pieces
             .iter()
@@ -109,64 +108,20 @@ impl ChunkedExporter {
         };
 
         let first_key = dicts[0].values_key();
-        if dicts.iter().all(|dict| dict.values_key() == first_key) {
-            let mut sel_vec = SelectionVector::with_capacity(len);
-            // SAFETY: the selection vector has capacity for `len` entries, and the pieces write
-            // all of them.
-            let codes = unsafe { sel_vec.as_slice_mut(len) };
-            for (piece, dict) in pieces.iter().zip(&dicts) {
-                let target = piece.target_offset..piece.target_offset + piece.len;
-                dict.write_codes(piece.chunk_offset, 0, &mut codes[target]);
-            }
-
-            vector.reuse_dictionary(dicts[0].values(), &sel_vec, len);
-            return true;
-        }
-
-        // Give each distinct values array one place in the joined dictionary.
-        let mut joined_values: Vec<(&dyn DictionaryParts, usize)> = Vec::new();
-        let mut piece_bases = Vec::with_capacity(dicts.len());
-        let mut values_len = 0;
-        for &dict in &dicts {
-            let known = joined_values
-                .iter()
-                .find(|(known, _)| known.values_key() == dict.values_key());
-            let base = match known {
-                Some(&(_, base)) => base,
-                None => {
-                    let base = values_len;
-                    joined_values.push((dict, base));
-                    values_len += dict.values_len();
-                    base
-                }
-            };
-            piece_bases.push(base);
-        }
-
-        // Joining copies every values array, which costs more than it saves when the values are
-        // longer than the range.
-        if values_len > len || u32::try_from(values_len).is_err() {
+        if !dicts.iter().all(|dict| dict.values_key() == first_key) {
             return false;
-        }
-
-        let mut joined = Vector::with_capacity(&vector.logical_type(), values_len);
-        for &(dict, base) in &joined_values {
-            let mut values = dict.values().clone();
-            joined.copy_from(values.vector(), dict.values_len(), base);
         }
 
         let mut sel_vec = SelectionVector::with_capacity(len);
         // SAFETY: the selection vector has capacity for `len` entries, and the pieces write all
         // of them.
         let codes = unsafe { sel_vec.as_slice_mut(len) };
-        for ((piece, dict), base) in pieces.iter().zip(&dicts).zip(piece_bases) {
-            let base =
-                u32::try_from(base).vortex_expect("base is below values_len, which fits u32");
+        for (piece, dict) in pieces.iter().zip(&dicts) {
             let target = piece.target_offset..piece.target_offset + piece.len;
-            dict.write_codes(piece.chunk_offset, base, &mut codes[target]);
+            dict.write_codes(piece.chunk_offset, &mut codes[target]);
         }
 
-        vector.dictionary(&joined, values_len, &sel_vec, len);
+        vector.reuse_dictionary(dicts[0].values(), &sel_vec, len);
         true
     }
 }
@@ -231,7 +186,7 @@ mod tests {
     }
 
     /// The scan fills each DuckDB vector to its capacity, so a batch can cross chunk boundaries.
-    /// The two dictionaries are shorter than the batch together, so they are joined.
+    /// The chunks have different dictionaries, so the batch is canonicalized.
     #[test]
     fn chunked_exporter_fills_batch_across_chunks() -> VortexResult<()> {
         let array = StructArray::from_fields(&[("field", dict_chunks()?.into_array())])?;
@@ -246,7 +201,7 @@ mod tests {
         assert_eq!(
             String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
-- DICTIONARY VARCHAR: 5 = [ a, b, c, d, e]
+- FLAT VARCHAR: 5 = [ a, b, c, d, e]
 "#
         );
 
@@ -302,8 +257,8 @@ mod tests {
         Ok(())
     }
 
-    /// Dictionaries that are longer than the range together are not joined. The range is
-    /// canonicalized and exported as a flat vector.
+    /// A range across chunks with different dictionaries is canonicalized and exported as a flat
+    /// vector.
     #[test]
     fn chunked_exporter_exports_range_across_chunks() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
