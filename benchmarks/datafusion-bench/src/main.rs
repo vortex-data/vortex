@@ -24,6 +24,7 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
+use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
 use vortex::file::multi::MultiFileDataSource;
@@ -388,6 +389,10 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
         }
 
         eprintln!("metrics for query={query_idx}, {format}:");
+        eprintln!(
+            "{}",
+            DisplayableExecutionPlan::with_metrics(plan.as_ref()).indent(true)
+        );
         for (scan_idx, metrics_set) in metric_sets.iter().enumerate() {
             eprintln!("\tscan[{scan_idx}]:");
             for metric in metrics_set.aggregate().sorted_for_display().iter() {
