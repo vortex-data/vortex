@@ -205,7 +205,8 @@ where
         // SAFETY: `collect_bool` calls this closure with `run_idx < run_ends.len()`.
         let run_end = unsafe { *run_ends.get_unchecked(run_idx) };
 
-        let position: usize = min(run_end.as_() - offset, length).as_();
+        let run_end: u64 = run_end.as_();
+        let position = <u64 as AsPrimitive<usize>>::as_(min(run_end - offset, length));
 
         // SAFETY: the clamp keeps the position at most `length`, which is the mask length.
         let run_rank: u64 = unsafe { rank.rank_unchecked(position) }.as_();
