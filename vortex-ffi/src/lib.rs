@@ -64,8 +64,9 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 
 /// Optional Vortex-owned background workers that drive the shared FFI runtime.
 ///
-/// Creating the pool does not create threads. It starts empty so callers retain the default
-/// host-thread-owned execution model until they opt in with [`vx_runtime_set_worker_threads`].
+/// Creating the pool does not create threads. Workers start when the host calls
+/// [`vx_runtime_set_worker_threads`] or a layered FFI crate calls
+/// [`start_default_runtime_workers`].
 static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
 
 /// Whether worker threads were configured, by the host or by [`start_default_runtime_workers`].
