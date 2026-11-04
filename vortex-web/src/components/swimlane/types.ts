@@ -98,8 +98,3 @@ export type DtypeCategory =
   | 'struct'
   | 'list'
   | 'other';
-
-export interface Split {
-  id: string;
-  rowRange: [number, number];
-}
