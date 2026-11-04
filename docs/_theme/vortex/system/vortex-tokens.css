@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 ead448bcfe1e46430e0ad3c6ff39993eeac5e20ad4e34c4f0e6fcb8e72f2d9eb */
+   sha256 a837268db37ce246591addb34264a88e9290b620a84c894fdf8b4b191280b76f */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -41,6 +41,7 @@
   --on-accent: var(--white);
   --focus-ring: var(--accent-ink);
   --error-ink: #f26a6b;
+  --warn-ink: var(--orange);
   --syntax-plain: var(--grey-300);
   --syntax-keyword: var(--blue-soft);
   --syntax-function: #c9a8f5;
@@ -85,6 +86,7 @@
   --on-accent: var(--white);
   --focus-ring: var(--accent-ink);
   --error-ink: #c42b2e;
+  --warn-ink: #ad4a00;
   --syntax-plain: var(--grey-600);
   --syntax-keyword: var(--blue);
   --syntax-function: #6d24b5;
@@ -127,6 +129,7 @@
     --on-accent: var(--white);
     --focus-ring: var(--accent-ink);
     --error-ink: #c42b2e;
+    --warn-ink: #ad4a00;
     --syntax-plain: var(--grey-600);
     --syntax-keyword: var(--blue);
     --syntax-function: #6d24b5;
