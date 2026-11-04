@@ -43,6 +43,13 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
+# The Vortex design system's stylesheets, copied into the Explorer by the system's
+# tools/site-styles.mjs. The copies carry the tool's header, not an SPDX one.
+[[annotations]]
+path = "vortex-web/src/styles/vortex*.css"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
 [[annotations]]
 path = "vortex-ffi/cmake/tests/fixtures/native/vortex-ffi/header-version"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
