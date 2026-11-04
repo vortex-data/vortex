@@ -44,6 +44,12 @@ def html_routes(static: Path) -> list[dict]:
         # Only reached when no file or directory matched.
         redirect(r"^/(.+)/$", "/$1", 307),
         {"src": r"^/(.+)$", "dest": "/$1.html", "check": True},
+        # An address that matches no file gets the build's 404 page, with a 404 status.
+        *(
+            [{"handle": "error"}, {"src": "^/.*$", "dest": "/404.html", "status": 404}]
+            if (static / "404.html").is_file()
+            else []
+        ),
     ]
 
 

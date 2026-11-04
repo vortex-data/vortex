@@ -89,6 +89,8 @@ html_static_path = ["_static", "_build/_gen_static"]
 html_favicon = "_static/vortex_logo.svg"  # relative to _static/
 # Copied to the site root: robots.txt, and favicon.ico for clients that ignore the icon link.
 html_extra_path = ["_extra"]
+# The 404 page, which the deploy serves for any address that matches no file.
+html_additional_pages = {"404": "404.html"}
 # Pages are served without `.html`. vortex_site_files sets the page links; this sets the search results'.
 html_link_suffix = ""
 

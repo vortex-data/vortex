@@ -1,0 +1,25 @@
+{#- The one 404 every surface serves (the design system's Status, DECISIONS 36), under the shared
+    header and footer: the code, what it means, and the ways back, over a DotField. The docs do not
+    load the mark's renderer, so the mark's cell shows the static symbol. The deploy serves this
+    page with a 404 status for any address that matches no file, so the build makes its links
+    root-relative (vortex_theme.py). #}
+{%- extends "layout.html" %}
+{%- set title = _("Page not found") %}
+{%- set display_toc = False %}
+{%- block frame %}
+<main id="main" class="vx-docs-status">
+  <div class="vx-status has-mark has-dot-field">
+    <div class="vx-dot-field" aria-hidden="true"></div>
+    <div class="vx-status-text">
+      <h1 class="vx-status-code">404</h1>
+      <p class="vx-status-sentence">{{ _("Page not found.") }}</p>
+      <div class="vx-btn-row">
+        <a class="vx-btn vx-btn-primary" href="https://vortex.dev">{{ _("Go to the homepage") }}</a>
+        <a class="vx-btn vx-btn-secondary" href="{{ pathto(root_doc)|e }}">{{ _("Read the docs") }}</a>
+        <a class="vx-btn vx-btn-secondary" href="https://vortex.dev/blog">{{ _("Read the blog") }}</a>
+      </div>
+    </div>
+    <div class="vx-status-mark" aria-hidden="true"><img class="vx-docs-status-symbol" src="{{ pathto('_static/vortex_logo_dark_theme.svg', 1) }}" alt="" width="500" height="500" /></div>
+  </div>
+</main>
+{%- endblock %}
