@@ -7,7 +7,9 @@
 //! input separately from overflow requires a different partial representation. A separate aggregate
 //! preserves compatibility with the scalar partials stored by older Vortex files.
 
+mod dict_grouped;
 mod grouped;
+pub(crate) use dict_grouped::DictGroupedSumV2EncodingKernel;
 pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
