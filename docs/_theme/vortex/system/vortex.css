@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 3afb47f3470f302f939a24fb07872fe6a585d884564eefd609f740763c36ba68 */
+   sha256 675cf1be5e9598e8353c3823adda879922d22b4d3888df08fdcee79afb4e1a71 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -48,7 +48,7 @@
 .vx-docs-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--page-pad); }
 .vx-docs-nav, .vx-docs-toc { grid-row: 1; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
 .vx-docs-page { grid-column: 2; grid-row: 1; min-width: 0; padding: var(--space-24) var(--space-48) var(--space-64); background: var(--surface); border-inline: 1px solid var(--line); }
-.vx-docs-main { font-size: 1.0625rem; line-height: 1.7; }
+.vx-docs-main { font-size: 1.0625rem; line-height: 1.7; text-wrap: pretty; }
 .vx-docs-toc { grid-column: 3; padding: var(--space-32) 0 var(--space-32) var(--space-24); }
 
 /* DocsNav: the toctree. Top-level pages are the mono group labels; the current page is a raised fill. */
@@ -106,7 +106,7 @@
 
 /* The reading column. :where() keeps the flow margins below any element's own. */
 .vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-20); }
-.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple)) { max-width: 68ch; }
+.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple)) { max-width: var(--measure); }
 .vx-docs-main li + li { margin-top: var(--space-4); }
 .vx-docs-main li::marker { color: var(--ink-muted); }
 .vx-docs-main :is(h1, h2, h3, h4) { scroll-margin-top: var(--space-16); font-family: var(--font-mono); font-weight: 500; line-height: 1.25; color: var(--ink); text-wrap: balance; }

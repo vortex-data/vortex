@@ -1,6 +1,6 @@
 /* The docs' own rules. The build joins them after the design system's copies in system/: the
-   tokens, and the system's docs rules for the frame and Sphinx's markup. Every value here comes
-   from the tokens. */
+   tokens, and the system's docs rules for the frame and Sphinx's markup. Spacing, colour, radii,
+   and motion come from the tokens. */
 
 @media (prefers-color-scheme: dark) {
   .only-light { display: none !important; }
@@ -16,6 +16,7 @@
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
+  white-space: nowrap;
 }
 .vx-docs-main .vortex-wordmark { display: block; max-width: min(400px, 100%); margin: var(--space-24) auto var(--space-48); }
 .cards {

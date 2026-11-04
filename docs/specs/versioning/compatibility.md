@@ -40,6 +40,7 @@ plugins. It assumes correct implementations, edition checks enabled, and full de
 ```{figure} ../../_static/versioning-compatibility.svg
 :alt: Plugins select and validate wire formats while adapting arrays between memory and storage.
 :target: ../../_static/versioning-compatibility.svg
+:figclass: versioning-diagram
 
 The writer selects a plugin by the array's in-memory ID, whereas the reader selects a plugin by the
 stored wire ID. In either direction, the plugin can adapt the array structure while preserving

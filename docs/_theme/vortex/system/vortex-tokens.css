@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 d695b0c694d0a60f52d31333e795e1b71cb00dd3ae942ce1a70be37faa33d987 */
+   sha256 ead448bcfe1e46430e0ad3c6ff39993eeac5e20ad4e34c4f0e6fcb8e72f2d9eb */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -53,11 +53,14 @@
   --chart-lance: #976fa1;
   --chart-arrow: #c45d68;
   --chart-track: var(--grey-700);
-  --chart-2: #c8612b;
-  --chart-3: var(--green);
-  --chart-4: var(--pink);
-  --chart-5: #2cb9d1;
-  --chart-6: #c45ad6;
+  --chart-2: #e7b969;
+  --chart-3: #bbdc7d;
+  --chart-4: #e672a3;
+  --chart-5: #60c1d7;
+  --chart-6: #c18ae2;
+  --chart-fill-mix: 100%;
+  --chart-edge-mix: 0%;
+  --chart-fill-ink: var(--black);
   --status-ok: var(--green);
   --status-warn: var(--orange);
   --status-error: var(--red);
@@ -91,11 +94,14 @@
   --chart-vortex: var(--accent);
   --chart-muted: var(--grey-300);
   --chart-track: var(--grey-100);
-  --chart-2: #a8460f;
-  --chart-3: #0b7538;
+  --chart-2: #b17000;
+  --chart-3: #5e8a21;
   --chart-4: var(--pink);
   --chart-5: #16808f;
   --chart-6: var(--purple);
+  --chart-fill-mix: 40%;
+  --chart-edge-mix: 100%;
+  --chart-fill-ink: var(--ink);
   --status-ok: var(--green);
   --status-warn: var(--orange);
   --status-error: var(--red);
@@ -130,11 +136,14 @@
     --chart-vortex: var(--accent);
     --chart-muted: var(--grey-300);
     --chart-track: var(--grey-100);
-    --chart-2: #a8460f;
-    --chart-3: #0b7538;
+    --chart-2: #b17000;
+    --chart-3: #5e8a21;
     --chart-4: var(--pink);
     --chart-5: #16808f;
     --chart-6: var(--purple);
+    --chart-fill-mix: 40%;
+    --chart-edge-mix: 100%;
+    --chart-fill-ink: var(--ink);
     --status-ok: var(--green);
     --status-warn: var(--orange);
     --status-error: var(--red);
@@ -161,13 +170,14 @@
   --radius-full: 999px;
   --page-max: 1440px;
   --content-max: 1344px;
+  --measure: 54ch;
   --page-pad: 48px;
   --gutter: 24px;
   --control-md: 32px;
   --control-sm: 28px;
   --app-row: 36px;
   --vx-motion: 150ms ease-out;
-  --font-display: "Funnel Display", Geist, sans-serif;
+  --font-display: var(--font-sans);
   --font-sans: Geist, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace;
 }
