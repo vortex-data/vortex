@@ -33,7 +33,7 @@ fn visit(
     mapped: bool,
     segments: &mut FxHashMap<SegmentId, Range<u64>>,
 ) -> VortexResult<()> {
-    for &segment in layout.segment_ids() {
+    for segment in layout.segment_ids() {
         segments
             .entry(segment)
             .and_modify(|current| {

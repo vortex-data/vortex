@@ -183,7 +183,7 @@ impl Work {
         // A claim only shrinks: rows outside it were never claimed.
         let end = rows.end.clamp(claimed.start, claimed.end);
         let start = rows.start.clamp(claimed.start, end);
-        if start..end == *claimed {
+        if (start..end) == *claimed {
             return Ok(());
         }
         claim.restrict_to(start..end);
