@@ -90,12 +90,14 @@ use vortex::expr::stats::Precision;
 
 pub mod convert;
 mod persistent;
+mod row_index;
 pub mod v2;
 
 #[cfg(test)]
 mod tests;
 
 pub use persistent::*;
+pub use row_index::row_index;
 
 /// Extension trait to convert our [`Precision`] to DataFusion's
 /// [`DataFusionPrecision`].
