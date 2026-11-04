@@ -217,7 +217,7 @@ BENCHMARKS = (
         benchmark=Benchmark.TPCDS,
         name="TPC-DS SF=10 on NVME",
         scale_factor=10.0,
-        runs={"nightly": DEFAULT},
+        runs={"nightly": DEFAULT, "pr": DEFAULT},
     ),
     BenchmarkCase(
         id="tpcds-s3-10",
