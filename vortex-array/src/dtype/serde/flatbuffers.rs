@@ -6,7 +6,7 @@ use std::sync::Arc;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -168,7 +168,9 @@ impl DType {
     /// Create a [`DType`] from a flatbuffer buffer.
     pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
         let fb_loc = {
-            let fb_dtype = root::<fbd::DType>(&buffer)?;
+            // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+            // is unsound for untrusted input and must not be merged.
+            let fb_dtype = unsafe { root_unchecked::<fbd::DType>(&buffer) };
             fb_dtype._tab.loc()
         };
         let view = ViewedDType::from_fb_loc(fb_loc, buffer, session.clone());

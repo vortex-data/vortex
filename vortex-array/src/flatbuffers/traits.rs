@@ -8,7 +8,7 @@ use flatbuffers::Follow;
 use flatbuffers::InvalidFlatbuffer;
 use flatbuffers::Verifiable;
 use flatbuffers::WIPOffset;
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ConstByteBuffer;
 use vortex_error::VortexResult;
@@ -39,7 +39,9 @@ pub trait ReadFlatBuffer: Sized {
     where
         <Self as ReadFlatBuffer>::Source<'buf>: 'buf,
     {
-        let fb = root::<Self::Source<'buf>>(bytes)?;
+        // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+        // is unsound for untrusted input and must not be merged.
+        let fb = unsafe { root_unchecked::<Self::Source<'buf>>(bytes) };
         Self::read_flatbuffer(&fb)
     }
 }

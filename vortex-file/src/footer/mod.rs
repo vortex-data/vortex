@@ -22,7 +22,7 @@ mod deserializer;
 pub use deserializer::*;
 pub use field_sizes::CompressedFieldSizes;
 pub use file_statistics::FileStatistics;
-use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayId;
@@ -114,7 +114,9 @@ impl Footer {
             .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
             .sum();
         let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
-        let fb_footer = root::<fb::Footer>(footer_bytes)?;
+        // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+        // is unsound for untrusted input and must not be merged.
+        let fb_footer = unsafe { root_unchecked::<fb::Footer>(footer_bytes) };
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
