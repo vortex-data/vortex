@@ -6,6 +6,7 @@ use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
 use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::nan_count::NanCount;
@@ -109,6 +110,7 @@ impl ColumnStatisticsAggregate {
 
         // The aggregate is itself an upper bound, so its exact value is what the footer stores.
         let approx_distinct_count = exact(ApproxDistinctCount.bind(EmptyOptions))
+            .or_else(|| exact(ApproxDistinctCountHll.bind(EmptyOptions)))
             .map(|count| count.as_primitive().as_u64().vortex_expect("not a u64"));
 
         Self {

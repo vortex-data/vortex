@@ -138,6 +138,7 @@ crossbeam-channel = "0.5.16"
 crossterm = "0.29"
 custom-labels = "0.4.4"
 dashmap = "6.2.1"
+datasketches = { version = "0.6.0", default-features = false, features = ["hll"] }
 datafusion = { version = "55.0.0", default-features = false, features = [
     "sql",
 ] }

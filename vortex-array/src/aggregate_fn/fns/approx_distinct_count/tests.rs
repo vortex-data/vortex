@@ -131,15 +131,23 @@ fn inexact_adds_batch_counts() -> VortexResult<()> {
     Ok(())
 }
 
-/// An exact set that outgrows the bound keeps only its count.
+/// In memory, merges stay exact however many distinct values the sets hold.
 #[test]
-fn degrades_past_bound() -> VortexResult<()> {
+fn stays_exact_in_memory() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let n = MAX_EXACT_DISTINCT_VALUES as u64 + 1;
-    let mut acc = accumulator(DType::Primitive(PType::U64, NonNullable))?;
-    acc.accumulate(&Buffer::from_iter(0..n).into_array(), &mut ctx)?;
-    // The repeated values are counted again, since the state no longer holds the set.
-    acc.accumulate(&Buffer::from_iter(0..10u64).into_array(), &mut ctx)?;
-    assert_eq!(result(&mut acc)?, Some(n + 10));
+    let dtype = DType::Primitive(PType::U64, NonNullable);
+    let n = 200_000u64;
+    let mut file = accumulator(dtype.clone())?;
+    for start in (0..n).step_by(1024) {
+        let mut chunk = accumulator(dtype.clone())?;
+        // Every chunk repeats the values of the first chunk, plus values of its own.
+        chunk.accumulate(&Buffer::from_iter(0..1024u64).into_array(), &mut ctx)?;
+        chunk.accumulate(
+            &Buffer::from_iter(start..(start + 1024).min(n)).into_array(),
+            &mut ctx,
+        )?;
+        file.merge_from(&mut chunk)?;
+    }
+    assert_eq!(result(&mut file)?, Some(n));
     Ok(())
 }

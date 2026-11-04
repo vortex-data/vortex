@@ -47,7 +47,6 @@ use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
-use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
 use vortex::aggregate_fn::fns::is_constant::IsConstant;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
@@ -75,6 +74,7 @@ use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
+use crate::convert::stats::approx_distinct_count;
 use crate::convert::stats::constant_distinct_count;
 use crate::convert::stats::is_nan_free;
 use crate::convert::stats::or_approx_distinct_count;
@@ -704,7 +704,7 @@ impl FileFormat for VortexFormat {
                     .to_df();
                 let distinct_count = or_approx_distinct_count(
                     constant_distinct_count(stats_set, stats_dtype, &null_count, &min, &max),
-                    aggregates.get(&ApproxDistinctCount.bind(EmptyOptions)),
+                    approx_distinct_count(aggregates),
                 );
 
                 column_statistics.push(ColumnStatistics {

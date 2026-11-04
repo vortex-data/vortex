@@ -20,6 +20,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     },
     added: &[
         EditionMember::aggregate(&"vortex.approx_distinct_count"),
+        EditionMember::aggregate(&"vortex.approx_distinct_count_hll"),
         EditionMember::aggregate(&"vortex.uncompressed_size_in_bytes"),
     ],
 };

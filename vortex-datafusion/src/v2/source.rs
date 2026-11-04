@@ -121,6 +121,7 @@ use tokio::sync::OnceCell;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
 use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
@@ -314,16 +315,28 @@ impl VortexDataSourceBuilder {
             .cloned()
             .map(FieldPath::from_name)
             .collect();
+        // The hash-set aggregate is preferred; the HyperLogLog one is the fallback.
         let approx_distinct_count = ApproxDistinctCount.bind(EmptyOptions);
+        let approx_distinct_count_hll = ApproxDistinctCountHll.bind(EmptyOptions);
         let (stats_sets, approx_distinct_counts) = futures::try_join!(
             try_join_all(
                 field_paths
                     .iter()
                     .map(|path| self.data_source.field_statistics(path)),
             ),
-            try_join_all(field_paths.iter().map(|path| {
-                self.data_source
+            try_join_all(field_paths.iter().map(|path| async {
+                match self
+                    .data_source
                     .field_statistic(path, &approx_distinct_count)
+                    .await?
+                {
+                    Precision::Absent => {
+                        self.data_source
+                            .field_statistic(path, &approx_distinct_count_hll)
+                            .await
+                    }
+                    count => Ok(count),
+                }
             })),
         )?;
         let statistics = stats_sets

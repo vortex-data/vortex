@@ -42,11 +42,6 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 
-/// The most distinct values an exact partial tracks before it degrades to an inexact count.
-///
-/// This bounds the memory each accumulator holds: past it, only the count is kept.
-pub const MAX_EXACT_DISTINCT_VALUES: usize = 1 << 16;
-
 /// The largest decimal precision whose values all fit in an `i128`.
 const MAX_DECIMAL_PRECISION: u8 = 38;
 
@@ -65,12 +60,12 @@ pub fn approx_distinct_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> Vortex
 ///
 /// The partial state is either exact, holding the set of distinct values seen so far, or inexact,
 /// holding only a count. Merging two exact states unions their sets; merging when either side is
-/// inexact adds the two counts, so an inexact count is an upper bound on the distinct values. An
-/// exact state degrades to an inexact one once its set grows past
-/// [`MAX_EXACT_DISTINCT_VALUES`].
+/// inexact adds the two counts, so an inexact count is an upper bound on the distinct values.
 ///
-/// The serialized partial, which the file footer stores, is only the count: the set is dropped,
-/// so a partial read back from a scalar is inexact. Values hash by their physical
+/// Accumulating and merging in memory, as the writer does across a whole file, stays exact: the
+/// set holds every distinct value, so its memory grows with the column's cardinality. Only the
+/// serialized partial, which the file footer stores, drops the set and keeps the count, so a
+/// partial read back from a scalar is inexact. Values hash by their physical
 /// representation, so floats compare by their bits (`-0.0` and `0.0` are distinct, as are NaNs
 /// with different payloads).
 ///
@@ -107,15 +102,6 @@ impl ApproxDistinctCountPartial {
     /// Whether the count is exact.
     pub fn is_exact(&self) -> bool {
         matches!(self, Self::Exact(_))
-    }
-
-    /// Degrade an exact state that grew past [`MAX_EXACT_DISTINCT_VALUES`] to its count.
-    fn bound(&mut self) {
-        if let Self::Exact(values) = self
-            && values.len() > MAX_EXACT_DISTINCT_VALUES
-        {
-            *self = Self::Inexact(values.len() as u64);
-        }
     }
 }
 
@@ -233,12 +219,10 @@ impl AggregateFnVTable for ApproxDistinctCount {
         use ApproxDistinctCountPartial::Exact;
         use ApproxDistinctCountPartial::Inexact;
 
-        let mut merged = match (first, second) {
+        Ok(match (first, second) {
             (Exact(a), Exact(b)) => Exact(a.union(b)?),
             (a, b) => Inexact(a.count() + b.count()),
-        };
-        merged.bound();
-        Ok(merged)
+        })
     }
 
     /// Only the count is serialized: the distinct values are dropped.
@@ -265,20 +249,7 @@ impl AggregateFnVTable for ApproxDistinctCount {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        match batch {
-            Columnar::Constant(c) => {
-                if c.is_empty() || c.scalar().is_null() {
-                    return Ok(());
-                }
-                let single = ConstantArray::new(c.scalar().clone(), 1)
-                    .into_array()
-                    .execute::<Canonical>(ctx)?;
-                accumulate_canonical(partial, &single, ctx)?;
-            }
-            Columnar::Canonical(c) => accumulate_canonical(partial, c, ctx)?,
-        }
-        partial.bound();
-        Ok(())
+        accumulate_columnar(partial, batch, ctx)
     }
 
     fn finalize(
@@ -298,8 +269,38 @@ impl AggregateFnVTable for ApproxDistinctCount {
     }
 }
 
-fn accumulate_canonical(
-    partial: &mut ApproxDistinctCountPartial,
+/// Receives the hashing keys of the non-null values of a batch.
+///
+/// Fixed-width values (booleans, primitives and decimals) arrive zero-extended to 128 bits, and
+/// variable-length values (UTF-8 and binary) as their bytes.
+trait DistinctSink {
+    fn add_fixed(&mut self, keys: impl Iterator<Item = u128>) -> VortexResult<()>;
+
+    fn add_bytes<'a>(&mut self, values: impl Iterator<Item = &'a [u8]>) -> VortexResult<()>;
+}
+
+/// Accumulate the non-null values of a columnar batch into `sink`.
+fn accumulate_columnar<S: DistinctSink>(
+    sink: &mut S,
+    batch: &Columnar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    match batch {
+        Columnar::Constant(c) => {
+            if c.is_empty() || c.scalar().is_null() {
+                return Ok(());
+            }
+            let single = ConstantArray::new(c.scalar().clone(), 1)
+                .into_array()
+                .execute::<Canonical>(ctx)?;
+            accumulate_canonical(sink, &single, ctx)
+        }
+        Columnar::Canonical(c) => accumulate_canonical(sink, c, ctx),
+    }
+}
+
+fn accumulate_canonical<S: DistinctSink>(
+    partial: &mut S,
     canonical: &Canonical,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
@@ -310,20 +311,17 @@ fn accumulate_canonical(
                 return Ok(());
             };
             let bits = b.to_bit_buffer();
-            add_fixed(
-                partial,
-                filter_valid(bits.iter().map(u128::from), valid.as_ref()),
-            )
+            partial.add_fixed(filter_valid(bits.iter().map(u128::from), valid.as_ref()))
         }
         Canonical::Primitive(p) => {
             let Some(valid) = valid_bits(p.as_ref(), ctx)? else {
                 return Ok(());
             };
             match_each_native_ptype!(p.ptype(), |T| {
-                add_fixed(
-                    partial,
-                    filter_valid(p.as_slice::<T>().iter().map(fixed_key::<T>), valid.as_ref()),
-                )
+                partial.add_fixed(filter_valid(
+                    p.as_slice::<T>().iter().map(fixed_key::<T>),
+                    valid.as_ref(),
+                ))
             })
         }
         Canonical::Decimal(d) => {
@@ -332,29 +330,23 @@ fn accumulate_canonical(
             };
             match_each_decimal_value_type!(d.values_type(), |D| {
                 let values = d.buffer::<D>();
-                add_fixed(
-                    partial,
-                    filter_valid(
-                        values.iter().map(|v| {
-                            // Precision is at most `MAX_DECIMAL_PRECISION`, so values fit.
-                            v.to_i128().vortex_expect("decimal value fits in i128") as u128
-                        }),
-                        valid.as_ref(),
-                    ),
-                )
+                partial.add_fixed(filter_valid(
+                    values.iter().map(|v| {
+                        // Precision is at most `MAX_DECIMAL_PRECISION`, so values fit.
+                        v.to_i128().vortex_expect("decimal value fits in i128") as u128
+                    }),
+                    valid.as_ref(),
+                ))
             })
         }
         Canonical::VarBinView(v) => {
             let Some(valid) = valid_bits(v.as_ref(), ctx)? else {
                 return Ok(());
             };
-            add_bytes(
-                partial,
-                filter_valid(
-                    v.views().iter().map(|view| view_bytes(v, view)),
-                    valid.as_ref(),
-                ),
-            )
+            partial.add_bytes(filter_valid(
+                v.views().iter().map(|view| view_bytes(v, view)),
+                valid.as_ref(),
+            ))
         }
         Canonical::Extension(e) => {
             let storage = e.storage_array().clone().execute::<Canonical>(ctx)?;
@@ -402,40 +394,36 @@ fn fixed_key<T: NativePType>(value: &T) -> u128 {
     u128::from_le_bytes(key)
 }
 
-fn add_fixed(
-    partial: &mut ApproxDistinctCountPartial,
-    keys: impl Iterator<Item = u128>,
-) -> VortexResult<()> {
-    match partial {
-        ApproxDistinctCountPartial::Exact(DistinctValues::Fixed(set)) => set.extend(keys),
-        ApproxDistinctCountPartial::Inexact(count) => {
-            *count += keys.collect::<HashSet<_>>().len() as u64;
+impl DistinctSink for ApproxDistinctCountPartial {
+    fn add_fixed(&mut self, keys: impl Iterator<Item = u128>) -> VortexResult<()> {
+        match self {
+            ApproxDistinctCountPartial::Exact(DistinctValues::Fixed(set)) => set.extend(keys),
+            ApproxDistinctCountPartial::Inexact(count) => {
+                *count += keys.collect::<HashSet<_>>().len() as u64;
+            }
+            ApproxDistinctCountPartial::Exact(DistinctValues::Bytes(_)) => {
+                vortex_bail!("Expected fixed-width distinct values")
+            }
         }
-        ApproxDistinctCountPartial::Exact(DistinctValues::Bytes(_)) => {
-            vortex_bail!("Expected fixed-width distinct values")
-        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn add_bytes<'a>(
-    partial: &mut ApproxDistinctCountPartial,
-    values: impl Iterator<Item = &'a [u8]>,
-) -> VortexResult<()> {
-    match partial {
-        ApproxDistinctCountPartial::Exact(DistinctValues::Bytes(set)) => {
-            values.for_each(|value| set.insert(value));
+    fn add_bytes<'a>(&mut self, values: impl Iterator<Item = &'a [u8]>) -> VortexResult<()> {
+        match self {
+            ApproxDistinctCountPartial::Exact(DistinctValues::Bytes(set)) => {
+                values.for_each(|value| set.insert(value));
+            }
+            ApproxDistinctCountPartial::Inexact(count) => {
+                let mut set = ByteSet::default();
+                values.for_each(|value| set.insert(value));
+                *count += set.len() as u64;
+            }
+            ApproxDistinctCountPartial::Exact(DistinctValues::Fixed(_)) => {
+                vortex_bail!("Expected variable-length distinct values")
+            }
         }
-        ApproxDistinctCountPartial::Inexact(count) => {
-            let mut set = ByteSet::default();
-            values.for_each(|value| set.insert(value));
-            *count += set.len() as u64;
-        }
-        ApproxDistinctCountPartial::Exact(DistinctValues::Fixed(_)) => {
-            vortex_bail!("Expected variable-length distinct values")
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// A set of byte strings stored back to back in one buffer, so inserting a value allocates
@@ -503,6 +491,11 @@ impl ByteSet {
         larger
     }
 }
+
+mod hll;
+
+pub use hll::ApproxDistinctCountHll;
+pub use hll::ApproxDistinctCountHllPartial;
 
 #[cfg(test)]
 mod tests;
