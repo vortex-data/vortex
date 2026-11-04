@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 08a7274440c84892b209c649b2418738b5f5e5c36b7a2ee382a569078eef6bf9 */
+   sha256 7842c9955386425ed04d02775a313651c9fa557580280f4e79d9ba890fa3a543 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -392,7 +392,7 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
-   vx-docs on <body>, data-theme="system" on <html> (so the tokens follow the OS without a script),
+   vx-docs on <body>, data-theme="dark" on <html> (the default theme, for a reader without scripts),
    and the frame's classes below. Everything inside the nav, the rail and main is what Sphinx
    writes. Type is in rem (1rem is 16px), so text follows the reader's default size. */
 .vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; }

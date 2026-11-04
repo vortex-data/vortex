@@ -30,7 +30,7 @@ function cookie(): string {
 
 /**
  * The theme every Vortex surface shares (the design system's ThemeSwitch): the vx-theme cookie on
- * vortex.dev, else this origin's storage, else System. `public/theme.js` sets it before the first
+ * vortex.dev, else this origin's storage, else Dark. `public/theme.js` sets it before the first
  * paint; this keeps it in step with the switches, and follows the OS while the choice is System.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
