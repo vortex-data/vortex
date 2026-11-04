@@ -72,12 +72,14 @@ flowchart TD
         SN1["SN1 spatial validators reject nullable nested levels<br/>#11183"]:::merged
         DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::merged
         SN2["SN2 Arrow importers of known types convert or fail<br/>#11223"]:::open
+        SN3["SN3 Arrow import drops masked nulls below every nested level"]
     end
     PC --> U2
     U2 -->|"item 1, lands together"| DF
     PC --> U1
     AX -.->|"item 2"| U1
     DP --> SN2
+    SN2 --> SN3
 
     subgraph PH1["Phase 1"]
         SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::open
@@ -94,12 +96,14 @@ flowchart TD
         TY2["TY2 aggregates declare Specific"]
         TY3["TY3 structural functions declare Structural"]
         TY4["TY4 list_contains declares Specific"]
+        TY5["TY5 type-specific functions declare Specific"]
         U9["U9 wrap storage pushdown results<br/>#11188"]:::open
     end
     FD --> TY1
     FD --> TY2
     FD --> TY3
     FD --> TY4
+    FD --> TY5
 
     subgraph PH3["Phase 3"]
         TY["TY typing check, with the phase 4 writers and DuckDB pushdown"]
@@ -108,6 +112,7 @@ flowchart TD
     TY2 -->|"item 7"| TY
     TY3 -->|"item 7"| TY
     TY4 -->|"item 7"| TY
+    TY5 -->|"item 7"| TY
     U1 --> TY
     DF --> TY
     TY -.->|"items 4 and 5"| PO["Any PartialOrd change for Scalar, XQ8"]
@@ -138,7 +143,9 @@ flowchart TD
         BD1["BD1 converters for DuckDB, Python and JNI"]
         BD3["BD3 typed array view and developer guide"]
         DS["DS DataFusion physical schema for extension dtypes<br/>#11225"]:::open
+        DS2["DS2 reject columns that mix an extension type and plain storage"]
     end
+    DS --> DS2
 
     subgraph CLAIMS["Claims, #11115"]
         CL1["CL1 Claim, DType::holds, ExtVTable::claims"]
@@ -242,7 +249,7 @@ breaks something that works today. Those parts must land together, or in a fixed
    have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
    SN1 ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
    `956c1ea188`, so this order holds.
-7. The declarations of phase 2 (TY1 to TY4) land before the typing check of phase 3, or with it.
+7. The declarations of phase 2 (TY1 to TY5) land before the typing check of phase 3, or with it.
    The check rejects every call that answers `None`, so a family without its declaration stops
    working. For example, a compare of two `Timestamp` columns would fail when it is built.
 
@@ -285,6 +292,12 @@ implementations that they change into `vortex-aggregates`.
   declines it first, and the session then retries with the value type. DP peels the dictionary
   before the importers run, so importers never see dictionaries and can fail. The result stays
   `Dict(codes, Ext(values))`.
+- SN3 builds on SN2, and the import then drops masked nulls below every nested level. SN2 drops
+  them through structs, lists, large lists, and fixed-size lists. List views, maps, run-end arrays,
+  and dictionaries do not pass their visible rows to their children. So a masked null below one of
+  them in a non-nullable level fails the import. A masked dictionary key can also point outside
+  the values, and `new_null_array` builds such keys. SN3 gives these keys a valid target. The
+  maintainer agreed that the import always drops masked nulls.
 - V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
   `develop` (EXT-V10). It merged as #11187 on 2026-11-04.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
@@ -350,6 +363,9 @@ implementations that they change into `vortex-aggregates`.
   3. TY3: the structural functions answer `Structural`.
   4. TY4: `list_contains` answers `Specific` for elements on the equality list. The row encoding
      rejects extension types today, so it stays as it is until SP5.
+  5. TY5: the type-specific functions answer `Specific` (X18). These are `replace_time_zone`, the
+     spatial and tensor functions, `json_to_variant`, and the `GeometryAabb` aggregate. Without
+     these declarations, the typing check of phase 3 rejects these functions.
 - The hand-written paths of today stay, and they do the work for the types on the lists. For
   example, the extension compare kernel still compares storage. After phase 3, typing rejects every
   other call before it reaches them.
@@ -439,6 +455,12 @@ implementations that they change into `vortex-aggregates`.
   ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
   `Vector` columns. DS fixes it, once a regression test confirms the failure. A regression test
   confirmed it, and DS is the open draft #11225.
+- DS2: the DataFusion physical schema rejects a table column whose files mix an extension type and
+  its plain storage. Today such a table labels the plain rows with the extension type, with no
+  error. `Json` and `Vector` columns have this bug, and AX adds every type without a plugin. The
+  proposed fix copies the `ARROW:extension:*` metadata onto the physical field of a file only when
+  the column in that file has the extension dtype. Otherwise, the schema fails. The final review of
+  AX found this bug.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
   stop.
