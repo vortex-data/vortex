@@ -349,13 +349,7 @@ impl FileOpener for VortexOpener {
                 );
                 indices.sort_unstable();
                 indices.dedup();
-                let (scan_projection, scan_reference_schema) =
-                    raw_projection(&indices, &this_file_schema)?;
-                ProcessedProjection {
-                    scan_projection,
-                    scan_reference_schema,
-                    leftover_projection: projection,
-                }
+                raw_projection(&indices, &this_file_schema, projection)?
             } else if projection_pushdown {
                 expr_converter.split_projection(
                     projection,
