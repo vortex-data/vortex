@@ -29,6 +29,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
@@ -78,6 +79,8 @@ fn decimal_array<T: NativeDecimalType>(
 
 /// Casts `array` to `target` and forces execution, the unit measured by every bench below.
 fn bench_cast(bencher: Bencher, array: ArrayRef, target: DType) {
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| a.cast(target.clone()).unwrap().execute::<Canonical>(ctx));

@@ -35,6 +35,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -135,6 +136,8 @@ fn benchmark_arrow_validity_export(c: &mut Criterion) {
                             &mut cuda_ctx,
                         ))
                         .vortex_expect("failed to create primitive fixture");
+                        mark_optimized(&array, &SESSION)
+                            .vortex_expect("optimize the benchmark input");
 
                         let mut exported_arrays = Vec::with_capacity(
                             usize::try_from(iters)

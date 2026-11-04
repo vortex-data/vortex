@@ -18,6 +18,7 @@ use vortex_array::arrays::runend::RunEnd;
 use vortex_array::arrays::runend::RunEndArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -68,10 +69,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
     bencher
         .with_inputs(|| {
-            (
-                fixture(n, run_step, valid_density).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = fixture(n, run_step, valid_density).into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_refs(|(array, ctx)| array.invalid_count(ctx).unwrap());
 }

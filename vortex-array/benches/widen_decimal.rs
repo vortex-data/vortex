@@ -34,6 +34,7 @@ use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -202,8 +203,9 @@ impl Values {
         }
     }
 
+    /// Builds a new array of the values for `case`, marked as optimized.
     fn array(&self, case: Case) -> ArrayRef {
-        match case.input {
+        let array = match case.input {
             Input::Canonical => self.decimal_array(case.decimal_dtype()).into_array(),
             Input::Widen => {
                 let child_dtype = DecimalDType::new(case.child_precision, SCALE);
@@ -213,7 +215,10 @@ impl Values {
                     .vortex_expect("encode_decimal selected a strictly narrower child dtype")
                     .into_array()
             }
-        }
+        };
+        mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+        array
     }
 }
 

@@ -5,6 +5,7 @@ use mimalloc::MiMalloc;
 
 #[cfg(not(codspeed))]
 #[divan::bench_group(items_count = 64_000u32)]
+#[expect(clippy::unwrap_used)]
 mod benchmarks {
     use std::sync::LazyLock;
 
@@ -16,6 +17,7 @@ mod benchmarks {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::NativePType;
     use vortex_array::optimizer::kernels::KernelSession;
+    use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_compressor::stats::GenerateStatsOptions;
@@ -86,10 +88,10 @@ mod benchmarks {
         let values = generate::<T>(distribution);
         bencher
             .with_inputs(|| {
-                (
-                    PrimitiveArray::new(values.clone(), Validity::NonNullable),
-                    SESSION.create_execution_ctx(),
-                )
+                let array = PrimitiveArray::new(values.clone(), Validity::NonNullable);
+                mark_optimized(array.as_array(), &SESSION).unwrap();
+
+                (array, SESSION.create_execution_ctx())
             })
             .bench_refs(|(values, ctx)| {
                 IntegerStats::generate_opts(

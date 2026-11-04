@@ -26,6 +26,7 @@ mod benchmarks {
     use vortex_array::memory::MemorySession;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::session::ArraySession;
+    use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_btrblocks::CompressionSession;
@@ -102,10 +103,10 @@ mod benchmarks {
             .build();
         bencher
             .with_inputs(|| {
-                (
-                    PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array(),
-                    SESSION.create_execution_ctx(),
-                )
+                let array = PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array();
+                mark_optimized(&array, &SESSION).unwrap();
+
+                (array, SESSION.create_execution_ctx())
             })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i32>(array.len()))
@@ -126,15 +127,15 @@ mod benchmarks {
         let compressor = BtrBlocksCompressorBuilder::from_session(&WRITE_SESSION).build();
         bencher
             .with_inputs(|| {
-                (
-                    DecimalArray::new(
-                        values.clone(),
-                        DecimalDType::new(12, 2),
-                        Validity::NonNullable,
-                    )
-                    .into_array(),
-                    WRITE_SESSION.create_execution_ctx(),
+                let array = DecimalArray::new(
+                    values.clone(),
+                    DecimalDType::new(12, 2),
+                    Validity::NonNullable,
                 )
+                .into_array();
+                mark_optimized(&array, &WRITE_SESSION).unwrap();
+
+                (array, WRITE_SESSION.create_execution_ctx())
             })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i64>(array.len()))
