@@ -399,6 +399,8 @@ pub struct RunConfig {
     pub time_limit: u64,
     /// Whether each benchmark run reuses or reopens its file handle.
     pub open_mode: OpenMode,
+    /// Whether to skip the fixed-index legacy taxi measurement.
+    pub skip_taxi_legacy: bool,
     /// Format used to emit measurements.
     pub display_format: DisplayFormat,
     /// Optional path for the primary result output.
@@ -417,6 +419,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
         patterns,
         time_limit,
         open_mode,
+        skip_taxi_legacy,
         display_format,
         output_path,
         ingest_output,
@@ -439,7 +442,11 @@ pub async fn run(config: RunConfig) -> Result<()> {
     let total_steps: usize = datasets
         .iter()
         .map(|d| {
-            let legacy_extra = if d.name() == "taxi" { formats.len() } else { 0 };
+            let legacy_extra = if d.name() == "taxi" && !skip_taxi_legacy {
+                formats.len()
+            } else {
+                0
+            };
             (formats.len() * patterns.len() + legacy_extra) * reopen_variants.len()
         })
         .sum();
@@ -452,7 +459,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
     // first time each `(dataset, pattern)` pair is observed.
     for dataset in &datasets {
         for format in &formats {
-            if dataset.name() == "taxi" {
+            if dataset.name() == "taxi" && !skip_taxi_legacy {
                 let name = measurement_name(dataset.name(), None, *format, remote.is_some());
                 for &reopen in reopen_variants {
                     let bench_name = if reopen {

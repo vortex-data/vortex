@@ -24,6 +24,12 @@ FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
+# Seconds each measurement runs for. Every take reads ~100 rows, so this still
+# collects many samples per measurement while keeping all 80 invocations short.
+TIME_LIMIT_SECS = 5
+# Every taxi invocation repeats the pattern-less legacy taxi measurement for its open mode.
+# Run it only alongside this pattern, which covers each open mode exactly once.
+LEGACY_TAXI_PATTERN = "correlated"
 
 
 def drop_os_caches() -> None:
@@ -84,11 +90,15 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         pattern,
                         "--open-mode",
                         open_mode,
+                        "--time-limit",
+                        str(TIME_LIMIT_SECS),
                         "-d",
                         "gh-json",
                         "-o",
                         str(PARTS_DIR / f"{i}.gh.json"),
                     ]
+                    if pattern != LEGACY_TAXI_PATTERN:
+                        args.append("--skip-taxi-legacy")
                     if remote_data_dir:
                         args += ["--remote-data-dir", remote_data_dir]
                     if emit_ingest_records:
@@ -102,8 +112,8 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
 """
 This function exists only because of taxi-legacy.
 
-Every taxi invocation re-emits the pattern-less legacy taxi rows, so we need
-the merge to drop the duplicates. Otherwise we could just merge JSONL lines.
+The merge drops duplicate pattern-less legacy taxi rows in case more than one
+invocation emits them. Otherwise we could just merge JSONL lines.
 """
 
 
