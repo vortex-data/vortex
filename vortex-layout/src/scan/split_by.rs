@@ -37,9 +37,10 @@ pub enum SplitBy {
     /// splits that follow the file's chunking exactly, trading intra-file decode parallelism
     /// for fewer, larger batches.
     Layout,
-    /// Splits like [`SplitBy::Layout`], except that spans narrower than
-    /// [`DEFAULT_MIN_SPLIT_ROWS`] (or `max_rows`, if smaller) ending at a soft boundary are merged
-    /// into a neighbour, and spans wider than `max_rows` are further sub-divided into evenly sized
+    /// Splits like [`SplitBy::Layout`], except that soft boundaries (ones only some fields of a
+    /// struct have) are dropped where they leave a span narrower than [`DEFAULT_MIN_SPLIT_ROWS`]
+    /// (or `max_rows`, if smaller), unless that would merge a span wider than `max_rows`, and spans
+    /// wider than `max_rows` are further sub-divided into evenly sized
     /// splits of at most `max_rows` rows, so that a file with few, large chunks can still be
     /// decoded across multiple cores. `max_rows` must be non-zero.
     ///
@@ -82,7 +83,12 @@ impl SplitBy {
                 )?
                 .into_sorted_deduped_with_soft();
                 subdivide_large_spans(
-                    merge_small_spans(boundaries, &soft, DEFAULT_MIN_SPLIT_ROWS.min(max_rows)),
+                    merge_small_spans(
+                        boundaries,
+                        &soft,
+                        DEFAULT_MIN_SPLIT_ROWS.min(max_rows),
+                        max_rows,
+                    ),
                     max_rows,
                 )
             }
@@ -113,7 +119,7 @@ fn layout_boundaries(
 
 /// The boundaries the layout registers within `row_range`, after the range's start (the layout
 /// registers its end).
-fn register_boundaries(
+pub(crate) fn register_boundaries(
     layout_reader: &dyn LayoutReader,
     row_range: &Range<u64>,
     field_mask: &[FieldMask],
@@ -131,15 +137,17 @@ fn register_boundaries(
 }
 
 /// Remove interior split boundaries in the sorted `soft` until no span ending at one is narrower
-/// than `min_span`.
+/// than `min_span`, without merging any span past `max_span`.
 ///
 /// Like [`subdivide_large_spans`], this works on the sorted, deduplicated boundary list. It never
 /// adds or moves a boundary, and always keeps the first, the last and every boundary not in `soft`,
 /// so the ranges still cover the same rows contiguously, each exactly once. Boundaries are dropped
 /// from the front: a soft boundary is kept once the span since the last kept one reaches
 /// `min_span`. A short span left before the end, or before a hard boundary, keeps its end and drops
-/// its start where that is soft.
-fn merge_small_spans(boundaries: Vec<u64>, soft: &[u64], min_span: u64) -> Vec<u64> {
+/// its start where that is soft. A soft boundary is also kept where dropping it would leave a span
+/// wider than `max_span`, which [`subdivide_large_spans`] would re-split at a row no column chunks
+/// at.
+fn merge_small_spans(boundaries: Vec<u64>, soft: &[u64], min_span: u64, max_span: u64) -> Vec<u64> {
     debug_assert!(boundaries.is_sorted(), "boundaries must be sorted");
     debug_assert!(soft.is_sorted(), "soft boundaries must be sorted");
     let is_hard = |b: u64| soft.binary_search(&b).is_err();
@@ -152,19 +160,23 @@ fn merge_small_spans(boundaries: Vec<u64>, soft: &[u64], min_span: u64) -> Vec<u
         return boundaries;
     }
 
-    let last = boundaries[boundaries.len() - 1];
+    let last = boundaries.len() - 1;
     let mut out = Vec::with_capacity(boundaries.len());
     out.push(boundaries[0]);
-    for &boundary in &boundaries[1..] {
+    for (i, &boundary) in boundaries.iter().enumerate().skip(1) {
         let prev = out[out.len() - 1];
-        if boundary == last || is_hard(boundary) {
+        if i == last || is_hard(boundary) {
             // A short span before a kept boundary merges into the one before it, unless its
-            // start must be kept too.
-            if boundary - prev < min_span && out.len() > 1 && !is_hard(prev) {
+            // start must be kept too or the merged span would be too wide.
+            if boundary - prev < min_span
+                && out.len() > 1
+                && !is_hard(prev)
+                && boundary - out[out.len() - 2] <= max_span
+            {
                 out.pop();
             }
             out.push(boundary);
-        } else if boundary - prev >= min_span {
+        } else if boundary - prev >= min_span || boundaries[i + 1] - prev > max_span {
             out.push(boundary);
         }
     }
@@ -463,7 +475,25 @@ mod test {
         #[case] minimum: u64,
         #[case] expected: Vec<u64>,
     ) {
-        assert_eq!(merge_small_spans(boundaries, &soft, minimum), expected);
+        assert_eq!(
+            merge_small_spans(boundaries, &soft, minimum, u64::MAX),
+            expected
+        );
+    }
+
+    #[test]
+    fn merging_never_widens_a_span_past_max_span() {
+        // Dropping 2,000 would leave one 101,000-row span to re-split at 50,500, a row no column
+        // chunks at.
+        assert_eq!(
+            merge_small_spans(vec![0, 2000, 101_000], &[2000], 8192, 100_000),
+            vec![0, 2000, 101_000]
+        );
+        // Nor drop 95,000 to absorb the short tail.
+        assert_eq!(
+            merge_small_spans(vec![0, 95_000, 101_000], &[95_000], 8192, 100_000),
+            vec![0, 95_000, 101_000]
+        );
     }
 
     #[test]
@@ -482,7 +512,7 @@ mod test {
                 .collect::<Vec<_>>();
             let max_rows = rng.random_range(1..3000);
             let minimum = DEFAULT_MIN_SPLIT_ROWS.min(max_rows);
-            let merged = merge_small_spans(boundaries.clone(), &soft, minimum);
+            let merged = merge_small_spans(boundaries.clone(), &soft, minimum, max_rows);
             assert_eq!(merged.first(), boundaries.first());
             assert_eq!(merged.last(), boundaries.last());
             assert!(merged.windows(2).all(|w| w[0] < w[1]));
@@ -494,10 +524,22 @@ mod test {
             assert!(boundaries.iter().all(|row| {
                 soft.binary_search(row).is_ok() || merged.binary_search(row).is_ok()
             }));
+            // A short span may end at a soft boundary only where dropping it would merge past
+            // `max_rows`.
             assert!(merged.windows(2).all(|w| {
                 Some(&w[1]) == merged.last()
                     || soft.binary_search(&w[1]).is_err()
                     || w[1] - w[0] >= minimum
+                    || boundaries[boundaries.binary_search(&w[1]).unwrap() + 1] - w[0] > max_rows
+            }));
+            // A merged span wider than `max_rows` would be re-split off any chunk boundary.
+            assert!(merged.windows(2).all(|w| {
+                w[1] - w[0] <= max_rows
+                    || boundaries
+                        .binary_search(&w[0])
+                        .ok()
+                        .map(|i| boundaries[i + 1])
+                        == Some(w[1])
             }));
             let subdivided = subdivide_large_spans(merged, max_rows);
             assert!(subdivided.windows(2).all(|w| w[1] - w[0] <= max_rows));
