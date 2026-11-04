@@ -190,7 +190,12 @@ fn io() -> Arc<dyn IoSource> {
 fn the_driver_drops_each_chunks_values_once_its_morsel_retires() -> VortexResult<()> {
     let (liveness, events) = (Liveness::new(), Events::default());
     let mut run = Run::new().with_step_limit(100);
-    run.admit_with_liveness(chunker(&liveness, &events), scope(0..12), io(), liveness.clone());
+    run.admit_with_liveness(
+        chunker(&liveness, &events),
+        scope(0..12),
+        io(),
+        liveness.clone(),
+    );
     loop {
         match run.advance()? {
             Progress::Batch(batch) => events.push(format!("batch {:?}", batch.scope.rows)),
@@ -218,8 +223,12 @@ fn the_driver_drops_each_chunks_values_once_its_morsel_retires() -> VortexResult
 fn cancelling_a_root_drops_the_values_its_work_held() -> VortexResult<()> {
     let (liveness, events) = (Liveness::new(), Events::default());
     let mut run = Run::new().with_step_limit(100);
-    let root =
-        run.admit_with_liveness(chunker(&liveness, &events), scope(0..12), io(), liveness.clone());
+    let root = run.admit_with_liveness(
+        chunker(&liveness, &events),
+        scope(0..12),
+        io(),
+        liveness.clone(),
+    );
     assert!(matches!(run.advance()?, Progress::Batch(_)));
     assert!(events.take().is_empty());
     run.cancel(root);
@@ -234,7 +243,12 @@ fn a_scan_claim_keeps_values_after_the_work_finishes() -> VortexResult<()> {
     let scan = liveness.claim(0..12);
     assert!(liveness.pin(Lifetime::File, Tracked("dictionary", events.clone())));
     let mut run = Run::new().with_step_limit(100);
-    run.admit_with_liveness(chunker(&liveness, &events), scope(0..12), io(), liveness.clone());
+    run.admit_with_liveness(
+        chunker(&liveness, &events),
+        scope(0..12),
+        io(),
+        liveness.clone(),
+    );
     while !matches!(run.advance()?, Progress::Idle) {}
     assert!(events.take().is_empty());
     drop(scan);

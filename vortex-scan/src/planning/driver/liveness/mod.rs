@@ -159,7 +159,11 @@ impl State {
                 let ids = self.expiry.get_mut(&end).vortex_expect("expiry exists");
                 ids.retain(|id| {
                     let pin = self.pins.get(id).vortex_expect("pin exists");
-                    if pin.rows.as_ref().is_some_and(|rows| rows.start >= gap.start) {
+                    if pin
+                        .rows
+                        .as_ref()
+                        .is_some_and(|rows| rows.start >= gap.start)
+                    {
                         evicted.push(self.pins.remove(id).vortex_expect("pin exists"));
                         false
                     } else {
