@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
+use arrow_schema::DataType;
+use arrow_schema::Fields;
 use arrow_select::concat::concat_batches;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -30,8 +32,10 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::VTable;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::Dict;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
@@ -42,6 +46,7 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
+use vortex::dtype::Field;
 use vortex::dtype::FieldPath;
 use vortex::dtype::StructFields;
 use vortex::dtype::extension::ExtDType;
@@ -124,7 +129,7 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
 
     let Some(batch_size) = batch_size.filter(|size| *size > 0) else {
-        let chunks: Vec<ArrayRef> = parquet_to_vortex_stream(builder.build()?)
+        let chunks: Vec<ArrayRef> = parquet_to_vortex_stream(builder.build()?, false)
             .map(|r| r.map_err(anyhow::Error::from))
             .try_collect()
             .await?;
@@ -147,16 +152,22 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
     let mut chunks = Vec::with_capacity(combined.num_rows().div_ceil(batch_size));
     for start in (0..combined.num_rows()).step_by(batch_size) {
         let len = batch_size.min(combined.num_rows() - start);
-        chunks.push(record_batch_to_vortex(combined.slice(start, len))?);
+        chunks.push(record_batch_to_vortex(combined.slice(start, len), false)?);
     }
 
     Ok(ChunkedArray::from_iter(chunks))
 }
 
-/// Convert one Arrow [`RecordBatch`] into a canonical Vortex array.
-fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
+/// Convert one Arrow [`RecordBatch`] into a Vortex array.
+///
+/// The array is canonical unless `preserve_dicts` is set, in which case Arrow dictionary columns
+/// stay dictionary-encoded for a writer that preserves them.
+fn record_batch_to_vortex(batch: RecordBatch, preserve_dicts: bool) -> VortexResult<ArrayRef> {
     let schema = batch.schema();
     let chunk = SESSION.arrow().from_arrow_record_batch(batch, &schema)?;
+    if preserve_dicts {
+        return Ok(chunk);
+    }
     let mut ctx = VortexSession::default().create_execution_ctx();
     let mut builder = builder_with_capacity_in(chunk.dtype(), chunk.len(), ctx.allocator());
 
@@ -169,14 +180,16 @@ fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
 /// Create a streaming Vortex array from a Parquet reader.
 ///
 /// Streams record batches and converts them to Vortex arrays on-the-fly, avoiding loading the
-/// entire file into memory.
+/// entire file into memory. With `preserve_dicts`, Arrow dictionary columns stay
+/// dictionary-encoded instead of being canonicalized.
 pub fn parquet_to_vortex_stream(
     reader: ParquetRecordBatchStream<File>,
+    preserve_dicts: bool,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     reader.map(move |result| {
         result
             .map_err(|e| vortex_err!(External: e))
-            .and_then(record_batch_to_vortex)
+            .and_then(|batch| record_batch_to_vortex(batch, preserve_dicts))
     })
 }
 
@@ -211,6 +224,7 @@ fn parquet_row_groups_to_vortex_stream(
     parquet_path: PathBuf,
     metadata: ArrowReaderMetadata,
     concurrency: usize,
+    preserve_dicts: bool,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     let num_row_groups = metadata.metadata().num_row_groups();
     futures::stream::iter(0..num_row_groups)
@@ -225,7 +239,7 @@ fn parquet_row_groups_to_vortex_stream(
                     .with_row_groups(vec![row_group])
                     .build()
                     .map_err(|e| vortex_err!(External: e))?;
-                parquet_to_vortex_stream(reader)
+                parquet_to_vortex_stream(reader, preserve_dicts)
                     .try_collect::<Vec<_>>()
                     .await
             })
@@ -256,16 +270,21 @@ pub async fn convert_parquet_file_to_vortex(
             .from_arrow_schema(metadata.schema().as_ref())?,
         &spatial_columns,
     )?;
+    // Dictionary columns are kept dictionary-encoded on disk, so that scans exporting them to
+    // Arrow dictionaries hand back the stored dictionaries instead of re-encoding the values.
+    let dict_fields = dictionary_field_paths(metadata.schema().fields());
+    let preserve_dicts = !dict_fields.is_empty();
     let concurrency = row_group_decode_concurrency(metadata.metadata());
     let stream = if concurrency > 1 {
         StreamExt::boxed(parquet_row_groups_to_vortex_stream(
             parquet_path.to_path_buf(),
             metadata,
             concurrency,
+            preserve_dicts,
         ))
     } else {
         let reader = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata).build()?;
-        StreamExt::boxed(parquet_to_vortex_stream(reader))
+        StreamExt::boxed(parquet_to_vortex_stream(reader, preserve_dicts))
     }
     .map(move |chunk| chunk.and_then(|chunk| tag_spatial_array(chunk, &spatial_columns)));
 
@@ -276,12 +295,17 @@ pub async fn convert_parquet_file_to_vortex(
         .open(output_path)
         .await?;
 
-    write_options_for(compaction, &dtype, is_spatialbench(parquet_path))
-        .write(
-            &mut output_file,
-            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
-        )
-        .await?;
+    write_options_for(
+        compaction,
+        &dtype,
+        is_spatialbench(parquet_path),
+        dict_fields,
+    )
+    .write(
+        &mut output_file,
+        ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
+    )
+    .await?;
 
     Ok(())
 }
@@ -292,14 +316,53 @@ fn is_spatialbench(path: &Path) -> bool {
         .any(|component| component.as_os_str() == "spatialbench")
 }
 
+/// The paths of the Arrow dictionary fields at any depth of structs and lists.
+fn dictionary_field_paths(fields: &Fields) -> Vec<FieldPath> {
+    let mut paths = Vec::new();
+    for field in fields {
+        collect_dictionary_paths(
+            field.data_type(),
+            FieldPath::from_name(field.name().as_str()),
+            &mut paths,
+        );
+    }
+    paths
+}
+
+fn collect_dictionary_paths(data_type: &DataType, path: FieldPath, paths: &mut Vec<FieldPath>) {
+    match data_type {
+        DataType::Dictionary(..) => paths.push(path),
+        DataType::Struct(fields) => {
+            for field in fields {
+                collect_dictionary_paths(
+                    field.data_type(),
+                    path.clone().push(field.name().as_str()),
+                    paths,
+                );
+            }
+        }
+        DataType::List(field)
+        | DataType::LargeList(field)
+        | DataType::ListView(field)
+        | DataType::LargeListView(field) => {
+            collect_dictionary_paths(field.data_type(), path.push(Field::ElementType), paths)
+        }
+        _ => {}
+    }
+}
+
 /// Vortex write options for converting `dtype`-shaped data.
 ///
 /// For SpatialBench (`skip_binary_dict`), the geometry blobs are large and
 /// unique, so the dictionary builder balloons memory (tens of GB) for zero gain.
+///
+/// The `dict_fields` keep the dictionary encoding they arrive with, compressing only their codes
+/// and values.
 fn write_options_for(
     compaction: CompactionStrategy,
     dtype: &DType,
     skip_binary_dict: bool,
+    dict_fields: Vec<FieldPath>,
 ) -> VortexWriteOptions {
     let binary_fields: Vec<_> = match dtype {
         DType::Struct(fields, _) if skip_binary_dict => fields
@@ -311,11 +374,14 @@ fn write_options_for(
             .collect(),
         _ => Vec::new(),
     };
-    if binary_fields.is_empty() {
+    if binary_fields.is_empty() && dict_fields.is_empty() {
         return compaction.apply_options(SESSION.write_options());
     }
 
     let mut builder = WriteStrategyBuilder::from_session(&SESSION);
+    for field in dict_fields {
+        builder = builder.with_allow_encodings(field, [Dict.id()]);
+    }
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(
             BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),

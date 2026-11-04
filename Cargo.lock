@@ -11459,6 +11459,7 @@ dependencies = [
  "arrow-cast 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
+ "arrow-select 59.3.2",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "mimalloc",
