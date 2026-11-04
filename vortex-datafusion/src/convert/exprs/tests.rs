@@ -2388,18 +2388,6 @@ fn test_native_array_transform_skips_values_under_null_lists() -> anyhow::Result
     assert_native_matches(expr, batch)
 }
 
-/// DataFusion runs a lambda argument that a rewrite wrapped, here in `NOT`, without the wrapper.
-#[test]
-fn test_native_wrapped_array_transform() -> anyhow::Result<()> {
-    let batch = int_lists()?;
-    let schema = batch.schema();
-    let xs: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("xs", 0));
-    let expr = array_transform_expr(Arc::clone(&xs), "x", 1, plus_one_body, &schema)?;
-    let lambda = Arc::clone(expr.children()[1]);
-    let expr = expr.with_new_children(vec![xs, df_expr::not(lambda)?])?;
-    assert_native_matches(expr, batch)
-}
-
 /// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`, and the same with the
 /// inner parameter also named `x`, shadowing the outer one.
 #[rstest]
@@ -2430,8 +2418,8 @@ fn test_native_nested_array_transform(#[case] inner_param: &str) -> anyhow::Resu
     assert_native_matches(expr, batch)
 }
 
-/// A body may read only its own parameter: a column, or an enclosing lambda's parameter, keeps
-/// `array_transform` in DataFusion.
+/// A body may read only its own parameter: a column, even one named like the parameter, or an
+/// enclosing lambda's parameter keeps `array_transform` in DataFusion.
 #[rstest]
 #[case::column(false)]
 #[case::outer_parameter(true)]
@@ -2444,13 +2432,13 @@ fn test_array_transform_reading_outside_falls_back(#[case] nested: bool) -> DFRe
             true,
         ),
         Field::new("xs", DataType::List(Arc::new(element)), true),
-        Field::new("n", DataType::Int64, true),
+        Field::new("x", DataType::Int64, true),
     ]);
-    let plus_n = |x: Arc<dyn PhysicalExpr>| -> DFResult<Arc<dyn PhysicalExpr>> {
+    let plus_column = |x: Arc<dyn PhysicalExpr>| -> DFResult<Arc<dyn PhysicalExpr>> {
         Ok(Arc::new(df_expr::BinaryExpr::new(
             x,
             DFOperator::Plus,
-            Arc::new(df_expr::Column::new("n", 2)),
+            Arc::new(df_expr::Column::new("x", 2)),
         )))
     };
     let expr = if nested {
@@ -2466,7 +2454,7 @@ fn test_array_transform_reading_outside_falls_back(#[case] nested: bool) -> DFRe
             Arc::new(df_expr::Column::new("xs", 1)),
             "x",
             3,
-            plus_n,
+            plus_column,
             &schema,
         )?
     };

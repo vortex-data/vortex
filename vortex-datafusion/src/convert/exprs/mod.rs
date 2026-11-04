@@ -19,7 +19,6 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
-use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
@@ -131,6 +130,9 @@ pub trait ExpressionConverter: Send + Sync {
     ///
     /// If any expression is unsupported, evaluate the complete projection in DataFusion
     /// over deduplicated raw inputs. This avoids mixing input names with output aliases.
+    /// It also keeps lambdas left for DataFusion working: their parameters are numbered after
+    /// the projection's input columns, so over computed scan outputs they would read the wrong
+    /// column (#10215).
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -194,39 +196,6 @@ pub(crate) fn raw_projection(
     Ok((pack(scan_columns, Nullability::NonNullable), schema))
 }
 
-/// Split `projection` with `converter`, pushing lambdas down only with the whole projection.
-///
-/// Lambda parameters are numbered after the projection's input columns, so a lambda left for
-/// DataFusion over a scan output that the split reshaped fails or reads the wrong column (#10215).
-/// Such a split is replaced with one that pushes nothing down.
-pub(crate) fn split_projection_with_lambdas(
-    converter: &dyn ExpressionConverter,
-    projection: ProjectionExprs,
-    input_schema: &Schema,
-    output_schema: &Schema,
-) -> DFResult<ProcessedProjection> {
-    let processed = converter.split_projection(projection.clone(), input_schema, output_schema)?;
-    if !contains_lambda(&processed.leftover_projection)?
-        || processed.leftover_projection == projection
-    {
-        return Ok(processed);
-    }
-    converter.no_pushdown_projection(projection, input_schema)
-}
-
-/// Whether any expression in `projection` contains a lambda.
-fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
-    for projection_expr in projection.iter() {
-        if projection_expr
-            .expr
-            .exists(|node| Ok(node.downcast_ref::<df_expr::LambdaExpr>().is_some()))?
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// Why an expression was not converted.
 enum Unconverted {
     /// A valid expression that Vortex cannot evaluate; it stays in DataFusion.
@@ -260,9 +229,17 @@ pub struct DefaultExpressionConverter {
     /// `FixedSizeBinary[16]`) convert correctly instead of hitting the static,
     /// non-plugin-aware `DType::from_arrow`.
     session: VortexSession,
-    /// Whether this converts a lambda's body, over the struct of the lambda's inputs, where a
-    /// parameter `x` reads the field `$.x`. Elsewhere a lambda parameter is unsupported.
-    lambda_body: bool,
+    /// What `$` is in the expressions this converts.
+    scope: Scope,
+}
+
+/// What `$` is where an expression is converted.
+enum Scope {
+    /// The scan's columns: a column `c` reads `$.c`.
+    Columns,
+    /// A lambda's parameters: a parameter `x` reads `$.x`, as Vortex runs a lambda's body. Vortex
+    /// lambdas can't read columns yet.
+    Lambda(StructFields),
 }
 
 impl Default for DefaultExpressionConverter {
@@ -277,7 +254,7 @@ impl DefaultExpressionConverter {
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
-            lambda_body: false,
+            scope: Scope::Columns,
         }
     }
 
@@ -392,14 +369,21 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
-            return Ok(get_item(col_expr.name(), root()));
+            return match self.scope {
+                Scope::Columns => Ok(get_item(col_expr.name(), root())),
+                Scope::Lambda(_) => Err(Unconverted::Unsupported),
+            };
         }
 
         if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
-            if !self.lambda_body {
-                return Err(Unconverted::Unsupported);
-            }
-            return Ok(get_item(variable.name(), root()));
+            return match &self.scope {
+                Scope::Lambda(params) if params.find(variable.name()).is_some() => {
+                    Ok(get_item(variable.name(), root()))
+                }
+                // Outside any lambda, or a parameter of an enclosing lambda, which Vortex lambdas
+                // can't read yet.
+                _ => Err(Unconverted::Unsupported),
+            };
         }
 
         if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
@@ -723,9 +707,8 @@ impl DefaultExpressionConverter {
 
     /// Converts `array_transform` to `list_transform`.
     ///
-    /// The lambda's body may read only its one parameter, the element: a body that reads a column
-    /// stays in DataFusion. The body is converted over the struct of the lambda's inputs, as Vortex
-    /// binds it, and its reads of that struct then become reads of the parameter.
+    /// The body is converted in the lambda's scope, where it may read only its one parameter, the
+    /// element.
     fn convert_array_transform(
         &self,
         function: &HigherOrderFunctionExpr,
@@ -737,29 +720,21 @@ impl DefaultExpressionConverter {
                 exec_datafusion_err!("array_transform requires a list and a lambda").into(),
             );
         };
-        let Some(lambda) = wrapped_lambda(lambda) else {
+        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
             return Err(Unconverted::Unsupported);
         };
         let [param] = lambda.params() else {
             return Err(Unconverted::Unsupported);
         };
-        if lambda
-            .body()
-            .exists(|node| Ok(node.downcast_ref::<df_expr::Column>().is_some()))?
-        {
-            return Err(Unconverted::Unsupported);
-        }
         let list = self.convert_expr(list, schema, input_dtype)?;
         let DType::List(element, _) = converted_dtype(&list, input_dtype)? else {
             return Err(Unconverted::Unsupported);
         };
-        let inputs = DType::Struct(
-            StructFields::from_iter([(param.as_str(), element.as_ref().clone())]),
-            Nullability::NonNullable,
-        );
+        let params = StructFields::from_iter([(param.as_str(), element.as_ref().clone())]);
+        let inputs = DType::Struct(params.clone(), Nullability::NonNullable);
         let body_converter = Self {
             session: self.session.clone(),
-            lambda_body: true,
+            scope: Scope::Lambda(params),
         };
         // DataFusion also types the body against the outer schema: a lambda variable carries its
         // own field.
@@ -830,27 +805,9 @@ fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> 
         .map_err(|_| Unconverted::Unsupported)
 }
 
-/// The lambda argument of a higher-order function, under any single-child wrappers, as DataFusion
-/// finds it.
-fn wrapped_lambda(expr: &Arc<dyn PhysicalExpr>) -> Option<&df_expr::LambdaExpr> {
-    let mut current = expr;
-    loop {
-        if let Some(lambda) = current.downcast_ref::<df_expr::LambdaExpr>() {
-            return Some(lambda);
-        }
-        if current.is::<HigherOrderFunctionExpr>() {
-            return None;
-        }
-        match current.children().as_slice() {
-            [child] => current = *child,
-            _ => return None,
-        }
-    }
-}
-
-/// Turns a converted lambda body's reads of the struct of its inputs, `$.x`, into reads of its
-/// parameters, `@x`: the inverse of binding a [`Lambda`]. A lambda in the body is a function's
-/// options, which this leaves alone.
+/// Turns a body converted in a lambda's scope, where `$.x` is the parameter `x`, into a lambda's
+/// body, which reads it as `@x`. A lambda in the body is a function's options, which this leaves
+/// alone.
 fn read_params(body: Expression) -> Conversion<Expression> {
     body.transform_down(|node| {
         if let Some(name) = node.as_opt::<GetItem>()

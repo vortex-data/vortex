@@ -77,7 +77,6 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
-use crate::convert::exprs::split_projection_with_lambdas;
 use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
@@ -435,8 +434,7 @@ impl FileOpener for VortexOpener {
                     leftover_projection: projection,
                 }
             } else if projection_pushdown {
-                split_projection_with_lambdas(
-                    expr_converter.as_ref(),
+                expr_converter.split_projection(
                     projection,
                     &this_file_schema,
                     output_schema.as_ref(),
