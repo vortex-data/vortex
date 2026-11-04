@@ -44,6 +44,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayFuture;
+use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
@@ -455,9 +456,22 @@ impl LayoutReader for StructReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
+        if splits.mode() == BoundaryMode::PositionsOnly {
+            if let Some(validity_ref) = self.validity()? {
+                validity_ref.register_splits(field_mask, split_range, splits)?;
+            }
+            self.layout.matching_fields(field_mask, |mask, idx| {
+                self.field_reader_by_index(idx)?
+                    .register_splits(&[mask], split_range, splits)
+            })?;
+            // Pushed last so it extends the final field's ascending run.
+            splits.push(split_range.root_row_range().end);
+            return Ok(());
+        }
+
         // Validity boundaries must stay hard even when they overlap a soft data-field boundary.
         let validity_boundaries = if let Some(validity_ref) = self.validity()? {
-            let mut validity_splits = RowSplits::new_capacity(16);
+            let mut validity_splits = splits.new_like(16);
             validity_ref.register_splits(field_mask, split_range, &mut validity_splits)?;
             validity_splits.into_sorted_deduped()
         } else {
@@ -468,7 +482,7 @@ impl LayoutReader for StructReader {
         // Each field's boundaries, kept apart so the ones only some fields have can be marked soft.
         let mut fields: Vec<RowSplits> = Vec::new();
         self.layout.matching_fields(field_mask, |mask, idx| {
-            let mut field = RowSplits::new_capacity(16);
+            let mut field = splits.new_like(16);
             self.field_reader_by_index(idx)?
                 .register_splits(&[mask], split_range, &mut field)?;
             fields.push(field);

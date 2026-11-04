@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::BoundaryMode;
 use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
@@ -73,8 +74,13 @@ impl SplitBy {
                     max_rows > 0,
                     "SplitBy::LayoutSubSplitting requires a non-zero max_rows"
                 );
-                let (boundaries, soft) = register_boundaries(layout_reader, row_range, field_mask)?
-                    .into_sorted_deduped_with_soft();
+                let (boundaries, soft) = register_boundaries(
+                    layout_reader,
+                    row_range,
+                    field_mask,
+                    BoundaryMode::WithSoftMarks,
+                )?
+                .into_sorted_deduped_with_soft();
                 subdivide_large_spans(
                     merge_small_spans(boundaries, &soft, DEFAULT_MIN_SPLIT_ROWS.min(max_rows)),
                     max_rows,
@@ -96,7 +102,13 @@ fn layout_boundaries(
     row_range: &Range<u64>,
     field_mask: &[FieldMask],
 ) -> VortexResult<Vec<u64>> {
-    Ok(register_boundaries(layout_reader, row_range, field_mask)?.into_sorted_deduped())
+    Ok(register_boundaries(
+        layout_reader,
+        row_range,
+        field_mask,
+        BoundaryMode::PositionsOnly,
+    )?
+    .into_sorted_deduped())
 }
 
 /// The boundaries the layout registers within `row_range`, after the range's start (the layout
@@ -105,9 +117,10 @@ fn register_boundaries(
     layout_reader: &dyn LayoutReader,
     row_range: &Range<u64>,
     field_mask: &[FieldMask],
+    mode: BoundaryMode,
 ) -> VortexResult<RowSplits> {
     // We usually have under 100 splits so reserving upfront saves us some allocations
-    let mut row_splits = RowSplits::new_capacity(128);
+    let mut row_splits = RowSplits::new_capacity_with_mode(128, mode);
     row_splits.push(row_range.start);
     layout_reader.register_splits(
         field_mask,

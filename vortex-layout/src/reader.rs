@@ -94,6 +94,16 @@ impl SplitRange {
     }
 }
 
+/// What a [`RowSplits`] collector is asked to gather.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BoundaryMode {
+    /// Boundary positions only; readers skip classifying soft boundaries.
+    #[default]
+    PositionsOnly,
+    /// Boundary positions plus soft marks (see [`RowSplits::mark_soft`]).
+    WithSoftMarks,
+}
+
 /// A collection of root-coordinate row split points.
 ///
 /// Boundaries arrive as non-descending runs, one per layout subtree walked; a descending push
@@ -112,6 +122,7 @@ pub struct RowSplits {
     prev_run_start: usize,
     /// Boundaries marked soft, unsorted and possibly repeated.
     soft: Vec<u64>,
+    mode: BoundaryMode,
 }
 
 impl RowSplits {
@@ -168,6 +179,24 @@ impl RowSplits {
         self.splits.reserve(additional);
     }
 
+    /// The collection mode requested by the consumer.
+    pub fn mode(&self) -> BoundaryMode {
+        self.mode
+    }
+
+    /// An empty collector with the given capacity that inherits `self`'s mode.
+    pub(crate) fn new_like(&self, capacity: usize) -> Self {
+        Self::new_capacity_with_mode(capacity, self.mode)
+    }
+
+    /// Create a new RowSplits with preallocated "capacity" and the given mode.
+    pub(crate) fn new_capacity_with_mode(capacity: usize, mode: BoundaryMode) -> Self {
+        Self {
+            mode,
+            ..Self::new_capacity(capacity)
+        }
+    }
+
     /// Mark boundaries soft: ones that only some fields of a struct have. They must also be
     /// pushed.
     pub fn mark_soft(&mut self, rows: impl IntoIterator<Item = u64>) {
@@ -196,6 +225,7 @@ impl RowSplits {
             run_start: 0,
             prev_run_start: 0,
             soft: Vec::new(),
+            mode: BoundaryMode::PositionsOnly,
         }
     }
 
