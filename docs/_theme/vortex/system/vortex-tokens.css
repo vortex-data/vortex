@@ -1,0 +1,110 @@
+/* Vortex design system tokens, copied by tools/site-styles.mjs.
+   Edit the system, then run tools/site-styles.mjs; do not edit here.
+   Made by: node tools/site-styles.mjs <site> --sections docs,focus --reads ../vortex.css,../layout.html
+   sha256 8924c605047ae88eb3667bf4e408e5520327d781e60d3d0906a373f9250ccbc9 */
+:root, [data-theme="dark"] {
+  --white: #ffffff;
+  --grey-100: #ebebe8;
+  --grey-200: #dfdfdd;
+  --grey-300: #d4d4d2;
+  --grey-450: #9c9c99;
+  --grey-500: #646462;
+  --grey-600: #3c3c3a;
+  --grey-700: #2b2b29;
+  --black: #171716;
+  --blue: #1d0fed;
+  --blue-soft: #8fa9ff;
+  --orange: #f27332;
+  --ground-dark: #0f0f0e;
+  --ground-light: #f5f5f2;
+  --ground: var(--ground-dark);
+  --surface: var(--black);
+  --raised: var(--grey-700);
+  --line: var(--grey-700);
+  --edge: var(--grey-600);
+  --wash: rgba(43, 43, 41, 0.5);
+  --ink: var(--white);
+  --ink-body: var(--grey-300);
+  --ink-muted: var(--grey-450);
+  --accent-ink: var(--blue-soft);
+  --accent-soft: rgba(47, 99, 255, 0.16);
+  --focus-ring: var(--accent-ink);
+  --warn-ink: var(--orange);
+  --syntax-plain: var(--grey-300);
+  --syntax-keyword: var(--blue-soft);
+  --syntax-function: #f4df9a;
+  --syntax-type: #6fcfd6;
+  --syntax-string: #f2a0c2;
+  --syntax-comment: var(--grey-450);
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --ground: var(--ground-light);
+  --surface: var(--white);
+  --raised: var(--grey-100);
+  --line: var(--grey-200);
+  --edge: var(--grey-300);
+  --wash: rgba(235, 235, 232, 0.5);
+  --ink: var(--black);
+  --ink-body: var(--grey-600);
+  --ink-muted: var(--grey-500);
+  --accent-ink: var(--blue);
+  --accent-soft: rgba(29, 15, 237, 0.1);
+  --focus-ring: var(--accent-ink);
+  --warn-ink: #ad4a00;
+  --syntax-plain: var(--grey-600);
+  --syntax-keyword: var(--blue);
+  --syntax-function: #6d24b5;
+  --syntax-type: #0a6b75;
+  --syntax-string: #a8205b;
+  --syntax-comment: var(--grey-500);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --ground: var(--ground-light);
+    --surface: var(--white);
+    --raised: var(--grey-100);
+    --line: var(--grey-200);
+    --edge: var(--grey-300);
+    --wash: rgba(235, 235, 232, 0.5);
+    --ink: var(--black);
+    --ink-body: var(--grey-600);
+    --ink-muted: var(--grey-500);
+    --accent-ink: var(--blue);
+    --accent-soft: rgba(29, 15, 237, 0.1);
+    --focus-ring: var(--accent-ink);
+    --warn-ink: #ad4a00;
+    --syntax-plain: var(--grey-600);
+    --syntax-keyword: var(--blue);
+    --syntax-function: #6d24b5;
+    --syntax-type: #0a6b75;
+    --syntax-string: #a8205b;
+    --syntax-comment: var(--grey-500);
+    color-scheme: light;
+  }
+}
+:root {
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --page-max: 1440px;
+  --measure: 54ch;
+  --page-pad: 48px;
+  --control-md: 32px;
+  --control-sm: 28px;
+  --vx-motion: 150ms ease-out;
+  --font-sans: Geist, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace;
+}
+@media (max-width: 640px) {
+  :root {
+    --page-pad: 16px;
+  }
+}

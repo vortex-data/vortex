@@ -8,6 +8,9 @@
 //! Canonical execution is omitted because it only returns the existing array. Each iteration shares
 //! value buffers and builds fresh arrays so cached statistics cannot remove the operation's work.
 //! [`WidenArray::encode_decimal`] selects the child buffers outside the timed region.
+//!
+//! Casts from precision 38 to 76 measure lazy construction for canonical and `Widen` inputs.
+//! A canonical-input cast also measures execution through the copy into `i256` values.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -28,12 +31,14 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Widen;
 use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::widen::WidenArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -123,6 +128,13 @@ fn widen_cases() -> Vec<Case> {
         .collect()
 }
 
+fn cast_cases() -> Vec<Case> {
+    cases()
+        .into_iter()
+        .filter(|case| case.precision == 38)
+        .collect()
+}
+
 impl fmt::Display for Case {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -202,8 +214,9 @@ impl Values {
         }
     }
 
+    /// Builds a new array of the values for `case`, marked as optimized.
     fn array(&self, case: Case) -> ArrayRef {
-        match case.input {
+        let array = match case.input {
             Input::Canonical => self.decimal_array(case.decimal_dtype()).into_array(),
             Input::Widen => {
                 let child_dtype = DecimalDType::new(case.child_precision, SCALE);
@@ -213,7 +226,10 @@ impl Values {
                     .vortex_expect("encode_decimal selected a strictly narrower child dtype")
                     .into_array()
             }
-        }
+        };
+        mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
+
+        array
     }
 }
 
@@ -253,5 +269,38 @@ fn execute(bencher: Bencher, case: Case) {
         bencher,
         || values.array(case),
         |array, ctx| execute_canonical(Ok(array), ctx),
+    );
+}
+
+#[divan::bench(args = cast_cases())]
+fn cast_lazy(bencher: Bencher, case: Case) {
+    let values = case.values();
+    let target = DType::Decimal(DecimalDType::new(76, SCALE), Nullability::NonNullable);
+
+    bench_case(
+        bencher,
+        || values.array(case),
+        |array, _ctx| {
+            array
+                .cast(target.clone())
+                .vortex_expect("a same-scale precision increase is valid")
+        },
+    );
+}
+
+#[divan::bench]
+fn cast_execute(bencher: Bencher) {
+    let case = Case {
+        precision: 38,
+        child_precision: 18,
+        input: Input::Canonical,
+    };
+    let values = case.values();
+    let target = DType::Decimal(DecimalDType::new(76, SCALE), Nullability::NonNullable);
+
+    bench_case(
+        bencher,
+        || values.array(case),
+        |array, ctx| execute_canonical(array.cast(target.clone()), ctx),
     );
 }

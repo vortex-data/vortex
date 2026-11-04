@@ -459,7 +459,10 @@ impl AggregateFnVTable for IsConstant {
         _args: AggregateArgs<'_, Self::Options>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
+        // A null partial is the empty state of an empty or null group, which is not constant.
+        partials
+            .get_item(NAMES.get(0).vortex_expect("out of bounds").clone())?
+            .fill_null(false)
     }
 
     fn finalize_scalar(
@@ -491,7 +494,9 @@ mod tests {
     use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::is_constant::IsConstant;
     use crate::aggregate_fn::fns::is_constant::IsConstantPartial;
     use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -501,9 +506,11 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::runend::RunEnd;
+    use crate::assert_arrays_eq;
     use crate::builders::MapBuilder;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -897,6 +904,34 @@ mod tests {
         acc.accumulate(&empty, &mut ctx)?;
 
         assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
+        Ok(())
+    }
+
+    #[test]
+    fn grouped_is_constant() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements = PrimitiveArray::from_option_iter([Some(5i32), Some(5), Some(6), None, None])
+            .into_array();
+        let dtype = elements.dtype().clone();
+
+        // The groups are `[5, 5]`, `[5, 6]`, `[]`, `[null, null]`, and a null group.
+        let groups = ListViewArray::try_new(
+            elements,
+            buffer![0i32, 1, 0, 3, 0].into_array(),
+            buffer![2i32, 2, 0, 2, 0].into_array(),
+            Validity::from_iter([true, true, true, true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let mut acc = GroupedAccumulator::try_new(IsConstant, EmptyOptions, dtype)?;
+        acc.accumulate_list(&groups, &mut ctx)?;
+
+        assert_arrays_eq!(
+            acc.finish()?,
+            BoolArray::from_iter([true, false, false, true, false]),
+            &mut ctx
+        );
         Ok(())
     }
 }

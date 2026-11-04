@@ -20,19 +20,24 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::Constant;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::matcher::Matcher;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -315,6 +320,38 @@ impl ScalarFnVTable for Binary {
         ))
     }
 
+    fn execute_step(
+        &self,
+        op: &Operator,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let columnar = |idx| args.input_matches(idx, AnyColumnar::matches);
+        let ready = (columnar(0)? && columnar(1)?)
+            // A constant operand can decide the result, such as `false AND x` or `x < null`, so
+            // `execute` does not need the other operand executed.
+            || match op {
+                Operator::And | Operator::Or => {
+                    let constant = |idx| args.input_matches(idx, |array| array.is::<Constant>());
+                    constant(0)? || constant(1)?
+                }
+                _ => {
+                    let null = |idx| {
+                        args.input_matches(idx, |array| {
+                            array.as_constant().is_some_and(|scalar| scalar.is_null())
+                        })
+                    };
+                    null(0)? || null(1)?
+                }
+            };
+        if !ready {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
+        }
+        self.execute(op, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
     fn is_strict(&self, operator: &Operator) -> bool {
         !matches!(operator, Operator::And | Operator::Or)
     }
@@ -344,6 +381,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
@@ -748,6 +786,51 @@ mod tests {
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
             assert_arrays_eq!(array, BoolArray::from_iter([true, true, true]), &mut ctx);
         }
+        Ok(())
+    }
+
+    /// Comparisons over arithmetic, joined by `AND`: every input is a scalar function, so each
+    /// operator executes its inputs through the executor.
+    #[test]
+    fn executes_non_columnar_inputs_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let a = PrimitiveArray::from_iter([1i32, 5, 9, 12]).into_array();
+        let b = PrimitiveArray::from_iter([2i32, 2, 2, 2]).into_array();
+        let sum = a.binary(b.clone(), Operator::Add)?;
+        let difference = a.binary(b, Operator::Sub)?;
+        let ten = ConstantArray::new(10i32, 4).into_array();
+        let result = sum
+            .binary(ten.clone(), Operator::Gt)?
+            .binary(difference.binary(ten, Operator::Lt)?, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, true, false]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A constant `false` decides `AND` without executing the other operand, which here fails
+    /// when executed.
+    #[test]
+    fn deciding_constant_skips_other_operand() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let failing = PrimitiveArray::from_iter([1i32, 2, 3])
+            .into_array()
+            .binary(ConstantArray::new(0i32, 3).into_array(), Operator::Div)?
+            .binary(ConstantArray::new(1i32, 3).into_array(), Operator::Gt)?;
+        assert!(failing.clone().execute::<Canonical>(&mut ctx).is_err());
+
+        let result = ConstantArray::new(false, 3)
+            .into_array()
+            .binary(failing, Operator::And)?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false]),
+            &mut ctx
+        );
         Ok(())
     }
 }

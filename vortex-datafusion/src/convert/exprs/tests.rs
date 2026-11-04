@@ -18,6 +18,7 @@ use arrow_array::StructArray;
 use arrow_array::UInt8Array;
 use arrow_array::UInt32Array;
 use arrow_array::UInt64Array;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
 use arrow_array::types::UInt32Type;
@@ -112,6 +113,27 @@ fn array_length_expr(args: Vec<Arc<dyn PhysicalExpr>>, schema: &Schema) -> Arc<d
         )
         .unwrap(),
     )
+}
+
+/// Plans `array_sum(list)` as DataFusion does, casting the list to the `Float64` list type that
+/// `array_sum` coerces it to.
+fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let function = ScalarUDF::from(ArraySum::new());
+    let list_type = list.data_type(schema)?;
+    let coerced = function
+        .coerce_types(std::slice::from_ref(&list_type))?
+        .remove(0);
+    let list = if coerced == list_type {
+        list
+    } else {
+        Arc::new(df_expr::CastExpr::new(list, coerced, None))
+    };
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(function),
+        vec![list],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
 }
 
 fn get_field_expr(
@@ -2208,6 +2230,51 @@ fn test_native_nested_list_length(
     } else {
         assert_native_matches(length, batch)
     }
+}
+
+#[rstest]
+fn test_native_array_sum(
+    #[values(DataType::Int64, DataType::Float64)] element: DataType,
+) -> anyhow::Result<()> {
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![]),
+        Some(vec![None, None]),
+        None,
+        Some(vec![Some(0), Some(3)]),
+        Some(vec![Some(i64::MAX), Some(i64::MAX)]),
+        Some(vec![Some(1 << 53), Some(1), Some(1)]),
+    ]);
+    let data_type = DataType::new_list(element, true);
+    let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
+    assert_native_matches(expr, batch)
+}
+
+#[test]
+fn test_native_array_sum_nan() -> anyhow::Result<()> {
+    let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(vec![
+        Some(1.0),
+        Some(f64::NAN),
+    ])]);
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let converted = convert(
+        array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?,
+        &schema,
+    )?;
+    let session = VortexSession::default();
+    let sum = session
+        .arrow()
+        .from_arrow_record_batch(batch, &schema)?
+        .apply(&converted)?
+        .execute_scalar(0, &mut session.create_execution_ctx())?;
+    assert!(
+        sum.as_primitive()
+            .typed_value::<f64>()
+            .is_some_and(f64::is_nan)
+    );
+    Ok(())
 }
 
 #[test]

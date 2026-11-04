@@ -37,6 +37,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 #[expect(
     deprecated,
@@ -98,7 +99,7 @@ fn schema() -> DType {
 }
 
 fn array() -> ArrayRef {
-    StructArray::from_fields(&[
+    let array = StructArray::from_fields(&[
         (
             "primitive",
             PrimitiveArray::from_iter(0i16..1024).into_array(),
@@ -118,7 +119,10 @@ fn array() -> ArrayRef {
         ),
     ])
     .unwrap()
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 #[allow(non_snake_case)]
@@ -381,7 +385,7 @@ fn chunked_strings(
 
 fn string_array(case: StringCase) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    match case.structure {
+    let array = match case.structure {
         StringStructure::Flat => encode_strings(
             structured_strings(STRING_ROWS, case.validity),
             case.encoding,
@@ -389,7 +393,10 @@ fn string_array(case: StringCase) -> ArrayRef {
         ),
         StringStructure::Dict => dictionary_strings(case.encoding, case.validity, &mut ctx),
         StringStructure::Chunked => chunked_strings(case.encoding, case.validity, &mut ctx),
-    }
+    };
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Measures export to Arrow offset arrays and Arrow view arrays.
@@ -567,6 +574,8 @@ fn decimal_byte_parts(msp: PrimitiveArray, decimal_dtype: DecimalDType) -> Array
 #[divan::bench(args = DECIMAL_EXPORT_CASES)]
 fn decimal_export(bencher: Bencher, case: DecimalExportCase) {
     let array = case.array();
+    mark_optimized(&array, &SESSION).unwrap();
+
     let decimal_dtype = case.decimal_dtype();
     let field = Field::new(
         "value",

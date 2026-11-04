@@ -3,8 +3,8 @@
 
 //! Iterative array execution.
 //!
-//! The single-step [`Executable`] implementation for [`ArrayRef`] tries `reduce`,
-//! `reduce_parent`, `execute_parent`, then `execute` once. The matcher-driven
+//! The single-step [`Executable`] implementation for [`ArrayRef`] optimizes the array with the
+//! context's session, then tries `execute_parent`, then `execute` once. The matcher-driven
 //! [`ArrayRef::execute_until`] loop interprets [`ExecutionStep::ExecuteSlot`],
 //! [`ExecutionStep::AppendChild`], and [`ExecutionStep::Done`] using an explicit stack plus an
 //! optional builder, so encodings can advance without recursive descent.
@@ -44,6 +44,8 @@ use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::Optimizer;
+use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
@@ -179,7 +181,17 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let mut current_array = self;
+        // One optimizer serves the whole execution, so a shared node that one step rewrote is
+        // reused when a later step reaches it. The session is cloned so the optimizer does not
+        // borrow `ctx`.
+        let session = ctx.session().clone();
+        let session_kernels = session.kernels();
+        let session_kernels: &ArrayKernels = &session_kernels;
+        let mut optimizer = Optimizer::new(Some(session_kernels));
+
+        // Each node is optimized when execution reaches it: the root here, with the nodes below it
+        // that were never optimized, and a child when execution focuses it.
+        let mut current_array = optimizer.optimize_array(&self)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
@@ -214,6 +226,10 @@ impl ArrayRef {
                             current_builder.is_none(),
                             "root activation should not retain a builder"
                         );
+                        // Kernels build their results with lazy constructors too, such as a
+                        // filtered validity, so optimize whatever execution produced. This is
+                        // free when the array is already marked as optimized.
+                        current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }
@@ -250,7 +266,7 @@ impl ArrayRef {
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = result.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&result)?;
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
@@ -268,7 +284,7 @@ impl ArrayRef {
                 && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
-                let optimized = rewritten.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&rewritten)?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
                 continue;
@@ -302,7 +318,7 @@ impl ArrayRef {
                         original_dtype: child.dtype().clone(),
                         original_len: child.len(),
                     });
-                    current_array = child;
+                    current_array = optimizer.optimize_array(&child)?;
                     current_builder = None;
                 }
                 ExecutionStep::AppendChild(i) => {
@@ -343,6 +359,9 @@ impl ArrayRef {
                     if had_builder {
                         trace_op!(record_builder_finish(&current_array));
                     }
+                    // Kernels build their results with lazy constructors, such as a cast that only
+                    // changes nullability. Reduce them before execute-parent kernels see them.
+                    current_array = optimizer.optimize_array(&current_array)?;
                 }
             }
         }
@@ -476,7 +495,7 @@ impl Drop for ExecutionCtx {
 
 /// Single-step execution: takes one step toward canonical form.
 ///
-/// Steps through reduce, reduce_parent, execute_parent, then execute. For `ExecuteSlot`,
+/// Steps through optimize, execute_parent, then execute. For `ExecuteSlot`,
 /// only a single child execution step is performed — the child is executed once and put back,
 /// making this a lightweight, bounded operation.
 ///
@@ -496,34 +515,13 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
-        if let Some(reduced) = array.reduce()? {
-            reduced.statistics().inherit_from(array.statistics());
-            trace_op!(record_single_step_applied("reduce", &array, &reduced));
-            return Ok(reduced);
+        let optimized = array.optimize_ctx(ctx.session())?;
+        if !ArrayRef::ptr_eq(&optimized, &array) {
+            optimized.statistics().inherit_from(array.statistics());
+            trace_op!(record_single_step_applied("optimize", &array, &optimized));
+            return Ok(optimized);
         }
-        trace_op!(record_single_step_phase_none("reduce", &array));
-
-        for (slot_idx, slot) in array.slots().iter().enumerate() {
-            let Some(child) = slot else { continue };
-            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
-                log_parent_rewrite(
-                    ctx,
-                    "reduce_parent",
-                    slot_idx,
-                    &array,
-                    child,
-                    &reduced_parent,
-                );
-                reduced_parent.statistics().inherit_from(array.statistics());
-                trace_op!(record_single_step_applied(
-                    "reduce_parent",
-                    &array,
-                    &reduced_parent,
-                ));
-                return Ok(reduced_parent);
-            }
-        }
-        trace_op!(record_single_step_phase_none("reduce_parent", &array));
+        trace_op!(record_single_step_phase_none("optimize", &array));
 
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
         let kernels = execute_parent_kernels.as_ref();
@@ -919,6 +917,25 @@ macro_rules! require_child {
         }
         $parent
     }};
+}
+
+/// The scalar function counterpart of [`require_child!`]: require that input `$idx` of `$args`
+/// matches `$M`. If it does not, early-returns a
+/// [`ScalarFnExecutionResult`](crate::scalar_fn::ScalarFnExecutionResult) asking the executor to
+/// execute that input until it matches, so the function is stepped again with the executed input.
+///
+/// ```ignore
+/// require_input!(args, 0 => AnyColumnar);
+/// ```
+#[macro_export]
+macro_rules! require_input {
+    ($args:expr, $idx:expr => $M:ty) => {
+        if !$args.input_matches($idx, <$M as $crate::matcher::Matcher>::matches)? {
+            return Ok($crate::scalar_fn::ScalarFnExecutionResult::execute_input::<
+                $M,
+            >($idx));
+        }
+    };
 }
 
 /// Like [`require_child!`], but for optional children. If the child is `None`, this is a no-op.

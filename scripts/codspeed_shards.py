@@ -5,21 +5,26 @@
 """Plan the CodSpeed simulation shards.
 
 CodSpeed rejects an upload with too many benchmarks and recommends fewer than 1,000 per upload, so
-the simulation benchmarks are split into shards of at most `CAP` benchmarks each. The plan only
-reads `Cargo.toml` files and `codspeed_bench_counts.json`, so it needs no Rust toolchain and runs
-in a few seconds before the shard jobs start.
+the simulation benchmarks are split into shards of at most `CAP` benchmarks each. Use the available
+slots to balance recorded target runtimes, including setup inside each benchmark binary. The plan
+reads manifests, benchmark counts, and durations, so it needs no Rust toolchain.
 
     python3 scripts/codspeed_shards.py plan >> "$GITHUB_OUTPUT"
     python3 scripts/codspeed_shards.py counts job-log.txt [...] > scripts/codspeed_bench_counts.json
+    python3 scripts/codspeed_shards.py durations --source <run-url> --commit <sha> job-log.txt [...]
 
-The second form regenerates the counts from the logs of CodSpeed simulation jobs.
+The latter commands regenerate counts and durations from completed simulation job logs. Save the
+durations output to `scripts/codspeed_bench_durations.json`.
 """
 
 import argparse
 import collections
+import datetime
+import itertools
 import json
 import math
 import re
+import statistics
 import sys
 import tomllib
 from pathlib import Path
@@ -27,6 +32,7 @@ from typing import TypedDict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COUNTS_PATH = REPO_ROOT / "scripts" / "codspeed_bench_counts.json"
+DURATIONS_PATH = REPO_ROOT / "scripts" / "codspeed_bench_durations.json"
 
 # Most benchmarks per shard, leaving headroom under CodSpeed's recommended 1,000.
 CAP = 800
@@ -37,6 +43,9 @@ MAX_SHARDS = 5
 
 # Benchmarks measured for a target missing from the counts file, until the file is regenerated.
 DEFAULT_COUNT = 100
+
+# A new target starts with a five-second estimate until simulation logs record its runtime.
+DEFAULT_SECONDS = 5.0
 
 # The packages whose benchmarks run in simulation, with the features each one builds with.
 PACKAGES: dict[str, tuple[str, ...]] = {
@@ -71,7 +80,14 @@ Target = tuple[str, str]  # (package, bench target)
 # One entry of the GitHub Actions matrix.
 Shard = TypedDict(
     "Shard",
-    {"shard": int, "benchmarks": int, "packages": str, "build-args": str, "exclude-allocations": bool},
+    {
+        "shard": int,
+        "benchmarks": int,
+        "seconds": float,
+        "packages": str,
+        "build-args": str,
+        "exclude-allocations": bool,
+    },
 )
 
 
@@ -104,49 +120,65 @@ def load_counts(path: Path = COUNTS_PATH) -> dict[Target, int]:
     return {(package, name): count for package, benches in raw.items() for name, count in benches.items()}
 
 
-def pack(items: list[tuple[str, list[Target], int]], cap: int) -> list[list[tuple[str, list[Target], int]]]:
-    """Pack `(key, targets, count)` items into as few bins of at most `cap` as greedy allows.
-
-    Largest item first, each into the currently lightest bin; a new bin opens only when the
-    lightest one cannot take the item.
-    """
-    total = sum(count for _, _, count in items)
-    bins: list[list[tuple[str, list[Target], int]]] = [[] for _ in range(max(1, math.ceil(total / cap)))]
-    for item in sorted(items, key=lambda item: (-item[2], item[0])):
-        lightest = min(bins, key=lambda b: sum(count for _, _, count in b))
-        if sum(count for _, _, count in lightest) + item[2] > cap:
-            lightest = []
-            bins.append(lightest)
-        lightest.append(item)
-    return [b for b in bins if b]
+def load_durations(path: Path = DURATIONS_PATH) -> dict[Target, float]:
+    raw = json.loads(path.read_text())["seconds"]
+    return {(package, name): seconds for package, benches in raw.items() for name, seconds in benches.items()}
 
 
-def plan(counts: dict[Target, int], cap: int = CAP) -> list[Shard]:
-    """Split targets into shards of at most `cap` benchmarks.
+def plan(
+    counts: dict[Target, int],
+    cap: int = CAP,
+    durations: dict[Target, float] | None = None,
+    max_shards: int = MAX_SHARDS,
+) -> list[Shard]:
+    """Balance target runtimes across available slots, with at most `cap` benchmarks per shard.
 
-    Targets that exclude allocations and the rest are packed separately. Within each pool, a
-    package's targets stay together unless the package alone exceeds `cap`, in which case its
-    targets are packed one by one.
+    Allocation modes stay separate. Keep small packages together to limit repeated builds, but
+    split a package above the per-shard runtime budget or count cap at target boundaries. Keep
+    each target intact because its benchmarks share process state.
     """
     for target, count in counts.items():
         if count > cap:
             raise SystemExit(f"{target[0]}::{target[1]} alone has {count} benchmarks; split it below {cap}")
 
-    pools: dict[bool, dict[str, list[Target]]] = collections.defaultdict(lambda: collections.defaultdict(list))
+    durations = durations or {}
+    seconds = {target: durations.get(target, DEFAULT_SECONDS) for target in counts}
+    pools: dict[bool, list[Target]] = collections.defaultdict(list)
     for target in sorted(counts):
-        pools[excludes_allocations(target)][target[0]].append(target)
+        pools[excludes_allocations(target)].append(target)
+
+    slots = {exclude: max(1, math.ceil(sum(counts[t] for t in targets) / cap)) for exclude, targets in pools.items()}
+    if sum(slots.values()) > max_shards:
+        raise SystemExit(f"benchmark counts require more than {max_shards} shard slots")
+    while sum(slots.values()) < max_shards:
+        candidates = [exclude for exclude in sorted(pools) if slots[exclude] < len(pools[exclude])]
+        if not candidates:
+            break
+        exclude = max(candidates, key=lambda mode: sum(seconds[t] for t in pools[mode]) / slots[mode])
+        slots[exclude] += 1
 
     shards: list[Shard] = []
     for exclude in sorted(pools):
+        budget = sum(seconds[t] for t in pools[exclude]) / slots[exclude]
         items = []
-        for package, targets in sorted(pools[exclude].items()):
-            total = sum(counts[t] for t in targets)
-            if total <= cap:
-                items.append((package, targets, total))
+        for _, group in itertools.groupby(pools[exclude], key=lambda t: t[0]):
+            targets = list(group)
+            if sum(seconds[t] for t in targets) <= budget and sum(counts[t] for t in targets) <= cap:
+                items.append(targets)
             else:
-                items.extend((f"{t[0]}::{t[1]}", [t], counts[t]) for t in targets)
-        for shard_items in pack(items, cap):
-            targets = sorted(t for _, ts, _ in shard_items for t in ts)
+                items.extend([target] for target in targets)
+        bins: list[list[Target]] = [[] for _ in range(slots[exclude])]
+        for item in sorted(items, key=lambda ts: (-sum(seconds[t] for t in ts), -sum(counts[t] for t in ts), ts)):
+            count = sum(counts[t] for t in item)
+            candidates = [b for b in bins if sum(counts[t] for t in b) + count <= cap]
+            if not candidates:
+                raise SystemExit(f"cannot pack benchmarks into {max_shards} shard slots under the {cap}-benchmark cap")
+            lightest = min(candidates, key=lambda b: sum(seconds[t] for t in b))
+            lightest.extend(item)
+        for targets in bins:
+            if not targets:
+                continue
+            targets = sorted(targets)
             packages = sorted({package for package, _ in targets})
             features = sorted(f"{package}/{feature}" for package in packages for feature in PACKAGES[package])
             args = [f"--features {','.join(features)}"] if features else []
@@ -156,16 +188,12 @@ def plan(counts: dict[Target, int], cap: int = CAP) -> list[Shard]:
                 {
                     "shard": len(shards) + 1,
                     "benchmarks": sum(counts[t] for t in targets),
+                    "seconds": round(sum(seconds[t] for t in targets), 3),
                     "packages": " ".join(packages),
                     "build-args": " ".join(args),
                     "exclude-allocations": exclude,
                 }
             )
-    if len(shards) > MAX_SHARDS:
-        raise SystemExit(
-            f"{len(shards)} shards needed but the workflow has {MAX_SHARDS} slots; add slots to the "
-            "`bench-codspeed` matrix and MAX_SHARDS together"
-        )
     return shards
 
 
@@ -197,12 +225,37 @@ def counts_from_logs(paths: list[Path]) -> dict[str, dict[str, int]]:
     return {package: dict(sorted(benches.items())) for package, benches in sorted(counts.items())}
 
 
+def durations_from_logs(paths: list[Path]) -> dict[str, dict[str, float]]:
+    """Measure complete target executions, including startup and untimed fixture construction."""
+    samples: dict[Target, list[float]] = collections.defaultdict(list)
+    for path in paths:
+        current = None
+        started = None
+        for line in path.read_text(errors="replace").splitlines():
+            if match := re.search(r"\bRunning (\S+) (\S+)$", line):
+                current = (match.group(1), match.group(2)) if match.group(1) in PACKAGES else None
+                if current:
+                    started = datetime.datetime.fromisoformat(line.split()[0])
+            elif current and started is not None and re.search(rf"\bDone running {re.escape(current[1])}$", line):
+                ended = datetime.datetime.fromisoformat(line.split()[0])
+                samples[current].append((ended - started).total_seconds())
+                current = None
+    durations: dict[str, dict[str, float]] = collections.defaultdict(dict)
+    for (package, target), values in sorted(samples.items()):
+        durations[package][target] = round(statistics.median(values), 3)
+    return dict(durations)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("plan", help="print the shard plan as GITHUB_OUTPUT lines")
     counts_parser = sub.add_parser("counts", help="regenerate benchmark counts from CodSpeed job logs")
     counts_parser.add_argument("logs", nargs="+", type=Path)
+    durations_parser = sub.add_parser("durations", help="record target runtimes from completed simulation job logs")
+    durations_parser.add_argument("--source", required=True, help="workflow run URL")
+    durations_parser.add_argument("--commit", required=True, help="measured commit SHA")
+    durations_parser.add_argument("logs", nargs="+", type=Path)
     args = parser.parse_args()
 
     if args.command == "counts":
@@ -210,7 +263,17 @@ def main() -> None:
         sys.stdout.write("\n")
         return
 
+    if args.command == "durations":
+        json.dump(
+            {"source": args.source, "commit": args.commit, "seconds": durations_from_logs(args.logs)},
+            sys.stdout,
+            indent=2,
+        )
+        sys.stdout.write("\n")
+        return
+
     known = load_counts()
+    durations = load_durations()
     counts = {}
     for target in discover_targets():
         if target not in known:
@@ -220,9 +283,19 @@ def main() -> None:
                 file=sys.stderr,
             )
         counts[target] = known.get(target, DEFAULT_COUNT)
-    shards = plan(counts)
+        if target not in durations:
+            print(
+                f"::warning::{target[0]}::{target[1]} is missing from {DURATIONS_PATH.name}; "
+                f"assuming {DEFAULT_SECONDS}s. Regenerate durations from simulation job logs.",
+                file=sys.stderr,
+            )
+    shards = plan(counts, durations=durations)
     for shard in shards:
-        print(f"shard {shard['shard']}: {shard['benchmarks']} benchmarks, {shard['packages']}", file=sys.stderr)
+        print(
+            f"shard {shard['shard']}: {shard['benchmarks']} benchmarks, "
+            f"{shard['seconds']:.1f}s estimated execution, {shard['packages']}",
+            file=sys.stderr,
+        )
     for name, value in github_outputs(shards).items():
         print(f"{name}={value}")
 

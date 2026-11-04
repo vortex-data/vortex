@@ -90,9 +90,11 @@ export interface FlattenedRow {
 
 // Retained from original types
 export type DtypeCategory =
-  'bool' | 'int' | 'float' | 'utf8' | 'datetime' | 'struct' | 'list' | 'other';
-
-export interface Split {
-  id: string;
-  rowRange: [number, number];
-}
+  | 'bool'
+  | 'int'
+  | 'float'
+  | 'utf8'
+  | 'datetime'
+  | 'struct'
+  | 'list'
+  | 'other';

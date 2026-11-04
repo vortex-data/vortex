@@ -445,6 +445,14 @@ impl<T> CudaSlice<T> {
         &self.stream
     }
 
+    /// The device address, to inspect or compute pointers from without accessing the memory.
+    ///
+    /// Unlike [`DevicePtr::device_ptr`], this orders nothing: work using the address must be
+    /// ordered after the memory's other accesses, for example through a device pointer guard.
+    pub fn device_address(&self) -> sys::CUdeviceptr {
+        self.pointer
+    }
+
     /// The whole slice as a view.
     pub fn as_view(&self) -> CudaView<'_, T> {
         CudaView {
@@ -705,14 +713,8 @@ impl<'a, T> CudaViewMut<'a, T> {
     ///
     /// Panics if `bounds` is out of range.
     pub fn slice_mut(&mut self, bounds: impl RangeBounds<usize>) -> CudaViewMut<'_, T> {
-        let (start, end) = range(&bounds, self.len).expect("CUDA view range out of bounds");
-        CudaViewMut {
-            pointer: self.pointer + (start * size_of::<T>()) as u64,
-            len: end - start,
-            access: self.access,
-            stream: self.stream,
-            marker: PhantomData,
-        }
+        // The return lifetime keeps `self` mutably borrowed while the copied view lives.
+        CudaViewMut { ..*self }.into_slice_mut(bounds)
     }
 
     fn into_slice_mut(self, bounds: impl RangeBounds<usize>) -> CudaViewMut<'a, T> {

@@ -38,6 +38,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -135,6 +136,8 @@ where
 
     for &(n_rows, size_str) in bench_config::BENCH_SIZES {
         let array = make_bitpacked_array::<T>(bit_width, n_rows);
+        mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
+
         let nbytes = n_rows * size_of::<T>();
 
         group.throughput(Throughput::Bytes(nbytes as u64));
@@ -190,6 +193,7 @@ where
 
         for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
             let array = make_bitpacked_array_with_patches::<T>(n_rows, patch_freq);
+            mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new(
