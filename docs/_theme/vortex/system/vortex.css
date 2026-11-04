@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus --reads ../vortex.css,../layout.html
-   sha256 9afee9f5a7ff9b136b9e5c1a95f269f223be547f6939e8ae24360f4e6b12ce13 */
+   sha256 846d2551362875e88eaf2d028c6ace40beea5bc016906ff06654f95eb0f0ce44 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -171,6 +171,11 @@
 .vx-docs-main table.docutils { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
 .vx-docs-main table.docutils th { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.6875rem/1.3 var(--font-mono); color: var(--ink-muted); }
 .vx-docs-main table.docutils td { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+/* An API summary table keeps each name whole above 760px. Inline code may break anywhere, and the
+   table's auto layout used that to squeeze the first column. A phone keeps the wrap, so nothing scrolls. */
+@media (min-width: 761px) {
+  .vx-docs-main table.autosummary td:first-child code { overflow-wrap: normal; }
+}
 .vx-docs-main :is(td, th) > p { margin: 0; }
 
 /* The API reference: a signature on raised, then its description and fields. */
