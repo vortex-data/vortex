@@ -225,6 +225,7 @@ mod tests {
     use crate::sink::vx_array_sink_close;
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
+    use crate::start_default_runtime_workers;
     use crate::string::vx_view;
     use crate::vx_runtime_set_worker_threads;
     use crate::vx_runtime_worker_count;
@@ -233,9 +234,13 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn runtime_worker_pool_configuration() {
         assert_eq!(vx_runtime_worker_count(), 0);
+
         vx_runtime_set_worker_threads(2);
+        start_default_runtime_workers();
         assert_eq!(vx_runtime_worker_count(), 2);
+
         vx_runtime_set_worker_threads(0);
+        start_default_runtime_workers();
         assert_eq!(vx_runtime_worker_count(), 0);
     }
 
