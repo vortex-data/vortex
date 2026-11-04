@@ -9,6 +9,7 @@
 #include "duckdb/common/types/vector_buffer.hpp"
 #include "duckdb/common/vector/fsst_vector.hpp"
 #include "duckdb/common/vector/string_vector.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
 
 using namespace duckdb;
 
@@ -16,6 +17,13 @@ extern "C" duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t 
     const Vector &vector = *reinterpret_cast<Vector *>(ffi_vector);
     Vector *const sliced = new Vector(vector, offset, end);
     return reinterpret_cast<duckdb_vector>(sliced);
+}
+
+extern "C" void
+duckdb_vx_vector_copy(duckdb_vector ffi_src, duckdb_vector ffi_dst, idx_t count, idx_t dst_offset) {
+    const Vector &src = *reinterpret_cast<Vector *>(ffi_src);
+    Vector &dst = *reinterpret_cast<Vector *>(ffi_dst);
+    VectorOperations::Copy(src, dst, count, 0, dst_offset);
 }
 
 extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,

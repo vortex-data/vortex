@@ -10,6 +10,10 @@ extern "C" {
 // Create a vector that slices another vector between a pair of offsets [offset, end)
 duckdb_vector duckdb_vx_vector_slice(duckdb_vector ffi_vector, idx_t offset, idx_t end);
 
+// Copy rows [0, count) of src into dst at rows [dst_offset, dst_offset + count).
+// src can be of any vector type. dst must be a flat vector with capacity for the copied rows.
+void duckdb_vx_vector_copy(duckdb_vector ffi_src, duckdb_vector ffi_dst, idx_t count, idx_t dst_offset);
+
 /// Creates a dictionary vector for a given values vector and selection vector.
 ///
 /// A dictionary holds a strong reference to all memory it uses.
