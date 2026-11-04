@@ -540,6 +540,10 @@ mod tests {
                 .into_array();
 
         let err = list_to_vector_ext(chunked).unwrap_err().to_string();
-        assert!(err.contains("Mismatched types"), "unexpected error: {err}");
+        assert!(
+            err.contains("left: vortex.tensor.vector(fixed_size_list(f32)[2])")
+                && err.contains("right: vortex.tensor.vector(fixed_size_list(f32)[3])"),
+            "unexpected error: {err}"
+        );
     }
 }
