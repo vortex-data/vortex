@@ -6,6 +6,21 @@ path = "docs/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# The docs theme's copies of the Vortex design system's CSS are code, under Apache-2.0.
+[[annotations]]
+path = "docs/_theme/vortex/system/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The docs theme's Geist Mono is Google Fonts' Latin subset of the font, under the SIL Open Font
+# License.
+[[annotations]]
+path = "docs/_static/fonts/geist-mono-latin.woff2"
+precedence = "override"
+SPDX-FileCopyrightText = "2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"
+SPDX-License-Identifier = "OFL-1.1"
+
 # BtrBlocks diagram is licensed under CC-BY-4.0.
 [[annotations]]
 path = "vortex-btrblocks/decision-tree.*"
