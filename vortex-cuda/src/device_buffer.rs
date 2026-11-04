@@ -115,6 +115,8 @@ impl CudaDeviceBuffer {
     /// `BufferHandle` interface that it implements.
     pub fn new<T: DeviceRepr + Debug + Send + Sync + 'static>(cuda_slice: CudaSlice<T>) -> Self {
         let len = cuda_slice.len() * size_of::<T>();
+        // Keep the tracked read to order the allocation stream after writes on other streams.
+        // Only the address is stored here, so drop the guard immediately; queued waits remain.
         let (device_ptr, _) = cuda_slice.device_ptr(cuda_slice.stream());
 
         Self {
