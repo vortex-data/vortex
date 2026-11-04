@@ -21,6 +21,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListArraySlotsExt;
@@ -32,9 +33,11 @@ use crate::dtype::FieldName;
 use crate::expr::BoundLambda;
 use crate::expr::Lambda;
 use crate::expr::display::ExprDisplay;
+use crate::require_input;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -136,6 +139,19 @@ impl ScalarFnVTable for ListTransform {
             Ok(list) => transform_list(list, lambda, ctx),
             Err(list) => transform_list_view(list.execute::<ListViewArray>(ctx)?, lambda, ctx),
         }
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        if !args.input_matches(0, |input| input.is::<List>())? {
+            require_input!(args, 0 => ListView);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _options: &ListTransformOptions) -> bool {

@@ -29,6 +29,7 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
@@ -117,6 +118,18 @@ impl ScalarFnVTable for DynamicExpression {
             .apply_bound(&predicate)?
             .cast(DType::Bool(Nullability::Nullable))?
             .execute(ctx)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // The predicate decides which inputs it reads and in what form, so the inputs are handed
+        // to it as they are.
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 }
 

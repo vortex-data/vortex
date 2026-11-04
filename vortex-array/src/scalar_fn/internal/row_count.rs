@@ -23,6 +23,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::registry::CachedId;
 
+use crate::scalar_fn::ScalarFnExecutionResult;
+
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
 /// This is a legacy pruning hack for readers that only have a `null_count`
@@ -81,6 +83,17 @@ impl ScalarFnVTable for RowCount {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("RowCount must be substituted before evaluation")
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // RowCount must be substituted before evaluation, so its inputs are never executed.
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

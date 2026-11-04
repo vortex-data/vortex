@@ -28,6 +28,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -40,11 +41,13 @@ use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -267,6 +270,21 @@ impl ScalarFnVTable for CaseWhen {
 
         // `remaining` now selects the rows that no branch matched.
         merge_case_branches(&branches, &remaining, &else_value, &output_dtype, ctx)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // Only the first condition is read over every row. Later conditions are filtered to the
+        // rows no earlier branch matched before they are executed, and the values stay lazy.
+        if options.num_when_then_pairs > 0 {
+            require_input!(args, 0 => AnyColumnar);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(

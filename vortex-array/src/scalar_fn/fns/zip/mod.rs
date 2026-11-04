@@ -11,11 +11,14 @@ pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyCanonical;
+use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -30,10 +33,12 @@ use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::require_input;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -126,37 +131,42 @@ impl ScalarFnVTable for Zip {
     fn execute(
         &self,
         _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        vortex_panic!("Zip implements execute_step, so execute is never called")
+    }
+
+    fn execute_step(
+        &self,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        require_input!(args, 2 => AnyColumnar);
         let if_true = args.get(0)?;
         let if_false = args.get(1)?;
-        let mask_array = args.get(2)?;
-
-        let mask = mask_array
+        let mask = args
+            .get(2)?
             .execute::<BoolArray>(ctx)?
             .to_mask_fill_null_false(ctx);
 
         let return_dtype = zip_return_dtype(if_true.dtype(), if_false.dtype())?;
 
+        // A trivial mask selects one branch, which stays lazy so the other is never executed.
         if mask.all_true() {
-            return if_true.cast(return_dtype)?.execute(ctx);
+            return Ok(ScalarFnExecutionResult::done(if_true.cast(return_dtype)?));
         }
-
         if mask.all_false() {
-            return if_false.cast(return_dtype)?.execute(ctx);
+            return Ok(ScalarFnExecutionResult::done(if_false.cast(return_dtype)?));
         }
 
-        if !if_true.is_canonical() || !if_false.is_canonical() {
-            let if_true = if_true.execute::<ArrayRef>(ctx)?;
-            let if_false = if_false.execute::<ArrayRef>(ctx)?;
-            return mask.into_array().zip(if_true, if_false);
-        }
-
+        require_input!(args, 0 => AnyCanonical);
+        require_input!(args, 1 => AnyCanonical);
         let Mask::Values(mask) = mask else {
             unreachable!("trivial masks returned above");
         };
-        zip_impl(&if_true, &if_false, &mask, ctx)
+        zip_impl(&if_true, &if_false, &mask, ctx).map(ScalarFnExecutionResult::done)
     }
 
     fn simplify(
@@ -350,8 +360,10 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
@@ -371,6 +383,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -577,5 +590,43 @@ mod tests {
             }
         }));
         assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
+    }
+
+    /// A lazy mask and non-canonical branches are executed through the executor before zipping.
+    #[test]
+    fn executes_non_canonical_inputs_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = buffer![1i32, 5, 9, 12].into_array();
+        let mask = values.binary(ConstantArray::new(6i32, 4).into_array(), Operator::Gt)?;
+        let if_true = ChunkedArray::try_new(
+            [
+                buffer![10i32, 20].into_array(),
+                buffer![30i32, 40].into_array(),
+            ],
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+        )?
+        .into_array();
+        let if_false = values.binary(ConstantArray::new(1i32, 4).into_array(), Operator::Add)?;
+
+        let result = mask.zip(if_true, if_false)?;
+
+        assert_arrays_eq!(result, buffer![2i32, 6, 30, 40].into_array(), &mut ctx);
+        Ok(())
+    }
+
+    /// A lazy mask that turns out all false selects `if_false` without executing `if_true`, which
+    /// here fails when executed.
+    #[test]
+    fn trivial_mask_skips_other_branch() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = buffer![1i32, 2, 3].into_array();
+        let failing = values.binary(ConstantArray::new(0i32, 3).into_array(), Operator::Div)?;
+        assert!(failing.clone().execute::<Canonical>(&mut ctx).is_err());
+        let mask = values.binary(ConstantArray::new(10i32, 3).into_array(), Operator::Gt)?;
+
+        let result = mask.zip(failing, buffer![7i32, 8, 9].into_array())?;
+
+        assert_arrays_eq!(result, buffer![7i32, 8, 9].into_array(), &mut ctx);
+        Ok(())
     }
 }

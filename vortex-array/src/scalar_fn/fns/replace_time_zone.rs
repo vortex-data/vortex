@@ -23,8 +23,10 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
@@ -37,10 +39,12 @@ use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::extension::datetime::resolve_time_zone as resolve_zone;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::literal::Literal;
@@ -217,6 +221,22 @@ impl ScalarFnVTable for ReplaceTimeZone {
         )
         .into_array();
         Ok(ExtensionArray::new(ext, storage).into_array())
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let constant = |idx| args.input_matches(idx, |input| input.as_constant().is_some());
+        let decided = (constant(0)? && constant(1)?) || matches!(args.get(1)?.dtype(), DType::Null);
+        if !decided {
+            require_input!(args, 0 => Extension);
+            require_input!(args, 1 => VarBinView);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 }
 

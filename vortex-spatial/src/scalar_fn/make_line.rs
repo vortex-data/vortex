@@ -3,19 +3,23 @@
 
 //! `ST_MakeLine`: construct a native line string between two native points.
 
+use vortex_array::AnyColumnar;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
+use vortex_array::require_input;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnExecutionResult;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
@@ -220,6 +224,28 @@ impl ScalarFnVTable for SpatialMakeLine {
             |execution, ctx| execute_make_line(execution, &output_dtype, ctx),
             ctx,
         )
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // A null constant operand decides every row without executing the other operand.
+        let null = |idx| {
+            args.input_matches(idx, |operand| {
+                operand
+                    .as_opt::<Constant>()
+                    .is_some_and(|constant| constant.scalar().is_null())
+            })
+        };
+        if !(null(0)? || null(1)?) {
+            require_input!(args, 0 => AnyColumnar);
+            require_input!(args, 1 => AnyColumnar);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _: &Self::Options) -> bool {

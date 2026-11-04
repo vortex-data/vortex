@@ -17,9 +17,11 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::proto::expr as pb;
+use vortex_array::require_input;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnExecutionResult;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -193,6 +195,26 @@ impl ScalarFnVTable for JsonToVariant {
         Self::try_new(canonical, options.clone())?
             .into_array()
             .execute::<ArrayRef>(ctx)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // Once the input is a canonical Json extension array, the Variant encoding's
+        // `execute_parent` kernel can fire. `execute` only runs if none does, and reports it.
+        if args.input_matches(0, |input| {
+            input
+                .dtype()
+                .as_extension_opt()
+                .is_some_and(|ext_dtype| ext_dtype.is::<Json>())
+        })? {
+            require_input!(args, 0 => Extension);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

@@ -29,6 +29,7 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -120,6 +121,26 @@ impl ScalarFnVTable for DynamicComparison {
             args.row_count(),
         )
         .into_array())
+    }
+
+    fn execute_step(
+        &self,
+        data: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        let Some(scalar) = data.rhs.scalar() else {
+            return self
+                .execute(data, args, ctx)
+                .map(ScalarFnExecutionResult::done);
+        };
+        let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
+        let delegate_args = VecExecutionArgs::new(vec![args.get(0)?, rhs], args.row_count());
+        // The comparison's left operand is this function's input 0, so the comparison's request
+        // to execute it carries over unchanged.
+        Binary
+            .bind(Operator::from(data.operator))
+            .execute_step(&delegate_args, ctx)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {

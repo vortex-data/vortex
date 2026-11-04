@@ -25,6 +25,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -130,6 +131,17 @@ impl ScalarFnVTable for PreparedSet {
     ) -> VortexResult<ArrayRef> {
         // The rows hold the list only. The haystack is of no use to the canonical form.
         Ok(ConstantArray::new(set.list().clone(), args.row_count()).into_array())
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // The result holds the prepared list only, so the haystack is never executed.
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn validity<T: ReduceNode>(
