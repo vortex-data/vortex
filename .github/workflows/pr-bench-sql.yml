@@ -1,13 +1,15 @@
 # Runs SQL benchmarks once for a pull request.
-# Called from pr-bench-dispatch.yml when SQL benchmark labels are added.
+# Called from pr-bench-dispatch.yml when SQL benchmark labels are added, or dispatched by hand to run
+# chosen benchmarks and queries. A dispatched run posts to `pr_number`, or else to the open PR for the
+# dispatched branch, if there is one.
 
 name: PR SQL Benchmarks
 
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
-      inputs.benchmarks || 'all'
-    }}-${{ github.head_ref || github.run_id }}
+      inputs.benchmarks || 'all' }}-${{ inputs.queries || 'all' }}-${{
+      inputs.pr_number || github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 on:
@@ -18,6 +20,10 @@ on:
         type: string
         default: "pr"
       benchmarks:
+        required: false
+        type: string
+        default: ""
+      queries:
         required: false
         type: string
         default: ""
@@ -38,6 +44,16 @@ on:
         required: false
         type: string
         default: ""
+      queries:
+        description: "Query numbers to run in each benchmark, e.g. 1,3,5-7; empty runs every query"
+        required: false
+        type: string
+        default: ""
+      pr_number:
+        description: "PR to benchmark and post to; empty uses the dispatched branch's open PR, if any"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -45,10 +61,46 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
+  # Label runs take the PR from the pull_request event. A dispatched run has none, so find it here.
+  find-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+    outputs:
+      number: ${{ steps.pr.outputs.number }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+    steps:
+      - name: Find pull request
+        id: pr
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$PR_NUMBER" ]]; then
+            pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUMBER#\#}")"
+          else
+            pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME" --jq '.[0] // empty')"
+            [[ -n "$pr" ]] || { echo "No open PR for $GITHUB_REF_NAME; results go to the run summary"; exit 0; }
+          fi
+          # A dispatched run has this repository's secrets, so it must not build fork code.
+          if [[ "$(jq -r .head.repo.full_name <<<"$pr")" != "$GITHUB_REPOSITORY" ]]; then
+            echo "::error::PR $PR_NUMBER is from a fork; add a benchmark label to it instead"
+            exit 1
+          fi
+          jq -r '"number=\(.number)", "head_sha=\(.head.sha)"' <<<"$pr" | tee -a "$GITHUB_OUTPUT"
+
   sql:
+    needs: find-pr
     uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "pr"
       matrix_preset: ${{ inputs.matrix_preset }}
       benchmarks: ${{ inputs.benchmarks }}
+      queries: ${{ inputs.queries }}
+      pr_number: ${{ needs.find-pr.outputs.number }}
+      pr_head_sha: ${{ needs.find-pr.outputs.head_sha }}
