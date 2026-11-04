@@ -12,7 +12,7 @@ const REPO_URL = `https://github.com/${REPO}`;
 const LINKS = [
   { label: 'Docs', href: 'https://docs.vortex.dev' },
   { label: 'Bench', href: 'https://bench.vortex.dev' },
-  { label: 'Explorer', href: '/', current: true },
+  { label: 'Explorer', href: import.meta.env.BASE_URL, current: true },
   { label: 'Blog', href: 'https://vortex.dev/blog' },
   { label: 'Slack', href: 'https://vortex.dev/slack' },
 ];
@@ -92,14 +92,14 @@ export function Header({ tools, menu }: HeaderProps) {
         <a href="https://vortex.dev" aria-label="Vortex home">
           <img
             className="vx-header-mark is-dark"
-            src="/vortex_wordmark_dark_theme.svg"
+            src={`${import.meta.env.BASE_URL}vortex_wordmark_dark_theme.svg`}
             alt="Vortex"
             width={83}
             height={24}
           />
           <img
             className="vx-header-mark is-light"
-            src="/vortex_wordmark.svg"
+            src={`${import.meta.env.BASE_URL}vortex_wordmark.svg`}
             alt="Vortex"
             width={83}
             height={24}

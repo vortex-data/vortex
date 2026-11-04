@@ -18,7 +18,7 @@ export function Footer() {
     <footer className="vx-footer">
       <img
         className="vx-footer-mark"
-        src="/lf_white.svg"
+        src={`${import.meta.env.BASE_URL}lf_white.svg`}
         width={1000}
         height={60}
         alt="The Linux Foundation"

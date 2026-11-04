@@ -23,7 +23,7 @@ export function NotFound() {
               <a className="vx-btn vx-btn-primary" href="https://vortex.dev">
                 Go to the homepage
               </a>
-              <a className="vx-btn vx-btn-secondary" href="/">
+              <a className="vx-btn vx-btn-secondary" href={import.meta.env.BASE_URL}>
                 Open the Explorer
               </a>
               <a className="vx-btn vx-btn-secondary" href="https://docs.vortex.dev">
@@ -34,7 +34,7 @@ export function NotFound() {
           <div className="vx-status-mark" aria-hidden="true">
             <img
               className="x-not-found-symbol"
-              src="/logo-icon.svg"
+              src={`${import.meta.env.BASE_URL}logo-icon.svg`}
               alt=""
               width={188}
               height={188}
