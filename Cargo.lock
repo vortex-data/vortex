@@ -12238,6 +12238,7 @@ dependencies = [
  "twox-hash",
  "uuid",
  "vortex-array",
+ "vortex-array-macros",
  "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",

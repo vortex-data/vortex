@@ -37,6 +37,7 @@ use crate::plan::physical::PlanVTable;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 use crate::plan::physical::plans::pack::rewrite_partition_root;
 
 const ROW_IDX_PARTITION_NAME: &str = "row_idx";
@@ -53,6 +54,10 @@ pub struct RowIdxData;
 /// A childless source of global row indices supplied by its execution row domain.
 pub type RowIdxPlan = Plan<RowIdx>;
 
+/// The child slots of a [`RowIdx`] plan: it has none.
+#[plan_slots(RowIdx)]
+pub struct RowIdxSlots {}
+
 impl RowIdxPlan {
     /// Creates a row-index source covering `row_count` rows.
     pub fn new(row_count: u64) -> Self {
@@ -60,7 +65,7 @@ impl RowIdxPlan {
             vtable: RowIdx,
             dtype: row_idx_dtype(),
             row_count,
-            slots: PlanSlots::default(),
+            slots: RowIdxSlots {}.into_slots(),
             data: RowIdxData,
         }
         .into_typed()
@@ -90,7 +95,8 @@ impl PlanVTable for RowIdx {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("RowIdx", 0)
+        RowIdxSlotsView::try_from_slots(slots)?;
+        Ok(())
     }
 
     fn compile(

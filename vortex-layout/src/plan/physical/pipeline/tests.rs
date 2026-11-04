@@ -52,6 +52,7 @@ use crate::layouts::struct_::StructLayout;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Filter;
+use crate::plan::physical::FilterPlanSlotsExt;
 use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanRef;
@@ -638,7 +639,8 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
     let scan = filtered
         .as_opt::<Filter>()
         .ok_or_else(|| vortex_err!("A flat layout lowers to a filter"))?
-        .child_plan()?;
+        .child()?
+        .clone();
     assert!(scan.is::<SegmentScan>());
 
     let rows = 3..9;

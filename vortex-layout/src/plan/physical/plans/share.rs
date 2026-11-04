@@ -24,6 +24,7 @@ use crate::plan::physical::operators::UNBOUNDED;
 use crate::plan::physical::operators::WholeSource;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 
 /// Produces its child's whole value once per split, as a
 /// [`SharedArray`](crate::arrays::shared::SharedArray) that the split's later scans reuse.
@@ -42,6 +43,14 @@ pub struct ShareData;
 /// A plan that shares its child's value between executions.
 pub type SharePlan = Plan<Share>;
 
+/// The child slots of a [`Share`] plan.
+#[plan_slots(Share)]
+pub struct ShareSlots {
+    /// The plan whose value is shared.
+    #[slot(0)]
+    pub child: PlanRef,
+}
+
 impl SharePlan {
     /// Creates a share of `child`.
     pub fn new(child: PlanRef) -> Self {
@@ -49,15 +58,10 @@ impl SharePlan {
             vtable: Share,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
-            slots: [child].into(),
+            slots: ShareSlots { child }.into_slots(),
             data: ShareData,
         }
         .into_typed()
-    }
-
-    /// Returns the shared plan.
-    pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(0)
     }
 }
 
@@ -79,8 +83,7 @@ impl PlanVTable for Share {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Share", 1)?;
-        let child = slots.required(0)?;
+        let child = ShareSlotsView::try_from_slots(slots)?.child;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
             vortex_bail!("Share child does not match the share's dtype and row count");
         }
@@ -88,11 +91,7 @@ impl PlanVTable for Share {
     }
 
     fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        if index == 0 {
-            Cow::Borrowed("child")
-        } else {
-            Cow::Owned(format!("slot[{index}]"))
-        }
+        ShareSlots::slot_name(index)
     }
 
     /// A share whose value an earlier scan of the split produced emits the selected rows of it;
@@ -114,9 +113,9 @@ impl PlanVTable for Share {
                 &value, &rows, mask,
             )?))));
         }
-        let child = plan.child_plan()?;
+        let child = plan.child()?;
         let len = usize::try_from(plan.row_count())?;
-        let Some(chain) = compiler.compile(&child, 0..plan.row_count(), &Mask::new_true(len))?
+        let Some(chain) = compiler.compile(child, 0..plan.row_count(), &Mask::new_true(len))?
         else {
             return Ok(None);
         };

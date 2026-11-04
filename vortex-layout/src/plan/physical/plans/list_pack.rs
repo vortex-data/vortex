@@ -18,10 +18,7 @@ use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-
-const ELEMENTS: usize = 0;
-const OFFSETS: usize = 1;
-const VALIDITY: usize = 2;
+use crate::plan::physical::plan_slots;
 
 /// Assembles a list from slots `[elements, offsets, validity]`, with validity present exactly
 /// when the list is nullable.
@@ -34,6 +31,20 @@ pub struct ListPackData;
 
 /// A plan that assembles a list from its children.
 pub type ListPackPlan = Plan<ListPack>;
+
+/// The child slots of a [`ListPack`] plan.
+#[plan_slots(ListPack)]
+pub struct ListPackSlots {
+    /// The plan producing list elements.
+    #[slot(0)]
+    pub elements: PlanRef,
+    /// The plan producing list offsets.
+    #[slot(1)]
+    pub offsets: PlanRef,
+    /// The plan producing list validity, present exactly when the list is nullable.
+    #[slot(2)]
+    pub validity: Option<PlanRef>,
+}
 
 impl ListPackPlan {
     /// Creates a list assembly from potentially unbuilt slots without validation.
@@ -71,28 +82,16 @@ impl ListPackPlan {
         validity: Option<PlanRef>,
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), nullability);
-        let slots = [Some(elements), Some(offsets), validity]
-            .into_iter()
-            .collect();
+        let slots = ListPackSlots {
+            elements,
+            offsets,
+            validity,
+        }
+        .into_slots();
         validate_slots(&dtype, row_count, &slots)?;
 
         // SAFETY: All slot shape invariants were validated above.
         Ok(unsafe { Self::from_slots_unchecked(dtype, row_count, slots) })
-    }
-
-    /// Returns the plan producing list elements.
-    pub fn elements(&self) -> VortexResult<PlanRef> {
-        self.slot_required(ELEMENTS)
-    }
-
-    /// Returns the plan producing list offsets.
-    pub fn offsets(&self) -> VortexResult<PlanRef> {
-        self.slot_required(OFFSETS)
-    }
-
-    /// Returns the plan producing list validity, if the list is nullable.
-    pub fn validity(&self) -> VortexResult<Option<PlanRef>> {
-        self.slot(VALIDITY)
     }
 }
 
@@ -119,12 +118,7 @@ impl PlanVTable for ListPack {
     }
 
     fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
-        match slot {
-            ELEMENTS => Cow::Borrowed("elements"),
-            OFFSETS => Cow::Borrowed("offsets"),
-            VALIDITY => Cow::Borrowed("validity"),
-            _ => Cow::Owned(format!("slot[{slot}]")),
-        }
+        ListPackSlots::slot_name(slot)
     }
 }
 
@@ -132,9 +126,12 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
     let elements_dtype = dtype
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!("ListPack output dtype must be a list, got {dtype}"))?;
-    slots.check_len("ListPack", VALIDITY + 1)?;
+    let ListPackSlotsView {
+        elements,
+        offsets,
+        validity,
+    } = ListPackSlotsView::try_from_slots(slots)?;
 
-    let elements = slots.required(ELEMENTS)?;
     if elements.dtype() != elements_dtype.as_ref() {
         vortex_bail!(
             "ListPack elements child has dtype {} but the list element dtype is {}",
@@ -143,7 +140,6 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
         );
     }
 
-    let offsets = slots.required(OFFSETS)?;
     if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
         vortex_bail!(
             "ListPack offsets child must have a non-nullable integer dtype, got {}",
@@ -160,7 +156,7 @@ fn validate_slots(dtype: &DType, row_count: u64, slots: &PlanSlots) -> VortexRes
         );
     }
 
-    match (dtype.is_nullable(), slots.get(VALIDITY)?) {
+    match (dtype.is_nullable(), validity) {
         (true, Some(validity)) => {
             let validity_dtype = DType::Bool(Nullability::NonNullable);
             if validity.dtype() != &validity_dtype {

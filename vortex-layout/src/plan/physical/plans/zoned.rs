@@ -48,9 +48,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-
-const DATA: usize = 0;
-const ZONES: usize = 1;
+use crate::plan::physical::plan_slots;
 
 #[derive(Clone, Debug)]
 struct ZonedPruningState {
@@ -159,6 +157,17 @@ pub struct Zoned;
 /// A plan that pairs data with its zone statistics or represents a zone-backed pruning proof.
 pub type ZonedPlan = Plan<Zoned>;
 
+/// The child slots of a [`Zoned`] plan.
+#[plan_slots(Zoned)]
+pub struct ZonedSlots {
+    /// The plan producing the summarised data, absent in a pruning plan.
+    #[slot(0, name = "data")]
+    pub data_plan: Option<PlanRef>,
+    /// The plan producing the zone statistics.
+    #[slot(1, name = "zones")]
+    pub zones_plan: PlanRef,
+}
+
 impl ZonedPlan {
     pub(crate) fn from_slots(
         dtype: DType,
@@ -191,13 +200,12 @@ impl ZonedPlan {
     ) -> Self {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        Self::from_slots(
-            dtype,
-            row_count,
-            [data, zones].into(),
-            zone_len,
-            aggregate_fns,
-        )
+        let slots = ZonedSlots {
+            data_plan: Some(data),
+            zones_plan: zones,
+        }
+        .into_slots();
+        Self::from_slots(dtype, row_count, slots, zone_len, aggregate_fns)
     }
 
     /// Returns the number of rows each zone summarises.
@@ -226,16 +234,6 @@ impl ZonedPlan {
             .map(|state| &state.pruned_zones)
     }
 
-    /// Returns the plan producing the summarised data, unless this is a pruning plan.
-    pub fn data_plan(&self) -> VortexResult<Option<PlanRef>> {
-        self.slot(DATA)
-    }
-
-    /// Returns the plan producing the zone statistics.
-    pub fn zones_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(ZONES)
-    }
-
     /// Returns whether this plan represents a zone-backed pruning proof.
     pub fn is_pruning(&self) -> bool {
         self.data().pruning.is_some()
@@ -261,7 +259,10 @@ impl ZonedPlan {
                 vtable: Zoned,
                 dtype: expression.dtype().clone(),
                 row_count: self.row_count(),
-                slots: [None, self.slots()[ZONES].clone()].into_iter().collect(),
+                // The zones slot is kept as it is, so an unbuilt zone table stays unbuilt.
+                slots: [None, self.slots()[ZonedSlots::ZONES_PLAN].clone()]
+                    .into_iter()
+                    .collect(),
                 data,
             }
             .into_typed(),
@@ -294,12 +295,9 @@ impl PlanVTable for Zoned {
         slots: &PlanSlots,
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Zoned", ZONES + 1)?;
-        if slots[ZONES].is_none() {
-            vortex_bail!("Zoned plan has no zones child");
-        }
+        let view = ZonedSlotsView::try_from_slots(slots)?;
         if plan.is_pruning() {
-            if slots[DATA].is_some() {
+            if view.data_plan.is_some() {
                 vortex_bail!("Zoned pruning plan has a data child");
             }
             // New zones may prove different zones, so the proof of the old ones is not kept.
@@ -309,7 +307,9 @@ impl PlanVTable for Zoned {
             return Ok(());
         }
 
-        let data = slots.required(DATA)?;
+        let Some(data) = view.data_plan else {
+            vortex_bail!("Zoned plan has no data child");
+        };
         if data.dtype() != plan.dtype() || data.row_count() != plan.row_count() {
             vortex_bail!("Zoned data child shape does not match the plan output");
         }
@@ -317,11 +317,7 @@ impl PlanVTable for Zoned {
     }
 
     fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
-        match slot {
-            DATA => Cow::Borrowed("data"),
-            ZONES => Cow::Borrowed("zones"),
-            _ => Cow::Owned(format!("slot[{slot}]")),
-        }
+        ZonedSlots::slot_name(slot)
     }
 
     /// A data plan compiles as its data child. A pruning plan whose zones an earlier execution
@@ -337,7 +333,7 @@ impl PlanVTable for Zoned {
             let Some(data) = plan.data_plan()? else {
                 vortex_bail!("Zoned plan has no data child");
             };
-            return compiler.compile(&data, rows, mask);
+            return compiler.compile(data, rows, mask);
         }
         if mask.all_false() {
             return Ok(None);
@@ -352,7 +348,7 @@ impl PlanVTable for Zoned {
         }
         let zones = plan.zones_plan()?;
         let count = usize::try_from(zones.row_count())?;
-        let Some(chain) = compiler.compile(&zones, 0..zones.row_count(), &Mask::new_true(count))?
+        let Some(chain) = compiler.compile(zones, 0..zones.row_count(), &Mask::new_true(count))?
         else {
             vortex_bail!("Zoned pruning plan has an empty zone table");
         };
@@ -491,6 +487,6 @@ impl PlanReduceRule<Zoned> for ZonedDataRule {
         plan: &Plan<Zoned>,
         _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        plan.data_plan()
+        Ok(plan.data_plan()?.cloned())
     }
 }

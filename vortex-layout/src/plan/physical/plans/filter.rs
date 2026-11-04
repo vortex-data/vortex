@@ -20,6 +20,7 @@ use crate::plan::physical::SegmentScan;
 use crate::plan::physical::operators::MaskStage;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -36,6 +37,14 @@ pub struct FilterData;
 /// A plan that keeps only the selected rows of its child.
 pub type FilterPlan = Plan<Filter>;
 
+/// The child slots of a [`Filter`] plan.
+#[plan_slots(Filter)]
+pub struct FilterSlots {
+    /// The plan whose rows are filtered.
+    #[slot(0)]
+    pub child: PlanRef,
+}
+
 impl FilterPlan {
     /// Creates a filter over `child`.
     pub fn new(child: PlanRef) -> Self {
@@ -43,15 +52,10 @@ impl FilterPlan {
             vtable: Filter,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
-            slots: [child].into(),
+            slots: FilterSlots { child }.into_slots(),
             data: FilterData,
         }
         .into_typed()
-    }
-
-    /// Returns the plan whose rows are filtered.
-    pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(0)
     }
 }
 
@@ -73,8 +77,7 @@ impl PlanVTable for Filter {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Filter", 1)?;
-        let child = slots.required(0)?;
+        let child = FilterSlotsView::try_from_slots(slots)?.child;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
             vortex_bail!("Filter child does not match the filter's dtype and row count");
         }
@@ -82,11 +85,7 @@ impl PlanVTable for Filter {
     }
 
     fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        if index == 0 {
-            Cow::Borrowed("child")
-        } else {
-            Cow::Owned(format!("slot[{index}]"))
-        }
+        FilterSlots::slot_name(index)
     }
 
     /// Fuses with a segment-scan child, whose source keeps the selected rows itself; over any
@@ -100,13 +99,13 @@ impl PlanVTable for Filter {
         if mask.all_false() {
             return Ok(None);
         }
-        let child = plan.child_plan()?;
+        let child = plan.child()?;
         if let Some(scan) = child.as_opt::<SegmentScan>() {
             return compiler.scan(scan, rows, Some(mask.clone()));
         }
         let len = usize::try_from(rows.end - rows.start)?;
         let predicate = plan.dtype().is_boolean();
-        let chain = compiler.compile(&child, rows, &Mask::new_true(len))?;
+        let chain = compiler.compile(child, rows, &Mask::new_true(len))?;
         Ok(chain.map(|chain| {
             if mask.all_true() {
                 chain

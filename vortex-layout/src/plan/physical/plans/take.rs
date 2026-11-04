@@ -28,14 +28,13 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::Share;
+use crate::plan::physical::SharePlanSlotsExt;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-
-const CODES: usize = 0;
-const VALUES: usize = 1;
+use crate::plan::physical::plan_slots;
 
 /// Indexes `values` by `codes`, with slots `[codes, values]`.
 #[derive(Clone, Debug)]
@@ -43,6 +42,17 @@ pub struct Take;
 
 /// A plan that indexes one child by another.
 pub type TakePlan = Plan<Take>;
+
+/// The child slots of a [`Take`] plan.
+#[plan_slots(Take)]
+pub struct TakeSlots {
+    /// The plan producing indices.
+    #[slot(0)]
+    pub codes: PlanRef,
+    /// The plan producing the values being indexed.
+    #[slot(1)]
+    pub values: PlanRef,
+}
 
 impl TakePlan {
     /// Creates a take from potentially unbuilt slots without validation.
@@ -78,20 +88,10 @@ impl TakePlan {
             vtable: Take,
             dtype,
             row_count,
-            slots: [codes, values].into(),
+            slots: TakeSlots { codes, values }.into_slots(),
             data: (),
         }
         .into_typed()
-    }
-
-    /// Returns the plan producing indices.
-    pub fn codes(&self) -> VortexResult<PlanRef> {
-        self.slot_required(CODES)
-    }
-
-    /// Returns the plan producing the values being indexed.
-    pub fn values(&self) -> VortexResult<PlanRef> {
-        self.slot_required(VALUES)
     }
 }
 
@@ -113,9 +113,7 @@ impl PlanVTable for Take {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Take", 2)?;
-        let codes = slots.required(CODES)?;
-        let values = slots.required(VALUES)?;
+        let TakeSlotsView { codes, values } = TakeSlotsView::try_from_slots(slots)?;
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
@@ -126,11 +124,7 @@ impl PlanVTable for Take {
     }
 
     fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        match index {
-            CODES => Cow::Borrowed("codes"),
-            VALUES => Cow::Borrowed("values"),
-            _ => Cow::Owned(format!("slot[{index}]")),
-        }
+        TakeSlots::slot_name(index)
     }
 
     /// A take whose values an earlier scan of the split produced looks its codes up in them;
@@ -141,19 +135,19 @@ impl PlanVTable for Take {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
+        let Some(codes) = compiler.compile(plan.codes()?, rows, mask)? else {
             return Ok(None);
         };
         let cache = compiler.values().clone();
         let values_plan = plan.values()?;
-        if let Some(values) = cache.get(&values_plan) {
+        if let Some(values) = cache.get(values_plan) {
             let source = TakeSource::new(plan.clone(), Some(values), None);
             return Ok(Some(compiler.join(vec![codes], source)));
         }
         let values = values_plan;
         let values_rows = 0..values.row_count();
         let len = usize::try_from(values_rows.end)?;
-        let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
+        let values = match compiler.compile(values, values_rows, &Mask::new_true(len))? {
             Some(values) => values,
             None => Chain::new(OnceSource::new(
                 Canonical::empty(values.dtype()).into_array(),
@@ -238,12 +232,12 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
             if !expression.dtype().is_boolean() {
                 return Ok(None);
             }
-            let values = child.values()?;
+            let values = child.values()?.clone();
             let Some(expression) = rebind_root(expression, child.dtype(), values.dtype()) else {
                 return Ok(None);
             };
             let values = EvalPlan::try_new(expression, values)?.into_plan();
-            let take = TakePlan::new(child.codes()?, values).into_plan();
+            let take = TakePlan::new(child.codes()?.clone(), values).into_plan();
             if take.dtype() != parent.dtype() {
                 return Ok(None);
             }
@@ -255,14 +249,14 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         };
         let values = child.values()?;
         let values = match values.as_opt::<Share>() {
-            Some(share) => share.child_plan()?,
-            None => values,
+            Some(share) => share.child()?.clone(),
+            None => values.clone(),
         };
         let Some(pushed) = rebind_root(&inner, child.dtype(), values.dtype()) else {
             return Ok(None);
         };
         let values = EvalPlan::try_new(pushed, values)?.into_plan();
-        let take = TakePlan::new(child.codes()?, values).into_plan();
+        let take = TakePlan::new(child.codes()?.clone(), values).into_plan();
         let outer = replace(
             expression,
             &inner,

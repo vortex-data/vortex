@@ -13,6 +13,7 @@ use super::join_inlet;
 use crate::arrays::shared::Shared;
 use crate::arrays::shared::SharedArrayExt;
 use crate::plan::physical::TakePlan;
+use crate::plan::physical::TakePlanSlotsExt;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::Input;
 use crate::plan::physical::operator::Operator;
@@ -78,7 +79,7 @@ impl Operator for TakeSource {
                 let values_plan = self.plan.values()?;
                 let values = shared(join_inlet(cx, VALUES, values_plan.dtype())?);
                 let values = match &self.cache {
-                    Some(cache) => cache.insert(&values_plan, values),
+                    Some(cache) => cache.insert(values_plan, values),
                     None => values,
                 };
                 self.values = Some(values.clone());

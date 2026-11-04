@@ -214,9 +214,12 @@ fn struct_plan_lowers_each_field_on_access() -> VortexResult<()> {
     .into_layout();
 
     let plan = make_plan(layout)?;
-    assert_eq!(child_of(&plan, Pack::FIELDS_OFFSET)?.row_count(), 1);
+    assert_eq!(
+        child_of(&plan, PackSlots::FIELD_PLANS_OFFSET)?.row_count(),
+        1
+    );
     assert_unsupported(
-        child_of(&plan, Pack::FIELDS_OFFSET + 1)
+        child_of(&plan, PackSlots::FIELD_PLANS_OFFSET + 1)
             .err()
             .ok_or_else(|| vortex_err!("unsupported field unexpectedly produced a plan"))?,
     );
@@ -293,10 +296,13 @@ fn struct_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
 
     assert!(plan.is::<Pack>());
     assert_eq!(plan.nslots(), 3);
-    assert!(plan.slot(Pack::VALIDITY_SLOT)?.is_none());
-    assert_eq!(child_of(&plan, Pack::FIELDS_OFFSET)?.dtype(), &field_dtype);
+    assert!(plan.slot(PackSlots::VALIDITY)?.is_none());
     assert_eq!(
-        child_of(&plan, Pack::FIELDS_OFFSET + 1)?.dtype(),
+        child_of(&plan, PackSlots::FIELD_PLANS_OFFSET)?.dtype(),
+        &field_dtype
+    );
+    assert_eq!(
+        child_of(&plan, PackSlots::FIELD_PLANS_OFFSET + 1)?.dtype(),
         &field_dtype
     );
 
@@ -313,7 +319,7 @@ fn struct_plan_validity_slot_is_present_when_nullable() -> VortexResult<()> {
     let nullable_plan = make_plan(nullable)?;
     assert_eq!(nullable_plan.nslots(), 3);
     assert_eq!(
-        child_of(&nullable_plan, Pack::VALIDITY_SLOT)?.dtype(),
+        child_of(&nullable_plan, PackSlots::VALIDITY)?.dtype(),
         &DType::Bool(Nullability::NonNullable)
     );
     Ok(())
@@ -334,7 +340,10 @@ fn pack_validity_slot_must_match_nullability() -> VortexResult<()> {
     let validity = make_plan(flat(3, DType::Bool(Nullability::NonNullable), 1))?;
 
     let error = plan
-        .with_slots(vec![validity, child_of(&plan, Pack::FIELDS_OFFSET)?])
+        .with_slots(vec![
+            validity,
+            child_of(&plan, PackSlots::FIELD_PLANS_OFFSET)?,
+        ])
         .err()
         .ok_or_else(|| vortex_err!("validity on a non-nullable Pack unexpectedly succeeded"))?;
     assert!(
@@ -684,13 +693,13 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     let projection = optimized
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
-    let child = projection.child_plan()?;
+    let child = projection.child()?.clone();
     let empty_struct = child
         .as_opt::<Pack>()
         .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
 
     assert_eq!(empty_struct.nfields(), 0);
-    assert_eq!(empty_struct.nslots(), Pack::FIELDS_OFFSET);
+    assert_eq!(empty_struct.nslots(), PackSlots::FIELD_PLANS_OFFSET);
     assert_eq!(empty_struct.children().count(), 0);
     Ok(())
 }
@@ -1223,7 +1232,7 @@ fn dictionary_pushdown_rejects_unsafe_expressions() -> VortexResult<()> {
         let eval = optimized.as_opt::<Eval>().ok_or_else(|| {
             vortex_err!("Expression unexpectedly pushed into dictionary: {expression}")
         })?;
-        assert!(eval.child_plan()?.is::<Take>());
+        assert!(eval.child()?.is::<Take>());
     }
     Ok(())
 }
@@ -1267,7 +1276,7 @@ fn nullable_struct_keeps_expression_above_parent_validity() -> VortexResult<()> 
     let eval = optimized
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("Nullable struct expression unexpectedly pushed down"))?;
-    assert!(eval.child_plan()?.is::<Pack>());
+    assert!(eval.child()?.is::<Pack>());
     Ok(())
 }
 
@@ -1356,7 +1365,7 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let mixed = mixed
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("expression with a data reference was pushed into zones"))?;
-    assert!(mixed.child_plan()?.is::<Filter>());
+    assert!(mixed.child()?.is::<Filter>());
     Ok(())
 }
 
@@ -1631,7 +1640,8 @@ fn zoned_over_legacy_stats_read_as_data_keeps_only_the_data() -> VortexResult<()
     let data = legacy
         .as_opt::<LegacyStats>()
         .ok_or_else(|| vortex_err!("legacy plan is not legacy stats"))?
-        .data_plan()?;
+        .data_plan()?
+        .clone();
     let plan = ZonedPlan::new(legacy, zones, 3, vec![max].into()).into_plan();
 
     assert!(PlanRef::ptr_eq(&optimize(plan, &SESSION)?, &data));
@@ -1666,7 +1676,7 @@ fn legacy_stats_over_zoned_are_dropped() -> VortexResult<()> {
         .as_opt::<Zoned>()
         .ok_or_else(|| vortex_err!("predicate over legacy stats did not become a pruning plan"))?;
     assert!(pruning.is_pruning());
-    assert!(PlanRef::ptr_eq(&pruning.zones_plan()?, &zones));
+    assert!(PlanRef::ptr_eq(pruning.zones_plan()?, &zones));
     Ok(())
 }
 
@@ -1713,7 +1723,8 @@ fn dynamic_predicates_stay_above_dictionary_values() -> VortexResult<()> {
             .as_opt::<Eval>()
             .ok_or_else(|| vortex_err!("dynamic predicate was pushed down"))?;
         let take = eval
-            .child_plan()?
+            .child()?
+            .clone()
             .as_opt::<Take>()
             .ok_or_else(|| vortex_err!("dynamic predicate is not over the take"))?
             .clone();

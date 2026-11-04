@@ -18,6 +18,7 @@ use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -35,6 +36,10 @@ pub struct SegmentScanData {
 /// A plan that reads one serialized array segment.
 pub type SegmentScanPlan = Plan<SegmentScan>;
 
+/// The child slots of a [`SegmentScan`] plan: it has none.
+#[plan_slots(SegmentScan)]
+pub struct SegmentScanSlots {}
+
 impl SegmentScanPlan {
     /// Creates a segment scan over `segment_id`.
     pub fn new(
@@ -48,7 +53,7 @@ impl SegmentScanPlan {
             vtable: SegmentScan,
             dtype,
             row_count,
-            slots: PlanSlots::default(),
+            slots: SegmentScanSlots {}.into_slots(),
             data: SegmentScanData {
                 segment_id,
                 array_ctx,
@@ -93,7 +98,7 @@ impl PlanVTable for SegmentScan {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("SegmentScan", 0)?;
+        SegmentScanSlotsView::try_from_slots(slots)?;
         Ok(())
     }
 
