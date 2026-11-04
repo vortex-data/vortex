@@ -134,6 +134,7 @@ impl VTable for Flat {
             layout.array_ctx().clone(),
             layout.array_tree().cloned(),
         );
+        // TODO(ji): remove the Filter from the flat layout plan and return the segment scan.
         Ok(FilterPlan::new(scan.into_plan()).into_plan())
     }
 }
