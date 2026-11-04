@@ -38,6 +38,18 @@ pub(super) mod root_list_children {
 }
 
 impl CascadingCompressor {
+    /// Compresses a validity bitmap with the enabled boolean schemes, returning `None` when the
+    /// result's buffers are no smaller than the bitmap's. The comparison is of buffer bytes, so it
+    /// does not count the metadata a compressed bitmap adds when serialized.
+    fn compress_bitmap(
+        &self,
+        bitmap: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let compressed = self.compress(bitmap, exec_ctx)?;
+        Ok((compressed.nbytes() < bitmap.nbytes()).then_some(compressed))
+    }
+
     /// Compresses an array-backed validity mask using the enabled boolean schemes.
     ///
     /// # Errors
@@ -49,11 +61,19 @@ impl CascadingCompressor {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Validity> {
         match validity {
-            Validity::Array(array) => Ok(Validity::Array(self.compress(&array, exec_ctx)?)),
+            Validity::Array(bitmap) => Ok(Validity::Array(
+                self.compress_bitmap(&bitmap, exec_ctx)?.unwrap_or(bitmap),
+            )),
             validity => Ok(validity),
         }
     }
 
+    /// Compresses the validity bitmap of a bool, primitive, decimal or string leaf in place,
+    /// leaving the leaf unchanged when the bitmap does not get smaller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if compression of the validity array fails.
     pub(super) fn compress_leaf_validity(
         &self,
         canonical: Canonical,
@@ -69,10 +89,9 @@ impl CascadingCompressor {
         let Some(validity) = &array.slots()[slot] else {
             return Ok(canonical);
         };
-        let compressed = self.compress(validity, exec_ctx)?;
-        if compressed.nbytes() >= validity.nbytes() {
+        let Some(compressed) = self.compress_bitmap(validity, exec_ctx)? else {
             return Ok(canonical);
-        }
+        };
         let mut slots: ArraySlots = array.slots().iter().cloned().collect();
         slots[slot] = Some(compressed);
         // SAFETY: the validity slot is replaced with an equivalent non-nullable boolean array
