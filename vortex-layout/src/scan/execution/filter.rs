@@ -26,6 +26,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_session::VortexSession;
 
+use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::SelectedRows;
@@ -53,13 +54,13 @@ pub struct FilterPlans {
 }
 
 impl FilterPlans {
+    /// Plans `expression`'s conjuncts over `root`.
     pub(crate) fn new(
         expression: BoundExpression,
         root: &PlanRef,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        // This path does not skip optional conjuncts yet, so it evaluates every one of them.
-        let expression = FilterExpr::new(find_between(expression)?, None);
+        let expression = FilterExpr::new(find_between(expression)?);
         let predicates = expression
             .conjuncts()
             .iter()
@@ -96,9 +97,34 @@ impl FilterPlans {
         })
     }
 
-    /// The pruning plans, run once over a scan's rows before its chunks are planned.
+    /// Whether the conjunct is optional and its switch is currently off.
+    #[cfg(test)]
+    pub(crate) fn is_switched_off(&self, conjunct_idx: usize) -> bool {
+        self.expression.is_switched_off(conjunct_idx)
+    }
+
+    /// The pruning plans of every conjunct that has one.
+    #[cfg(test)]
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
+    }
+
+    /// The pruning plans worth running before a scan of `rows` rows.
+    ///
+    /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
+    /// pruning it first saves little and delays the chunk. Pruning a dynamic conjunct such as a
+    /// join's key bounds also proves its current predicate over the zones again. Without those
+    /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
+    /// SF10 was unchanged. An optional conjunct whose switch is off is neither pruned nor
+    /// evaluated.
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+        let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
+        self.pruning
+            .iter()
+            .enumerate()
+            .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
+            .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
+            .filter_map(|(_, plan)| plan.as_ref())
     }
 }
 
@@ -134,6 +160,8 @@ pub(super) struct FilterPlanner {
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
+    /// Whether a conjunct has filtered the chunk's rows.
+    evaluated: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
 }
@@ -166,6 +194,7 @@ impl FilterPlanner {
             active: None,
             pieces: Vec::new(),
             announced: false,
+            evaluated: false,
             next_hint: u32::MAX,
         }
     }
@@ -199,6 +228,15 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
 }
 
+impl Drop for FilterPlanner {
+    fn drop(&mut self) {
+        // A conjunct still evaluating did not report, so another evaluation may measure it.
+        if let Some((index, _)) = &self.active {
+            self.filter.expression.abandon_evaluation(*index);
+        }
+    }
+}
+
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
         if let Some((_, adaptor)) = &mut self.active {
@@ -224,11 +262,24 @@ impl Planner for FilterPlanner {
         };
         if !self.announced {
             self.announced = true;
+            // Conjuncts the chunk skips are decided before any read, so their segments are not
+            // fetched.
+            let input_rows = selected.mask.true_count();
+            for index in 0..self.filter.predicates.len() {
+                if !self.filter.expression.should_evaluate(index, input_rows) {
+                    self.remaining.set(index, false);
+                }
+            }
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| self.remaining[*index])
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -284,9 +335,13 @@ impl Planner for FilterPlanner {
                 conjunct = *index,
                 "v2 filter conjunct evaluated"
             );
-            self.filter
-                .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
+            self.filter.expression.report_evaluation(
+                *index,
+                input,
+                selected.mask.true_count(),
+                !self.evaluated,
+            );
+            self.evaluated = true;
             self.active = None;
             self.pieces.clear();
         }
@@ -294,16 +349,25 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
-            let scan = Scan::try_new(
+            if !self.filter.expression.begin_evaluation(index) {
+                continue;
+            }
+            let scan = match Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].clone(),
                 vec![Split {
                     rows: selected.scope.rows.clone(),
                     mask: selected.mask.clone(),
                 }],
-            )?
+            ) {
+                Ok(scan) => scan,
+                Err(err) => {
+                    self.filter.expression.abandon_evaluation(index);
+                    return Err(err);
+                }
+            }
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
             self.active = Some((

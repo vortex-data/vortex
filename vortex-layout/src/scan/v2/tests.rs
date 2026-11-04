@@ -36,6 +36,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::switch;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
@@ -125,9 +126,18 @@ async fn write(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    write_chunks(session, strategy, CHUNKS).await
+}
+
+/// Writes `count` table chunks with `strategy`.
+async fn write_chunks(
+    session: &VortexSession,
+    strategy: &dyn LayoutStrategy,
+    count: usize,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
-    let chunks = (0..CHUNKS)
+    let chunks = (0..count)
         .map(|chunk| Ok((sequence_id.advance(), table_chunk(chunk * CHUNK_ROWS)?)))
         .collect::<Vec<_>>();
     let dtype = table_chunk(0)?.dtype().clone();
@@ -940,17 +950,121 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     }
 }
 
+/// A scan whose filter is `ints > bound`, a dynamic comparison, over `chunks` table chunks whose
+/// segment reads are counted.
+async fn dynamic_scan(
+    chunks: usize,
+    bound: &Arc<AtomicI32>,
+) -> VortexResult<(Arc<PreparedScan>, Arc<CountingSegmentSource>)> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, zoned_table().as_ref(), chunks).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache = Some(ScanCache::with_retained_bytes(0));
+    let ints = get_item("ints", root());
+    let filter = {
+        let bound = Arc::clone(bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || Some(bound.load(Ordering::Relaxed).into()),
+            ints.return_dtype(layout.dtype())?,
+            true,
+            ints,
+        )
+    };
+    let scan = ScanBuilder::new(session, file)
+        .with_some_filter(Some(filter.bind(layout.dtype())?))
+        .prepare()?;
+    Ok((Arc::new(scan), counted))
+}
+
 /// Pruning some of a scan's rows again, as an engine does once a dynamic filter has tightened,
 /// prunes with the tightened value from the zone maps the first pruning read: it reads no segment,
 /// even when nothing is retained.
 #[tokio::test]
 async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
+    // Both prunings cover more rows than one filtered chunk, so neither skips the dynamic plan.
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
+
+    let all = prune(&scan, scan.rows().clone()).await?;
+    let reads = counted.requests();
+    assert!(reads > 0, "the first pruning reads the zone maps");
+    assert_eq!(all.map(|kept| kept.true_count()), Some(200_000));
+
+    bound.store(2_999, Ordering::Relaxed);
+    let part = prune(&scan, 1_000..151_000).await?;
+    assert_eq!(part.map(|kept| kept.true_count()), Some(148_000));
+    assert_eq!(counted.requests(), reads);
+    Ok(())
+}
+
+/// A scan of at most one filtered chunk skips the pruning plan of a dynamic conjunct and reads no
+/// zone map: its chunk evaluates the conjunct next.
+#[tokio::test]
+async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(2_999));
+    let (scan, counted) = dynamic_scan(CHUNKS, &bound).await?;
+
+    assert!(prune(&scan, scan.rows().clone()).await?.is_none());
+    assert_eq!(counted.requests(), 0);
+    Ok(())
+}
+
+/// Runs a scan of the `strings` column of a table, filtered by `filter` when there is one, over
+/// `counted`. Returns the scan, the rows it kept and the segment requests it made.
+async fn strings_scan(
+    session: &VortexSession,
+    counted: &Arc<CountingSegmentSource>,
+    layout: &LayoutRef,
+    file: ScanFile,
+    filter: Option<&Expression>,
+) -> VortexResult<(Arc<PreparedScan>, usize, usize)> {
+    let projection = get_item("strings", root()).bind(layout.dtype())?;
+    let scan = Arc::new(
+        ScanBuilder::new(session.clone(), file)
+            .with_projection(projection)
+            .with_some_filter(filter.map(|f| f.bind(layout.dtype())).transpose()?)
+            .prepare()?,
+    );
+    let before = counted.requests();
+    let rows = run_rows(&scan, scan.rows().clone())
+        .await?
+        .iter()
+        .map(|array| array.len())
+        .sum();
+    Ok((scan, rows, counted.requests() - before))
+}
+
+/// An optional dynamic conjunct that keeps every row is switched off: a later scan that shares
+/// its switch neither prunes its zones nor reads its column, so it reads no more than an
+/// unfiltered scan. A new dynamic value switches it back on. A required conjunct keeps being
+/// evaluated.
+#[rstest]
+#[case::optional(true)]
+#[case::required(false)]
+#[tokio::test]
+async fn unselective_optional_conjuncts_switch_off_until_their_value_changes(
+    #[case] optional: bool,
+) -> VortexResult<()> {
+    // Three filtered chunks per scan, so two scans skip fewer rows than the switch's first pause.
+    const TABLE_CHUNKS: usize = 300;
     let session = new_session().with_tokio();
-    let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
+    let (segments, layout) = write_chunks(&session, zoned_table().as_ref(), TABLE_CHUNKS).await?;
     let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
-    let mut file = scan_file(&segments, &layout)?;
-    file.cache = Some(ScanCache::with_retained_bytes(0));
+    let file = || -> VortexResult<ScanFile> {
+        let mut file = scan_file(&segments, &layout)?;
+        file.cache = Some(ScanCache::with_retained_bytes(0));
+        Ok(file)
+    };
+    let shared = file()?;
+
+    let (_, all, unfiltered_reads) =
+        strings_scan(&session, &counted, &layout, file()?, None).await?;
+    assert_eq!(all, TABLE_CHUNKS * CHUNK_ROWS);
+
     let bound = Arc::new(AtomicI32::new(-1));
     let ints = get_item("ints", root());
     let filter = {
@@ -963,21 +1077,31 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
             ints,
         )
     };
-    let scan = Arc::new(
-        ScanBuilder::new(session.clone(), file)
-            .with_some_filter(Some(filter.bind(layout.dtype())?))
-            .prepare()?,
-    );
+    let filter = if optional { switch(filter, 50) } else { filter };
 
-    let all = prune(&scan, scan.rows().clone()).await?;
-    let reads = counted.requests();
-    assert!(reads > 0, "the first pruning reads the zone maps");
-    assert_eq!(all.map(|kept| kept.true_count()), Some(4_000));
+    // The first scan evaluates the conjunct on its first chunk, which keeps every row.
+    let (scan, rows, first_reads) =
+        strings_scan(&session, &counted, &layout, shared.clone(), Some(&filter)).await?;
+    assert_eq!(rows, all);
+    assert!(first_reads > unfiltered_reads);
+    let plans = scan.filter().expect("the scan has a filter");
+    assert_eq!(plans.is_switched_off(0), optional);
 
-    bound.store(2_999, Ordering::Relaxed);
-    let part = prune(&scan, 1_000..4_000).await?;
-    assert_eq!(part.map(|kept| kept.true_count()), Some(1_000));
-    assert_eq!(counted.requests(), reads);
+    let (_, rows, reads) =
+        strings_scan(&session, &counted, &layout, shared.clone(), Some(&filter)).await?;
+    assert_eq!(rows, all);
+    // Filtered and unfiltered scans cut chunks differently, so a switched-off scan can read a few
+    // segments fewer than an unfiltered one, but never the filtered column.
+    if optional {
+        assert!(reads <= unfiltered_reads, "{reads} > {unfiltered_reads}");
+    } else {
+        assert!(reads > unfiltered_reads);
+    }
+
+    // A tightened bound is a new dynamic value, so the conjunct is pruned and evaluated again.
+    bound.store(149_999, Ordering::Relaxed);
+    let (_, rows, _) = strings_scan(&session, &counted, &layout, shared, Some(&filter)).await?;
+    assert_eq!(rows, all - 150_000);
     Ok(())
 }
 

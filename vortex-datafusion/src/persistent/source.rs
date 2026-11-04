@@ -34,7 +34,6 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::layout::scan::OptionalFilterBackoff;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -45,9 +44,9 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
 use crate::VortexTableOptions;
-use crate::convert::dynamic_filter::DynamicFilterConversions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::persistent::dynamic_filters::DynamicFilterConversions;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -207,12 +206,12 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// Conversions of the dynamic filters pushed into scans, shared by every partition.
+    dynamic_filter_conversions: Arc<DynamicFilterConversions>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
-    /// Conversions of the dynamic filters, shared by every partition and file of one scan.
-    dynamic_filter_conversions: Arc<DynamicFilterConversions>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -247,9 +246,9 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            dynamic_filter_conversions: Arc::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
-            dynamic_filter_conversions: Default::default(),
             expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -375,9 +374,9 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
             scan_caches: Arc::clone(&self.scan_caches),
+            dynamic_filter_conversions: Arc::clone(&self.dynamic_filter_conversions),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
-            dynamic_filter_conversions: Arc::clone(&self.dynamic_filter_conversions),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
@@ -385,13 +384,6 @@ impl VortexSource {
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
-            optional_filter_backoff: self.options.optional_filter_backoff.then(|| {
-                OptionalFilterBackoff {
-                    max_selectivity: self.options.optional_filter_max_selectivity,
-                    backoff_rows: self.options.optional_filter_backoff_rows as u64,
-                    ..Default::default()
-                }
-            }),
         };
 
         Ok(opener)
@@ -618,7 +610,9 @@ mod tests {
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
@@ -764,6 +758,46 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    /// A dynamic filter stays with the operator that produces it, which enforces it exactly. The
+    /// scan receives it through the full predicate, alongside the filters pushed down exactly.
+    #[rstest]
+    fn try_pushdown_filters_leaves_dynamic_filters_to_their_producer(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema)).with_options(VortexTableOptions {
+            scan_v2,
+            ..Default::default()
+        });
+        let exact = octet_length_filter(&schema);
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("name", 0)) as Arc<dyn PhysicalExpr>],
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+        )) as Arc<dyn PhysicalExpr>;
+
+        let result = source.try_pushdown_filters(
+            vec![Arc::clone(&exact), Arc::clone(&dynamic)],
+            &ConfigOptions::new(),
+        )?;
+
+        assert!(matches!(
+            result.filters.as_slice(),
+            [PushedDown::Yes, PushedDown::No]
+        ));
+        let updated_source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
+            .clone();
+        assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&exact));
+        assert_eq!(
+            updated_source.full_predicate.as_ref(),
+            Some(&conjunction([exact, dynamic]))
+        );
         Ok(())
     }
 

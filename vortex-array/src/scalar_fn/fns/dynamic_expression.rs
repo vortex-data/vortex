@@ -122,6 +122,32 @@ impl ScalarFnVTable for DynamicExpression {
     }
 }
 
+/// Whether `expr` is a dynamic expression whose current predicate is the literal `true`, such
+/// as a filter whose producer has no value yet. Evaluating it would only read its inputs.
+pub fn is_currently_true(expr: &BoundExpression) -> bool {
+    let Some(options) = expr.as_opt::<DynamicExpression>() else {
+        return false;
+    };
+    let names = (0..expr.children().len())
+        .map(input_field_name)
+        .collect::<FieldNames>();
+    let scope = DType::Struct(
+        StructFields::new(
+            names,
+            expr.children()
+                .iter()
+                .map(|child| child.dtype().clone())
+                .collect(),
+        ),
+        Nullability::NonNullable,
+    );
+    options.current(&scope).is_ok_and(|predicate| {
+        predicate
+            .as_opt::<Literal>()
+            .is_some_and(|value| value.as_bool_opt().and_then(|v| v.value()) == Some(true))
+    })
+}
+
 /// The options of a [`DynamicExpression`]: its source, and the predicate last bound from it.
 #[derive(Clone)]
 pub struct DynamicExpressionOptions {
@@ -223,31 +249,6 @@ impl Hash for DynamicExpressionOptions {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.source).cast::<()>().hash(state);
     }
-}
-
-/// Whether `expr` is a dynamic expression whose current predicate is the literal `true`, such as
-/// a filter of an engine that has no value yet. A scan can skip such a predicate for free.
-pub fn is_currently_true(expr: &BoundExpression) -> bool {
-    let Some(options) = expr.as_opt::<DynamicExpression>() else {
-        return false;
-    };
-    let scope = DType::Struct(
-        StructFields::new(
-            (0..expr.children().len())
-                .map(input_field_name)
-                .collect::<FieldNames>(),
-            expr.children()
-                .iter()
-                .map(|child| child.dtype().clone())
-                .collect(),
-        ),
-        Nullability::NonNullable,
-    );
-    options.current(&scope).is_ok_and(|predicate| {
-        predicate
-            .as_opt::<Literal>()
-            .is_some_and(|value| value.as_bool_opt().and_then(|value| value.value()) == Some(true))
-    })
 }
 
 #[cfg(test)]

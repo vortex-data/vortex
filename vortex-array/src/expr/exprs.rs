@@ -1168,17 +1168,11 @@ pub fn bound_dynamic_expression(
 // ---- Switch ----
 
 /// Creates a switch, initially on, over a predicate that a scan may turn off: `on ⇒ predicate`.
+/// The scan turns it off while it keeps more than `max_kept_percent` percent of its input rows.
 ///
 /// See [`Switch`] for when a predicate may be turned off.
-pub fn switch(predicate: Expression) -> Expression {
-    Switch.new_expr(SwitchState::new(), [predicate])
-}
-
-/// Creates a bound switch, initially on, over a predicate that a scan may turn off.
-pub fn bound_switch(predicate: BoundExpression) -> BoundExpression {
-    Switch
-        .try_new_bound_expr(SwitchState::new(), [predicate])
-        .vortex_expect("switch expressions require a boolean predicate")
+pub fn switch(predicate: Expression, max_kept_percent: u8) -> Expression {
+    Switch.new_expr(SwitchState::new(max_kept_percent), [predicate])
 }
 
 // ---- ListContains ----
@@ -1533,7 +1527,6 @@ pub mod bound {
     pub use super::bound_root as root;
     pub use super::bound_select as select;
     pub use super::bound_select_exclude as select_exclude;
-    pub use super::bound_switch as switch;
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }
