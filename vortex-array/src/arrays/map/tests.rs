@@ -35,6 +35,7 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::dtype::Nullability;
@@ -209,6 +210,34 @@ fn scalar_access_preserves_null_and_empty_maps() -> VortexResult<()> {
     assert!(array.execute_scalar(1, &mut ctx)?.as_map().is_empty());
     assert!(array.execute_scalar(2, &mut ctx)?.is_null());
 
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_preserves_map_rows() -> VortexResult<()> {
+    let array = sample_array()?.into_array();
+    test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
+fn scalar_probe_handles_non_struct_entry_encoding() -> VortexResult<()> {
+    let map_dtype = map_dtype()?;
+    let entry = Scalar::struct_(map_dtype.entries_dtype(), vec![key(7), value(None)]);
+    let elements = ConstantArray::new(entry, 4).into_array();
+    let offsets = PrimitiveArray::from_iter([0u32, 1, 2, 3]).into_array();
+    let sizes = PrimitiveArray::from_iter([1u32, 0, 2, 1]).into_array();
+    let validity = Validity::from_iter([true, true, true, false]);
+    let entries = ListViewArray::try_new(
+        elements,
+        offsets,
+        sizes,
+        validity,
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    let array = MapArray::try_new(map_dtype, entries)?.into_array();
+
+    test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

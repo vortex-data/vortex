@@ -32,11 +32,17 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
-vortex-edition = { workspace = true }
+divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-edition = { workspace = true }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }
 vortex-uuid = { workspace = true }
+
+[[bench]]
+name = "probe"
+harness = false
