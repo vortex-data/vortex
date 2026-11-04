@@ -8,7 +8,8 @@
 
 /* ------------------------------------------------------------------ the frame
    One screen: the header, the work area, and the status line. The panes scroll, the page does not.
-   A tool wants its room for data, so the page's side gutter steps down from 48px to 24px. */
+   A tool wants its room for data, so the page's side gutter steps down from 48px to 24px, and to
+   the token's 16px on a phone. */
 .x-app {
   --page-pad: var(--space-24);
   display: flex;
@@ -122,9 +123,6 @@
   justify-items: center;
   text-align: center;
 }
-.x-file-error p {
-  margin: 0;
-}
 
 /* The status line runs the width of the window, at the page's edge. */
 .x-status {
@@ -205,9 +203,6 @@
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .x-crumbs li {
   display: flex;
@@ -216,11 +211,11 @@
   min-width: 0;
 }
 .x-crumbs li + li::before {
-  content: '/';
+  content: '/' / '';
   color: var(--ink-muted);
 }
 .x-crumbs li.is-array::before {
-  content: '›';
+  content: '›' / '';
 }
 .x-crumbs button {
   all: unset;
@@ -254,11 +249,6 @@
   background: var(--vx-dt, var(--chart-muted));
 }
 
-.x-sub {
-  margin: 0;
-  padding: var(--space-12) var(--space-16) var(--space-4);
-  border-top: 1px solid var(--line);
-}
 .x-side .vx-facts {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -268,7 +258,6 @@
 
 /* The encoding tree, as text. */
 .x-encoding {
-  margin: 0;
   padding: var(--space-16);
   font: 400 12.5px / 1.6 var(--font-mono);
   color: var(--ink-body);
@@ -284,9 +273,6 @@
 }
 .x-buffer-list {
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
   overflow-y: auto;
   border-right: 1px solid var(--line);
 }
@@ -390,9 +376,7 @@
 .x-table-scroll .vx-table tr.is-link {
   cursor: pointer;
 }
-.x-null {
-  color: var(--ink-muted);
-}
+.x-null,
 .x-row-num {
   color: var(--ink-muted);
 }
@@ -537,7 +521,7 @@
   z-index: 1;
   top: var(--space-8);
   left: var(--space-8);
-  background: var(--raised);
+  background: var(--surface);
 }
 
 /* ------------------------------------------------------------------ the swimlane
@@ -553,9 +537,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  margin: 0;
   padding: var(--space-8) 0;
-  list-style: none;
 }
 .x-lane {
   display: grid;
@@ -674,24 +656,6 @@
 .x-axis-ticks > span:last-child {
   translate: calc(-100% - var(--space-8)) 0;
 }
-.x-ruler {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--ink-muted);
-  pointer-events: none;
-}
-.x-ruler-label {
-  position: absolute;
-  top: var(--space-4);
-  padding: 2px var(--space-4);
-  border-radius: var(--radius-control);
-  background: var(--ink);
-  color: var(--ground);
-  pointer-events: none;
-  white-space: nowrap;
-}
 
 /* ------------------------------------------------------------------ dropping a file */
 .x-drop-veil {
@@ -726,7 +690,6 @@
   gap: var(--space-12);
 }
 .x-open-head p {
-  margin: 0;
   color: var(--ink-body);
 }
 .x-drop {
@@ -740,9 +703,6 @@
 .x-drop:hover,
 .x-drop.is-over {
   border-color: var(--ink);
-}
-.x-drop p {
-  margin: 0;
 }
 .x-drop .vx-mono {
   color: var(--ink);
@@ -807,6 +767,9 @@
 /* Below 640px the view switch leaves the row, and its twin rows in the Menu's panel take over. The
    current view reads as the current page does. */
 @media (max-width: 640px) {
+  .x-app {
+    --page-pad: var(--space-16);
+  }
   .x-app .vx-header-tools {
     display: none;
   }
