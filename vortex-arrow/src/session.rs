@@ -18,7 +18,7 @@
 //!
 //! Multiple plugins may register against the same key. They are tried in registration order;
 //! each may return [`ArrowExport::Unsupported`] / [`ArrowImport::Unsupported`] to defer to
-//! the next.
+//! the next. [`ArrowImportVTable`] states when an importer may defer.
 
 use std::any::Any;
 use std::borrow::Cow;
@@ -35,6 +35,8 @@ use arrow_array::types::Int16Type;
 use arrow_array::types::Int32Type;
 use arrow_array::types::Int64Type;
 use arrow_array::types::RunEndIndexType;
+use arrow_buffer::ArrowNativeType;
+use arrow_buffer::NullBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::FieldRef;
@@ -47,6 +49,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
@@ -57,6 +60,7 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::validity::Validity;
@@ -78,6 +82,10 @@ use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
 use crate::convert::trim_offsets;
+use crate::declared_nullability::drop_masked_nulls;
+use crate::declared_nullability::fixed_size_list_elements_visibility;
+use crate::declared_nullability::list_elements_visibility;
+use crate::declared_nullability::with_declared_nullability;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
@@ -97,11 +105,12 @@ pub enum ArrowExport {
 
 /// Outcome of a successful call to [`ArrowImportVTable::from_arrow_array`].
 ///
-/// Plugins that don't handle the supplied array return [`Unsupported`][Self::Unsupported]
-/// with ownership of the input so the session can probe the next plugin or fall back to the
-/// canonical path. Errors are propagated through [`VortexResult`].
+/// A plugin that defers the supplied array returns [`Unsupported`][Self::Unsupported] with
+/// ownership of the input so the session can probe the next plugin or fall back to the canonical
+/// path. [`ArrowImportVTable`] states when a plugin may defer. Errors are propagated through
+/// [`VortexResult`].
 pub enum ArrowImport {
-    /// The plugin does not handle this input; the session may try another plugin.
+    /// The plugin defers this input; the session may try another plugin.
     Unsupported(ArrowArrayRef),
     /// A successful import.
     Imported(ArrayRef),
@@ -189,7 +198,16 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 /// Plugins are dispatched by `arrow_ext_id`. The session peels Arrow dictionaries before it
 /// dispatches, so a plugin never sees a [`DataType::Dictionary`] field or array. It sees the value
 /// field, with the dictionary field's metadata, and the values array. The session then wraps the
-/// plugin's result in a [`DictArray`] with the dictionary's codes.
+/// plugin's result in a [`DictArray`] with the dictionary's codes. Run-end arrays need no such
+/// peel, because Arrow gives the values of a [`DataType::RunEndEncoded`] their own [`Field`] and
+/// metadata, while the values of a dictionary are a bare [`DataType`].
+///
+/// A plugin **must** defer only an input that another plugin under the same Arrow extension name
+/// owns, by returning `None` from [`from_arrow_field`][Self::from_arrow_field] or
+/// [`ArrowImport::Unsupported`] from [`from_arrow_array`][Self::from_arrow_array]. An input that no
+/// plugin takes imports as plain storage and loses its type, so a field or array that names the
+/// plugin's type but falls outside its domain is an error instead. The `arrow.parquet.variant`
+/// importer is the known exception: it still defers a variant array that is not a struct.
 ///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
 /// use the methods on [`ArrowSession`].
@@ -198,7 +216,7 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     fn arrow_ext_id(&self) -> Id;
 
     /// Build the Vortex [`DType`] that corresponds to `field` (which carries this plugin's
-    /// Arrow extension metadata).
+    /// Arrow extension metadata), or `None` to defer it.
     ///
     /// `session` is provided so plugins can resolve nested or storage fields through the
     /// plugin-aware conversion (e.g. [`ArrowSession::from_arrow_datatype`]) instead of the
@@ -212,12 +230,17 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
 
     /// Convert an Arrow array into a Vortex array of `dtype`.
     ///
-    /// Returns ownership of `array` via [`ArrowImport::Unsupported`] when the plugin cannot
-    /// handle the input.
+    /// Returns ownership of `array` via [`ArrowImport::Unsupported`] to defer it.
+    ///
+    /// When a null row of an enclosing array masks slots of `array`, `array` arrives in the form
+    /// that [`ArrowSession::from_arrow_storage`] rebuilds: the levels that `dtype` declares
+    /// non-nullable lose their nulls in those slots and take the declared nullability. Its nested
+    /// fields can then differ in nullability from those of `field`.
     ///
     /// `session` is provided so plugins can convert storage or nested arrays through the
-    /// session (e.g. [`ArrowSession::from_arrow_array`], passing a nullability rather than a
-    /// [`Field`] so the plugin is not dispatched again).
+    /// session. [`ArrowSession::from_arrow_storage`] imports an array whose Arrow layout is the
+    /// storage layout of `dtype`. [`ArrowSession::from_arrow_array`] takes a nullability rather
+    /// than a [`Field`], so the plugin is not dispatched again.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array(
         &self,
@@ -398,10 +421,10 @@ impl ArrowSession {
     /// A [`DataType::Dictionary`] field converts as its value field with the same metadata.
     ///
     /// Plugins registered against the field's Arrow extension name are tried in
-    /// registration order; the first plugin to return `Some(dtype)` wins. If none
-    /// match (or all return `None`), the builtin `arrow.parquet.variant` extension maps
-    /// to [`DType::Variant`], and any other field converts through
-    /// [`Self::from_arrow_datatype`] so extension metadata on nested element/struct
+    /// registration order; the first plugin to return `Some(dtype)` wins. If no plugin is
+    /// registered, or every plugin defers the field as [`ArrowImportVTable`] allows, the builtin
+    /// `arrow.parquet.variant` extension maps to [`DType::Variant`], and any other field converts
+    /// through [`Self::from_arrow_datatype`] so extension metadata on nested element/struct
     /// fields is preserved.
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
@@ -412,7 +435,13 @@ impl ArrowSession {
 
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             for plugin in self.importers(&Id::new(name)).iter() {
-                if let Some(dtype) = plugin.from_arrow_field(field, self)? {
+                let dtype = plugin.from_arrow_field(field, self).map_err(|err| {
+                    err.with_context(format!(
+                        "Failed to import Arrow field {:?} as {name}",
+                        field.name()
+                    ))
+                })?;
+                if let Some(dtype) = dtype {
                     return Ok(dtype);
                 }
             }
@@ -533,7 +562,7 @@ impl ArrowSession {
         );
         let mut columns = Vec::with_capacity(schema.fields().len());
         for (col, field) in batch.columns().iter().zip(schema.fields().iter()) {
-            columns.push(self.from_arrow_array_inner(ArrowArrayRef::clone(col), field)?);
+            columns.push(self.from_arrow_array_inner(ArrowArrayRef::clone(col), field, None)?);
         }
         Ok(StructArray::try_new(names, columns, length, Validity::NonNullable)?.into_array())
     }
@@ -603,33 +632,80 @@ impl ArrowSession {
     /// extension fields nested inside containers reach their importers; leaf types fall
     /// through to the canonical Arrow → Vortex array conversion.
     ///
+    /// The nulls of a nested array can hide nulls below them in a level that the dtype of `field`
+    /// declares non-nullable, such as a non-nullable struct field or a level of an extension
+    /// column. Such levels follow the rule that [`Self::from_arrow_storage`] states.
+    ///
     /// A dictionary array imports as a [`DictArray`]. Its values import as described above, with
     /// `field`'s metadata.
     ///
     /// # Errors
     ///
     /// Returns an error if the field (or requested nullability) is non-nullable but the array
-    /// physically contains nulls, or if the Arrow data type is unsupported.
+    /// physically contains nulls, if the Arrow data type is unsupported, or if an import plugin
+    /// rejects the field or the array, such as one outside the domain of its extension type.
     pub fn from_arrow_array<'a>(
         &self,
         array: ArrowArrayRef,
         field: impl IntoArrowField<'a>,
     ) -> VortexResult<ArrayRef> {
         let field = field.into_arrow_field(array.data_type());
-        self.from_arrow_array_inner(array, field.as_ref())
+        self.from_arrow_array_inner(array, field.as_ref(), None)
+    }
+
+    /// Import `array`, which holds the Arrow form of the storage of `ext`, as an array of `ext`.
+    ///
+    /// An [`ArrowImportVTable`] calls this for an extension type whose Arrow layout is its Vortex
+    /// storage layout. Arrow lets a producer mark any nested level nullable, but the storage dtype
+    /// of `ext` declares the nullability of every level. Where it declares a level non-nullable, a
+    /// null under a null row is dropped, since no row reads it, and any other null is an error. So
+    /// a child that Arrow marks nullable imports in the declared form when it holds no null in a
+    /// valid row. Struct, list, large list, fixed-size list, and extension levels are rebuilt, so
+    /// below a level of any other kind, such as a map, a level that Arrow marks nullable fails the
+    /// import where the storage dtype declares it non-nullable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error that names `ext` if `array` converts to other field names, field order, or
+    /// types than the storage dtype of `ext`, or if it holds a null in a valid row of a level that
+    /// the storage dtype declares non-nullable.
+    pub fn from_arrow_storage(
+        &self,
+        array: ArrowArrayRef,
+        ext: &ExtDTypeRef,
+    ) -> VortexResult<ArrayRef> {
+        let storage_dtype = ext.storage_dtype();
+        let arrow_dtype =
+            self.from_arrow_datatype(array.data_type(), storage_dtype.nullability())?;
+        vortex_ensure!(
+            arrow_dtype.eq_ignore_nullability(storage_dtype),
+            "Arrow storage of {} must convert to {storage_dtype} apart from nullability, got {arrow_dtype}",
+            ext.id()
+        );
+
+        let array = with_declared_nullability(&array, &DType::Extension(ext.clone()), None)?;
+        // The canonical conversion takes the nullability of each level from the Arrow data type,
+        // which the rebuild sets to the declared one.
+        let field = Field::new("", array.data_type().clone(), storage_dtype.is_nullable());
+        let storage = self.from_arrow_array_canonical(array, &field, None)?;
+        Ok(ExtensionArray::try_new(ext.clone(), storage)?.into_array())
     }
 
     /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: peel a dictionary,
     /// probe the import plugins registered for the field's extension name, then fall back to the
     /// canonical conversion. Also the recursion point for nested fields, which already have a
     /// [`Field`].
+    ///
+    /// `visible` is the visibility of `array`, as [`crate::declared_nullability`] defines it.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_inner(
         &self,
-        array: ArrowArrayRef,
+        mut array: ArrowArrayRef,
         field: &Field,
+        visible: Option<&NullBuffer>,
     ) -> VortexResult<ArrayRef> {
         if let DataType::Dictionary(..) = field.data_type() {
+            let array = without_masked_nulls(array, field, visible)?;
             return self.dictionary_from_arrow(array.as_ref(), field);
         }
 
@@ -638,10 +714,14 @@ impl ArrowSession {
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
+                // An importer sees no visibility, so a column under a null row reaches it without
+                // the masked nulls of every level that `dtype` declares non-nullable.
+                if visible.is_some() {
+                    array = with_declared_nullability(&array, &dtype, visible)?;
+                }
                 let len = array.len();
-                let mut current = array;
                 for plugin in importers.iter() {
-                    match plugin.from_arrow_array(current, field, &dtype, self)? {
+                    match plugin.from_arrow_array(array, field, &dtype, self)? {
                         // Parents such as lists reuse the Arrow offsets into this array without
                         // checking them again, so a plugin must preserve its length, both in what
                         // it imports and in what it hands back when it declines.
@@ -665,23 +745,32 @@ impl ArrowSession {
                                 arr.len(),
                                 len
                             );
-                            current = arr;
+                            array = arr;
                         }
                     }
                 }
-                return self.from_arrow_array_canonical(current.as_ref(), field);
             }
         }
-        self.from_arrow_array_canonical(array.as_ref(), field)
+
+        self.from_arrow_array_canonical(array, field, visible)
     }
 
     /// Recurse into Arrow container arrays so nested fields with extension metadata reach
     /// their importers, falling through to the canonical conversion for leaf types.
+    ///
+    /// `visible` is the visibility of `array`, as [`crate::declared_nullability`] defines it. A
+    /// struct, list, large list, or fixed-size list level drops its masked nulls from its validity
+    /// and passes the visibility of its children on. A list view, map, or leaf level drops them
+    /// from the Arrow array with [`without_masked_nulls`], as a dictionary level does in
+    /// [`Self::from_arrow_array_inner`]. These levels, a run-end level, and the values of a
+    /// dictionary pass no visibility on, so a level below them treats every slot as visible, and a
+    /// masked null in it fails the import where the level is non-nullable.
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_canonical(
         &self,
-        array: &dyn ArrowArray,
+        array: ArrowArrayRef,
         field: &Field,
+        visible: Option<&NullBuffer>,
     ) -> VortexResult<ArrayRef> {
         match field.data_type() {
             DataType::Struct(fields) => {
@@ -689,22 +778,20 @@ impl ArrowSession {
                 let names = FieldNames::from_iter(
                     fields.iter().map(|f| FieldName::from(f.name().as_str())),
                 );
+                let columns_visible = NullBuffer::union(visible, arrow_struct.nulls());
                 let columns = arrow_struct
                     .columns()
                     .iter()
                     .zip(fields.iter())
                     .map(|(col, child_field)| {
-                        // Arrow pushes nulls into non-nullable fields; strip before recursing
-                        // so Vortex's stricter validity invariants are upheld.
-                        let inner = if col.null_count() > 0 && !child_field.is_nullable() {
-                            make_array(remove_nulls(col.to_data())?)
-                        } else {
-                            ArrowArrayRef::clone(col)
-                        };
-                        self.from_arrow_array_inner(inner, child_field.as_ref())
+                        self.from_arrow_array_inner(
+                            ArrowArrayRef::clone(col),
+                            child_field.as_ref(),
+                            columns_visible.as_ref(),
+                        )
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
-                let validity = nulls(arrow_struct.nulls(), field.is_nullable())?;
+                let validity = declared_validity(arrow_struct.nulls(), field, visible)?;
                 Ok(
                     StructArray::try_new(names, columns, arrow_struct.len(), validity)?
                         .into_array(),
@@ -713,11 +800,19 @@ impl ArrowSession {
             DataType::List(elem_field) => {
                 let list = array.as_list::<i32>();
                 let (offsets, referenced) = trim_offsets(list.offsets());
-                let elements = self.from_arrow_array(
-                    list.values().slice(referenced.start, referenced.len()),
+                let values = list.values().slice(referenced.start, referenced.len());
+                let elements_visible = list_elements_visibility(
+                    &offsets,
+                    NullBuffer::union(visible, list.nulls()).as_ref(),
+                    values.as_ref(),
+                    elem_field.is_nullable(),
+                );
+                let elements = self.from_arrow_array_inner(
+                    values,
                     elem_field.as_ref(),
+                    elements_visible.as_ref(),
                 )?;
-                let validity = nulls(list.nulls(), field.is_nullable())?;
+                let validity = declared_validity(list.nulls(), field, visible)?;
                 // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases
                 // them onto the referenced values. The validity has one entry per list.
                 Ok(
@@ -728,11 +823,19 @@ impl ArrowSession {
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
                 let (offsets, referenced) = trim_offsets(list.offsets());
-                let elements = self.from_arrow_array(
-                    list.values().slice(referenced.start, referenced.len()),
+                let values = list.values().slice(referenced.start, referenced.len());
+                let elements_visible = list_elements_visibility(
+                    &offsets,
+                    NullBuffer::union(visible, list.nulls()).as_ref(),
+                    values.as_ref(),
+                    elem_field.is_nullable(),
+                );
+                let elements = self.from_arrow_array_inner(
+                    values,
                     elem_field.as_ref(),
+                    elements_visible.as_ref(),
                 )?;
-                let validity = nulls(list.nulls(), field.is_nullable())?;
+                let validity = declared_validity(list.nulls(), field, visible)?;
                 // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases
                 // them onto the referenced values. The validity has one entry per list.
                 Ok(
@@ -742,17 +845,25 @@ impl ArrowSession {
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
+                let elements_visible = fixed_size_list_elements_visibility(
+                    NullBuffer::union(visible, fsl.nulls()).as_ref(),
+                    list_size.as_usize(),
+                    fsl.values().as_ref(),
+                    elem_field.is_nullable(),
+                );
                 let elements = self.from_arrow_array_inner(
                     ArrowArrayRef::clone(fsl.values()),
                     elem_field.as_ref(),
+                    elements_visible.as_ref(),
                 )?;
-                let validity = nulls(fsl.nulls(), field.is_nullable())?;
+                let validity = declared_validity(fsl.nulls(), field, visible)?;
                 Ok(
                     FixedSizeListArray::try_new(elements, *list_size as u32, validity, fsl.len())?
                         .into_array(),
                 )
             }
             DataType::ListView(elem_field) => {
+                let array = without_masked_nulls(array, field, visible)?;
                 let list = array.as_list_view::<i32>();
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
@@ -767,6 +878,7 @@ impl ArrowSession {
                 )
             }
             DataType::LargeListView(elem_field) => {
+                let array = without_masked_nulls(array, field, visible)?;
                 let list = array.as_list_view::<i64>();
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
@@ -781,9 +893,11 @@ impl ArrowSession {
                 )
             }
             DataType::Map(entries_field, keys_sorted) => {
+                let array = without_masked_nulls(array, field, visible)?;
                 let map = array.as_map();
                 let entries_array: ArrowArrayRef = Arc::new(map.entries().clone());
-                let entries = self.from_arrow_array_inner(entries_array, entries_field.as_ref())?;
+                let entries =
+                    self.from_arrow_array_inner(entries_array, entries_field.as_ref(), None)?;
                 map_from_arrow_parts(
                     entries,
                     map.offsets(),
@@ -794,6 +908,7 @@ impl ArrowSession {
             }
             DataType::RunEndEncoded(ends_field, values_field) => {
                 let values_field = run_end_values_field(values_field, field.is_nullable().into());
+                let array = array.as_ref();
                 match ends_field.data_type() {
                     DataType::Int16 => self.run_end_from_arrow::<Int16Type>(array, &values_field),
                     DataType::Int32 => self.run_end_from_arrow::<Int32Type>(array, &values_field),
@@ -803,7 +918,10 @@ impl ArrowSession {
                     ),
                 }
             }
-            _ => from_arrow_dyn(array, field.is_nullable()),
+            _ => {
+                let array = without_masked_nulls(array, field, visible)?;
+                from_arrow_dyn(array.as_ref(), field.is_nullable())
+            }
         }
     }
 
@@ -822,8 +940,11 @@ impl ArrowSession {
             .as_any()
             .downcast_ref::<RunArray<R>>()
             .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
-        let values =
-            self.from_arrow_array_inner(ArrowArrayRef::clone(run_array.values()), values_field)?;
+        let values = self.from_arrow_array_inner(
+            ArrowArrayRef::clone(run_array.values()),
+            values_field,
+            None,
+        )?;
         run_end_from_arrow(run_array, values)
     }
 
@@ -845,7 +966,7 @@ impl ArrowSession {
             .clone()
             .with_data_type(dict.values().data_type().clone());
         let values =
-            self.from_arrow_array_inner(ArrowArrayRef::clone(dict.values()), &values_field)?;
+            self.from_arrow_array_inner(ArrowArrayRef::clone(dict.values()), &values_field, None)?;
 
         let codes = dict.keys();
         let codes = from_arrow_dyn(codes, codes.is_nullable())?;
@@ -863,6 +984,66 @@ fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Fi
         .as_ref()
         .clone()
         .with_nullable(nullability.into())
+}
+
+/// The validity of a level with `arrow_nulls` that imports as `field`, without the nulls that
+/// [`drop_masked_nulls`] drops under a null row.
+///
+/// A level that no null row masks keeps its nulls, and [`nulls`] rejects them where `field` is
+/// not nullable.
+fn declared_validity(
+    arrow_nulls: Option<&NullBuffer>,
+    field: &Field,
+    visible: Option<&NullBuffer>,
+) -> VortexResult<Validity> {
+    if visible.is_none() {
+        return nulls(arrow_nulls, field.is_nullable());
+    }
+
+    let declared_nulls =
+        drop_masked_nulls(arrow_nulls, field.is_nullable(), visible, field.data_type())?;
+    nulls(declared_nulls.as_ref(), field.is_nullable())
+}
+
+/// `array` without the nulls that [`drop_masked_nulls`] drops under a null row, at a level that
+/// imports as `field`.
+///
+/// The nulls leave the Arrow array itself, for a level whose conversion reads them from there. A
+/// level that no null row masks keeps its nulls, as in [`declared_validity`]. For a list view,
+/// [`remove_nulls`] also strips the nulls of non-nullable elements without checking them, as the
+/// rebuild in [`with_declared_nullability`] does.
+///
+/// # Errors
+///
+/// Returns an error if the level holds a null in a visible slot, or if arrow-rs rejects the slots
+/// under the nulls that it drops. A dictionary fails this way when a key under them points outside
+/// its values, as in a dictionary of only nulls, which can have no values.
+fn without_masked_nulls(
+    array: ArrowArrayRef,
+    field: &Field,
+    visible: Option<&NullBuffer>,
+) -> VortexResult<ArrowArrayRef> {
+    if visible.is_none() {
+        return Ok(array);
+    }
+
+    let declared_nulls = drop_masked_nulls(
+        array.nulls(),
+        field.is_nullable(),
+        visible,
+        field.data_type(),
+    )?;
+    if declared_nulls.is_none() && array.null_count() > 0 {
+        let data = remove_nulls(array.to_data()).map_err(|err| {
+            err.with_context(format!(
+                "Failed to drop the nulls that a null row masks in non-nullable {}",
+                field.data_type()
+            ))
+        })?;
+        return Ok(make_array(data));
+    }
+
+    Ok(array)
 }
 
 impl SessionVar for ArrowSession {
@@ -969,6 +1150,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::DictionaryArray;
+    use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::GenericListArray;
     use arrow_array::GenericListViewArray;
     use arrow_array::Int32Array;
@@ -976,7 +1158,9 @@ mod tests {
     use arrow_array::MapArray;
     use arrow_array::StringArray;
     use arrow_array::StructArray;
+    use arrow_array::new_null_array;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::NullBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::DataType;
@@ -984,17 +1168,23 @@ mod tests {
     use arrow_schema::FieldRef;
     use arrow_schema::Fields;
     use rstest::rstest;
+    use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
@@ -1288,5 +1478,317 @@ mod tests {
                 .contains("returned 4 elements for an array of 5"),
             "unexpected error: {err}"
         );
+    }
+
+    /// A struct field that Arrow marks non-nullable holds a null under a null row, and so does the
+    /// non-nullable field below it. No row reads them, so they import as placeholders.
+    #[test]
+    fn test_struct_imports_masked_nulls_two_levels_down() -> VortexResult<()> {
+        let row_nulls = NullBuffer::from(vec![true, false]);
+        let inner = StructArray::try_new(
+            Fields::from(vec![Field::new("x", DataType::Int32, false)]),
+            vec![Arc::new(Int32Array::from(vec![Some(1), None]))],
+            Some(row_nulls.clone()),
+        )?;
+        let outer = StructArray::try_new(
+            Fields::from(vec![Field::new("inner", inner.data_type().clone(), false)]),
+            vec![Arc::new(inner)],
+            Some(row_nulls),
+        )?;
+        let imported = ArrowSession::default().from_arrow_array(Arc::new(outer), true)?;
+
+        let inner = VortexStructArray::from_fields(&[("x", buffer![1i32, 0].into_array())])?;
+        let expected = VortexStructArray::try_new(
+            FieldNames::from(["inner"]),
+            vec![inner.into_array()],
+            2,
+            Validity::from_iter([true, false]),
+        )?;
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// The non-nullable elements of a null fixed-size list hold nulls. No row reads them, so they
+    /// import as placeholders.
+    #[test]
+    fn test_fixed_size_list_imports_masked_element_nulls() -> VortexResult<()> {
+        let lists = ArrowFixedSizeListArray::try_new(
+            Arc::new(Field::new("item", DataType::Int32, false)),
+            2,
+            Arc::new(Int32Array::from(vec![Some(1), Some(2), None, None])),
+            Some(NullBuffer::from(vec![true, false])),
+        )?;
+        let imported = ArrowSession::default().from_arrow_array(Arc::new(lists), true)?;
+
+        let expected = FixedSizeListArray::try_new(
+            buffer![1i32, 2, 0, 0].into_array(),
+            2,
+            Validity::from_iter([true, false]),
+            2,
+        )?;
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// A list element field of nullable `i32` values.
+    fn nullable_item() -> FieldRef {
+        Arc::new(Field::new_list_field(DataType::Int32, true))
+    }
+
+    /// A map from `i32` keys to nullable `i32` values.
+    fn int_map_type() -> DataType {
+        let entries = Field::new_struct(
+            "entries",
+            vec![
+                Field::new("key", DataType::Int32, false),
+                Field::new("value", DataType::Int32, true),
+            ],
+            false,
+        );
+        DataType::Map(Arc::new(entries), false)
+    }
+
+    /// A dictionary of one null key over the values `["a"]`.
+    ///
+    /// The dictionary that `new_null_array` builds has no values, which
+    /// `test_masked_nulls_of_dictionary_without_values_fail` covers.
+    fn null_dictionary() -> ArrowArrayRef {
+        Arc::new(DictionaryArray::<Int32Type>::new(
+            Int32Array::new_null(1),
+            Arc::new(StringArray::from(vec!["a"])),
+        ))
+    }
+
+    /// A null struct row hides a null in a non-nullable field of each kind that drops its own
+    /// masked nulls, as `new_null_array` builds it for an outer join. No row reads the null, so the
+    /// struct imports in the dtype that its field converts to.
+    #[rstest]
+    #[case::list(new_null_array(&DataType::List(nullable_item()), 1))]
+    #[case::large_list(new_null_array(&DataType::LargeList(nullable_item()), 1))]
+    #[case::fixed_size_list(new_null_array(&DataType::FixedSizeList(nullable_item(), 2), 1))]
+    #[case::list_view(new_null_array(&DataType::ListView(nullable_item()), 1))]
+    #[case::large_list_view(new_null_array(&DataType::LargeListView(nullable_item()), 1))]
+    #[case::map(new_null_array(&int_map_type(), 1))]
+    #[case::dictionary(null_dictionary())]
+    fn test_null_struct_row_hides_null_of_field(#[case] child: ArrowArrayRef) -> VortexResult<()> {
+        let row = StructArray::try_new(
+            Fields::from(vec![Field::new("c", child.data_type().clone(), false)]),
+            vec![child],
+            Some(NullBuffer::new_null(1)),
+        )?;
+        let field = Field::new("s", row.data_type().clone(), true);
+        let session = ArrowSession::default();
+        let imported = session.from_arrow_array(Arc::new(row), &field)?;
+        assert_eq!(imported.dtype(), &session.from_arrow_field(&field)?);
+        Ok(())
+    }
+
+    /// The dictionary that `new_null_array` builds has no values, so no key under its nulls can
+    /// point at one, and the import cannot drop them under a null row.
+    #[test]
+    fn test_masked_nulls_of_dictionary_without_values_fail() {
+        let dictionary = DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8));
+        let element = Arc::new(Field::new_list_field(dictionary, false));
+        let lists = new_null_array(&DataType::FixedSizeList(element, 2), 1);
+        let err = ArrowSession::default()
+            .from_arrow_array(lists, true)
+            .expect_err("a dictionary without values must fail to drop its masked nulls");
+        assert!(
+            err.to_string()
+                .contains("Failed to drop the nulls that a null row masks in non-nullable"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// The structs `[{x: null}, null]` where Arrow marks `x` nullable, and a field that marks it
+    /// non-nullable.
+    fn struct_with_null_in_valid_row() -> (ArrowArrayRef, Field) {
+        let rows = StructArray::new(
+            Fields::from(vec![Field::new("x", DataType::Int32, true)]),
+            vec![Arc::new(Int32Array::from(vec![None, Some(5)]))],
+            Some(NullBuffer::from(vec![true, false])),
+        );
+        let field = Field::new_struct("s", vec![Field::new("x", DataType::Int32, false)], true);
+        (Arc::new(rows), field)
+    }
+
+    /// The fixed-size lists `[[1, null], null]` where Arrow marks the elements nullable, and a
+    /// field that marks them non-nullable.
+    fn fixed_size_list_with_null_in_valid_row() -> (ArrowArrayRef, Field) {
+        let lists = ArrowFixedSizeListArray::new(
+            nullable_item(),
+            2,
+            Arc::new(Int32Array::from(vec![Some(1), None, Some(3), Some(4)])),
+            Some(NullBuffer::from(vec![true, false])),
+        );
+        let element = Field::new_list_field(DataType::Int32, false);
+        let field = Field::new_fixed_size_list("l", element, 2, true);
+        (Arc::new(lists), field)
+    }
+
+    /// A field that is stricter than the array marks a level non-nullable that holds a null in a
+    /// valid row. A null row masks other slots of the level, which does not hide this null.
+    #[rstest]
+    #[case::struct_field(struct_with_null_in_valid_row(), 0)]
+    #[case::fixed_size_list_element(fixed_size_list_with_null_in_valid_row(), 1)]
+    fn test_null_row_does_not_hide_null_in_valid_row(
+        #[case] input: (ArrowArrayRef, Field),
+        #[case] index: usize,
+    ) {
+        let (array, field) = input;
+        let err = ArrowSession::default()
+            .from_arrow_array(array, &field)
+            .expect_err("a null in a valid row must fail the import");
+        let expected =
+            format!("must not be null unless an ancestor is null, got a null at index {index}");
+        assert!(
+            err.to_string().contains(&expected),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// An extension type over any storage dtype.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct AnyStorage;
+
+    impl ExtVTable for AnyStorage {
+        type Metadata = EmptyMetadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        fn id(&self) -> ExtId {
+            static ID: CachedId = CachedId::new("test.any_storage");
+            *ID
+        }
+
+        fn serialize_metadata(&self, _metadata: &EmptyMetadata) -> VortexResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<EmptyMetadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<&'a ScalarValue> {
+            Ok(storage_value)
+        }
+    }
+
+    /// An [`AnyStorage`] dtype over `storage`.
+    fn any_storage(storage: DType) -> VortexResult<ExtDTypeRef> {
+        Ok(ExtDType::try_with_vtable(AnyStorage, EmptyMetadata, storage)?.erased())
+    }
+
+    /// The Arrow lists `[[{x: 1}], [{x: null}]]` with nullable fields at every level, where
+    /// `list_nulls` is the validity of the two lists.
+    fn lists_of_points(list_nulls: Option<NullBuffer>) -> ArrowArrayRef {
+        let points = StructArray::new(
+            Fields::from(vec![Field::new("x", DataType::Int32, true)]),
+            vec![Arc::new(Int32Array::from(vec![Some(1), None]))],
+            None,
+        );
+        Arc::new(GenericListArray::<i32>::new(
+            Arc::new(Field::new("item", points.data_type().clone(), true)),
+            OffsetBuffer::new(vec![0, 1, 2].into()),
+            Arc::new(points),
+            list_nulls,
+        ))
+    }
+
+    /// Nullable lists of `{x: i32}` points, non-nullable below the lists.
+    fn lists_of_points_dtype() -> DType {
+        let x = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let point = DType::Struct(
+            StructFields::from_iter([("x", x)]),
+            Nullability::NonNullable,
+        );
+        DType::List(Arc::new(point), Nullability::Nullable)
+    }
+
+    /// A null that no row reads imports in the declared non-nullable form, both under a null row
+    /// two levels up and outside the rows of a sliced list.
+    #[rstest]
+    #[case::under_null_row(lists_of_points(Some(NullBuffer::from(vec![true, false]))))]
+    #[case::outside_sliced_rows(lists_of_points(None).slice(0, 1))]
+    fn test_from_arrow_storage_drops_masked_nulls(
+        #[case] lists: ArrowArrayRef,
+    ) -> VortexResult<()> {
+        let ext = any_storage(lists_of_points_dtype())?;
+        let len = lists.len();
+        let imported = ArrowSession::default().from_arrow_storage(lists, &ext)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let points = VortexStructArray::from_fields(&[("x", buffer![1i32, 0].into_array())])?;
+        let lists = ListArray::try_new(
+            points.into_array(),
+            buffer![0i32, 1, 2].into_array(),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        let expected = ExtensionArray::try_new(ext, lists.into_array().slice(0..len)?)?;
+        assert_arrays_eq!(imported, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A null in a valid row fails the import with an error that names the extension type.
+    #[test]
+    fn test_from_arrow_storage_rejects_null_in_valid_row() -> VortexResult<()> {
+        let ext = any_storage(lists_of_points_dtype())?;
+        let err = ArrowSession::default()
+            .from_arrow_storage(lists_of_points(None), &ext)
+            .expect_err("a null in a valid row must fail the import");
+        assert!(
+            err.to_string()
+                .contains("Failed to import Arrow storage as test.any_storage"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.to_string().contains("got a null at index 1"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    /// Arrow storage `{x: i32, y: i32}` against declared storage with other field names, field
+    /// order, or types.
+    #[rstest]
+    #[case::names(["x", "z"], [PType::I32, PType::I32])]
+    #[case::order(["y", "x"], [PType::I32, PType::I32])]
+    #[case::types(["x", "y"], [PType::I64, PType::I32])]
+    fn test_from_arrow_storage_rejects_other_fields(
+        #[case] names: [&str; 2],
+        #[case] ptypes: [PType; 2],
+    ) -> VortexResult<()> {
+        let point: ArrowArrayRef = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("x", DataType::Int32, false)),
+                Arc::new(Int32Array::from(vec![1])) as ArrowArrayRef,
+            ),
+            (
+                Arc::new(Field::new("y", DataType::Int32, false)),
+                Arc::new(Int32Array::from(vec![2])) as ArrowArrayRef,
+            ),
+        ]));
+        let fields = ptypes.map(|ptype| DType::Primitive(ptype, Nullability::NonNullable));
+        let storage = DType::Struct(
+            StructFields::new(FieldNames::from(names), fields.to_vec()),
+            Nullability::NonNullable,
+        );
+
+        let err = ArrowSession::default()
+            .from_arrow_storage(point, &any_storage(storage)?)
+            .expect_err("storage with other fields must fail the import");
+        assert!(
+            err.to_string()
+                .contains("Arrow storage of test.any_storage must convert to"),
+            "unexpected error: {err}"
+        );
+        Ok(())
     }
 }

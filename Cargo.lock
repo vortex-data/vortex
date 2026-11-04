@@ -11823,6 +11823,7 @@ dependencies = [
  "vortex-array",
  "vortex-arrow",
  "vortex-json",
+ "vortex-tensor",
  "vortex-utils",
 ]
 
@@ -12191,6 +12192,7 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "prost 0.14.4",
+ "serde_json",
  "vortex-array",
  "vortex-arrow",
  "vortex-edition",
@@ -12486,6 +12488,7 @@ name = "vortex-spatial"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "geo",

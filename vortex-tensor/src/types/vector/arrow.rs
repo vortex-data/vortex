@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use arrow_array::Array;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -17,10 +16,10 @@ use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowExport;
@@ -31,6 +30,8 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -128,18 +129,23 @@ impl ArrowImportVTable for Vector {
         field: &Field,
         session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        if field.extension_type_name() != Some(ARROW_VECTOR_EXTENSION_NAME) {
-            return Ok(None);
-        }
         let DataType::FixedSizeList(elem, list_size) = field.data_type() else {
-            return Ok(None);
+            vortex_bail!(
+                "Arrow vector storage must be a FixedSizeList, got {}",
+                field.data_type()
+            );
         };
-        if !is_supported_float(elem.data_type()) || elem.is_nullable() {
-            return Ok(None);
-        }
+        vortex_ensure!(
+            is_supported_float(elem.data_type()),
+            "Arrow vector elements must be floats, got {}",
+            elem.data_type()
+        );
 
+        // The elements are non-nullable even when Arrow marks them nullable, and
+        // `ArrowSession::from_arrow_storage` imports the array in that form.
+        let element = session.from_arrow_datatype(elem.data_type(), Nullability::NonNullable)?;
         let storage_dtype = DType::FixedSizeList(
-            Arc::new(session.from_arrow_field(elem.as_ref())?),
+            Arc::new(element),
             *list_size as u32,
             field.is_nullable().into(),
         );
@@ -155,23 +161,12 @@ impl ArrowImportVTable for Vector {
         dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let DType::Extension(dtype) = dtype else {
+        let Some(ext_dtype) = dtype.as_extension_opt().filter(|ext| ext.is::<Vector>()) else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !dtype.is::<Vector>() {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-        let DataType::FixedSizeList(elem, _) = array.data_type() else {
-            return Ok(ArrowImport::Unsupported(array));
-        };
-        if !is_supported_float(elem.data_type()) {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, dtype.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(dtype.clone(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, ext_dtype)
+            .map(ArrowImport::Imported)
     }
 }
 
@@ -179,17 +174,27 @@ impl ArrowImportVTable for Vector {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::Array;
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::Float32Array;
     use arrow_array::Int32Array;
+    use arrow_array::ListArray as ArrowListArray;
+    use arrow_array::StructArray as ArrowStructArray;
+    use arrow_array::builder::NullBufferBuilder;
+    use arrow_array::builder::OffsetBufferBuilder;
+    use arrow_array::types::Float32Type;
     use arrow_schema::Field;
+    use rstest::rstest;
     use vortex_array::EmptyMetadata;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
@@ -397,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn from_arrow_array_returns_unsupported_for_non_fsl() -> VortexResult<()> {
+    fn from_arrow_array_rejects_non_fsl() {
         let dtype = vector_dtype(false);
         let field = Field::new("embedding", DataType::Int32, false);
 
@@ -408,8 +413,188 @@ mod tests {
             &field,
             &dtype,
             &ArrowSession::default(),
+        );
+        let Err(err) = result else {
+            panic!("an Int32 array must fail the vector import");
+        };
+        assert!(
+            err.to_string()
+                .contains("Arrow storage of vortex.tensor.vector must convert to"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A field that names `vortex.tensor.vector` but cannot store vectors fails to import instead
+    /// of importing as plain storage.
+    #[rstest]
+    #[case::int32(DataType::Int32)]
+    #[case::int_elements(DataType::FixedSizeList(
+        Arc::new(Field::new("item", DataType::Int32, false)),
+        DIM as i32,
+    ))]
+    #[case::list(DataType::List(Arc::new(Field::new("item", DataType::Float32, false))))]
+    fn from_arrow_field_rejects_other_storage(#[case] data_type: DataType) {
+        let field =
+            Field::new("embedding", data_type, false).with_metadata(vector_extension_metadata());
+        let err = session_with_vector()
+            .from_arrow_field(&field)
+            .expect_err("a field that cannot store vectors must fail to import");
+        assert!(
+            err.to_string().contains("as vortex.tensor.vector"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Arrow vectors with nullable elements, built the way pyarrow builds them: a null vector
+    /// holds null elements.
+    fn arrow_vectors(vectors: Vec<Option<Vec<Option<f32>>>>) -> (ArrowArrayRef, Field) {
+        let array =
+            ArrowFixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(vectors, DIM as i32);
+        let field = Field::new("embedding", array.data_type().clone(), true)
+            .with_metadata(vector_extension_metadata());
+        (Arc::new(array), field)
+    }
+
+    /// Nullable elements import as the non-nullable elements of `Vector`, and the null elements
+    /// of a null vector are dropped.
+    #[test]
+    fn nullable_elements_import_as_vector() -> VortexResult<()> {
+        let session = session_with_vector();
+        let (arrow, field) = arrow_vectors(vec![
+            Some(vec![Some(1.0), Some(2.0), Some(3.0)]), // A valid vector.
+            None,                                        // A null vector of null elements.
+            Some(vec![Some(4.0), Some(5.0), Some(6.0)]), // A valid vector.
+        ]);
+        assert_eq!(session.from_arrow_field(&field)?, vector_dtype(true));
+
+        let imported = session.from_arrow_array(arrow, &field)?;
+        let storage = FixedSizeListArray::try_new(
+            buffer![1.0f32, 2.0, 3.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0].into_array(),
+            DIM,
+            Validity::from_iter([true, false, true]),
+            3,
         )?;
-        assert!(matches!(result, ArrowImport::Unsupported(_)));
+        let expected = Vector::try_new_vector_array(storage.into_array())?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// A null element of a valid vector is outside the domain of `Vector`, so the import fails.
+    #[test]
+    fn null_element_of_valid_vector_fails() {
+        let (arrow, field) = arrow_vectors(vec![Some(vec![Some(1.0), None, Some(3.0)])]);
+        let err = session_with_vector()
+            .from_arrow_array(arrow, &field)
+            .expect_err("a null element of a valid vector must fail the import");
+        assert!(
+            err.to_string()
+                .contains("Failed to import Arrow storage as vortex.tensor.vector"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Vectors that Arrow marks non-nullable, as Arrow kernels such as `take` with null indices
+    /// build them under a null parent row: the vector and its nullable-marked elements are null.
+    fn masked_vectors() -> (ArrowArrayRef, Field) {
+        let (vectors, field) = arrow_vectors(vec![
+            Some(vec![Some(1.0), Some(2.0), Some(3.0)]), // A vector under a valid row.
+            None,                                        // A null vector under a null row.
+        ]);
+        (vectors, field.with_nullable(false))
+    }
+
+    /// The import of [`masked_vectors`], where the dropped nulls become placeholders.
+    fn imported_masked_vectors() -> VortexResult<ArrayRef> {
+        let storage = FixedSizeListArray::try_new(
+            buffer![1.0f32, 2.0, 3.0, 0.0, 0.0, 0.0].into_array(),
+            DIM,
+            Validity::NonNullable,
+            2,
+        )?;
+        Vector::try_new_vector_array(storage.into_array())
+    }
+
+    /// A vector field that Arrow marks non-nullable holds nulls at every level under a null row
+    /// of its struct. No row reads them, so the import drops them.
+    #[test]
+    fn vector_field_under_null_struct_row_imports() -> VortexResult<()> {
+        let (vectors, field) = masked_vectors();
+        let rows = ArrowStructArray::try_new(
+            vec![field].into(),
+            vec![Arc::clone(&vectors)],
+            vectors.nulls().cloned(),
+        )?;
+        let imported = session_with_vector().from_arrow_array(Arc::new(rows), true)?;
+
+        let expected = StructArray::try_new(
+            FieldNames::from(["embedding"]),
+            vec![imported_masked_vectors()?],
+            2,
+            Validity::from_iter([true, false]),
+        )?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// Vectors that are the non-nullable elements of a fixed-size list hold nulls at every level
+    /// under a null list, and the import drops them.
+    #[test]
+    fn vector_elements_under_null_list_import() -> VortexResult<()> {
+        let (vectors, field) = masked_vectors();
+        let lists = ArrowFixedSizeListArray::try_new(
+            Arc::new(field),
+            1,
+            Arc::clone(&vectors),
+            vectors.nulls().cloned(),
+        )?;
+        let imported = session_with_vector().from_arrow_array(Arc::new(lists), true)?;
+
+        let expected = FixedSizeListArray::try_new(
+            imported_masked_vectors()?,
+            1,
+            Validity::from_iter([true, false]),
+            2,
+        )?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    /// A valid vector in a null list holds null elements. No row reads them, so the import drops
+    /// them.
+    #[test]
+    fn vector_in_null_list_row_imports() -> VortexResult<()> {
+        let (vectors, field) = arrow_vectors(vec![
+            Some(vec![Some(1.0), Some(2.0), Some(3.0)]), // A vector in a valid list.
+            Some(vec![None, None, None]),                // A vector in a null list.
+        ]);
+        let mut offsets = OffsetBufferBuilder::new(2);
+        offsets.push_length(1);
+        offsets.push_length(1);
+        let mut list_nulls = NullBufferBuilder::new(2);
+        list_nulls.append_non_null();
+        list_nulls.append_null();
+        let lists = ArrowListArray::try_new(
+            Arc::new(field),
+            offsets.finish(),
+            vectors,
+            list_nulls.finish(),
+        )?;
+        let imported = session_with_vector().from_arrow_array(Arc::new(lists), true)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let storage = FixedSizeListArray::try_new(
+            buffer![1.0f32, 2.0, 3.0, 0.0, 0.0, 0.0].into_array(),
+            DIM,
+            Validity::AllValid,
+            2,
+        )?;
+        let expected = ListArray::try_new(
+            Vector::try_new_vector_array(storage.into_array())?,
+            buffer![0i32, 1, 2].into_array(),
+            Validity::from_iter([true, false]),
+            &mut ctx,
+        )?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut ctx);
         Ok(())
     }
 
