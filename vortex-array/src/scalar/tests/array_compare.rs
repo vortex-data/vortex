@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Parity between [`Scalar`] equality/ordering and the array compare kernels.
+//! Parity between [`Scalar`] equality/ordering and comparisons over canonical arrays.
 //!
-//! For every pair of representative values of a dtype, the result of comparing the two values as
-//! rows of canonical arrays must agree with [`Scalar`]'s [`PartialEq`] and [`PartialOrd`]:
+//! Vortex has two comparison semantics, and each has a scalar and an array form:
 //!
-//! - a row is null exactly when either operand is a top-level null;
-//! - otherwise `op(lhs, rhs)` equals the operator applied to `lhs.partial_cmp(&rhs)`;
-//! - `Eq` and `NotEq` also agree with `lhs == rhs` and `lhs != rhs`.
+//! - **Total ordering**, used for sorting and searching. [`Scalar`]'s [`PartialEq`] and
+//!   [`PartialOrd`] implement it for scalars, and the row comparator
+//!   ([`build_row_comparator`]) implements it for arrays. Nulls order before every non-null
+//!   value and are equal to each other, at every nesting depth.
+//! - **SQL comparison**, used by the compare operators. [`scalar_cmp`] implements it for scalars,
+//!   and the compare kernels implement it for arrays. A top-level null on either side makes the
+//!   result null; otherwise the result follows the total ordering, so nested nulls still order
+//!   first.
 //!
-//! Both array-array and array-constant comparisons are checked, since constants take separate
-//! kernel paths from fully materialized operands.
+//! For every pair of representative values of a dtype, this module checks both forms of both
+//! semantics against [`Scalar`]'s [`PartialEq`] and [`PartialOrd`]. Compare kernels run on
+//! array-array operands and on array-constant operands in both positions, since constants take
+//! separate kernel paths.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -23,6 +29,7 @@ use vortex_error::vortex_ensure;
 use super::SESSION;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -41,6 +48,8 @@ use crate::extension::datetime::Timestamp;
 use crate::memory::MemorySessionExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::build_row_comparator;
+use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -53,23 +62,30 @@ const OPERATORS: [CompareOperator; 6] = [
     CompareOperator::Gte,
 ];
 
-/// The result the array kernels must produce for `lhs op rhs`, derived only from [`Scalar`]'s
-/// [`PartialEq`] and [`PartialOrd`] implementations.
-fn expected_from_scalars(lhs: &Scalar, rhs: &Scalar, op: CompareOperator) -> Option<bool> {
-    if lhs.is_null() || rhs.is_null() {
-        return None;
-    }
-
+/// The total ordering of `lhs` and `rhs`, checked to agree with `lhs == rhs`.
+fn scalar_ordering(lhs: &Scalar, rhs: &Scalar) -> Ordering {
     let ordering = lhs
         .partial_cmp(rhs)
         .unwrap_or_else(|| panic!("{lhs} and {rhs} must be ordered"));
-    // Equality and ordering must agree with each other before they can agree with the arrays.
     assert_eq!(
         lhs == rhs,
         ordering == Ordering::Equal,
         "PartialEq and PartialOrd disagree for {lhs} and {rhs}"
     );
+    ordering
+}
 
+/// The SQL result of `lhs op rhs`, derived from [`Scalar`]'s [`PartialEq`] and [`PartialOrd`].
+///
+/// `Eq` and `NotEq` use `==` and `!=` directly, so they also check [`PartialEq`] against the
+/// kernels independently of [`PartialOrd`].
+fn expected_from_scalars(lhs: &Scalar, rhs: &Scalar, op: CompareOperator) -> Option<bool> {
+    // `Scalar` orders a null first, but SQL comparison propagates top-level nulls.
+    if lhs.is_null() || rhs.is_null() {
+        return None;
+    }
+
+    let ordering = scalar_ordering(lhs, rhs);
     Some(match op {
         CompareOperator::Eq => lhs == rhs,
         CompareOperator::NotEq => lhs != rhs,
@@ -89,7 +105,7 @@ fn canonical_array(dtype: &DType, values: &[Scalar]) -> VortexResult<ArrayRef> {
     Ok(builder.finish())
 }
 
-/// Execute `lhs op rhs` and check every row against [`expected_from_scalars`].
+/// Execute `lhs op rhs` and check every row against [`expected_from_scalars`] and [`scalar_cmp`].
 fn check_rows(
     lhs: ArrayRef,
     rhs: ArrayRef,
@@ -116,12 +132,53 @@ fn check_rows(
             actual == expected,
             "{lhs} {op} {rhs}: array compare returned {actual:?}, scalars give {expected:?}"
         );
+
+        let scalar_result = scalar_cmp(lhs, rhs, op)?;
+        let scalar_result = scalar_result.as_bool().value();
+        vortex_ensure!(
+            scalar_result == expected,
+            "{lhs} {op} {rhs}: scalar_cmp returned {scalar_result:?}, expected {expected:?}"
+        );
     }
 
     Ok(())
 }
 
-/// Compare every ordered pair of `values` as canonical arrays and as array-vs-constant.
+/// Check the row comparator against [`Scalar`]'s total ordering on every row, including rows
+/// where either side is null.
+fn check_row_order(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    lhs_values: &[&Scalar],
+    rhs_values: &[&Scalar],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let lhs = lhs
+        .clone()
+        .execute::<RecursiveCanonical>(&mut ctx)?
+        .0
+        .into_array();
+    let rhs = rhs
+        .clone()
+        .execute::<RecursiveCanonical>(&mut ctx)?
+        .0
+        .into_array();
+    let comparator = build_row_comparator(&lhs, &rhs, &mut ctx)?;
+
+    for (row, (lhs, rhs)) in lhs_values.iter().zip(rhs_values).enumerate() {
+        let actual = comparator(row, row);
+        let expected = scalar_ordering(lhs, rhs);
+        vortex_ensure!(
+            actual == expected,
+            "{lhs} vs {rhs}: row comparator returned {actual:?}, scalars give {expected:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Compare every ordered pair of `values` with both semantics: as canonical arrays, and with each
+/// value as a constant against the canonical array.
 fn assert_array_scalar_parity(values: Vec<Scalar>) -> VortexResult<()> {
     let dtype = values[0].dtype().clone();
     let pairs: Vec<(&Scalar, &Scalar)> = values
@@ -138,6 +195,7 @@ fn assert_array_scalar_parity(values: Vec<Scalar>) -> VortexResult<()> {
         &rhs_values.iter().copied().cloned().collect::<Vec<_>>(),
     )?;
 
+    check_row_order(&lhs, &rhs, &lhs_values, &rhs_values)?;
     for op in OPERATORS {
         check_rows(lhs.clone(), rhs.clone(), &lhs_values, &rhs_values, op)?;
     }
@@ -442,4 +500,34 @@ fn scalar_and_array_comparisons_agree(#[case] values: Vec<Scalar>) -> VortexResu
 #[test]
 fn map_scalar_and_array_comparisons_agree() -> VortexResult<()> {
     assert_array_scalar_parity(maps()?)
+}
+
+/// Top-level nulls are where the two semantics differ: the total ordering puts a null first and
+/// makes two nulls equal, while SQL comparison returns null. Pin both down explicitly so the
+/// parity checks above cannot drift together.
+#[rstest]
+#[case::null_null(None, None, Ordering::Equal)]
+#[case::null_value(None, Some(0), Ordering::Less)]
+#[case::value_null(Some(0), None, Ordering::Greater)]
+fn top_level_nulls(
+    #[case] lhs: Option<i32>,
+    #[case] rhs: Option<i32>,
+    #[case] ordering: Ordering,
+) -> VortexResult<()> {
+    let lhs = nullable_i32(lhs);
+    let rhs = nullable_i32(rhs);
+
+    assert_eq!(lhs.partial_cmp(&rhs), Some(ordering));
+    assert_eq!(lhs == rhs, ordering.is_eq());
+    for op in OPERATORS {
+        assert!(scalar_cmp(&lhs, &rhs, op)?.is_null());
+    }
+
+    let lhs_array = canonical_array(lhs.dtype(), std::slice::from_ref(&lhs))?;
+    let rhs_array = canonical_array(rhs.dtype(), std::slice::from_ref(&rhs))?;
+    check_row_order(&lhs_array, &rhs_array, &[&lhs], &[&rhs])?;
+    for op in OPERATORS {
+        check_rows(lhs_array.clone(), rhs_array.clone(), &[&lhs], &[&rhs], op)?;
+    }
+    Ok(())
 }
