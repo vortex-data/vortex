@@ -4,16 +4,19 @@
 //! Native comparison kernels.
 //!
 //! [`execute_compare`] dispatches on the logical [`DType`] of its operands and evaluates every
-//! comparison directly over Vortex canonical arrays: bit buffers for booleans, lane kernels from
-//! `vortex-compute` for primitives and decimals, binary views for strings/bytes, and a row-wise
-//! comparator for nested types. There is no Arrow fallback.
+//! comparison directly over Vortex canonical arrays: bit buffers for booleans, [`RowFn`] for
+//! primitives, lane kernels from `vortex-compute` for decimals, binary views for strings/bytes, and
+//! a row-wise comparator for nested types. There is no Arrow fallback.
 //!
-//! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
-//! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//! Floating-point values use the same total ordering as [`Scalar`]: negative NaNs sort below
+//! negative infinity, positive NaNs sort above positive infinity, and `-0.0 < +0.0`. Equality is
+//! bitwise, so signed zeros and distinct NaN payloads remain distinct.
 //!
 //! Binary scalar functions can execute through encoding-specific kernels before reaching the native
 //! dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
 //! lets an encoding compare values without first converting them to canonical arrays.
+//!
+//! [`RowFn`]: crate::scalar_fn::unstable::row::RowFn
 
 use std::cmp::Ordering;
 
@@ -209,7 +212,7 @@ fn compare_arrays(
         )
         .into_array()),
         DType::Bool(_) => boolean::compare_bool(lhs, rhs, op, nullability, ctx),
-        DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, nullability, ctx),
+        DType::Primitive(..) => primitive::compare_primitive(lhs, rhs, op, ctx),
         DType::Decimal(..) => decimal::compare_decimal(lhs, rhs, op, nullability, ctx),
         DType::Utf8(_) | DType::Binary(_) => bytes::compare_bytes(lhs, rhs, op, nullability, ctx),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Map(..) => {

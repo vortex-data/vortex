@@ -934,6 +934,7 @@ fn test_partially_valid_bool_output_is_canonical() -> VortexResult<()> {
 
     assert!(actual.is_canonical(), "{actual}");
     assert_arrays_eq!(&actual, &expected, &mut ctx);
+
     Ok(())
 }
 

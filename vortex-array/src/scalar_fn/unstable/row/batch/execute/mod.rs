@@ -34,11 +34,11 @@ impl<'a> BatchInputs<'a> {
     /// Execute this batch under `plan` when at most one call to `kernel` can finish it. Otherwise
     /// return it as a [`PartiallyValidBatch`] that needs a dense retry or valid-row execution.
     ///
-    /// The callback's optional validity argument follows the [dense execution contract].
-    /// It lets a kernel attach batch validity during output construction, avoiding a
-    /// second array construction for masking. Other kernels leave it unchanged and return
-    /// all-valid output. All-constant execution passes `None` because it evaluates one valid row
-    /// instead of constructing the full batch.
+    /// The callback's optional validity argument follows the [dense execution contract]. It lets a
+    /// kernel attach batch validity during output construction, avoiding a second array construction
+    /// for masking. Other kernels leave it unchanged and return all-valid output. All-constant
+    /// execution passes `None` because it evaluates one valid row instead of constructing the full
+    /// batch.
     ///
     /// A deferred kernel does not report which row failed, and `kernel` returns its failure as an
     /// error. That is correct here because this method runs a deferred kernel only when no row is

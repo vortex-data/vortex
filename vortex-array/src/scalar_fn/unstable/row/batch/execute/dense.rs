@@ -57,8 +57,8 @@ impl RowFnExecutionArgs<'_> {
     ) -> VortexResult<ArrayRef> {
         // Only array-backed validity carries a per-row mask. The Boolean constructor can attach
         // it without executing that mask. Known all-valid inputs need no such handoff.
-        let offered = matches!(self.batch.probe.validity, Validity::Array(_));
-        let mut validity = offered.then(|| self.batch.probe.validity.clone());
+        let has_array_validity = matches!(self.batch.probe.validity, Validity::Array(_));
+        let mut validity = has_array_validity.then(|| self.batch.probe.validity.clone());
         let values = kernel(
             self.execution_args(&self.batch.inputs, self.batch.probe.row_count),
             &mut validity,
@@ -68,7 +68,7 @@ impl RowFnExecutionArgs<'_> {
         // If `kernel` took `Some(validity)` and built a nullable result, its contract requires that
         // it attached that validity. The all-valid kernel check would now execute the validity and
         // reject propagated input nulls. Only length, dtype, and logical nullability need checking.
-        if offered && validity.is_none() && values.dtype().is_nullable() {
+        if has_array_validity && validity.is_none() && values.dtype().is_nullable() {
             return self.finalize_output(values, self.batch.probe.row_count);
         }
 

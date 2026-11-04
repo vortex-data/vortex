@@ -40,6 +40,10 @@ pub trait IndexedElementTuple: ElementTuple + private::DecodedSource {
     unsafe fn indexed_source<'a>(views: Self::Views<'a>, row_count: usize) -> Self::Source<'a>;
 }
 
+/// Validate decoded column lengths before exposing unchecked indexed traversal.
+///
+/// Constants broadcast across `row_count` rows. A non-constant column with another length returns
+/// `None`, so a returned source always addresses exactly `row_count` rows.
 pub(in crate::scalar_fn::unstable::row) fn decoded_source<'a, Args: IndexedElementTuple>(
     columns: &'a Args::Columns,
     row_count: usize,

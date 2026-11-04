@@ -508,9 +508,9 @@ fn zero_sized_output_uses_its_own_storage(#[case] traversal: Traversal) -> Vorte
 }
 
 #[rstest]
-fn packed_boolean_attaches_validity(
-    #[values(false, true)] multiversioned: bool,
-) -> VortexResult<()> {
+#[case::inline(false)]
+#[case::multiversioned(true)]
+fn packed_boolean_attaches_validity(#[case] multiversioned: bool) -> VortexResult<()> {
     let values = PrimitiveArray::from_iter([1_i64, 2, 3, 4]).into_array();
     let args = VecExecutionArgs::new(vec![values], 4);
     let validity = Validity::from_iter([true, false, true, true]);
@@ -536,6 +536,7 @@ fn packed_boolean_attaches_validity(
 
     assert!(output.is::<Bool>());
     assert_arrays_eq!(&output, &expected, &mut ctx);
+
     Ok(())
 }
 

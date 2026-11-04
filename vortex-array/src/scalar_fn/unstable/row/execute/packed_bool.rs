@@ -108,15 +108,22 @@ where
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
 
-    let values = collect_source_bits::<MULTIVERSIONED, _>(&source, row_count, ctx, &apply);
+    // SAFETY: `decoded_source` validated that this source addresses exactly `row_count` rows.
+    let values =
+        unsafe { collect_source_bits::<MULTIVERSIONED, _>(&source, row_count, ctx, &apply) };
 
     Ok(BoolArray::try_new(values, validity)?.into_array())
 }
 
 /// Pack `apply` over the `row_count` rows of `source`.
+///
+/// # Safety
+///
+/// `source` must address at least `row_count` rows throughout collection. Violating this requirement
+/// can cause undefined behavior through an out-of-bounds read.
 #[expect(clippy::inline_always)]
 #[inline(always)]
-fn collect_source_bits<const MULTIVERSIONED: bool, S: IndexedSource>(
+unsafe fn collect_source_bits<const MULTIVERSIONED: bool, S: IndexedSource>(
     source: &S,
     row_count: usize,
     ctx: &ExecutionCtx,
@@ -124,7 +131,7 @@ fn collect_source_bits<const MULTIVERSIONED: bool, S: IndexedSource>(
 ) -> BitBuffer {
     let collect = |index| {
         // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the
-        // source addresses exactly `row_count` rows.
+        // caller guarantees that the source addresses at least that many rows.
         apply(unsafe { source.get_unchecked(index) })
     };
 
