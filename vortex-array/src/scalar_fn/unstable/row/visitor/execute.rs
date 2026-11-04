@@ -44,6 +44,7 @@ use crate::scalar_fn::unstable::row::execute::execute_owned_valid_rows;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
 use crate::scalar_fn::unstable::row::execute::execute_sink_filtered;
 use crate::scalar_fn::unstable::row::execute::execute_sink_valid_rows;
+use crate::validity::Validity;
 
 /// The runtime visit that decodes every column once and runs the selected row loop.
 pub(crate) struct ExecuteRows<'args, 'ctx, F: RowFn> {
@@ -129,7 +130,12 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         )?;
         self.plan.ensure_reproduced_by(&visited)?;
 
-        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(self.args, self.ctx, apply)
+        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(
+            self.args,
+            self.ctx,
+            Validity::NonNullable,
+            apply,
+        )
     }
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
@@ -363,6 +369,9 @@ impl<F: RowFn> RowVisitor for ExecuteValidRows<'_, '_, F> {
         Args: IndexedElementTuple,
         Fail: FailureEvidence,
     {
+        // The dense packed collector evaluates every index, while this traversal must skip
+        // invalid rows and preserve their positions. The owned-output path already initializes
+        // those skipped positions and supports indexed writes to the valid ones.
         // TODO(connor): Benchmark packing valid-row outputs directly into a bitmap instead of
         // collecting a byte per row and packing afterward. Keep invalid rows out of `apply`.
         self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)
@@ -522,6 +531,9 @@ impl<F: RowFn> RowVisitor for ExecuteFilteredRows<'_, '_, F> {
         Args: IndexedElementTuple,
         Fail: FailureEvidence,
     {
+        // Dense packing over the filtered inputs would produce a compact bitmap, but this output
+        // must retain the original row positions. Reuse the filtered owned-output traversal until
+        // a packed collector can write directly at those positions.
         // TODO(connor): Benchmark writing filtered Boolean outputs directly into a bitmap at their
         // original row indices, avoiding the byte-per-row allocation and subsequent packing pass.
         self.visit_prepared_deferred::<Args, bool, Prepared, Fail>(prepare, apply, finish_failure)

@@ -51,6 +51,32 @@ impl<T: InputElement> ArgColumn<T> {
         Ok(Self(ArgColumnKind::Column(T::decode(array, ctx)?)))
     }
 
+    /// Decode `array` using its previously computed [`is_batch_const`] classification.
+    ///
+    /// `is_const` **must** describe this array. Reusing the classification avoids another constant
+    /// check and array-reference clone for a non-constant column.
+    #[inline]
+    pub(super) fn decode_classified(
+        array: &ArrayRef,
+        is_const: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        if is_const {
+            // Wrapped constants need `decode` to preserve extension metadata or remove a mask.
+            // Empty inputs use its column path because there is no row value to broadcast.
+            if array.is::<Constant>() && !array.is_empty() {
+                return Ok(Self(ArgColumnKind::Const(T::decode_constant(
+                    array.clone(),
+                    ctx,
+                )?)));
+            }
+
+            return Self::decode(array.clone(), ctx);
+        }
+
+        Ok(Self(ArgColumnKind::Column(T::decode_ref(array, ctx)?)))
+    }
+
     fn decode_null_tolerant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         // Batch execution short-circuits null constants before selecting a strategy.
         if let Some(const_array) = batch_const(&array)
@@ -116,7 +142,8 @@ pub fn batch_const(array: &ArrayRef) -> Option<ArrayRef> {
         return Some(array.clone());
     }
 
-    // TODO(joe): We want to change this to a V2 Masked.
+    // TODO(connor): Revisit this child lookup when the Masked encoding is replaced. Constant
+    // classification must continue to agree with `is_batch_const`.
     if let Some(masked) = array.as_opt::<Masked>() {
         return masked
             .child()
@@ -124,7 +151,8 @@ pub fn batch_const(array: &ArrayRef) -> Option<ArrayRef> {
             .then(|| masked.child().clone());
     }
 
-    // TODO(connor): This is maybe incorrect unless this is a refinement type?
+    // TODO(connor): Verify that constant extension storage is sufficient to classify the logical
+    // value as batch-constant. Check the extension's input decoder before changing this path.
     if let Some(extension) = array.as_opt::<Extension>()
         && extension.storage_array().is::<Constant>()
     {
