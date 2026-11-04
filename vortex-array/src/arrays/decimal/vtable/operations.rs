@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Decimal;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -14,11 +15,15 @@ use crate::scalar::Scalar;
 impl OperationsVTable<Decimal> for Decimal {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Decimal>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Decimal>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
         // Stored values can fall outside the precision, see `DecimalData::new_unchecked`.
         match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::try_decimal(
@@ -27,6 +32,14 @@ impl OperationsVTable<Decimal> for Decimal {
                 array.dtype().nullability(),
             )
         })
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Decimal>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
