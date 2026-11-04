@@ -65,13 +65,13 @@ flowchart TD
         U3["U3 + U6 + U7 storage checks and read errors<br/>#11014"]:::merged
         U2["U2 matching dtypes for compares<br/>#11016"]:::merged
         DF["DF DataFusion extension literals<br/>#11067"]:::merged
-        AX["AX Arrow export with metadata, from phase 7<br/>X24"]
+        AX["AX Arrow export with metadata, from phase 7<br/>#11224"]:::open
         U1["U1 no storage casts"]
         TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
         V10["V10 Date display fallback<br/>#11187"]:::merged
         SN1["SN1 spatial validators reject nullable nested levels<br/>#11183"]:::merged
-        DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::open
-        SN2["SN2 Arrow importers of known types convert or fail<br/>X29"]
+        DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::merged
+        SN2["SN2 Arrow importers of known types convert or fail<br/>#11223"]:::open
     end
     PC --> U2
     U2 -->|"item 1, lands together"| DF
@@ -137,7 +137,7 @@ flowchart TD
     subgraph PH7["Phase 7"]
         BD1["BD1 converters for DuckDB, Python and JNI"]
         BD3["BD3 typed array view and developer guide"]
-        DS["DS DataFusion physical schema for extension dtypes"]
+        DS["DS DataFusion physical schema for extension dtypes<br/>#11225"]:::open
     end
 
     subgraph CLAIMS["Claims, #11115"]
@@ -437,8 +437,8 @@ implementations that they change into `vortex-aggregates`.
   a storage-like target type. This part can start at any time.
 - DS: the DataFusion physical schema rejects extension dtypes inside List, FixedSizeList, Map,
   ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
-  `Vector` columns. DS fixes it, once a regression test confirms the failure. DS is implemented on
-  a branch, but it has no PR yet.
+  `Vector` columns. DS fixes it, once a regression test confirms the failure. A regression test
+  confirmed it, and DS is the open draft #11225.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
   stop.

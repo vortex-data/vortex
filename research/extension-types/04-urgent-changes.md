@@ -181,8 +181,7 @@ On 2026-11-04, the PRs for part 4 stand as follows:
   updates. It also makes the export of a non-temporal extension scalar as a bare DataFusion
   `ScalarValue` an error. So item 1 of "Order constraints" in part 5 holds.
 - U9 is the open draft #11188.
-- U1 and the Arrow export that lands before it have no PR yet. The export is implemented on a
-  branch.
+- U1 has no PR yet. The Arrow export that lands before it (AX) is the open draft #11224.
 
 Three more PRs touch this work:
 
@@ -257,7 +256,7 @@ Three more PRs touch this work:
 - Two PRs fix EXT-N2 (X26, X29). SN1 makes the spatial validators require non-null nested levels.
   SN2 makes the Arrow importers of known types convert or fail. It builds on DP, which peels
   dictionary fields before the importers run. SN1 (#11183) merged on 2026-11-04 as `956c1ea188`.
-  DP (#11185) is in review. SN2 is implemented on a branch that stacks on DP, but it has no PR yet.
+  DP (#11185) merged on 2026-11-04 as `8b01ab55bf`, and SN2 is the open draft #11223.
 
 Three PRs added or proposed mechanisms for extension semantics:
 
