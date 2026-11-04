@@ -106,6 +106,9 @@ void vx_cuda_release_file_mappings(void);
  * one per available core but one (at least one), so I/O and decode run alongside the consuming
  * thread.
  *
+ * Hosts managing their own thread budget should call `vx_runtime_set_worker_threads`
+ * before creating a CUDA session; passing zero keeps execution host-thread-driven.
+ *
  * # Safety
  *
  * If `error_out` is non-null, it must be valid for writing one error pointer.
