@@ -6,17 +6,19 @@
 //! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
 //! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
 //! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
-//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
-//! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
-//! that survive; a projection planner emits one morsel per piece of its rows. A planner only
-//! says what it needs, compute or reads; where either runs is the engine's driver's decision.
+//! cuts those rows into chunks. A [`ScanStrategy`] composes filter, prefetch, and projection
+//! planners per chunk. Filtering passes surviving rows to its continuation; prefetch publishes
+//! optional reads before its continuation; projection emits morsels. A planner only says what
+//! it needs, compute or reads; where either runs is the engine's driver's decision.
 
 mod adaptor;
 mod chunk;
 mod filter;
+mod prefetch;
 mod projection;
 mod prune;
 mod selection;
+mod strategy;
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -39,11 +41,16 @@ pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
 #[cfg(test)]
 pub(crate) use self::chunk::scan_chunks;
-use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
-use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
+pub use self::strategy::AdaptiveScanStrategy;
+pub use self::strategy::ChunkPlanningContext;
+pub use self::strategy::ChunkReadEstimate;
+pub use self::strategy::EagerScanStrategy;
+pub use self::strategy::FilterFirstStrategy;
+pub use self::strategy::ScanStrategy;
+use self::strategy::StrategyPlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
@@ -73,8 +80,8 @@ impl SegmentLocation {
     }
 }
 
-/// A scan's plans over one file, built once from the file's footer and read by every planner of
-/// the scan. Nothing here touches a segment, and no planner plans again.
+/// A scan's physical plans over one file, built from its footer and shared by every chunk.
+/// Each chunk's strategy composes execution planners over these plans without reading data.
 pub struct PreparedScan {
     /// The session used for decoding and expression evaluation.
     pub(super) session: VortexSession,
@@ -95,6 +102,8 @@ pub struct PreparedScan {
     pub(super) projection: PlanRef,
     /// The filter's conjuncts, their plans and their pruning plans.
     pub(super) filter: Option<Arc<FilterPlans>>,
+    /// Composes the filter, prefetch, and projection planners of each chunk.
+    pub(super) strategy: Arc<dyn ScanStrategy>,
     /// The global row index of the root row domain's first row.
     pub(super) row_offset: u64,
     /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
@@ -129,18 +138,14 @@ impl PreparedScan {
         ))
     }
 
-    /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
-    /// its projection.
+    /// Selects a chunk's planner composition on the driver's compute path.
     pub(super) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
-        if self.filter.is_some() {
-            Box::new(FilterPlanner::new(Arc::clone(self), selected))
-        } else {
-            Box::new(ProjectionPlanner::new(Arc::clone(self), selected))
-        }
+        Box::new(StrategyPlanner::new(Arc::clone(self), selected))
     }
 }
 
 /// The rows a planner works on: a chunk, and which of its rows are selected.
+#[derive(Clone)]
 pub(super) struct SelectedRows {
     /// The chunk the rows belong to.
     scope: WorkScope,

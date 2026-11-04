@@ -46,14 +46,20 @@ use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
+pub use crate::scan::execution::AdaptiveScanStrategy;
 pub use crate::scan::execution::ChunkPlanner;
+pub use crate::scan::execution::ChunkPlanningContext;
+pub use crate::scan::execution::ChunkReadEstimate;
+pub use crate::scan::execution::EagerScanStrategy;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
+pub use crate::scan::execution::FilterFirstStrategy;
 pub use crate::scan::execution::FilterPlans;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
+pub use crate::scan::execution::ScanStrategy;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
@@ -97,6 +103,7 @@ pub struct ScanBuilder {
     file: ScanFile,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    strategy: Arc<dyn ScanStrategy>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
@@ -108,6 +115,7 @@ impl ScanBuilder {
         Self {
             projection: BoundExpression::new_root(file.layout.dtype().clone()),
             filter: None,
+            strategy: Arc::new(EagerScanStrategy),
             session,
             file,
             row_range: None,
@@ -135,6 +143,15 @@ impl ScanBuilder {
     /// Evaluates a bound predicate before projecting the surviving rows.
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
+        self
+    }
+
+    /// Sets how filter, prefetch, and projection planners are composed for each chunk.
+    ///
+    /// Defaults to [`EagerScanStrategy`]. Strategies run on the driver's compute path and can
+    /// use [`ChunkPlanningContext`] to estimate reads and return different planner compositions.
+    pub fn with_strategy(mut self, strategy: Arc<dyn ScanStrategy>) -> Self {
+        self.strategy = strategy;
         self
     }
 
@@ -225,6 +242,7 @@ impl ScanBuilder {
             locations: file.locations,
             projection,
             filter,
+            strategy: self.strategy,
             row_offset: self.row_offset,
             values,
             chunk_rows,

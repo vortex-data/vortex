@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
-use rustc_hash::FxHashSet;
+use parking_lot::Mutex;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
@@ -14,10 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_expr::transform::find_between;
-use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
@@ -27,12 +23,10 @@ use vortex_scan::planning::planner::State;
 use vortex_session::VortexSession;
 
 use super::PreparedScan;
-use super::SegmentLocation;
 use super::SelectedRows;
 use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
-use super::projection::ProjectionPlanner;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
@@ -42,7 +36,6 @@ use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
-use crate::segments::SegmentId;
 
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
@@ -50,6 +43,7 @@ pub struct FilterPlans {
     predicates: Vec<PlanRef>,
     /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+    selectivity: Mutex<FilterSelectivity>,
 }
 
 impl FilterPlans {
@@ -92,13 +86,37 @@ impl FilterPlans {
             expression,
             predicates,
             pruning,
+            selectivity: Mutex::default(),
         })
+    }
+
+    pub(super) fn predicates(&self) -> impl Iterator<Item = &PlanRef> {
+        self.predicates.iter()
+    }
+
+    pub(super) fn selectivity(&self) -> Option<f64> {
+        let observed = self.selectivity.lock();
+        (observed.input_rows > 0).then(|| observed.output_rows as f64 / observed.input_rows as f64)
+    }
+
+    fn record_selectivity(&self, input_rows: usize, output_rows: usize) {
+        let mut observed = self.selectivity.lock();
+        observed.input_rows = observed.input_rows.saturating_add(input_rows as u64);
+        observed.output_rows = observed.output_rows.saturating_add(output_rows as u64);
     }
 
     /// The pruning plans, run once over a scan's rows before its chunks are planned.
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
+}
+
+/// Whole-filter observations avoid assuming independence between conjuncts. Shared by chunks
+/// using the same cached filter plans; these statistics only affect scheduling.
+#[derive(Default)]
+struct FilterSelectivity {
+    input_rows: u64,
+    output_rows: u64,
 }
 
 /// A pruning plan must not fetch data when its requested statistics are unavailable.
@@ -120,11 +138,9 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     Ok(true)
 }
 
-/// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.
-///
-/// The first compute starts the reads of every conjunct's segments for the selected rows and
-/// announces the projection's, so the conjuncts run back to back and the projection's reads
-/// coalesce with them. Conjuncts run in the order the shared [`FilterExpr`] picks.
+/// Fetches and evaluates a chunk's conjuncts, then passes surviving rows to its continuation.
+/// Conjuncts run in the order the shared [`FilterExpr`] picks. Optional reads are composed by
+/// the scan strategy in separate planners.
 pub(super) struct FilterPlanner {
     scan: Arc<PreparedScan>,
     selected: Option<SelectedRows>,
@@ -132,63 +148,25 @@ pub(super) struct FilterPlanner {
     remaining: BitVec,
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
-    announced: bool,
-    /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
-    next_hint: u32,
+    input_rows: usize,
+    next: Option<FilterNext>,
 }
 
-/// The segments `plans` read over `rows` under `mask`, each once, in id order. Compiling finds
-/// them without IO.
-pub(super) fn segments_read<'a>(
-    session: &VortexSession,
-    plans: impl Iterator<Item = &'a PlanRef>,
-    rows: Range<u64>,
-    mask: &Mask,
-) -> VortexResult<Vec<SegmentId>> {
-    let mut segments = Vec::new();
-    for plan in plans {
-        segments.extend(Scan::segments(session, plan, rows.clone(), mask)?);
-    }
-    segments.sort_unstable();
-    segments.dedup();
-    Ok(segments)
-}
+pub(super) type FilterNext = Box<dyn FnOnce(SelectedRows) -> VortexResult<Box<dyn Planner>> + Send>;
 
 impl FilterPlanner {
-    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
+    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows, next: FilterNext) -> Self {
         let filter = Arc::clone(scan.filter.as_ref().vortex_expect("filter plans exist"));
         Self {
             remaining: BitVec::from_elem(filter.predicates.len(), true),
             scan,
+            input_rows: selected.mask.true_count(),
             selected: Some(selected),
             filter,
             active: None,
             pieces: Vec::new(),
-            announced: false,
-            next_hint: u32::MAX,
+            next: Some(next),
         }
-    }
-}
-
-/// Publishes a hint for each of `segments` not in `seen`, and adds it there.
-pub(super) fn hint(
-    locations: &[SegmentLocation],
-    next_hint: &mut u32,
-    intent: IoIntent,
-    segments: &[SegmentId],
-    seen: &mut FxHashSet<SegmentId>,
-    batch: &mut IoBatch,
-) {
-    for &segment in segments {
-        if !seen.insert(segment) {
-            continue;
-        }
-        batch.push(IoRequest {
-            intent,
-            request: IoRequestId(*next_hint),
-            target: locations[*segment as usize].target(),
-        });
-        *next_hint -= 1;
     }
 }
 
@@ -221,45 +199,6 @@ impl Planner for FilterPlanner {
         let Some(selected) = &mut self.selected else {
             return Ok(PlannerOutput::Done);
         };
-        if !self.announced {
-            self.announced = true;
-            let session = &self.scan.session;
-            let rows = selected.scope.rows.clone();
-            let predicates = segments_read(
-                session,
-                self.filter.predicates.iter(),
-                rows.clone(),
-                &selected.mask,
-            )?;
-            let projection = segments_read(
-                session,
-                std::iter::once(&self.scan.projection),
-                rows,
-                &selected.mask,
-            )?;
-            let mut batch = Vec::new();
-            let mut seen = FxHashSet::default();
-            let locations = &self.scan.locations;
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Prefetch,
-                &predicates,
-                &mut seen,
-                &mut batch,
-            );
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Announce,
-                &projection,
-                &mut seen,
-                &mut batch,
-            );
-            if !batch.is_empty() {
-                return Ok(PlannerOutput::NeedsIO(batch));
-            }
-        }
         if let Some((index, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
@@ -290,6 +229,7 @@ impl Planner for FilterPlanner {
             self.pieces.clear();
         }
         if selected.mask.all_false() {
+            self.filter.record_selectivity(self.input_rows, 0);
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
@@ -312,9 +252,10 @@ impl Planner for FilterPlanner {
             return Ok(PlannerOutput::Continue);
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");
-        Ok(PlannerOutput::Planner(
-            selected.scope.clone(),
-            Box::new(ProjectionPlanner::new(Arc::clone(&self.scan), selected)),
-        ))
+        self.filter
+            .record_selectivity(self.input_rows, selected.mask.true_count());
+        let scope = selected.scope.clone();
+        let next = self.next.take().vortex_expect("filter continuation exists");
+        Ok(PlannerOutput::Planner(scope, next(selected)?))
     }
 }
