@@ -119,6 +119,15 @@
 .x-error {
   color: var(--error-ink);
 }
+.x-file-error {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: center;
+  text-align: center;
+}
+.x-file-error p {
+  margin: 0;
+}
 
 /* The status line runs the width of the window, at the page's edge. */
 .x-status {

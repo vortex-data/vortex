@@ -58,13 +58,29 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       setFetchingUrl(true);
       setUrlError(null);
       try {
-        const resp = await fetch(trimmed);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        let resp: Response;
+        try {
+          resp = await fetch(trimmed);
+        } catch (err) {
+          // A network fault and a CORS refusal look the same from here.
+          console.error('Explorer: the fetch failed', err);
+          setUrlError(
+            'The server did not let this page read the file. Download the file, then open it here.',
+          );
+          return;
+        }
+        if (!resp.ok) {
+          setUrlError(
+            `The file at this address did not load (HTTP ${resp.status}). Check the address.`,
+          );
+          return;
+        }
         const blob = await resp.blob();
         const name = new URL(trimmed).pathname.split('/').pop() || 'remote.vortex';
         onFileLoaded(new File([blob], name, { type: blob.type }));
       } catch (err) {
-        setUrlError(err instanceof Error ? err.message : String(err));
+        console.error('Explorer: the URL did not open', err);
+        setUrlError('This address is not valid. Check it and try again.');
       } finally {
         setFetchingUrl(false);
       }
@@ -121,9 +137,14 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
             />
             <p className="vx-label-sm">.vortex or .vtx</p>
             {error && (
-              <p className="vx-label x-error" role="alert">
-                {error}
-              </p>
+              <div className="x-file-error" role="alert">
+                <p className="vx-small x-error">
+                  The file did not open. Open a .vortex or .vtx file.
+                </p>
+                <p className="vx-label-sm">
+                  Reason: <span className="vx-ref">{error}</span>
+                </p>
+              </div>
             )}
           </div>
 
@@ -152,7 +173,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
               </button>
             </div>
             {urlError && (
-              <p className="vx-label x-error" id={errorId} role="alert">
+              <p className="vx-small vx-field-error" id={errorId} role="alert">
                 {urlError}
               </p>
             )}

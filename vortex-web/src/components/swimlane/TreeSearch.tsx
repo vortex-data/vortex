@@ -23,7 +23,7 @@ export function TreeSearch({ onSearch }: TreeSearchProps) {
   return (
     <>
       <label className="vx-sr-only" htmlFor={id}>
-        Filter the tree
+        Filter columns
       </label>
       <input
         id={id}
@@ -31,7 +31,7 @@ export function TreeSearch({ onSearch }: TreeSearchProps) {
         type="search"
         value={value}
         onChange={handleChange}
-        placeholder="Filter columns"
+        placeholder="Column name"
         autoComplete="off"
         spellCheck={false}
       />

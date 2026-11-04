@@ -2,9 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // Sets the saved theme before the first paint, so a light theme never flashes dark. A file, not an
-// inline script, because the Content-Security-Policy allows scripts from this origin only.
+// inline script, because the Content-Security-Policy allows scripts from this origin only. The key
+// is the system ThemeSwitch's, 'vx-theme'; a choice saved under the Explorer's old key moves to it.
 try {
-  const choice = localStorage.getItem('vortex-theme');
+  const old = localStorage.getItem('vortex-theme');
+  if (old !== null) {
+    if (localStorage.getItem('vx-theme') === null) localStorage.setItem('vx-theme', old);
+    localStorage.removeItem('vortex-theme');
+  }
+  const choice = localStorage.getItem('vx-theme');
   if (choice === 'light' || choice === 'dark' || choice === 'system') {
     document.documentElement.dataset.theme = choice;
   }

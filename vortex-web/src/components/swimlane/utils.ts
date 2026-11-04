@@ -423,11 +423,12 @@ export function shortEncoding(encoding: string): string {
 /**
  * Format bytes to human readable string
  */
+/** Bytes in decimal units (1 KB is 1,000 bytes), as Writing sets them and bench prints them. */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes < 1e3) return `${bytes} B`;
+  if (bytes < 1e6) return `${(bytes / 1e3).toFixed(1)} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
 /**
@@ -441,10 +442,12 @@ export function formatRowRange(range: [number, number]): string {
 /**
  * Format row count to compact string (e.g., "27.1k")
  */
+/** A short count for a meta line ("100k", "1.5M"). Tables and facts print the full count. */
 export function formatRowCount(n: number): string {
+  const short = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1).replace(/\.0$/, ''));
   if (n < 1000) return String(n);
-  if (n < 1000000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1000000).toFixed(1)}M`;
+  if (n < 1e6) return `${short(n / 1e3)}k`;
+  return `${short(n / 1e6)}M`;
 }
 
 /**

@@ -76,7 +76,7 @@ export function DataPreview() {
     try {
       return decodeArrow(ipcBytes);
     } catch (err) {
-      console.error('Arrow decode error:', err);
+      console.error('Explorer: the Arrow rows did not decode', err);
       return null;
     }
   }, [ipcBytes]);
@@ -86,7 +86,7 @@ export function DataPreview() {
     : loading
       ? 'Reading the rows…'
       : error
-        ? `Could not read the rows: ${error}`
+        ? 'The rows did not load. Select the node again.'
         : !decoded || decoded.rows.length === 0
           ? 'This node has no rows.'
           : null;

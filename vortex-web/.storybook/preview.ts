@@ -33,7 +33,7 @@ const preview: Preview = {
       // when the toolbar theme changes so the switch takes effect.
       const theme = (context.globals.theme as string) || 'dark';
       try {
-        localStorage.setItem('vortex-theme', theme);
+        localStorage.setItem('vx-theme', theme);
       } catch {
         // Storage can be blocked; the provider then starts from its default.
       }

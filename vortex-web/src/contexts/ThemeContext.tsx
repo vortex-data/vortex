@@ -11,7 +11,8 @@ export interface ThemeContextValue {
   setTheme: (theme: ThemeChoice) => void;
 }
 
-const STORAGE_KEY = 'vortex-theme';
+// The system's ThemeSwitch key. The Explorer stored 'vortex-theme' before; theme.js moves it.
+const STORAGE_KEY = 'vx-theme';
 
 /**
  * The design system's tokens read the choice from `data-theme` on the root: `dark`, `light`, or
