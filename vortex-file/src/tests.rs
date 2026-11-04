@@ -2610,6 +2610,25 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     assert_eq!(default.metadata_segments().count(), 0);
     assert!(default.metadata_segment("json").is_none());
 
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .expect("valid segment ranges");
+    assert_eq!(
+        segments_end,
+        summary.footer().metadata_segment("large").unwrap().offset + large.len() as u64
+    );
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&bytes[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size());
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    assert_eq!(footer.segments_end(), Some(segments_end));
+    assert_eq!(footer.metadata_segments().count(), 4);
+
     let file = SESSION
         .open_options()
         .include_metadata()
@@ -3125,9 +3144,14 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::embedded_dtype(false)]
+#[case::external_dtype(true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+async fn test_segment_ordering_zonemaps_after_data(
+    #[case] exclude_dtype: bool,
+) -> VortexResult<()> {
     // Create a multi-column struct with enough rows to produce zone maps.
     let n = 100_000;
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
@@ -3140,10 +3164,14 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("numbers", numbers),
         ("floats", floats),
     ])?;
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let summary = SESSION
-        .write_options()
+    let mut options = SESSION.write_options();
+    if exclude_dtype {
+        options = options.exclude_dtype();
+    }
+    let summary = options
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
@@ -3214,6 +3242,33 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         &all_zones_offsets,
         "global: all data segments should come before all zone map segments",
     );
+
+    let segments_end = footer.segments_end().expect("valid segment ranges");
+    assert!(
+        all_zones_offsets
+            .iter()
+            .all(|offset| *offset < segments_end)
+    );
+    assert_eq!(buf.len() as u64, summary.size());
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&buf[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size())
+    .with_some_dtype(exclude_dtype.then_some(dtype));
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    let mut recovered_data_offsets = Vec::new();
+    let mut recovered_zones_offsets = Vec::new();
+    collect_all_zoned(
+        footer.layout().as_ref(),
+        footer.segment_map(),
+        &mut recovered_data_offsets,
+        &mut recovered_zones_offsets,
+    );
+    assert_eq!(recovered_data_offsets, all_data_offsets);
+    assert_eq!(recovered_zones_offsets, all_zones_offsets);
 
     Ok(())
 }
