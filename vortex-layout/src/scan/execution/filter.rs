@@ -48,7 +48,7 @@ use crate::segments::SegmentId;
 pub struct FilterPlans {
     expression: FilterExpr,
     predicates: Vec<PlanRef>,
-    /// A metadata-only pruning plan per conjunct, where the conjunct has one.
+    /// A metadata-only pruning plan per original conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
 }
 
@@ -70,9 +70,10 @@ impl FilterPlans {
                 Ok(FilterPlan::new(plan).into_plan())
             })
             .collect::<VortexResult<_>>()?;
-        let pruning = expression
-            .conjuncts()
-            .iter()
+        // Pruning runs per original conjunct rather than per unit: a unit is false wherever any
+        // member is, and a member's metadata-only plan must not be lost to a sibling's.
+        let pruning = (0..expression.conjuncts().len())
+            .flat_map(|idx| expression.members(idx))
             .map(|expr| {
                 expr.falsify(session)?
                     .map(|pruning| {
