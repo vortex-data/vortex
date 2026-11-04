@@ -85,6 +85,12 @@ impl FilterExpr {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
+    /// Whether any conjunct contains a dynamic expression, which can change during the scan.
+    #[inline]
+    pub fn is_dynamic(&self) -> bool {
+        self.dynamic_conjuncts.iter().any(Option::is_some)
+    }
+
     /// Returns the next preferred conjunct to evaluate.
     #[inline]
     pub fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {

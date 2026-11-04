@@ -4,6 +4,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use parking_lot::Mutex;
@@ -53,6 +55,8 @@ pub static SCAN_SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
 /// the `fail_*` flags inject filter/projection errors. Every projection records its mask's
 /// true-count into `projection_masks`, letting tests assert that a limit is applied before
 /// projection, and every filter evaluation records its expression into `filter_exprs`.
+/// `projections_built` counts projection evaluations when they are constructed, before any
+/// is polled.
 #[derive(Debug)]
 pub struct TestLayoutReader {
     name: Arc<str>,
@@ -65,6 +69,7 @@ pub struct TestLayoutReader {
     fail_first_projection: bool,
     fail_projection: bool,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
+    projections_built: Option<Arc<AtomicUsize>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
 }
 
@@ -81,6 +86,7 @@ impl TestLayoutReader {
             fail_first_projection: false,
             fail_projection: false,
             projection_masks: None,
+            projections_built: None,
             filter_exprs: None,
         }
     }
@@ -108,6 +114,11 @@ impl TestLayoutReader {
 
     pub fn with_projection_masks(mut self, projection_masks: Arc<Mutex<Vec<usize>>>) -> Self {
         self.projection_masks = Some(projection_masks);
+        self
+    }
+
+    pub fn with_projections_built(mut self, projections_built: Arc<AtomicUsize>) -> Self {
+        self.projections_built = Some(projections_built);
         self
     }
 
@@ -211,6 +222,9 @@ impl LayoutReader for TestLayoutReader {
     ) -> VortexResult<ArrayFuture> {
         let row_range = row_range.clone();
         let base = self.base;
+        if let Some(projections_built) = &self.projections_built {
+            projections_built.fetch_add(1, Ordering::Relaxed);
+        }
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
 

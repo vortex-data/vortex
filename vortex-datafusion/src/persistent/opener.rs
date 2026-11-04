@@ -74,6 +74,7 @@ use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
+use crate::convert::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -97,6 +98,8 @@ pub(crate) struct VortexOpener {
     /// Exact filter accepted during planning. Per-file adaptation may move parts
     /// of it to DataFusion residual evaluation before projection and limits.
     pub filter: Option<PhysicalExprRef>,
+    /// Dynamic filters whose producers enforce them, used by the scan only to skip rows.
+    pub dynamic_filters: Vec<PhysicalExprRef>,
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
     pub file_pruning_predicate: Option<PhysicalExprRef>,
@@ -159,6 +162,12 @@ impl FileOpener for VortexOpener {
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
+        // A limited scan counts rows the dynamic filters would skip, so it ignores them.
+        let mut dynamic_filters = if self.limit.is_none() {
+            self.dynamic_filters.clone()
+        } else {
+            Vec::new()
+        };
 
         let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
@@ -209,6 +218,10 @@ impl FileOpener for VortexOpener {
             file_pruning_predicate = file_pruning_predicate
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
+            dynamic_filters = dynamic_filters
+                .into_iter()
+                .map(|p| replace_columns_with_literals(p, &literal_value_cols))
+                .collect::<DFResult<_>>()?;
         }
 
         Ok(async move {
@@ -312,6 +325,13 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Failed to adapt filter in {}: {e}", file.path())
                 })?;
+            let dynamic_filters = dynamic_filters
+                .into_iter()
+                .map(|filter| simplifier.simplify(expr_adapter.rewrite(filter)?))
+                .collect::<DFResult<Vec<_>>>()
+                .map_err(|e| {
+                    exec_datafusion_err!("Failed to adapt dynamic filter in {}: {e}", file.path())
+                })?;
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
@@ -344,6 +364,13 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            native_filters.extend(dynamic_filters.into_iter().map(|filter| {
+                convert_dynamic_filter(
+                    filter,
+                    Arc::clone(&this_file_schema),
+                    Arc::clone(&expr_converter),
+                )
+            }));
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
@@ -1138,6 +1165,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter,
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
@@ -1157,6 +1185,51 @@ mod tests {
             scan_concurrency: None,
             scan_v2: false,
         }
+    }
+
+    #[rstest]
+    #[case::unlimited(None, vec![30, 40])]
+    #[case::limited(Some(4), vec![10, 20, 30, 40])]
+    #[tokio::test]
+    async fn dynamic_filters_skip_rows_unless_limited(
+        #[values(false, true)] scan_v2: bool,
+        #[case] limit: Option<u64>,
+        #[case] expected: Vec<i32>,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(10), Some(20), Some(30), Some(40)]))?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let column = Arc::new(df_expr::Column::new("a", 0)) as PhysicalExprRef;
+        let dynamic = Arc::new(df_expr::DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let mut opener = make_opener(
+            Arc::clone(&object_store),
+            TableSchema::from(batch.schema()),
+            None,
+        );
+        opener.dynamic_filters = vec![Arc::clone(&dynamic) as PhysicalExprRef];
+        opener.limit = limit;
+        opener.scan_v2 = scan_v2;
+
+        // The producer tightens its filter after the scan is planned, as a top-N does.
+        let stream = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?;
+        dynamic.update(Arc::new(df_expr::BinaryExpr::new(
+            column,
+            Operator::Gt,
+            df_expr::lit(25_i32),
+        )))?;
+        let data = concat_batches(&batch.schema(), &stream.try_collect::<Vec<_>>().await?)?;
+
+        let expected = expected.into_iter().map(Some).collect::<Vec<_>>();
+        assert_eq!(data, record_batch!(("a", Int32, expected))?);
+        Ok(())
     }
 
     #[rstest]
@@ -1548,6 +1621,7 @@ mod tests {
             ))),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
             filter: Some(filter),
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
@@ -1640,6 +1714,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
             filter: None,
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(Arc::clone(&table_schema)),
@@ -1823,6 +1898,7 @@ mod tests {
                 table_schema.file_schema(),
             ),
             filter: None,
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
@@ -1888,6 +1964,7 @@ mod tests {
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection,
             filter: None,
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from(schema),
@@ -2104,6 +2181,7 @@ mod tests {
             ))),
             projection,
             filter: None,
+            dynamic_filters: Vec::new(),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,

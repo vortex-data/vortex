@@ -288,6 +288,28 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 });
                 buffer(mapped, ordered, concurrency)
             }
+            // A dynamic filter tightens as earlier splits reach the consumer, so later splits
+            // are built only when they start, and only `self.concurrency` run ahead, to prune
+            // against its latest predicate.
+            None if ctx.filter.as_ref().is_some_and(|filter| filter.is_dynamic()) => {
+                let selection = self.selection.clone();
+                let map_fn = Arc::clone(map_fn);
+                let tasks = stream::iter(self.split_ranges(row_range)).map(move |row_range| {
+                    let ctx = Arc::clone(&ctx);
+                    let selection = selection.clone();
+                    let map_fn = Arc::clone(&map_fn);
+                    handle.spawn(async move {
+                        let row_mask = selection.row_mask(&row_range);
+                        if row_mask.mask().all_false() {
+                            return Ok(None);
+                        }
+                        map_split(split_exec(&ctx, row_mask)?, &map_fn).await
+                    })
+                });
+                buffer(tasks, ordered, self.concurrency)
+                    .filter_map(|array| future::ready(array.transpose()))
+                    .boxed()
+            }
             limit => {
                 // Build eagerly to register I/O up front. Without a filter, selected row counts
                 // are exact, so a limit can also be reserved here in split order.

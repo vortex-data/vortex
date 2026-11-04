@@ -227,6 +227,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
+    ///
+    /// A scan stream whose filter contains a dynamic expression runs only this many splits in
+    /// total, so that later splits prune against the expression's latest predicate.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
@@ -465,6 +468,7 @@ pub fn referenced_field_masks(
 
 #[cfg(test)]
 mod test {
+    use std::fmt;
     use std::ops::Range;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -495,6 +499,7 @@ mod test {
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::and;
     use vortex_array::expr::between;
+    use vortex_array::expr::dynamic_expression;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -505,6 +510,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
@@ -1106,6 +1112,54 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(values, [1, 3, 5]);
+        Ok(())
+    }
+
+    /// A predicate that keeps every row and never changes.
+    #[derive(Debug)]
+    struct KeepAllSource;
+
+    impl fmt::Display for KeepAllSource {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "keep_all")
+        }
+    }
+
+    impl DynamicExpressionSource for KeepAllSource {
+        fn generation(&self) -> u64 {
+            0
+        }
+
+        fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+            lit(true).bind(scope)
+        }
+    }
+
+    #[test]
+    fn dynamic_filter_builds_splits_as_they_start() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let projections_built = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(
+            TestLayoutReader::new(8)
+                .with_split_size(2)
+                .with_projections_built(Arc::clone(&projections_built)),
+        );
+        let filter = dynamic_expression(Arc::new(KeepAllSource), [root()]).bind(reader.dtype())?;
+        let mut arrays = ScanBuilder::new(session, reader)
+            .with_filter(filter)
+            .with_concurrency(1)
+            .into_array_iter(&runtime)?;
+
+        let first = arrays
+            .next()
+            .ok_or_else(|| vortex_err!("scan yielded no splits"))?;
+        // A scan without a dynamic filter builds all four splits before yielding the first.
+        assert!(projections_built.load(Ordering::Relaxed) < 4);
+        let values = collect_scan_values(std::iter::once(first).chain(arrays))?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, (0..8).collect::<Vec<_>>());
         Ok(())
     }
 
