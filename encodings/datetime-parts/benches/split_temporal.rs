@@ -82,6 +82,7 @@ fn split_extreme(bencher: Bencher, args: (usize, TimeUnit)) {
         unit,
         Some("UTC".into()),
     );
+    mark_optimized(array.temporal_values(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
