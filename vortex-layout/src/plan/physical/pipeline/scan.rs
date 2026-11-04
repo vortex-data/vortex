@@ -749,7 +749,7 @@ impl Scan {
         };
         if self.next == self.splits.len() {
             // Compiled operators own what they need. The last split no longer needs the
-            // lowering tree or the source layouts retained by its lazy children.
+            // lowering tree or the source layouts retained by its lazy slots.
             self.root = None;
         }
         if output.is_some() {

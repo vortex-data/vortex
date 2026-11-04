@@ -30,6 +30,7 @@ use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
@@ -51,8 +52,8 @@ use crate::layouts::struct_::StructLayout;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Filter;
+use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::PackPlan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
 use crate::plan::physical::Take;
@@ -521,6 +522,45 @@ fn pack_splits_misaligned_fields(#[case] order: &[u32]) -> VortexResult<()> {
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
+/// A nullable struct's validity is its first slot, so it is the pack's first inlet, ahead of
+/// fields chunked differently from it.
+#[test]
+fn nullable_pack_reads_validity_from_its_first_slot() -> VortexResult<()> {
+    let mut store = Store::default();
+    let validity = BoolArray::from_iter((0..ROWS).map(|v| v % 3 != 0)).into_array();
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let expected = StructArray::try_new(
+        ["a", "b"].into(),
+        [a.clone(), b.clone()],
+        ROWS as usize,
+        Validity::Array(validity.clone()),
+    )?
+    .into_array();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![
+            store.chunked(&validity, &[4, 16])?,
+            store.chunked(&a, &[7, 5, 8])?,
+            store.flat(&b)?,
+        ],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let rows = 2..18;
+    let mask = Mask::from_iter((0..16).map(|v| v % 4 != 1));
+
+    let run = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Lifo),
+    )?;
+    assert_view(&expected, &rows, &mask, run.arrays)
+}
+
 /// Pack emits as soon as every inlet has a batch, without waiting for an inlet to fill.
 #[test]
 fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
@@ -913,15 +953,20 @@ fn bound_selection_never_initializes_skipped_chunks() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter(0..20i32).into_array();
     let first = lower(&store.flat(&array.slice(0..5)?)?)?;
     let last = lower(&store.flat(&array.slice(15..20)?)?)?;
-    let children = PlanChildren::lazy(4, move |index| match index {
-        0 => Ok(first.clone()),
-        3 => Ok(last.clone()),
-        _ => Err(vortex_err!("unselected chunk {index} was initialized")),
-    });
+    let children = (0..4)
+        .map(|index| {
+            let (first, last) = (first.clone(), last.clone());
+            Some(LazyPlanRef::lazy(move || match index {
+                0 => Ok(first.clone()),
+                3 => Ok(last.clone()),
+                _ => Err(vortex_err!("unselected chunk {index} was initialized")),
+            }))
+        })
+        .collect();
     // SAFETY: All four logical chunks have five rows of the same primitive dtype. The two
     // unselected initializers deliberately fail to detect discovery as well as compilation.
     let plan = unsafe {
-        ConcatPlan::from_children_unchecked(
+        ConcatPlan::from_slots_unchecked(
             array.dtype().clone(),
             20,
             vec![0, 5, 10, 15].into(),

@@ -29,12 +29,11 @@ use crate::layouts::row_idx::RowIdx as RowIdxFn;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
@@ -61,7 +60,7 @@ impl RowIdxPlan {
             vtable: RowIdx,
             dtype: row_idx_dtype(),
             row_count,
-            children: PlanChildren::default(),
+            slots: PlanSlots::default(),
             data: RowIdxData,
         }
         .into_typed()
@@ -86,12 +85,12 @@ impl PlanVTable for RowIdx {
         Some(EmptyMetadata)
     }
 
-    fn with_children(
+    fn with_slots(
         _plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("RowIdx", children, 0)
+        slots.check_len("RowIdx", 0)
     }
 
     fn compile(
