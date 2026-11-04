@@ -1,0 +1,470 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Checks that every Vortex table produced by generate_data.sh holds exactly the
+# same rows as the Parquet table it was converted from. generate_data.sh runs
+# this file right after the conversion, and it also runs as part of the suite.
+
+include ../../setup.slt.no
+
+# aka_name
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/aka_name.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/aka_name.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/aka_name.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/aka_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/aka_name.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/aka_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/aka_name.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/aka_name.parquet'));
+----
+0
+
+# aka_title
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/aka_title.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/aka_title.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/aka_title.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/aka_title.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/aka_title.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/aka_title.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/aka_title.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/aka_title.parquet'));
+----
+0
+
+# cast_info
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/cast_info.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/cast_info.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/cast_info.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/cast_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/cast_info.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/cast_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/cast_info.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/cast_info.parquet'));
+----
+0
+
+# char_name
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/char_name.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/char_name.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/char_name.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/char_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/char_name.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/char_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/char_name.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/char_name.parquet'));
+----
+0
+
+# comp_cast_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/comp_cast_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/comp_cast_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/comp_cast_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/comp_cast_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/comp_cast_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/comp_cast_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/comp_cast_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/comp_cast_type.parquet'));
+----
+0
+
+# company_name
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/company_name.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/company_name.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/company_name.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/company_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/company_name.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/company_name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/company_name.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/company_name.parquet'));
+----
+0
+
+# company_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/company_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/company_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/company_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/company_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/company_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/company_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/company_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/company_type.parquet'));
+----
+0
+
+# complete_cast
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/complete_cast.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/complete_cast.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/complete_cast.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/complete_cast.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/complete_cast.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/complete_cast.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/complete_cast.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/complete_cast.parquet'));
+----
+0
+
+# info_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/info_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/info_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/info_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/info_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/info_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/info_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/info_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/info_type.parquet'));
+----
+0
+
+# keyword
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/keyword.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/keyword.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/keyword.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/keyword.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/keyword.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/keyword.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/keyword.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/keyword.parquet'));
+----
+0
+
+# kind_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/kind_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/kind_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/kind_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/kind_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/kind_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/kind_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/kind_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/kind_type.parquet'));
+----
+0
+
+# link_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/link_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/link_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/link_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/link_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/link_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/link_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/link_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/link_type.parquet'));
+----
+0
+
+# movie_companies
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/movie_companies.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/movie_companies.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/movie_companies.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/movie_companies.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/movie_companies.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/movie_companies.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/movie_companies.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/movie_companies.parquet'));
+----
+0
+
+# movie_info
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/movie_info.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/movie_info.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/movie_info.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/movie_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/movie_info.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/movie_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/movie_info.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/movie_info.parquet'));
+----
+0
+
+# movie_info_idx
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/movie_info_idx.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/movie_info_idx.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/movie_info_idx.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/movie_info_idx.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/movie_info_idx.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/movie_info_idx.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/movie_info_idx.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/movie_info_idx.parquet'));
+----
+0
+
+# movie_keyword
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/movie_keyword.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/movie_keyword.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/movie_keyword.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/movie_keyword.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/movie_keyword.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/movie_keyword.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/movie_keyword.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/movie_keyword.parquet'));
+----
+0
+
+# movie_link
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/movie_link.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/movie_link.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/movie_link.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/movie_link.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/movie_link.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/movie_link.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/movie_link.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/movie_link.parquet'));
+----
+0
+
+# name
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/name.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/name.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/name.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/name.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/name.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/name.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/name.parquet'));
+----
+0
+
+# person_info
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/person_info.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/person_info.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/person_info.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/person_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/person_info.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/person_info.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/person_info.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/person_info.parquet'));
+----
+0
+
+# role_type
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/role_type.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/role_type.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/role_type.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/role_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/role_type.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/role_type.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/role_type.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/role_type.parquet'));
+----
+0
+
+# title
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/job/data/title.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/job/data/title.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/job/data/title.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/job/data/title.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/job/data/title.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/job/data/title.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/job/data/title.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/job/data/title.parquet'));
+----
+0

@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(n.name) AS cast_member_name,
+       MIN(pi.info) AS cast_member_info
+FROM aka_name AS an,
+     cast_info AS ci,
+     info_type AS it,
+     link_type AS lt,
+     movie_link AS ml,
+     name AS n,
+     person_info AS pi,
+     title AS t
+WHERE an.name IS NOT NULL
+  AND (an.name LIKE '%a%'
+       OR an.name LIKE 'A%')
+  AND it.info ='mini biography'
+  AND lt.link IN ('references',
+                  'referenced in',
+                  'features',
+                  'featured in')
+  AND n.name_pcode_cf BETWEEN 'A' AND 'F'
+  AND (n.gender='m'
+       OR (n.gender = 'f'
+           AND n.name LIKE 'A%'))
+  AND pi.note IS NOT NULL
+  AND t.production_year BETWEEN 1980 AND 2010
+  AND n.id = an.person_id
+  AND n.id = pi.person_id
+  AND ci.person_id = n.id
+  AND t.id = ci.movie_id
+  AND ml.linked_movie_id = t.id
+  AND lt.id = ml.link_type_id
+  AND it.id = pi.info_type_id
+  AND pi.person_id = an.person_id
+  AND pi.person_id = ci.person_id
+  AND an.person_id = ci.person_id
+  AND ci.movie_id = ml.linked_movie_id;
+----
+logical_plan
+01)Projection: min(n.name) AS cast_member_name, min(pi.info) AS cast_member_info
+02)--Aggregate: groupBy=[[]], aggr=[[min(n.name), min(pi.info)]]
+03)----Projection: n.name, pi.info
+04)------Inner Join: ci.movie_id = t.id, ml.linked_movie_id = t.id
+05)--------Projection: ci.movie_id, ml.linked_movie_id, n.name, pi.info
+06)----------Inner Join: pi.info_type_id = it.id
+07)------------Projection: ci.movie_id, ml.linked_movie_id, n.name, pi.info_type_id, pi.info
+08)--------------Inner Join: n.id = pi.person_id, an.person_id = pi.person_id, ci.person_id = pi.person_id
+09)----------------Inner Join: an.person_id = n.id, ci.person_id = n.id
+10)------------------Projection: an.person_id, ci.person_id, ci.movie_id, ml.linked_movie_id
+11)--------------------Inner Join: ml.link_type_id = lt.id
+12)----------------------Inner Join: ci.movie_id = ml.linked_movie_id
+13)------------------------Inner Join: an.person_id = ci.person_id
+14)--------------------------SubqueryAlias: an
+15)----------------------------Projection: aka_name.person_id
+16)------------------------------Filter: aka_name.name IS NOT NULL AND (aka_name.name LIKE Utf8View("%a%") OR aka_name.name LIKE Utf8View("A%"))
+17)--------------------------------TableScan: aka_name projection=[person_id, name], partial_filters=[aka_name.name IS NOT NULL, aka_name.name LIKE Utf8View("%a%") OR aka_name.name LIKE Utf8View("A%")]
+18)--------------------------SubqueryAlias: ci
+19)----------------------------TableScan: cast_info projection=[person_id, movie_id]
+20)------------------------SubqueryAlias: ml
+21)--------------------------TableScan: movie_link projection=[linked_movie_id, link_type_id]
+22)----------------------SubqueryAlias: lt
+23)------------------------Projection: link_type.id
+24)--------------------------Filter: link_type.link IN ([Utf8View("references"), Utf8View("referenced in"), Utf8View("features"), Utf8View("featured in")])
+25)----------------------------TableScan: link_type projection=[id, link], partial_filters=[link_type.link IN ([Utf8View("references"), Utf8View("referenced in"), Utf8View("features"), Utf8View("featured in")])]
+26)------------------SubqueryAlias: n
+27)--------------------Projection: name.id, name.name
+28)----------------------Filter: name.name_pcode_cf >= Utf8View("A") AND name.name_pcode_cf <= Utf8View("F") AND (name.gender = Utf8View("m") OR name.gender = Utf8View("f") AND name.name LIKE Utf8View("A%"))
+29)------------------------TableScan: name projection=[id, name, gender, name_pcode_cf], partial_filters=[name.name_pcode_cf >= Utf8View("A"), name.name_pcode_cf <= Utf8View("F"), name.gender = Utf8View("m") OR name.gender = Utf8View("f") AND name.name LIKE Utf8View("A%")]
+30)----------------SubqueryAlias: pi
+31)------------------Projection: person_info.person_id, person_info.info_type_id, person_info.info
+32)--------------------Filter: person_info.note IS NOT NULL
+33)----------------------TableScan: person_info projection=[person_id, info_type_id, info, note], partial_filters=[person_info.note IS NOT NULL]
+34)------------SubqueryAlias: it
+35)--------------Projection: info_type.id
+36)----------------Filter: info_type.info = Utf8View("mini biography")
+37)------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("mini biography")]
+38)--------SubqueryAlias: t
+39)----------Projection: title.id
+40)------------Filter: title.production_year >= Float64(1980) AND title.production_year <= Float64(2010)
+41)--------------TableScan: title projection=[id, production_year], partial_filters=[title.production_year >= Float64(1980), title.production_year <= Float64(2010)]
+physical_plan
+01)ProjectionExec: expr=[min(n.name)@0 as cast_member_name, min(pi.info)@1 as cast_member_info]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(n.name), min(pi.info)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(n.name), min(pi.info)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0), (linked_movie_id@1, id@0)], projection=[name@2, info@3]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@3)], projection=[movie_id@1, linked_movie_id@2, name@3, info@5]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = mini biography
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@4, person_id@0), (person_id@0, person_id@0), (person_id@1, person_id@0)], projection=[movie_id@2, linked_movie_id@3, name@5, info_type_id@7, info@8]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, id@0), (person_id@1, id@0)]
+12)--------------------CoalescePartitionsExec
+13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, link_type_id@4)], projection=[person_id@1, person_id@2, movie_id@3, linked_movie_id@4]
+14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/link_type.vortex]]}, projection=[id], file_type=vortex, predicate: link@1 IN (SET) ([references, referenced in, features, featured in])
+15)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(linked_movie_id@0, movie_id@2)], projection=[person_id@2, person_id@3, movie_id@4, linked_movie_id@0, link_type_id@1]
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_link.vortex]]}, projection=[linked_movie_id, link_type_id], file_type=vortex
+17)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, person_id@0)]
+18)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/aka_name.vortex]]}, projection=[person_id], file_type=vortex, predicate: name@2 IS NOT NULL AND (name@2 LIKE %a% OR name@2 LIKE A%)
+19)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id], file_type=vortex
+20)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id, name], file_type=vortex, predicate: name_pcode_cf@5 >= A AND name_pcode_cf@5 <= F AND (gender@4 = m OR gender@4 = f AND name@1 LIKE A%)
+21)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/person_info.vortex:0..528942], [${WORK_DIR}/person_info.vortex:528942..1057884], [${WORK_DIR}/person_info.vortex:1057884..1586826], [${WORK_DIR}/person_info.vortex:1586826..2115768]]}, projection=[person_id, info_type_id, info], file_type=vortex, predicate: note@4 IS NOT NULL
+22)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id], file_type=vortex, predicate: production_year@4 >= 1980 AND production_year@4 <= 2010

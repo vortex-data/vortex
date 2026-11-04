@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(mi.info) AS movie_budget,
+       MIN(mi_idx.info) AS movie_votes,
+       MIN(n.name) AS writer,
+       MIN(t.title) AS violent_liongate_movie
+FROM cast_info AS ci,
+     company_name AS cn,
+     info_type AS it1,
+     info_type AS it2,
+     keyword AS k,
+     movie_companies AS mc,
+     movie_info AS mi,
+     movie_info_idx AS mi_idx,
+     movie_keyword AS mk,
+     name AS n,
+     title AS t
+WHERE ci.note IN ('(writer)',
+                  '(head writer)',
+                  '(written by)',
+                  '(story)',
+                  '(story editor)')
+  AND cn.name LIKE 'Lionsgate%'
+  AND it1.info = 'genres'
+  AND it2.info = 'votes'
+  AND k.keyword IN ('murder',
+                    'violence',
+                    'blood',
+                    'gore',
+                    'death',
+                    'female-nudity',
+                    'hospital')
+  AND mc.note LIKE '%(Blu-ray)%'
+  AND mi.info IN ('Horror',
+                  'Thriller')
+  AND n.gender = 'm'
+  AND t.production_year > 2000
+  AND (t.title LIKE '%Freddy%'
+       OR t.title LIKE '%Jason%'
+       OR t.title LIKE 'Saw%')
+  AND t.id = mi.movie_id
+  AND t.id = mi_idx.movie_id
+  AND t.id = ci.movie_id
+  AND t.id = mk.movie_id
+  AND t.id = mc.movie_id
+  AND ci.movie_id = mi.movie_id
+  AND ci.movie_id = mi_idx.movie_id
+  AND ci.movie_id = mk.movie_id
+  AND ci.movie_id = mc.movie_id
+  AND mi.movie_id = mi_idx.movie_id
+  AND mi.movie_id = mk.movie_id
+  AND mi.movie_id = mc.movie_id
+  AND mi_idx.movie_id = mk.movie_id
+  AND mi_idx.movie_id = mc.movie_id
+  AND mk.movie_id = mc.movie_id
+  AND n.id = ci.person_id
+  AND it1.id = mi.info_type_id
+  AND it2.id = mi_idx.info_type_id
+  AND k.id = mk.keyword_id
+  AND cn.id = mc.company_id;
+----
+logical_plan
+01)Projection: min(mi.info) AS movie_budget, min(mi_idx.info) AS movie_votes, min(n.name) AS writer, min(t.title) AS violent_liongate_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(mi.info), min(mi_idx.info), min(n.name), min(t.title)]]
+03)----Projection: mi.info, mi_idx.info, n.name, t.title
+04)------Inner Join: mi.movie_id = t.id, mi_idx.movie_id = t.id, ci.movie_id = t.id, mk.movie_id = t.id, mc.movie_id = t.id
+05)--------Projection: ci.movie_id, mc.movie_id, mi.movie_id, mi.info, mi_idx.movie_id, mi_idx.info, mk.movie_id, n.name
+06)----------Inner Join: ci.person_id = n.id
+07)------------Projection: ci.person_id, ci.movie_id, mc.movie_id, mi.movie_id, mi.info, mi_idx.movie_id, mi_idx.info, mk.movie_id
+08)--------------Inner Join: mk.keyword_id = k.id
+09)----------------Inner Join: ci.movie_id = mk.movie_id, mi.movie_id = mk.movie_id, mi_idx.movie_id = mk.movie_id, mc.movie_id = mk.movie_id
+10)------------------Projection: ci.person_id, ci.movie_id, mc.movie_id, mi.movie_id, mi.info, mi_idx.movie_id, mi_idx.info
+11)--------------------Inner Join: mi_idx.info_type_id = it2.id
+12)----------------------Inner Join: ci.movie_id = mi_idx.movie_id, mi.movie_id = mi_idx.movie_id, mc.movie_id = mi_idx.movie_id
+13)------------------------Projection: ci.person_id, ci.movie_id, mc.movie_id, mi.movie_id, mi.info
+14)--------------------------Inner Join: mi.info_type_id = it1.id
+15)----------------------------Inner Join: ci.movie_id = mi.movie_id, mc.movie_id = mi.movie_id
+16)------------------------------Projection: ci.person_id, ci.movie_id, mc.movie_id
+17)--------------------------------Inner Join: mc.company_id = cn.id
+18)----------------------------------Inner Join: ci.movie_id = mc.movie_id
+19)------------------------------------SubqueryAlias: ci
+20)--------------------------------------Projection: cast_info.person_id, cast_info.movie_id
+21)----------------------------------------Filter: cast_info.note IN ([Utf8View("(writer)"), Utf8View("(head writer)"), Utf8View("(written by)"), Utf8View("(story)"), Utf8View("(story editor)")])
+22)------------------------------------------TableScan: cast_info projection=[person_id, movie_id, note], partial_filters=[cast_info.note IN ([Utf8View("(writer)"), Utf8View("(head writer)"), Utf8View("(written by)"), Utf8View("(story)"), Utf8View("(story editor)")])]
+23)------------------------------------SubqueryAlias: mc
+24)--------------------------------------Projection: movie_companies.movie_id, movie_companies.company_id
+25)----------------------------------------Filter: movie_companies.note LIKE Utf8View("%(Blu-ray)%")
+26)------------------------------------------TableScan: movie_companies projection=[movie_id, company_id, note], partial_filters=[movie_companies.note LIKE Utf8View("%(Blu-ray)%")]
+27)----------------------------------SubqueryAlias: cn
+28)------------------------------------Projection: company_name.id
+29)--------------------------------------Filter: company_name.name LIKE Utf8View("Lionsgate%")
+30)----------------------------------------TableScan: company_name projection=[id, name], partial_filters=[company_name.name LIKE Utf8View("Lionsgate%")]
+31)------------------------------SubqueryAlias: mi
+32)--------------------------------Filter: movie_info.info = Utf8View("Horror") OR movie_info.info = Utf8View("Thriller")
+33)----------------------------------TableScan: movie_info projection=[movie_id, info_type_id, info], partial_filters=[movie_info.info = Utf8View("Horror") OR movie_info.info = Utf8View("Thriller")]
+34)----------------------------SubqueryAlias: it1
+35)------------------------------Projection: info_type.id
+36)--------------------------------Filter: info_type.info = Utf8View("genres")
+37)----------------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("genres")]
+38)------------------------SubqueryAlias: mi_idx
+39)--------------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info]
+40)----------------------SubqueryAlias: it2
+41)------------------------Projection: info_type.id
+42)--------------------------Filter: info_type.info = Utf8View("votes")
+43)----------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("votes")]
+44)------------------SubqueryAlias: mk
+45)--------------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+46)----------------SubqueryAlias: k
+47)------------------Projection: keyword.id
+48)--------------------Filter: keyword.keyword IN ([Utf8View("murder"), Utf8View("violence"), Utf8View("blood"), Utf8View("gore"), Utf8View("death"), Utf8View("female-nudity"), Utf8View("hospital")])
+49)----------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword IN ([Utf8View("murder"), Utf8View("violence"), Utf8View("blood"), Utf8View("gore"), Utf8View("death"), Utf8View("female-nudity"), Utf8View("hospital")])]
+50)------------SubqueryAlias: n
+51)--------------Projection: name.id, name.name
+52)----------------Filter: name.gender = Utf8View("m")
+53)------------------TableScan: name projection=[id, name, gender], partial_filters=[name.gender = Utf8View("m")]
+54)--------SubqueryAlias: t
+55)----------Projection: title.id, title.title
+56)------------Filter: title.production_year > Float64(2000) AND (title.title LIKE Utf8View("%Freddy%") OR title.title LIKE Utf8View("%Jason%") OR title.title LIKE Utf8View("Saw%"))
+57)--------------TableScan: title projection=[id, title, production_year], partial_filters=[title.production_year > Float64(2000), title.title LIKE Utf8View("%Freddy%") OR title.title LIKE Utf8View("%Jason%") OR title.title LIKE Utf8View("Saw%")]
+physical_plan
+01)ProjectionExec: expr=[min(mi.info)@0 as movie_budget, min(mi_idx.info)@1 as movie_votes, min(n.name)@2 as writer, min(t.title)@3 as violent_liongate_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(mi.info), min(mi_idx.info), min(n.name), min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(mi.info), min(mi_idx.info), min(n.name), min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@2, id@0), (movie_id@4, id@0), (movie_id@0, id@0), (movie_id@6, id@0), (movie_id@1, id@0)], projection=[info@3, info@5, name@7, title@9]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(person_id@0, id@0)], projection=[movie_id@1, movie_id@2, movie_id@3, info@4, movie_id@5, info@6, movie_id@7, name@9]
+08)--------------CoalescePartitionsExec
+09)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(keyword_id@8, id@0)], projection=[person_id@0, movie_id@1, movie_id@2, movie_id@3, info@4, movie_id@5, info@6, movie_id@7]
+10)------------------CoalescePartitionsExec
+11)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, movie_id@0), (movie_id@3, movie_id@0), (movie_id@5, movie_id@0), (movie_id@2, movie_id@0)]
+12)----------------------CoalescePartitionsExec
+13)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(info_type_id@6, id@0)], projection=[person_id@0, movie_id@1, movie_id@2, movie_id@3, info@4, movie_id@5, info@7]
+14)--------------------------CoalescePartitionsExec
+15)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, movie_id@0), (movie_id@3, movie_id@0), (movie_id@2, movie_id@0)]
+16)------------------------------CoalescePartitionsExec
+17)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@4)], projection=[person_id@1, movie_id@2, movie_id@3, movie_id@4, info@6]
+18)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = genres
+19)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, movie_id@0), (movie_id@2, movie_id@0)]
+20)------------------------------------CoalescePartitionsExec
+21)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@3)], projection=[person_id@1, movie_id@2, movie_id@3]
+22)----------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id], file_type=vortex, predicate: name@1 LIKE Lionsgate%
+23)----------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@1)], projection=[person_id@2, movie_id@3, movie_id@0, company_id@1]
+24)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex, predicate: note@4 LIKE %(Blu-ray)%
+25)------------------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/cast_info.vortex:0..900462], [${WORK_DIR}/cast_info.vortex:900462..1800924], [${WORK_DIR}/cast_info.vortex:1800924..2701386], [${WORK_DIR}/cast_info.vortex:2701386..3601848]]}, projection=[person_id, movie_id], file_type=vortex, predicate: note@4 IN (SET) ([(writer), (head writer), (written by), (story), (story editor)])
+26)------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+27)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex, predicate: info@3 = Horror OR info@3 = Thriller
+28)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+29)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex
+30)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+31)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = votes
+32)----------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+33)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+34)------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+35)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 IN (SET) ([murder, violence, blood, gore, death, female-nudity, hospital])
+36)--------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/name.vortex:0..423440], [${WORK_DIR}/name.vortex:423440..846880], [${WORK_DIR}/name.vortex:846880..1270320], [${WORK_DIR}/name.vortex:1270320..1693760]]}, projection=[id, name], file_type=vortex, predicate: gender@4 = m
+37)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex, predicate: production_year@4 > 2000 AND (title@1 LIKE %Freddy% OR title@1 LIKE %Jason% OR title@1 LIKE Saw%)

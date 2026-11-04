@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(t.title) AS movie_title
+FROM company_name AS cn,
+     keyword AS k,
+     movie_companies AS mc,
+     movie_keyword AS mk,
+     title AS t
+WHERE cn.country_code ='[de]'
+  AND k.keyword ='character-name-in-title'
+  AND cn.id = mc.company_id
+  AND mc.movie_id = t.id
+  AND t.id = mk.movie_id
+  AND mk.keyword_id = k.id
+  AND mc.movie_id = mk.movie_id;
+----
+logical_plan
+01)Projection: min(t.title) AS movie_title
+02)--Aggregate: groupBy=[[]], aggr=[[min(t.title)]]
+03)----Projection: t.title
+04)------Inner Join: mc.movie_id = t.id, mk.movie_id = t.id
+05)--------Projection: mc.movie_id, mk.movie_id
+06)----------Inner Join: mk.keyword_id = k.id
+07)------------Inner Join: mc.movie_id = mk.movie_id
+08)--------------Projection: mc.movie_id
+09)----------------Inner Join: cn.id = mc.company_id
+10)------------------SubqueryAlias: cn
+11)--------------------Projection: company_name.id
+12)----------------------Filter: company_name.country_code = Utf8View("[de]")
+13)------------------------TableScan: company_name projection=[id, country_code], partial_filters=[company_name.country_code = Utf8View("[de]")]
+14)------------------SubqueryAlias: mc
+15)--------------------TableScan: movie_companies projection=[movie_id, company_id]
+16)--------------SubqueryAlias: mk
+17)----------------TableScan: movie_keyword projection=[movie_id, keyword_id]
+18)------------SubqueryAlias: k
+19)--------------Projection: keyword.id
+20)----------------Filter: keyword.keyword = Utf8View("character-name-in-title")
+21)------------------TableScan: keyword projection=[id, keyword], partial_filters=[keyword.keyword = Utf8View("character-name-in-title")]
+22)--------SubqueryAlias: t
+23)----------TableScan: title projection=[id, title]
+physical_plan
+01)ProjectionExec: expr=[min(t.title)@0 as movie_title]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(t.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(t.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, id@0), (movie_id@1, id@0)], projection=[title@3]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, keyword_id@2)], projection=[movie_id@1, movie_id@2]
+08)--------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/keyword.vortex]]}, projection=[id], file_type=vortex, predicate: keyword@1 = character-name-in-title
+09)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@0)]
+10)----------------CoalescePartitionsExec
+11)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@1)], projection=[movie_id@1]
+12)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id], file_type=vortex, predicate: country_code@2 = [de]
+13)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+14)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex
+15)----------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_keyword.vortex]]}, projection=[movie_id, keyword_id], file_type=vortex
+17)----------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title], file_type=vortex

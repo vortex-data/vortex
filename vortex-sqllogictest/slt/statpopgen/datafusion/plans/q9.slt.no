@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+  SELECT "CHROM", "POS", SUM(LIST_SUM("GT")) AS N_ALTS
+    FROM statpopgen
+GROUP BY "CHROM", "POS";
+----
+logical_plan
+01)Projection: statpopgen.CHROM, statpopgen.POS, sum(list_sum(statpopgen.GT)) AS n_alts
+02)--Aggregate: groupBy=[[statpopgen.CHROM, statpopgen.POS]], aggr=[[sum(array_sum(CAST(statpopgen.GT AS List(Float64))) AS list_sum(statpopgen.GT))]]
+03)----TableScan: statpopgen projection=[CHROM, POS, GT]
+physical_plan
+01)ProjectionExec: expr=[CHROM@0 as CHROM, POS@1 as POS, sum(list_sum(statpopgen.GT))@2 as n_alts]
+02)--AggregateExec: mode=FinalPartitioned, gby=[CHROM@0 as CHROM, POS@1 as POS], aggr=[sum(list_sum(statpopgen.GT))]
+03)----RepartitionExec: partitioning=Hash([CHROM@0, POS@1], 4), input_partitions=1
+04)------AggregateExec: mode=Partial, gby=[CHROM@0 as CHROM, POS@1 as POS], aggr=[sum(list_sum(statpopgen.GT))]
+05)--------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[CHROM, POS, GT], file_type=vortex

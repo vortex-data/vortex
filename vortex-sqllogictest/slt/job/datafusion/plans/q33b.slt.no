@@ -1,0 +1,164 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT MIN(cn1.name) AS first_company,
+       MIN(cn2.name) AS second_company,
+       MIN(mi_idx1.info) AS first_rating,
+       MIN(mi_idx2.info) AS second_rating,
+       MIN(t1.title) AS first_movie,
+       MIN(t2.title) AS second_movie
+FROM company_name AS cn1,
+     company_name AS cn2,
+     info_type AS it1,
+     info_type AS it2,
+     kind_type AS kt1,
+     kind_type AS kt2,
+     link_type AS lt,
+     movie_companies AS mc1,
+     movie_companies AS mc2,
+     movie_info_idx AS mi_idx1,
+     movie_info_idx AS mi_idx2,
+     movie_link AS ml,
+     title AS t1,
+     title AS t2
+WHERE cn1.country_code = '[nl]'
+  AND it1.info = 'rating'
+  AND it2.info = 'rating'
+  AND kt1.kind IN ('tv series')
+  AND kt2.kind IN ('tv series')
+  AND lt.link LIKE '%follow%'
+  AND mi_idx2.info < '3.0'
+  AND t2.production_year = 2007
+  AND lt.id = ml.link_type_id
+  AND t1.id = ml.movie_id
+  AND t2.id = ml.linked_movie_id
+  AND it1.id = mi_idx1.info_type_id
+  AND t1.id = mi_idx1.movie_id
+  AND kt1.id = t1.kind_id
+  AND cn1.id = mc1.company_id
+  AND t1.id = mc1.movie_id
+  AND ml.movie_id = mi_idx1.movie_id
+  AND ml.movie_id = mc1.movie_id
+  AND mi_idx1.movie_id = mc1.movie_id
+  AND it2.id = mi_idx2.info_type_id
+  AND t2.id = mi_idx2.movie_id
+  AND kt2.id = t2.kind_id
+  AND cn2.id = mc2.company_id
+  AND t2.id = mc2.movie_id
+  AND ml.linked_movie_id = mi_idx2.movie_id
+  AND ml.linked_movie_id = mc2.movie_id
+  AND mi_idx2.movie_id = mc2.movie_id;
+----
+logical_plan
+01)Projection: min(cn1.name) AS first_company, min(cn2.name) AS second_company, min(mi_idx1.info) AS first_rating, min(mi_idx2.info) AS second_rating, min(t1.title) AS first_movie, min(t2.title) AS second_movie
+02)--Aggregate: groupBy=[[]], aggr=[[min(cn1.name), min(cn2.name), min(mi_idx1.info), min(mi_idx2.info), min(t1.title), min(t2.title)]]
+03)----Projection: cn1.name, cn2.name, mi_idx1.info, mi_idx2.info, t1.title, t2.title
+04)------Inner Join: t2.kind_id = kt2.id
+05)--------Projection: cn1.name, mi_idx1.info, cn2.name, mi_idx2.info, t1.title, t2.title, t2.kind_id
+06)----------Inner Join: ml.linked_movie_id = t2.id, mi_idx2.movie_id = t2.id, mc2.movie_id = t2.id
+07)------------Projection: cn1.name, mi_idx1.info, ml.linked_movie_id, mc2.movie_id, cn2.name, mi_idx2.movie_id, mi_idx2.info, t1.title
+08)--------------Inner Join: t1.kind_id = kt1.id
+09)----------------Projection: cn1.name, mi_idx1.info, ml.linked_movie_id, mc2.movie_id, cn2.name, mi_idx2.movie_id, mi_idx2.info, t1.title, t1.kind_id
+10)------------------Inner Join: ml.movie_id = t1.id, mi_idx1.movie_id = t1.id, mc1.movie_id = t1.id
+11)--------------------Projection: cn1.name, mc1.movie_id, mi_idx1.movie_id, mi_idx1.info, ml.movie_id, ml.linked_movie_id, mc2.movie_id, cn2.name, mi_idx2.movie_id, mi_idx2.info
+12)----------------------Inner Join: mi_idx2.info_type_id = it2.id
+13)------------------------Inner Join: ml.linked_movie_id = mi_idx2.movie_id, mc2.movie_id = mi_idx2.movie_id
+14)--------------------------Projection: cn1.name, mc1.movie_id, mi_idx1.movie_id, mi_idx1.info, ml.movie_id, ml.linked_movie_id, mc2.movie_id, cn2.name
+15)----------------------------Inner Join: mc2.company_id = cn2.id
+16)------------------------------Inner Join: ml.linked_movie_id = mc2.movie_id
+17)--------------------------------Projection: cn1.name, mc1.movie_id, mi_idx1.movie_id, mi_idx1.info, ml.movie_id, ml.linked_movie_id
+18)----------------------------------Inner Join: ml.link_type_id = lt.id
+19)------------------------------------Inner Join: mi_idx1.movie_id = ml.movie_id, mc1.movie_id = ml.movie_id
+20)--------------------------------------Projection: cn1.name, mc1.movie_id, mi_idx1.movie_id, mi_idx1.info
+21)----------------------------------------Inner Join: mi_idx1.info_type_id = it1.id
+22)------------------------------------------Inner Join: mc1.movie_id = mi_idx1.movie_id
+23)--------------------------------------------Projection: cn1.name, mc1.movie_id
+24)----------------------------------------------Inner Join: cn1.id = mc1.company_id
+25)------------------------------------------------SubqueryAlias: cn1
+26)--------------------------------------------------Projection: company_name.id, company_name.name
+27)----------------------------------------------------Filter: company_name.country_code = Utf8View("[nl]")
+28)------------------------------------------------------TableScan: company_name projection=[id, name, country_code], partial_filters=[company_name.country_code = Utf8View("[nl]")]
+29)------------------------------------------------SubqueryAlias: mc1
+30)--------------------------------------------------TableScan: movie_companies projection=[movie_id, company_id]
+31)--------------------------------------------SubqueryAlias: mi_idx1
+32)----------------------------------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info]
+33)------------------------------------------SubqueryAlias: it1
+34)--------------------------------------------Projection: info_type.id
+35)----------------------------------------------Filter: info_type.info = Utf8View("rating")
+36)------------------------------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("rating")]
+37)--------------------------------------SubqueryAlias: ml
+38)----------------------------------------TableScan: movie_link projection=[movie_id, linked_movie_id, link_type_id]
+39)------------------------------------SubqueryAlias: lt
+40)--------------------------------------Projection: link_type.id
+41)----------------------------------------Filter: link_type.link LIKE Utf8View("%follow%")
+42)------------------------------------------TableScan: link_type projection=[id, link], partial_filters=[link_type.link LIKE Utf8View("%follow%")]
+43)--------------------------------SubqueryAlias: mc2
+44)----------------------------------TableScan: movie_companies projection=[movie_id, company_id]
+45)------------------------------SubqueryAlias: cn2
+46)--------------------------------TableScan: company_name projection=[id, name]
+47)--------------------------SubqueryAlias: mi_idx2
+48)----------------------------Filter: movie_info_idx.info < Utf8View("3.0")
+49)------------------------------TableScan: movie_info_idx projection=[movie_id, info_type_id, info], partial_filters=[movie_info_idx.info < Utf8View("3.0")]
+50)------------------------SubqueryAlias: it2
+51)--------------------------Projection: info_type.id
+52)----------------------------Filter: info_type.info = Utf8View("rating")
+53)------------------------------TableScan: info_type projection=[id, info], partial_filters=[info_type.info = Utf8View("rating")]
+54)--------------------SubqueryAlias: t1
+55)----------------------TableScan: title projection=[id, title, kind_id]
+56)----------------SubqueryAlias: kt1
+57)------------------Projection: kind_type.id
+58)--------------------Filter: kind_type.kind = Utf8View("tv series")
+59)----------------------TableScan: kind_type projection=[id, kind], partial_filters=[kind_type.kind = Utf8View("tv series")]
+60)------------SubqueryAlias: t2
+61)--------------Projection: title.id, title.title, title.kind_id
+62)----------------Filter: title.production_year = Float64(2007)
+63)------------------TableScan: title projection=[id, title, kind_id, production_year], partial_filters=[title.production_year = Float64(2007)]
+64)--------SubqueryAlias: kt2
+65)----------Projection: kind_type.id
+66)------------Filter: kind_type.kind = Utf8View("tv series")
+67)--------------TableScan: kind_type projection=[id, kind], partial_filters=[kind_type.kind = Utf8View("tv series")]
+physical_plan
+01)ProjectionExec: expr=[min(cn1.name)@0 as first_company, min(cn2.name)@1 as second_company, min(mi_idx1.info)@2 as first_rating, min(mi_idx2.info)@3 as second_rating, min(t1.title)@4 as first_movie, min(t2.title)@5 as second_movie]
+02)--AggregateExec: mode=Final, gby=[], aggr=[min(cn1.name), min(cn2.name), min(mi_idx1.info), min(mi_idx2.info), min(t1.title), min(t2.title)]
+03)----CoalescePartitionsExec
+04)------AggregateExec: mode=Partial, gby=[], aggr=[min(cn1.name), min(cn2.name), min(mi_idx1.info), min(mi_idx2.info), min(t1.title), min(t2.title)]
+05)--------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(kind_id@6, id@0)], projection=[name@0, name@2, info@1, info@3, title@4, title@5]
+06)----------CoalescePartitionsExec
+07)------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, linked_movie_id@2), (id@0, movie_id@5), (id@0, movie_id@3)], projection=[name@3, info@4, name@7, info@9, title@10, title@1, kind_id@2]
+08)--------------CoalescePartitionsExec
+09)----------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title, kind_id], file_type=vortex, predicate: production_year@4 = 2007
+10)--------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, kind_id@8)], projection=[name@1, info@2, linked_movie_id@3, movie_id@4, name@5, movie_id@6, info@7, title@8]
+11)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/kind_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = tv series
+12)----------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@4, id@0), (movie_id@2, id@0), (movie_id@1, id@0)], projection=[name@0, info@3, linked_movie_id@5, movie_id@6, name@7, movie_id@8, info@9, title@11, kind_id@12]
+13)------------------CoalescePartitionsExec
+14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@9)], projection=[name@1, movie_id@2, movie_id@3, info@4, movie_id@5, linked_movie_id@6, movie_id@7, name@8, movie_id@9, info@11]
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = rating
+16)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(linked_movie_id@5, movie_id@0), (movie_id@6, movie_id@0)]
+17)------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(company_id@7, id@0)], projection=[name@0, movie_id@1, movie_id@2, info@3, movie_id@4, linked_movie_id@5, movie_id@6, name@9]
+18)--------------------------CoalescePartitionsExec
+19)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(linked_movie_id@5, movie_id@0)]
+20)------------------------------CoalescePartitionsExec
+21)--------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, link_type_id@6)], projection=[name@1, movie_id@2, movie_id@3, info@4, movie_id@5, linked_movie_id@6]
+22)----------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/link_type.vortex]]}, projection=[id], file_type=vortex, predicate: link@1 LIKE %follow%
+23)----------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@0, movie_id@2), (movie_id@0, movie_id@1)], projection=[name@3, movie_id@4, movie_id@5, info@6, movie_id@0, linked_movie_id@1, link_type_id@2]
+24)------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_link.vortex]]}, projection=[movie_id, linked_movie_id, link_type_id], file_type=vortex
+25)------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, info_type_id@3)], projection=[name@1, movie_id@2, movie_id@3, info@5]
+26)--------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/info_type.vortex]]}, projection=[id], file_type=vortex, predicate: info@1 = rating
+27)--------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(movie_id@1, movie_id@0)]
+28)----------------------------------------CoalescePartitionsExec
+29)------------------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, company_id@1)], projection=[name@1, movie_id@2]
+30)--------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id, name], file_type=vortex, predicate: country_code@2 = [nl]
+31)--------------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+32)----------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex
+33)----------------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+34)------------------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex
+35)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+36)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_companies.vortex]]}, projection=[movie_id, company_id], file_type=vortex
+37)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/company_name.vortex]]}, projection=[id, name], file_type=vortex
+38)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+39)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/movie_info_idx.vortex]]}, projection=[movie_id, info_type_id, info], file_type=vortex, predicate: info@3 < 3.0
+40)------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/title.vortex:0..288132], [${WORK_DIR}/title.vortex:288132..576264], [${WORK_DIR}/title.vortex:576264..864396], [${WORK_DIR}/title.vortex:864396..1152528]]}, projection=[id, title, kind_id], file_type=vortex
+41)----------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+42)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/kind_type.vortex]]}, projection=[id], file_type=vortex, predicate: kind@1 = tv series
