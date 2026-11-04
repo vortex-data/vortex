@@ -479,6 +479,42 @@ incremental = false
 debug = false
 
 [patch.crates-io]
+# DataFusion 55.2 with hash join key deduplication and exact integer key hashing,
+# see https://github.com/joseph-isaacs/datafusion/tree/ji/hj-dedup-exact-55.2
+datafusion = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-catalog = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-catalog-listing = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-common = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-common-runtime = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource-arrow = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource-avro = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource-csv = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource-json = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-datasource-parquet = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-doc = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-execution = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-expr = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-expr-common = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-aggregate = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-aggregate-common = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-nested = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-table = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-window = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-functions-window-common = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-macros = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-optimizer = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-physical-expr = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-physical-expr-adapter = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-physical-expr-common = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-physical-optimizer = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-physical-plan = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-pruning = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-session = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-spark = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-sql = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
+datafusion-sqllogictest = { git = "https://github.com/joseph-isaacs/datafusion", branch = "ji/hj-dedup-exact-55.2" }
 geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
