@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 c6e97b5038a386b50c12801120cfe0c01a961eca524360642aa0d2c20463f35f */
+   sha256 5d736a53f20516436d214b33f5c9cd717ac1e3d960a70ec168ac484b6b98a9a4 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -133,8 +133,10 @@
 /* Inline code: CodeBlock's inline code. */
 .vx-docs-main code.literal { padding: 1px var(--space-4); font: 400 0.875em/1 var(--font-mono); color: var(--ink); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: border-color var(--vx-motion); }
 .vx-docs-main a:hover > code.literal { border-color: var(--ink); }
-/* Code that links (an API name in prose) takes the syntax type colour, as in signatures. */
-.vx-docs-main a.reference > code.xref { color: var(--syntax-type); }
+/* Code that links (an API name in prose) takes the syntax type colour, as in signatures, and an underline,
+   so colour is not the only thing that marks it apart from plain inline code (WCAG 1.4.1). */
+.vx-docs-main a.reference > code.xref { color: var(--syntax-type); text-decoration: underline 1px color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+.vx-docs-main a.reference:hover > code.xref { text-decoration-color: currentColor; }
 
 /* CodeBlock: Pygments' classes on the four syntax tokens, under a label from highlight-<lang>. */
 .vx-docs-main div[class*="highlight-"] > .highlight { background: var(--raised); border-radius: var(--radius-card); overflow: hidden; }
