@@ -63,11 +63,12 @@ impl FilterPlans {
             .conjuncts()
             .iter()
             .map(|expr| {
-                let plan = optimize(
+                // Leaf filters already apply the demand. Wrapping the predicate in another
+                // Filter would reset it to all rows before evaluating the expression.
+                optimize(
                     plan_row_idx_expression(expr.clone(), root.clone())?,
                     session,
-                )?;
-                Ok(FilterPlan::new(plan).into_plan())
+                )
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -295,9 +296,19 @@ impl Planner for FilterPlanner {
         }
         if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
+            let plan = self.filter.predicates[index].clone();
+            // Dense demand keeps vectorized evaluation cheaper than gathering almost every row.
+            // Selective demand is kept all the way to the predicate's leaves.
+            let plan = if !selected.mask.all_true()
+                && selected.mask.true_count().saturating_mul(2) >= selected.mask.len()
+            {
+                FilterPlan::new(plan).into_plan()
+            } else {
+                plan
+            };
             let scan = Scan::try_new(
                 self.scan.session.clone(),
-                self.filter.predicates[index].clone(),
+                plan,
                 vec![Split {
                     rows: selected.scope.rows.clone(),
                     mask: selected.mask.clone(),

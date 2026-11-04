@@ -552,6 +552,43 @@ fn smaller_chunks_keep_file_alignment() {
     );
 }
 
+/// A sparse selection reaches the predicate's leaves, so it reads only the selected rows' segments.
+#[rstest]
+#[case::sparse(vec![1u64, 3001], 2)]
+#[case::dense((0..4000u64).filter(|row| row % 10 != 0).collect(), 4)]
+#[tokio::test]
+async fn predicate_only_reads_selected_chunks(
+    #[case] indices: Vec<u64>,
+    #[case] expected_reads: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let expected = Buffer::from_iter(indices.iter().copied().filter(|row| row % 3 != 0));
+    let selection = vortex_scan::selection::Selection::IncludeByIndex(StrictSortedBuffer::try_new(
+        Buffer::from(indices),
+    )?);
+    let scan = builder(&session, &segments, &layout)?
+        .with_selection(selection)
+        .with_projection(row_idx().bind(layout.dtype())?)
+        .with_some_filter(Some(
+            gt(get_item("strings", root()), lit("")).bind(layout.dtype())?,
+        ));
+    let actual = collect_scan(
+        DType::Primitive(vortex_array::dtype::PType::U64, false.into()),
+        scan,
+    )
+    .await?;
+    assert_arrays_eq!(
+        actual,
+        expected.into_array(),
+        &mut session.create_execution_ctx()
+    );
+    assert_eq!(counted.requests(), expected_reads);
+    Ok(())
+}
+
 #[tokio::test]
 async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let session = new_session().with_tokio();
