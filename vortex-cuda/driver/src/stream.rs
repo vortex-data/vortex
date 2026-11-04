@@ -27,7 +27,6 @@ pub struct CudaStream {
     id: StreamId,
     stream: sys::CUstream,
     context: Arc<CudaContext>,
-    owned: bool,
 }
 
 // SAFETY: Stream handles are usable from any thread.
@@ -54,14 +53,12 @@ impl Eq for CudaStream {}
 
 impl Drop for CudaStream {
     fn drop(&mut self) {
-        if self.owned {
-            if let Err(error) = self.bind() {
-                log_error("binding context to destroy stream", error);
-            }
-            // SAFETY: Owned streams are destroyed exactly once; queued work still completes.
-            if let Err(error) = unsafe { sys::cuStreamDestroy_v2(self.stream) }.result() {
-                log_error("destroying CUDA stream", error);
-            }
+        if let Err(error) = self.bind() {
+            log_error("binding context to destroy stream", error);
+        }
+        // SAFETY: Owned streams are destroyed exactly once; queued work still completes.
+        if let Err(error) = unsafe { sys::cuStreamDestroy_v2(self.stream) }.result() {
+            log_error("destroying CUDA stream", error);
         }
     }
 }
@@ -76,22 +73,7 @@ impl CudaStream {
             id: NEXT_STREAM_ID.fetch_add(1, Ordering::Relaxed),
             stream,
             context: Arc::clone(context),
-            owned: true,
         }))
-    }
-
-    /// Wraps a stream owned by someone else, which is not destroyed on drop.
-    ///
-    /// # Safety
-    ///
-    /// `stream` must belong to `context` and outlive the returned wrapper.
-    pub unsafe fn borrowed(context: &Arc<CudaContext>, stream: sys::CUstream) -> Arc<Self> {
-        Arc::new(Self {
-            id: NEXT_STREAM_ID.fetch_add(1, Ordering::Relaxed),
-            stream,
-            context: Arc::clone(context),
-            owned: false,
-        })
     }
 
     pub(crate) fn id(&self) -> StreamId {
