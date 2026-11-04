@@ -364,82 +364,47 @@ mod tests {
         Ok(())
     }
 
-    /// Checks rank-based run filtering against a per-row reference over word-boundary run ends
-    /// and a bit-offset mask.
+    /// The rank walk must count the same rows per run as counting each run's range. The cases
+    /// cover masks that start inside a byte and end inside or at the end of a word, and sliced
+    /// arrays whose first run starts before the slice and whose last run ends after it.
     #[rstest]
-    #[case(0, 200)]
-    #[case(3, 200)]
-    #[case(64, 128)]
-    #[case(70, 129)]
-    fn filter_run_end_primitive_matches_reference(
+    #[case(0, 0, 128)]
+    #[case(0, 3, 128)]
+    #[case(0, 5, 200)]
+    #[case(0, 61, 64)]
+    #[case(0, 7, 1)]
+    #[case(3, 5, 200)]
+    #[case(70, 0, 129)]
+    fn filter_run_end_primitive_counts_each_runs_selected_rows(
         #[case] offset: u64,
-        #[case] length: u64,
-    ) -> VortexResult<()> {
-        let run_ends: Vec<u32> = [1u32, 2, 63, 64, 65, 127, 128, 129, 150, 192, 260, 300]
-            .into_iter()
-            .filter(|&end| u64::from(end) > offset)
-            .collect();
-        let mask_bits: Vec<bool> = (0..length).map(|i| (i * 7 + i / 5) % 3 == 0).collect();
-        let length_usize = usize::try_from(length)?;
-        // Start the mask at a non-zero bit offset in its backing buffer.
-        let backing =
-            BitBuffer::from_iter(std::iter::repeat_n(false, 5).chain(mask_bits.iter().copied()));
-        let mask = BitBuffer::new_with_offset(backing.inner().clone(), length_usize, 5);
-
-        let (ends, values_mask) = filter_run_end_primitive(
-            &run_ends,
-            offset,
-            length,
-            &mask,
-            SESSION.create_execution_ctx().allocator(),
-        )?;
-
-        let mut expected_ends = Vec::new();
-        let mut expected_retained = Vec::new();
-        let (mut start, mut selected) = (0usize, 0u32);
-        for &end in &run_ends {
-            let end = usize::try_from(u64::from(end) - offset)?.min(length_usize);
-            let in_run = mask_bits[start..end].iter().filter(|&&bit| bit).count();
-            selected += u32::try_from(in_run)?;
-            if in_run > 0 {
-                expected_ends.push(selected);
-            }
-            expected_retained.push(in_run > 0);
-            start = end;
-        }
-
-        assert_eq!(ends.as_slice::<u32>(), expected_ends.as_slice());
-        assert_eq!(values_mask, Mask::from_iter(expected_retained));
-        Ok(())
-    }
-
-    /// The rank walk must count the same rows per run as counting each run's range, for masks
-    /// that start inside a byte and end inside or at the end of a word.
-    #[rstest]
-    #[case(0, 128)]
-    #[case(3, 128)]
-    #[case(5, 200)]
-    #[case(61, 64)]
-    #[case(7, 1)]
-    fn short_runs_count_each_runs_selected_rows(
         #[case] mask_offset: usize,
         #[case] len: usize,
     ) -> VortexResult<()> {
         let bits = BitBuffer::from_iter((0..mask_offset + len).map(|i| i % 3 != 0 || i % 7 == 0));
         let mask = bits.slice(mask_offset..mask_offset + len);
-        // Runs of 1, 2 and 3 rows.
+
+        // Runs of 1, 2, 3 and 150 rows, so the walk also skips several words in one query.
+        let slice_end = offset + len as u64;
         let mut run_ends = Vec::new();
-        let mut end = 0u32;
-        let mut run_len = 1;
-        while (end as usize) < len {
-            end = (end + run_len).min(u32::try_from(len)?);
-            run_ends.push(end);
-            run_len = run_len % 3 + 1;
+        let mut end = 0u64;
+        for run_len in [1, 2, 3, 150].into_iter().cycle() {
+            end += run_len;
+            if end > offset {
+                run_ends.push(u32::try_from(end)?);
+            }
+            if end >= slice_end {
+                break;
+            }
+        }
+
+        // End the last run after the slice, as in a slice of a longer array.
+        if let Some(last) = run_ends.last_mut() {
+            *last += 5;
         }
 
         let (filtered_ends, values_mask) = filter_run_end_primitive(
             &run_ends,
-            0,
+            offset,
             len as u64,
             &mask,
             SESSION.create_execution_ctx().allocator(),
@@ -449,14 +414,16 @@ mod tests {
         let mut expected_values = Vec::new();
         let (mut start, mut selected) = (0, 0u32);
         for &end in &run_ends {
-            let in_run = mask.count_range(start, end as usize);
+            let end = usize::try_from(u64::from(end) - offset)?.min(len);
+            let in_run = mask.count_range(start, end);
             selected += u32::try_from(in_run)?;
             expected_values.push(in_run > 0);
             if in_run > 0 {
                 expected_ends.push(selected);
             }
-            start = end as usize;
+            start = end;
         }
+
         assert_eq!(filtered_ends.as_slice::<u32>(), expected_ends.as_slice());
         assert_eq!(values_mask, Mask::from_iter(expected_values));
         Ok(())
