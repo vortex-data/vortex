@@ -104,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
         println!("default nbytes={default_total} struct-sparse nbytes={sparse_total}");
         return Ok(());
     }
+    if mode == "scan" {
+        scan_timing(&args.next().unwrap()).await?;
+        return Ok(());
+    }
     if mode == "roundtrip" {
         roundtrip(&args.next().unwrap()).await?;
         return Ok(());
@@ -232,5 +236,55 @@ async fn roundtrip(path: &str) -> anyhow::Result<()> {
     let read = file.scan()?.into_array_stream()?.read_all().await?;
     let read_arrow = to_arrow(read, &mut ctx)?;
     println!("file read + decode to arrow: {:?}, equal={}", t.elapsed(), read_arrow.as_ref() == expected.as_ref());
+    Ok(())
+}
+
+/// Writes the input with and without the sparse layout and times v2 scans of each: whole-file
+/// record batches, as the decompress benchmark reads them, and plain arrays.
+async fn scan_timing(path: &str) -> anyhow::Result<()> {
+    use futures::StreamExt;
+    use futures::TryStreamExt;
+    use vortex::buffer::ByteBuffer;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::v2::ScanDriver;
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::layout::scan::v2::ScanBuilder;
+    vortex_bench::enable_sparse_bench_edition();
+    let array = parquet_to_vortex_chunks(PathBuf::from(path)).await?.into_array();
+    for sparse in [false, true] {
+        let mut builder = WriteStrategyBuilder::from_session(&SESSION);
+        if sparse {
+            builder = builder.with_sparse_layout(0.9);
+        }
+        let mut buf = Vec::new();
+        SESSION
+            .write_options()
+            .with_strategy(builder.build())
+            .write(&mut std::io::Cursor::new(&mut buf), array.to_array_stream())
+            .await?;
+        let size = buf.len();
+        let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+        for round in 0..2 {
+            let t = std::time::Instant::now();
+            let batches: Vec<ArrayRef> = ScanDriver::new(SESSION.handle(), 4, true)
+                .run(ScanBuilder::new(SESSION.clone(), file.scan_file()))
+                .try_collect()
+                .await?;
+            let arrays = t.elapsed();
+            let t = std::time::Instant::now();
+            let mut stream = ScanDriver::new(SESSION.handle(), 4, true)
+                .run_record_batches(ScanBuilder::new(SESSION.clone(), file.scan_file()), None);
+            let mut record_batches = 0;
+            while let Some(batch) = stream.next().await {
+                batch?;
+                record_batches += 1;
+            }
+            println!(
+                "sparse={sparse} size={size} round={round} arrays: {} batches in {arrays:?}, record batches: {record_batches} in {:?}",
+                batches.len(),
+                t.elapsed()
+            );
+        }
+    }
     Ok(())
 }

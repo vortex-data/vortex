@@ -4,6 +4,7 @@
 //! Scattering present rows over fill rows.
 
 use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
@@ -95,7 +96,11 @@ impl Operator for SparseSource {
                 present[position] = true;
             }
             let take = PrimitiveArray::new(Buffer::from(take), Validity::from_iter(present));
-            return Ok(Step::Final(values.take(take.into_array())?));
+            // Canonicalized here, on the scan's worker, rather than wherever the batch is read.
+            let taken = values
+                .take(take.into_array())?
+                .execute::<RecursiveCanonical>(cx.exec())?;
+            return Ok(Step::Final(taken.0.into_array()));
         }
         let values = values.filter(Mask::from_indices(values.len(), keep))?;
         let positions = PrimitiveArray::new(Buffer::from(positions), Validity::NonNullable);
