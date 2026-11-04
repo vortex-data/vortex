@@ -38,7 +38,7 @@ pub(crate) fn selected(plan: PlanRef, rows: Range<u64>, mask: Mask) -> PlanRef {
         vtable: Selected,
         dtype: plan.dtype().clone(),
         row_count: plan.row_count(),
-        slots: vec![plan].into(),
+        slots: [plan].into(),
         data: SelectedData { rows, mask },
     }
     .into_typed()

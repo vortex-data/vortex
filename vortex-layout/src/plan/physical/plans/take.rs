@@ -78,7 +78,7 @@ impl TakePlan {
             vtable: Take,
             dtype,
             row_count,
-            slots: vec![codes, values].into(),
+            slots: [codes, values].into(),
             data: (),
         }
         .into_typed()

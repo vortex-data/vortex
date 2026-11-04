@@ -78,7 +78,7 @@ impl LegacyStatsPlan {
     pub fn new(data: PlanRef, zones: PlanRef, zone_len: u64, stats: Arc<[Stat]>) -> Self {
         let dtype = data.dtype().clone();
         let row_count = data.row_count();
-        Self::from_slots(dtype, row_count, vec![data, zones].into(), zone_len, stats)
+        Self::from_slots(dtype, row_count, [data, zones].into(), zone_len, stats)
     }
 
     /// Returns the number of rows each zone summarises.

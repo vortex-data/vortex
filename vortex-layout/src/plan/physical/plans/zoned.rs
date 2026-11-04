@@ -194,7 +194,7 @@ impl ZonedPlan {
         Self::from_slots(
             dtype,
             row_count,
-            vec![data, zones].into(),
+            [data, zones].into(),
             zone_len,
             aggregate_fns,
         )
@@ -261,7 +261,7 @@ impl ZonedPlan {
                 vtable: Zoned,
                 dtype: expression.dtype().clone(),
                 row_count: self.row_count(),
-                slots: PlanSlots::from(vec![None, self.slots()[ZONES].clone()]),
+                slots: [None, self.slots()[ZONES].clone()].into_iter().collect(),
                 data,
             }
             .into_typed(),

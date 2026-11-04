@@ -49,7 +49,7 @@ impl SharePlan {
             vtable: Share,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
-            slots: vec![child].into(),
+            slots: [child].into(),
             data: ShareData,
         }
         .into_typed()

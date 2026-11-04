@@ -170,6 +170,19 @@ impl From<Vec<Option<LazyPlanRef>>> for PlanSlots {
 /// Built slots, every one present.
 impl From<Vec<PlanRef>> for PlanSlots {
     fn from(children: Vec<PlanRef>) -> Self {
+        // `PlanRef` and `Option<LazyPlanRef>` have the same layout, so this collect reuses the
+        // vector's buffer, and `from_vec` keeps it when the slots do not fit inline.
+        let slots: Vec<Option<LazyPlanRef>> = children
+            .into_iter()
+            .map(|child| Some(LazyPlanRef::ready(child)))
+            .collect();
+        Self(SmallVec::from_vec(slots))
+    }
+}
+
+/// Built slots, every one present, without a temporary vector.
+impl<const N: usize> From<[PlanRef; N]> for PlanSlots {
+    fn from(children: [PlanRef; N]) -> Self {
         children.into_iter().map(Some).collect()
     }
 }

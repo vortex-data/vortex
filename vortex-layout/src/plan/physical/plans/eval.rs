@@ -65,7 +65,7 @@ impl EvalPlan {
             vtable: Eval,
             dtype: expression.dtype().clone(),
             row_count: child.row_count(),
-            slots: vec![child].into(),
+            slots: [child].into(),
             data: EvalData { expression },
         }
         .into_typed()
