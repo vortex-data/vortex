@@ -27,6 +27,7 @@ use crate::arrays::VarBinView;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::optimizer::ArrayOptimizer;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -34,6 +35,7 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -168,6 +170,21 @@ impl ScalarFnVTable for FillNull {
         }
     }
 
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        // Only once the fill is constant: `execute` materializes a lazy fill first, so the input's
+        // FillNull kernels can still apply before the input is decoded.
+        if args.input_matches(1, |fill| fill.is::<Constant>())? {
+            require_input!(args, 0 => AnyColumnar);
+        }
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
+    }
+
     fn simplify(
         &self,
         _options: &Self::Options,
@@ -247,6 +264,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
@@ -522,5 +540,19 @@ mod tests {
     fn test_display() {
         let expr = fill_null(get_item("value", root()), lit(0i32));
         assert_eq!(expr.to_string(), "vortex.fill_null($.value, 0i32)");
+    }
+
+    /// A scalar function input is executed through the executor before its nulls are filled.
+    #[test]
+    fn executes_non_columnar_input_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)])
+            .into_array()
+            .binary(ConstantArray::new(2i32, 3).into_array(), Operator::Gt)?;
+
+        let result = input.fill_null(Scalar::from(false))?;
+
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false, true]), &mut ctx);
+        Ok(())
     }
 }

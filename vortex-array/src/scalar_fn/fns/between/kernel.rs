@@ -66,9 +66,10 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        // Read only the bounds: the executor may hand over the parent with the input's slot
+        // detached while it executes that input.
+        let lower = scalar_fn_array.get_child(1);
+        let upper = scalar_fn_array.get_child(2);
         let arr = array.array().clone();
         if let Some(result) = short_circuit(&arr, lower, upper, parent.options)? {
             return Ok(Some(result));
@@ -101,9 +102,10 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        // Read only the bounds: the executor may hand over the parent with the input's slot
+        // detached while it executes that input.
+        let lower = scalar_fn_array.get_child(1);
+        let upper = scalar_fn_array.get_child(2);
         let arr = array.array().clone();
         if let Some(result) = short_circuit(&arr, lower, upper, parent.options)? {
             // TODO(joe): return the lazy array directly, blocked on the same executor support as
