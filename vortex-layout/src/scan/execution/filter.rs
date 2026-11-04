@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
@@ -50,7 +52,16 @@ pub struct FilterPlans {
     predicates: Vec<PlanRef>,
     /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+    /// Over the sampled chunks that finished filtering: bytes of the projection segments no
+    /// conjunct reads, and the part of them the filtered rows did not need.
+    projected: AtomicU64,
+    unneeded: AtomicU64,
+    /// Chunks planned so far. Finding the segments a chunk's filtered rows need is not free,
+    /// so only every [`WASTE_SAMPLE`]th chunk measures it.
+    chunks: AtomicU64,
 }
+
+const WASTE_SAMPLE: u64 = 8;
 
 impl FilterPlans {
     pub(crate) fn new(
@@ -92,7 +103,19 @@ impl FilterPlans {
             expression,
             predicates,
             pruning,
+            projected: AtomicU64::new(0),
+            unneeded: AtomicU64::new(0),
+            chunks: AtomicU64::new(0),
         })
+    }
+
+    /// Whether a chunk should start its projection's reads beside its conjuncts', so they
+    /// overlap filtering. Segments the filtered rows do not reach would be read for nothing, so
+    /// the scan prefetches only once its sampled chunks show at most an eighth of those bytes
+    /// were unneeded.
+    fn prefetch_projection(&self) -> bool {
+        let projected = self.projected.load(Ordering::Relaxed);
+        projected > 0 && self.unneeded.load(Ordering::Relaxed).saturating_mul(8) <= projected
     }
 
     /// The pruning plans, run once over a scan's rows before its chunks are planned.
@@ -122,9 +145,11 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
 
 /// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.
 ///
-/// The first compute starts the reads of every conjunct's segments for the selected rows and
-/// announces the projection's, so the conjuncts run back to back and the projection's reads
-/// coalesce with them. Conjuncts run in the order the shared [`FilterExpr`] picks.
+/// The first compute starts the reads of every conjunct's segments for the selected rows, so the
+/// conjuncts run back to back. It starts the projection's reads too while the scan's filtered
+/// rows still need nearly all of them, so they overlap filtering, and otherwise only announces
+/// them so they can still coalesce with the conjuncts'. Conjuncts run in the order the shared
+/// [`FilterExpr`] picks.
 pub(super) struct FilterPlanner {
     scan: Arc<PreparedScan>,
     selected: Option<SelectedRows>,
@@ -133,6 +158,9 @@ pub(super) struct FilterPlanner {
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
+    /// Projection segments no conjunct reads, in id order, kept only when the chunk samples
+    /// how many of them filtered rows need.
+    sampled_projection: Vec<SegmentId>,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
 }
@@ -165,6 +193,7 @@ impl FilterPlanner {
             active: None,
             pieces: Vec::new(),
             announced: false,
+            sampled_projection: Vec::new(),
             next_hint: u32::MAX,
         }
     }
@@ -190,6 +219,14 @@ pub(super) fn hint(
         });
         *next_hint -= 1;
     }
+}
+
+/// The total length of `segments`.
+fn segment_bytes(locations: &[SegmentLocation], segments: &[SegmentId]) -> u64 {
+    segments
+        .iter()
+        .map(|&segment| u64::from(locations[*segment as usize].length))
+        .sum()
 }
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
@@ -248,10 +285,27 @@ impl Planner for FilterPlanner {
                 &mut seen,
                 &mut batch,
             );
+            if self
+                .filter
+                .chunks
+                .fetch_add(1, Ordering::Relaxed)
+                .is_multiple_of(WASTE_SAMPLE)
+            {
+                self.sampled_projection = projection
+                    .iter()
+                    .filter(|segment| predicates.binary_search(segment).is_err())
+                    .copied()
+                    .collect();
+            }
+            let projection_intent = if self.filter.prefetch_projection() {
+                IoIntent::Prefetch
+            } else {
+                IoIntent::Announce
+            };
             hint(
                 locations,
                 &mut self.next_hint,
-                IoIntent::Announce,
+                projection_intent,
                 &projection,
                 &mut seen,
                 &mut batch,
@@ -290,6 +344,9 @@ impl Planner for FilterPlanner {
             self.pieces.clear();
         }
         if selected.mask.all_false() {
+            let bytes = segment_bytes(&self.scan.locations, &self.sampled_projection);
+            self.filter.projected.fetch_add(bytes, Ordering::Relaxed);
+            self.filter.unneeded.fetch_add(bytes, Ordering::Relaxed);
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
@@ -310,6 +367,25 @@ impl Planner for FilterPlanner {
                 ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
             ));
             return Ok(PlannerOutput::Continue);
+        }
+        if !self.sampled_projection.is_empty() {
+            let locations = &self.scan.locations;
+            self.filter.projected.fetch_add(
+                segment_bytes(locations, &self.sampled_projection),
+                Ordering::Relaxed,
+            );
+            let needed = segments_read(
+                &self.scan.session,
+                std::iter::once(&self.scan.projection),
+                selected.scope.rows.clone(),
+                &selected.mask,
+            )?;
+            self.sampled_projection
+                .retain(|segment| needed.binary_search(segment).is_err());
+            self.filter.unneeded.fetch_add(
+                segment_bytes(locations, &self.sampled_projection),
+                Ordering::Relaxed,
+            );
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");
         Ok(PlannerOutput::Planner(
