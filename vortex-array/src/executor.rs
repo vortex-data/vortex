@@ -852,6 +852,18 @@ impl ExecutionResult {
         }
     }
 
+    /// Like [`execute_slot`](Self::execute_slot), but with a [`DonePredicate`] chosen at runtime.
+    pub(crate) fn execute_slot_until(
+        array: ArrayRef,
+        slot_idx: usize,
+        done: DonePredicate,
+    ) -> Self {
+        Self {
+            array,
+            step: ExecutionStep::ExecuteSlot(slot_idx, done),
+        }
+    }
+
     /// Request that the child slot at `slot_idx` be detached, appended into the current
     /// activation's canonical builder, and leave the returned parent as the next
     /// `current_array`.

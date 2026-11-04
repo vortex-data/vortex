@@ -401,6 +401,65 @@ Rules of thumb:
 - Treat `execute` as the fallback. If no reduce rule or parent kernel applies, the encoding
   decodes itself and uses `ExecuteSlot` or `AppendChild` to tell the scheduler what to do next.
 
+## Executing Scalar Functions
+
+When no reduce rule or parent kernel handles a `ScalarFnArray`, the executor calls its
+`VTable::execute`, as for any other encoding. That passes the array's children as inputs to the
+function's `ScalarFnVTable::execute_step`, which returns a `ScalarFnExecutionResult`:
+
+- `ScalarFnExecutionResult::done(array)` -- the function's result.
+- `ScalarFnExecutionResult::execute_input::<M>(i)` -- a request to execute input `i` until it
+  matches the `Matcher` `M`. The `ScalarFnArray` turns this into `ExecuteSlot(i, M::matches)`,
+  so the scheduler executes the input on its explicit stack and then calls `execute_step` again
+  with the executed input in its place.
+
+`Not` handles constant and canonical boolean inputs, and asks for anything else to be executed
+to columnar form:
+
+```rust
+fn execute_step(
+    &self,
+    _options: &EmptyOptions,
+    args: &dyn ExecutionArgs,
+    _ctx: &mut ExecutionCtx,
+) -> VortexResult<ScalarFnExecutionResult> {
+    match not_columnar(&args.get(0)?, args.row_count())? {
+        Some(result) => Ok(ScalarFnExecutionResult::done(result)),
+        None => Ok(ScalarFnExecutionResult::execute_input::<AnyColumnar>(0)),
+    }
+}
+```
+
+Because the scheduler executes inputs, a deep tree such as `not(not(not(chunked)))` runs without
+recursion, and each input gets its reduce rules and parent kernels applied before it is forced.
+Only request an input that does not already match `M`; such a request cannot make progress and
+fails with an error.
+
+### Migrating from `execute` to `execute_step`
+
+`ScalarFnVTable::execute` is the older API. It runs the function over its inputs and executes
+any input it cannot use inline. `execute_step` replaces it. Until every function is migrated,
+`execute` stays a required method, and `execute_step` defaults to calling it and returning its
+result as `done`.
+
+Vortex only calls `execute` through that default. The iterative executor calls `execute_step`,
+and `ScalarFnRef::execute`, used for example by `scalar_at` on a `ScalarFnArray`, is also
+defined in terms of `execute_step`: on an input request it executes that input one step and
+returns the function lazily over it as a new `ScalarFnArray`. So once a function implements
+`execute_step`, its `execute` is never called.
+
+To migrate a function:
+
+1. Implement `execute_step`. Return `done` for inputs the function can compute over directly.
+2. Where `execute` executed an input itself (for example
+   `child.execute::<ArrayRef>(ctx)?` followed by a retry), return
+   `execute_input::<M>(i)` with the matcher the function needs, such as `AnyColumnar` or
+   `AnyCanonical`.
+3. Replace the body of `execute` with `vortex_panic!`, as `Not` does.
+
+Once every function is migrated, `execute` will be removed from the trait and `execute_step`
+will become required.
+
 ## Future Work
 
 The execution model is designed to support additional function types beyond scalar functions:

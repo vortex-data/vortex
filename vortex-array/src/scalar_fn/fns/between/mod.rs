@@ -24,6 +24,7 @@ use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::dtype::NativePType;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
@@ -76,6 +77,14 @@ impl StrictComparison {
 
     pub const fn is_strict(&self) -> bool {
         matches!(self, StrictComparison::Strict)
+    }
+
+    /// Returns the total-order bound check that this comparison applies to two native values.
+    pub fn to_predicate<T: NativePType>(self) -> fn(T, T) -> bool {
+        match self {
+            StrictComparison::Strict => T::is_lt,
+            StrictComparison::NonStrict => T::is_le,
+        }
     }
 }
 

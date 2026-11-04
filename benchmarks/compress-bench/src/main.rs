@@ -36,6 +36,7 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
+use vortex_bench::datasets::sparse_wide::SparseWide;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
@@ -300,6 +301,7 @@ async fn run_compress(
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .collect();
 
+    let sparse_wide = SparseWide::ALL;
     let all_datasets: Vec<&dyn Dataset> = [
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
@@ -320,6 +322,7 @@ async fn run_compress(
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .chain(sparse_wide.iter().map(|d| d as &dyn Dataset))
     .collect();
 
     let datasets: Vec<&dyn Dataset> = if mode.is_gpu() {

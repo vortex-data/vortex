@@ -6,7 +6,6 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicI32;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use arrow_array::cast::AsArray;
@@ -79,8 +78,7 @@ use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
 use crate::scan::execution::scan_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
-use crate::segments::SegmentFuture;
-use crate::segments::SegmentId;
+use crate::segments::CountingSegmentSource;
 use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
@@ -554,18 +552,6 @@ fn smaller_chunks_keep_file_alignment() {
     );
 }
 
-struct CountingSegments {
-    inner: Arc<dyn SegmentSource>,
-    reads: AtomicUsize,
-}
-
-impl SegmentSource for CountingSegments {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        self.reads.fetch_add(1, Ordering::Relaxed);
-        self.inner.request(id)
-    }
-}
-
 #[tokio::test]
 async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -596,10 +582,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         .await?;
     // Codes index the same values across fixed work chunks and stored chunk boundaries.
     let layout = DictLayout::new(Arc::clone(&ints), ints).into_layout();
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so a chunk reads every codes chunk it overlaps.
@@ -611,9 +594,9 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK)
     );
     for (index, rows) in chunks.into_iter().enumerate() {
-        let before = counted.reads.load(Ordering::Relaxed);
+        let before = counted.requests();
         let arrays = run_rows(&scan, rows.clone()).await?;
-        let reads = counted.reads.load(Ordering::Relaxed) - before;
+        let reads = counted.requests() - before;
         let code_chunks =
             (rows.end - 1) / STORED_CHUNK_ROWS as u64 - rows.start / STORED_CHUNK_ROWS as u64 + 1;
         // The first chunk reads every values chunk once for the whole scan; its codes are one of
@@ -649,10 +632,7 @@ async fn chunks_sharing_a_segment_read_it_once(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     file.cache =
@@ -669,10 +649,7 @@ async fn chunks_sharing_a_segment_read_it_once(
     for rows in row_chunks(scan.rows().clone(), chunk_rows) {
         run_rows(&scan, rows).await?;
     }
-    assert_eq!(
-        counted.reads.load(Ordering::Relaxed),
-        CHUNKS * reads_per_segment
-    );
+    assert_eq!(counted.requests(), CHUNKS * reads_per_segment);
     Ok(())
 }
 
@@ -791,10 +768,7 @@ async fn scan_cache_reuses_values_between_scans(
     let values = chunked_ints(&session, &segments).await?;
     let codes = chunked_ints(&session, &segments).await?;
     let layout = DictLayout::new(values, codes).into_layout();
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
@@ -802,7 +776,7 @@ async fn scan_cache_reuses_values_between_scans(
 
     let mut reads = Vec::new();
     for _ in 0..2 {
-        let before = counted.reads.load(Ordering::Relaxed);
+        let before = counted.requests();
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![12u64, 15]))?);
         let actual = collect_scan(layout.dtype().clone(), scan).await?;
@@ -811,7 +785,7 @@ async fn scan_cache_reuses_values_between_scans(
             PrimitiveArray::from_iter([12i32, 15]),
             &mut session.create_execution_ctx()
         );
-        reads.push(counted.reads.load(Ordering::Relaxed) - before);
+        reads.push(counted.requests() - before);
     }
     // Every values chunk and the one selected codes chunk, then only the codes chunk if cached.
     assert_eq!(reads, vec![4, second_scan_reads]);
@@ -850,10 +824,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let values = chunked_ints(&session, &segments).await?;
     let codes = chunked_ints(&session, &segments).await?;
     let layout = DictLayout::new(values, codes).into_layout();
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
@@ -862,7 +833,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let projection = gt(root(), lit(15i32)).bind(layout.dtype())?;
     let mut reads = Vec::new();
     for _ in 0..3 {
-        let before = counted.reads.load(Ordering::Relaxed);
+        let before = counted.requests();
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_projection(projection.clone())
             .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![12u64, 18]))?);
@@ -872,7 +843,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
             vortex_array::arrays::BoolArray::from_iter([false, true]),
             &mut session.create_execution_ctx()
         );
-        reads.push(counted.reads.load(Ordering::Relaxed) - before);
+        reads.push(counted.requests() - before);
     }
     assert_eq!(reads, vec![4, 1, 1]);
     Ok(())
@@ -976,10 +947,7 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
 async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     file.cache = Some(ScanCache::with_retained_bytes(0));
@@ -1002,14 +970,14 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
     );
 
     let all = prune(&scan, scan.rows().clone()).await?;
-    let reads = counted.reads.load(Ordering::Relaxed);
+    let reads = counted.requests();
     assert!(reads > 0, "the first pruning reads the zone maps");
     assert_eq!(all.map(|kept| kept.true_count()), Some(4_000));
 
     bound.store(2_999, Ordering::Relaxed);
     let part = prune(&scan, 1_000..4_000).await?;
     assert_eq!(part.map(|kept| kept.true_count()), Some(1_000));
-    assert_eq!(counted.reads.load(Ordering::Relaxed), reads);
+    assert_eq!(counted.requests(), reads);
     Ok(())
 }
 
@@ -1020,10 +988,7 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
 async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
-    let counted = Arc::new(CountingSegments {
-        inner: segments,
-        reads: AtomicUsize::new(0),
-    });
+    let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the proved zones come from the cache.
@@ -1035,14 +1000,14 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
 
     let mut reads = Vec::new();
     for _ in 0..2 {
-        let before = counted.reads.load(Ordering::Relaxed);
+        let before = counted.requests();
         let projection = projection()?;
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_projection(projection.clone())
             .with_some_filter(Some(filter()?));
         let actual = collect_scan(projection.dtype().clone(), scan).await?;
         assert_eq!(actual.len(), 1_000);
-        reads.push(counted.reads.load(Ordering::Relaxed) - before);
+        reads.push(counted.requests() - before);
     }
     let plans = cache
         .filter_plans(&filter()?)

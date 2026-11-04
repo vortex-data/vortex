@@ -6,7 +6,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from bench_orchestrator.config import BENCHMARK_SCAN_V2, Benchmark, Engine, Format
+from bench_orchestrator.config import BENCHMARK_SCAN_V1, Benchmark, Engine, Format
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
@@ -47,8 +47,8 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
     assert cmd[cmd.index("--formats") + 1] == "parquet,vortex,vortex-spatial-native"
 
 
-def test_every_benchmark_has_a_scan_version() -> None:
-    assert set(BENCHMARK_SCAN_V2) == set(Benchmark)
+def test_scan_v1_benchmarks_are_explicit() -> None:
+    assert BENCHMARK_SCAN_V1 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN}
 
 
 @pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
@@ -58,7 +58,8 @@ def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark
 
     cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
 
-    assert cmd[cmd.index("--scan-v2") + 1] == str(BENCHMARK_SCAN_V2[benchmark]).lower()
+    expected = "true" if benchmark in BENCHMARK_SCAN_V1 else "false"
+    assert cmd[cmd.index("--scan-v1") + 1] == expected
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -72,7 +73,7 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
-    assert "--scan-v2" not in cmd
+    assert "--scan-v1" not in cmd
     assert cmd[cmd.index("--queries") + 1] == "3"
 
 

@@ -32,6 +32,7 @@
     reason = "out-of-range views and overflowing sizes are caller bugs, as with std slices"
 )]
 
+use std::ffi::c_uint;
 use std::marker::PhantomData;
 use std::ops::Bound;
 use std::ops::RangeBounds;
@@ -103,7 +104,14 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let context = stream.context();
-        stream.bind()?;
+        // Access events come from the accessing stream's context and return to the pool of
+        // whichever context later releases them, and events record only on their own context.
+        assert_eq!(
+            context.cu_ctx(),
+            owner.context().cu_ctx(),
+            "CUDA memory accessed from a stream of another context"
+        );
+        stream.make_current()?;
         let mut state = self.state.lock();
         let id = stream.id();
         if let Some(write) = state.write
@@ -156,18 +164,23 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let context = stream.context();
-        stream.bind()?;
+        stream.make_current()?;
         let mut state = self.state.lock();
         let id = stream.id();
         match kind {
             AccessKind::Write => {
                 // Readers and older writes are ordered before this write by `before`, so only
                 // this write remains to be followed.
-                let event = match state.write.take() {
+                let event = match state.write {
                     Some(previous) => previous.event,
                     None => context.take_event()?,
                 };
-                stream.record_raw(event)?;
+                if let Err(error) = stream.record_raw(event) {
+                    if state.write.is_none() {
+                        context.give_event(event);
+                    }
+                    return Err(error);
+                }
                 state.write = Some(Recorded { stream: id, event });
                 state.waited.clear();
                 for read in state.reads.drain(..) {
@@ -181,23 +194,46 @@ impl Access {
                 state.allocation_stream_pending = true;
             }
             AccessKind::Read => {
-                let event = match state.reads.iter().position(|read| read.stream == id) {
+                let index = state.reads.iter().position(|read| read.stream == id);
+                let event = match index {
                     Some(index) => state.reads[index].event,
-                    None => {
-                        let event = context.take_event()?;
-                        state.reads.push(Recorded { stream: id, event });
-                        event
-                    }
+                    None => context.take_event()?,
                 };
-                stream.record_raw(event)?;
+                if let Err(error) = stream.record_raw(event) {
+                    if index.is_none() {
+                        context.give_event(event);
+                    }
+                    return Err(error);
+                }
+                if index.is_none() {
+                    state.reads.push(Recorded { stream: id, event });
+                }
             }
         }
         Ok(())
     }
 
+    /// Like [`after`](Self::after), but if recording fails, waits for the access to complete
+    /// instead, so later accesses and the free need not follow it.
+    ///
+    /// The access is already enqueued, so its memory must not be reused before it completes.
+    pub(crate) fn after_or_wait(
+        &self,
+        owner: &CudaStream,
+        stream: &CudaStream,
+        kind: AccessKind,
+    ) -> Result<(), DriverError> {
+        let recorded = self.after(owner, stream, kind);
+        if recorded.is_err() {
+            // If this fails too, the context is broken and its work does not complete.
+            stream.context().record_err(stream.synchronize_in_place());
+        }
+        recorded
+    }
+
     /// Makes the allocation stream wait for every other stream's access before a free.
     fn before_free(&self, owner: &CudaStream) -> Result<(), DriverError> {
-        owner.bind()?;
+        owner.make_current()?;
         let state = self.state.lock();
         let id = owner.id();
         if let Some(write) = state.write
@@ -237,6 +273,7 @@ enum Pending<'a> {
     None,
     Access(&'a Access, &'a CudaStream, &'a CudaStream, AccessKind),
     Event(&'a CudaEvent, &'a CudaStream),
+    Wait(&'a CudaStream),
 }
 
 impl<'a> SyncOnDrop<'a> {
@@ -264,6 +301,21 @@ impl<'a> SyncOnDrop<'a> {
             pending: Pending::Event(event, stream),
         }
     }
+
+    /// A guard that waits for `stream`'s work when dropped.
+    pub fn wait_for(stream: &'a CudaStream) -> Self {
+        Self {
+            pending: Pending::Wait(stream),
+        }
+    }
+
+    /// Disarms a wait already satisfied by a successful synchronization of `stream`.
+    /// Other streams' waits and access/event recording must still run on drop.
+    fn disarm_wait_for(&mut self, stream: &CudaStream) {
+        if matches!(&self.pending, Pending::Wait(waiting) if waiting.id() == stream.id()) {
+            self.pending = Pending::None;
+        }
+    }
 }
 
 impl Drop for SyncOnDrop<'_> {
@@ -273,10 +325,18 @@ impl Drop for SyncOnDrop<'_> {
             Pending::Access(access, owner, stream, kind) => {
                 stream
                     .context()
-                    .record_err(access.after(owner, stream, kind));
+                    .record_err(access.after_or_wait(owner, stream, kind));
             }
             Pending::Event(event, stream) => {
-                stream.context().record_err(event.record(stream));
+                stream.context().record_err(
+                    stream
+                        .make_current()
+                        .and_then(|()| stream.record_raw(event.cu_event())),
+                );
+            }
+            Pending::Wait(stream) => {
+                // If this fails, the context is broken and its copies do not complete.
+                stream.context().record_err(stream.synchronize_in_place());
             }
         }
     }
@@ -288,6 +348,7 @@ impl std::fmt::Debug for SyncOnDrop<'_> {
             Pending::None => "none",
             Pending::Access(..) => "access",
             Pending::Event(..) => "event",
+            Pending::Wait(..) => "wait",
         };
         f.debug_struct("SyncOnDrop")
             .field("pending", &pending)
@@ -323,8 +384,12 @@ impl<T> std::fmt::Debug for CudaSlice<T> {
 impl<T> Drop for CudaSlice<T> {
     fn drop(&mut self) {
         let context = self.stream.context();
-        context.record_err(self.access.before_free(&self.stream));
-        context.record_err(self.stream.free_raw(self.pointer));
+        // If ordering fails, other streams may still access the memory: leak it instead.
+        context.record_err(
+            self.access
+                .before_free(&self.stream)
+                .and_then(|()| self.stream.free_raw(self.pointer)),
+        );
         self.access.release(context);
     }
 }
@@ -429,9 +494,9 @@ impl<T> CudaSlice<T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`.
+    /// The bytes must be valid values of `S`, and the memory must be aligned for `S`.
     pub unsafe fn transmute<S>(&self, len: usize) -> Option<CudaView<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaView {
+        fits::<S>(len, self.num_bytes()).then_some(CudaView {
             pointer: self.pointer,
             len,
             access: &self.access,
@@ -444,9 +509,10 @@ impl<T> CudaSlice<T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`, and `T` must accept any bytes written as `S`.
+    /// The bytes must be valid values of `S`, the memory must be aligned for `S`, and `T` must
+    /// accept any bytes written as `S`.
     pub unsafe fn transmute_mut<S>(&mut self, len: usize) -> Option<CudaViewMut<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaViewMut {
+        fits::<S>(len, self.num_bytes()).then_some(CudaViewMut {
             pointer: self.pointer,
             len,
             access: &self.access,
@@ -461,6 +527,12 @@ impl<T: DeviceRepr> CudaSlice<T> {
     pub fn try_clone(&self) -> Result<Self, DriverError> {
         self.stream.clone_dtod(self)
     }
+}
+
+/// Whether `len` elements of `S` fit in `bytes`; an overflowing size does not.
+fn fits<S>(len: usize, bytes: usize) -> bool {
+    len.checked_mul(size_of::<S>())
+        .is_some_and(|needed| needed <= bytes)
 }
 
 /// Resolves `bounds` against `len`, if in range.
@@ -544,9 +616,9 @@ impl<'a, T> CudaView<'a, T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`.
+    /// The bytes must be valid values of `S`, and the memory must be aligned for `S`.
     pub unsafe fn transmute<S>(&self, len: usize) -> Option<CudaView<'a, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaView {
+        fits::<S>(len, self.num_bytes()).then_some(CudaView {
             pointer: self.pointer,
             len,
             access: self.access,
@@ -656,9 +728,10 @@ impl<'a, T> CudaViewMut<'a, T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`, and `T` must accept any bytes written as `S`.
+    /// The bytes must be valid values of `S`, the memory must be aligned for `S`, and `T` must
+    /// accept any bytes written as `S`.
     pub unsafe fn transmute_mut<S>(&mut self, len: usize) -> Option<CudaViewMut<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaViewMut {
+        fits::<S>(len, self.num_bytes()).then_some(CudaViewMut {
             pointer: self.pointer,
             len,
             access: self.access,
@@ -675,20 +748,36 @@ impl<'a, T> CudaViewMut<'a, T> {
 }
 
 /// Orders `stream` after earlier conflicting accesses and returns the guard recording this one.
+///
+/// Callers enqueue work with the pointer even if ordering it fails, so a failure falls back to
+/// completing all work enqueued in the context so far, which the access then follows too.
 fn access<'a>(
     access: &'a Access,
     owner: &'a CudaStream,
     stream: &'a CudaStream,
     kind: AccessKind,
 ) -> SyncOnDrop<'a> {
-    stream
-        .context()
-        .record_err(access.before(owner, stream, kind));
+    if let Err(error) = access.before(owner, stream, kind) {
+        let context = stream.context();
+        context.record_err::<()>(Err(error));
+        // If this fails too, the context is broken and rejects the access's work as well.
+        context.record_err(context.synchronize_in_place());
+    }
     SyncOnDrop::new(access, owner, stream, kind)
 }
 
+/// Keeps the device memory traits implemented only here: copies trust their lengths and access
+/// tracking for memory safety.
+mod sealed {
+    pub trait Sealed {}
+}
+
+impl<T> sealed::Sealed for CudaSlice<T> {}
+impl<T> sealed::Sealed for CudaView<'_, T> {}
+impl<T> sealed::Sealed for CudaViewMut<'_, T> {}
+
 /// Device memory with a length and an allocation stream.
-pub trait DeviceSlice<T> {
+pub trait DeviceSlice<T>: sealed::Sealed {
     /// The number of elements.
     fn len(&self) -> usize;
 
@@ -711,6 +800,12 @@ pub trait DevicePtr<T>: DeviceSlice<T> {
     /// The device pointer for reading on `stream`, which first waits for earlier writes.
     ///
     /// Drop the guard after the read is enqueued.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream` belongs to a different underlying CUDA context than the allocation,
+    /// even on the same device. Different streams and context wrappers sharing the same CUDA
+    /// context are supported.
     fn device_ptr<'a>(&'a self, stream: &'a CudaStream) -> (sys::CUdeviceptr, SyncOnDrop<'a>);
 }
 
@@ -719,6 +814,12 @@ pub trait DevicePtrMut<T>: DeviceSlice<T> {
     /// The device pointer for writing on `stream`, which first waits for earlier accesses.
     ///
     /// Drop the guard after the write is enqueued.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream` belongs to a different underlying CUDA context than the allocation,
+    /// even on the same device. Different streams and context wrappers sharing the same CUDA
+    /// context are supported.
     fn device_ptr_mut<'a>(
         &'a mut self,
         stream: &'a CudaStream,
@@ -873,6 +974,45 @@ pub trait HostSlice<T> {
     ) -> (&'a mut [T], SyncOnDrop<'a>);
 }
 
+/// The guard of a copy of a borrowed host slice on `stream`, which must not outlive the borrow.
+///
+/// Copies read and write page-locked memory asynchronously, so the guard waits for them. The
+/// driver stages copies of pageable memory, which no longer read the slice once enqueued.
+fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
+    let mut memory_type: c_uint = 0;
+    let mut attribute = sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE;
+    let mut data = (&raw mut memory_type).cast();
+
+    let result = stream.make_current().and_then(|()| {
+        // The plural API succeeds with a zero memory type for unregistered pageable pointers.
+        // The singular API returns INVALID_VALUE, which Compute Sanitizer reports even if handled.
+        // SAFETY: The context is current; attribute and data each hold one entry,
+        // and data points to writable memory_type storage.
+        unsafe {
+            sys::cuPointerGetAttributes(
+                1,
+                &raw mut attribute,
+                &raw mut data,
+                slice.as_ptr() as sys::CUdeviceptr,
+            )
+        }
+        .result()
+    });
+
+    match result {
+        // CUDA accesses pinned host memory directly, without pageable-memory staging.
+        // Wait before ending the borrow so the caller cannot free or modify memory still in use.
+        Ok(()) if memory_type == sys::CU_MEMORYTYPE_HOST => SyncOnDrop::wait_for(stream),
+        Ok(()) => SyncOnDrop::none(),
+        Err(error) => {
+            // Neither binding nor query failures establish that the memory is pageable.
+            // HostSlice cannot return an error, so record it for the caller and wait conservatively.
+            stream.context().record_err::<()>(Err(error));
+            SyncOnDrop::wait_for(stream)
+        }
+    }
+}
+
 impl<T> HostSlice<T> for [T] {
     fn len(&self) -> usize {
         <[T]>::len(self)
@@ -880,16 +1020,17 @@ impl<T> HostSlice<T> for [T] {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -900,16 +1041,17 @@ impl<T, const N: usize> HostSlice<T> for [T; N] {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -920,16 +1062,17 @@ impl<T> HostSlice<T> for Vec<T> {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -985,8 +1128,9 @@ impl CudaStream {
 
     /// Copies `source` into `target` on this stream.
     ///
-    /// Pageable sources are staged by the driver before this returns; page-locked sources must
-    /// stay alive and unmodified until the copy completes.
+    /// Returns once the copy no longer reads `source`, as the guard of its [`HostSlice`]
+    /// implementation ensures: for slices, the driver stages pageable memory before this
+    /// returns, and the guard waits for copies of page-locked memory.
     ///
     /// # Panics
     ///
@@ -996,9 +1140,30 @@ impl CudaStream {
         source: &Source,
         target: &mut Target,
     ) -> Result<(), DriverError> {
-        assert!(target.len() >= source.len());
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
         let (source, _record_source) = unsafe { source.stream_synced_slice(self) };
+        // SAFETY: The guard keeps the source borrowed until the copy no longer reads it.
+        unsafe { self.memcpy_htod_async(source, target) }
+    }
+
+    /// Copies `source` into `target` on this stream, without waiting for copies of page-locked
+    /// memory.
+    ///
+    /// # Safety
+    ///
+    /// `source` must stay alive and unmodified until the copy completes, such as until an event
+    /// recorded after it completes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `target` is shorter than `source`.
+    pub unsafe fn memcpy_htod_async<T: DeviceRepr, Target: DevicePtrMut<T>>(
+        self: &Arc<Self>,
+        source: &[T],
+        target: &mut Target,
+    ) -> Result<(), DriverError> {
+        // The copied slice, not `HostSlice::len`, bounds the copy.
+        assert!(target.len() >= source.len());
         let (pointer, _record) = target.device_ptr_mut(self);
         self.bind()?;
         // SAFETY: The target holds at least `size_of_val(source)` bytes, ordered for writing.
@@ -1048,9 +1213,10 @@ impl CudaStream {
         source: &Source,
         target: &mut Target,
     ) -> Result<(), DriverError> {
-        assert!(target.len() >= source.len());
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
-        let (target, _record_target) = unsafe { target.stream_synced_mut_slice(self) };
+        let (target, mut record_target) = unsafe { target.stream_synced_mut_slice(self) };
+        // The copied slice, not `HostSlice::len`, bounds the copy.
+        assert!(target.len() >= source.len());
         let (pointer, _record) = source.device_ptr(self);
         self.bind()?;
         // SAFETY: The target holds at least `source.num_bytes()` bytes; the copy completes
@@ -1063,8 +1229,12 @@ impl CudaStream {
                 self.cu_stream(),
             )
             .result()?;
-            sys::cuStreamSynchronize(self.cu_stream()).result()
+            sys::cuStreamSynchronize(self.cu_stream()).result()?;
         }
+        // The successful synchronization already satisfied a pinned target's same-stream wait.
+        // Avoid synchronizing again on drop, while preserving other-stream waits and recording guards.
+        record_target.disarm_wait_for(self);
+        Ok(())
     }
 
     /// Copies `source` into `target` on this stream.
@@ -1095,5 +1265,69 @@ impl CudaStream {
         let mut target = unsafe { self.alloc(source.len()) }?;
         self.memcpy_dtod(source, &mut target)?;
         Ok(target)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Run under Compute Sanitizer to also catch API errors from pageable-pointer probing.
+    #[test]
+    fn borrowed_host_slices_wait_only_for_pinned_memory() -> Result<(), DriverError> {
+        // SAFETY: Only probes for the driver library.
+        if !unsafe { sys::is_culib_present() } {
+            return Ok(());
+        }
+        let Ok(context) = CudaContext::new(0) else {
+            return Ok(());
+        };
+        let stream = context.new_stream()?;
+        let pageable = [0u8; 16];
+        let guard = borrowed(&pageable, &stream);
+        assert!(matches!(guard.pending, Pending::None));
+        drop(guard);
+
+        // SAFETY: The context is current, and the allocation is freed below.
+        let pointer = unsafe { crate::result::malloc_host(16, 0) }?;
+        // SAFETY: The allocation holds 16 writable bytes, initialized before creating the slice.
+        let pinned = unsafe {
+            pointer.cast::<u8>().write_bytes(0, 16);
+            std::slice::from_raw_parts(pointer.cast::<u8>(), 16)
+        };
+        let guard = borrowed(pinned, &stream);
+        let waits = matches!(guard.pending, Pending::Wait(waiting) if waiting.id() == stream.id());
+        drop(guard);
+        // SAFETY: No work or guard accesses the allocation anymore.
+        unsafe { crate::result::free_host(pointer) }?;
+        assert!(waits);
+        context.check_err()
+    }
+
+    #[test]
+    fn disarms_only_waits_for_the_synchronized_stream() -> Result<(), DriverError> {
+        // SAFETY: Only probes for the driver library.
+        if !unsafe { sys::is_culib_present() } {
+            return Ok(());
+        }
+        let Ok(context) = CudaContext::new(0) else {
+            return Ok(());
+        };
+        let stream = context.new_stream()?;
+        let other = context.new_stream()?;
+        let event = context.new_event(None)?;
+        let mut wait = SyncOnDrop::wait_for(&stream);
+        let mut other_wait = SyncOnDrop::wait_for(&other);
+        let mut record = SyncOnDrop::record_event(&event, &stream);
+
+        stream.synchronize()?;
+        wait.disarm_wait_for(&stream);
+        other_wait.disarm_wait_for(&stream);
+        record.disarm_wait_for(&stream);
+        assert!(matches!(wait.pending, Pending::None));
+        assert!(matches!(other_wait.pending, Pending::Wait(_)));
+        assert!(matches!(record.pending, Pending::Event(..)));
+        drop((wait, other_wait, record));
+        context.check_err()
     }
 }

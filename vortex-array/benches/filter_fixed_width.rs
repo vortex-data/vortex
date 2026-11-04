@@ -62,12 +62,11 @@ const CACHED_DENSITIES: &[f64] = &[0.01, 0.1];
 
 #[derive(Clone, Copy, Debug)]
 enum Pattern {
-    Random,
     Runs,
     Contiguous,
 }
 
-const PATTERNS: &[Pattern] = &[Pattern::Random, Pattern::Runs, Pattern::Contiguous];
+const PATTERNS: &[Pattern] = &[Pattern::Runs, Pattern::Contiguous];
 
 fn random_mask(len: usize, density: f64) -> Mask {
     let threshold = (density * u64::MAX as f64) as u64;
@@ -82,7 +81,6 @@ fn random_mask(len: usize, density: f64) -> Mask {
 
 fn pattern_mask(len: usize, pattern: Pattern) -> Mask {
     match pattern {
-        Pattern::Random => random_mask(len, 0.5),
         Pattern::Runs => Mask::from_iter((0..len).map(|index| (index / 32).is_multiple_of(2))),
         Pattern::Contiguous => Mask::from_slices(len, vec![(len / 4, len * 3 / 4)]),
     }

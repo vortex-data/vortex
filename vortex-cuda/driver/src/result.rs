@@ -4,6 +4,7 @@
 //! Driver calls returning [`Result`]s, for callers that need the raw handles.
 
 use std::ffi::CStr;
+use std::ffi::c_char;
 use std::ffi::c_uint;
 use std::ffi::c_void;
 use std::fmt;
@@ -19,25 +20,40 @@ pub struct DriverError(pub CUresult);
 impl DriverError {
     /// The driver's name for the error, such as `CUDA_ERROR_INVALID_VALUE`.
     pub fn error_name(&self) -> Result<&'static CStr, DriverError> {
-        let mut name = std::ptr::null();
-        // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorName(self.0, &raw mut name) }.result()?;
-        // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(name) })
+        self.describe(sys::cuGetErrorName)
     }
 
     /// The driver's description of the error.
     pub fn error_string(&self) -> Result<&'static CStr, DriverError> {
-        let mut description = std::ptr::null();
+        self.describe(sys::cuGetErrorString)
+    }
+
+    /// Returns the static error name or description written by `describe`.
+    fn describe(
+        &self,
+        describe: unsafe fn(CUresult, *mut *const c_char) -> CUresult,
+    ) -> Result<&'static CStr, DriverError> {
+        // Errors are formatted even when the driver library is missing.
+        if !is_cuda_driver_present() {
+            return Err(*self);
+        }
+        let mut text = std::ptr::null();
         // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorString(self.0, &raw mut description) }.result()?;
+        unsafe { describe(self.0, &raw mut text) }.result()?;
         // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(description) })
+        Ok(unsafe { CStr::from_ptr(text) })
     }
 }
 
 impl fmt::Debug for DriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(reason) = sys::driver_load_error() {
+            return write!(
+                f,
+                "DriverError({}, CUDA driver unavailable: {reason})",
+                self.0.0
+            );
+        }
         match self.error_name() {
             Ok(name) => write!(f, "DriverError({}, {})", self.0.0, name.to_string_lossy()),
             Err(_) => write!(f, "DriverError({})", self.0.0),
@@ -47,6 +63,9 @@ impl fmt::Debug for DriverError {
 
 impl fmt::Display for DriverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(reason) = sys::driver_load_error() {
+            return write!(f, "CUDA driver unavailable: {reason}");
+        }
         match (self.error_name(), self.error_string()) {
             (Ok(name), Ok(description)) => write!(
                 f,
@@ -74,9 +93,21 @@ impl CUresult {
 }
 
 /// Initializes the driver; repeated calls are cheap.
+///
+/// Fails with `CUDA_ERROR_NOT_INITIALIZED` if the driver library cannot be loaded, where the raw
+/// [`sys`] functions would panic, so that the safe API reports a host without CUDA as an error.
 pub fn init() -> Result<(), DriverError> {
+    if !is_cuda_driver_present() {
+        return Err(DriverError(CUresult::CUDA_ERROR_NOT_INITIALIZED));
+    }
     // SAFETY: cuInit has no preconditions.
     unsafe { sys::cuInit(0) }.result()
+}
+
+/// Whether the driver library is loaded, which the raw [`sys`] functions require.
+fn is_cuda_driver_present() -> bool {
+    // SAFETY: Loads the driver library, which any driver call would load as well.
+    unsafe { sys::is_culib_present() }
 }
 
 /// Allocates `bytes` of page-locked host memory with the given `cuMemHostAlloc` flags.
@@ -238,6 +269,25 @@ pub mod stream {
     ) -> Result<(), DriverError> {
         // SAFETY: Under the caller's guarantees.
         unsafe { sys::cuLaunchHostFunc(stream, Some(function), argument) }.result()
+    }
+
+    /// Enqueues `callback` on `stream` with the status of the preceding work.
+    ///
+    /// After successful registration, the driver calls it exactly once, even after a device
+    /// error. Unlike a host function, it is not skipped on error, so it can reclaim resources
+    /// owned through `argument`.
+    ///
+    /// # Safety
+    ///
+    /// `stream` must be valid, and `callback` must be safe to call once with `argument` from a
+    /// driver thread, without making CUDA calls.
+    pub unsafe fn add_callback(
+        stream: sys::CUstream,
+        callback: unsafe extern "C" fn(sys::CUstream, CUresult, *mut c_void),
+        argument: *mut c_void,
+    ) -> Result<(), DriverError> {
+        // SAFETY: Under the caller's guarantees; the flags are reserved and must be zero.
+        unsafe { sys::cuStreamAddCallback(stream, Some(callback), argument, 0) }.result()
     }
 }
 

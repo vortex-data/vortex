@@ -38,27 +38,38 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, f64, f64)] = &[
-    // length, fraction_patch, fraction_valid
-    (1_000, 0.0, 0.25),
-    (1_000, 0.01, 0.25),
-    (1_000, 0.1, 0.25),
-    (1_000, 0.0, 0.95),
-    (1_000, 0.01, 0.95),
-    (1_000, 0.1, 0.95),
-    (1_000, 0.0, 1.0),
-    (1_000, 0.01, 1.0),
-    (1_000, 0.1, 1.0),
-    (10_000, 0.0, 0.25),
-    (10_000, 0.01, 0.25),
-    (10_000, 0.1, 0.25),
-    (10_000, 0.0, 0.95),
-    (10_000, 0.01, 0.95),
-    (10_000, 0.1, 0.95),
-    (10_000, 0.0, 1.0),
-    (10_000, 0.01, 1.0),
-    (10_000, 0.1, 1.0),
-];
+const BENCH_ARGS: &[(usize, f64, f64)] = if cfg!(codspeed) {
+    &[
+        // length, fraction_patch, fraction_valid
+        (1_000, 0.01, 1.0),
+        (10_000, 0.0, 1.0),
+        (10_000, 0.01, 1.0),
+        (10_000, 0.1, 1.0),
+        (10_000, 0.01, 0.95),
+    ]
+} else {
+    &[
+        // length, fraction_patch, fraction_valid
+        (1_000, 0.0, 0.25),
+        (1_000, 0.01, 0.25),
+        (1_000, 0.1, 0.25),
+        (1_000, 0.0, 0.95),
+        (1_000, 0.01, 0.95),
+        (1_000, 0.1, 0.95),
+        (1_000, 0.0, 1.0),
+        (1_000, 0.01, 1.0),
+        (1_000, 0.1, 1.0),
+        (10_000, 0.0, 0.25),
+        (10_000, 0.01, 0.25),
+        (10_000, 0.1, 0.25),
+        (10_000, 0.0, 0.95),
+        (10_000, 0.01, 0.95),
+        (10_000, 0.1, 0.95),
+        (10_000, 0.0, 1.0),
+        (10_000, 0.01, 1.0),
+        (10_000, 0.1, 1.0),
+    ]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -128,15 +139,25 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
         .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
 }
 
-const RD_BENCH_ARGS: &[(usize, f64)] = &[
-    // length, fraction_patch
-    (2_000, 0.0),
-    (2_000, 0.01),
-    (2_000, 0.1),
-    (10_000, 0.0),
-    (10_000, 0.01),
-    (10_000, 0.1),
-];
+const RD_BENCH_ARGS: &[(usize, f64)] = if cfg!(codspeed) {
+    &[
+        // length, fraction_patch
+        (2_000, 0.01),
+        (10_000, 0.0),
+        (10_000, 0.01),
+        (10_000, 0.1),
+    ]
+} else {
+    &[
+        // length, fraction_patch
+        (2_000, 0.0),
+        (2_000, 0.01),
+        (2_000, 0.1),
+        (10_000, 0.0),
+        (10_000, 0.01),
+        (10_000, 0.1),
+    ]
+};
 
 fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> PrimitiveArray {
     let base_val = T::from(1.23).unwrap();

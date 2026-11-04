@@ -13,11 +13,12 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::cast_keeping_nullability;
 use crate::arrays::widen::compute::constant_fits_values;
-use crate::arrays::widen::compute::constant_in_values_ptype;
+use crate::arrays::widen::compute::constant_in_values_dtype;
 use crate::arrays::widen::compute::ptype_holding_both_values;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -50,24 +51,47 @@ impl CompareKernel for Widen {
             return compare_out_of_range(lhs, constant, operator, ctx).map(Some);
         }
 
-        let constant = constant_in_values_ptype(constant, values, lhs.len())?;
+        let constant = constant_in_values_dtype(constant, values, lhs.len())?;
 
         values.binary(constant, Operator::from(operator)).map(Some)
     }
 }
 
 /// Compares the values of two `Widen` arrays at the wider of the two value types.
+///
+/// Decimal values with the same scale compare at the larger of the two child precisions, which
+/// holds every value of both children.
 fn compare_narrow_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
     operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(ptype) = ptype_holding_both_values(lhs, rhs) else {
-        return Ok(None);
-    };
+    let lhs_values = lhs.values();
+    let rhs_values = rhs.values();
 
-    let lhs_values = cast_keeping_nullability(lhs.values(), ptype)?;
-    let rhs_values = cast_keeping_nullability(rhs.values(), ptype)?;
+    let dtype = match (lhs_values.dtype(), rhs_values.dtype()) {
+        (DType::Primitive(..), DType::Primitive(..)) => {
+            let Some(ptype) = ptype_holding_both_values(lhs, rhs) else {
+                return Ok(None);
+            };
+
+            DType::from(ptype)
+        }
+        (DType::Decimal(lhs_dtype, _), DType::Decimal(rhs_dtype, _))
+            if lhs_dtype.scale() == rhs_dtype.scale() =>
+        {
+            DType::Decimal(
+                DecimalDType::new(
+                    lhs_dtype.precision().max(rhs_dtype.precision()),
+                    lhs_dtype.scale(),
+                ),
+                lhs_values.dtype().nullability(),
+            )
+        }
+        _ => return Ok(None),
+    };
+    let lhs_values = lhs_values.cast(dtype.with_nullability(lhs_values.dtype().nullability()))?;
+    let rhs_values = rhs_values.cast(dtype.with_nullability(rhs_values.dtype().nullability()))?;
 
     lhs_values
         .binary(rhs_values, Operator::from(operator))
