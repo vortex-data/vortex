@@ -17,6 +17,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -93,6 +94,7 @@ fn array(name: &str) -> ArrayRef {
 #[divan::bench(args = ARRAYS)]
 fn once(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
@@ -110,6 +112,7 @@ fn once(bencher: Bencher, name: &str) {
 #[divan::bench(args = ARRAYS)]
 fn repeated(bencher: Bencher, name: &str) {
     let array = array(name);
+    mark_optimized(&array, &SESSION).vortex_expect("optimize the benchmark input");
     let indices = indices();
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))

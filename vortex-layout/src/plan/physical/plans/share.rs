@@ -9,18 +9,16 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::arrays::shared::Shared;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::UNBOUNDED;
 use crate::plan::physical::operators::WholeSource;
@@ -51,7 +49,7 @@ impl SharePlan {
             vtable: Share,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
-            children: vec![child].into(),
+            slots: [child].into(),
             data: ShareData,
         }
         .into_typed()
@@ -59,7 +57,7 @@ impl SharePlan {
 
     /// Returns the shared plan.
     pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.child_required(0)
+        self.slot_required(0)
     }
 }
 
@@ -76,26 +74,24 @@ impl PlanVTable for Share {
         Some(EmptyMetadata)
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("Share", children, 1)?;
-        let child = children
-            .get(0)?
-            .ok_or_else(|| vortex_err!("Share child is absent"))?;
+        slots.check_len("Share", 1)?;
+        let child = slots.required(0)?;
         if child.dtype() != plan.dtype() || child.row_count() != plan.row_count() {
             vortex_bail!("Share child does not match the share's dtype and row count");
         }
         Ok(())
     }
 
-    fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+    fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         if index == 0 {
             Cow::Borrowed("child")
         } else {
-            Cow::Owned(format!("child[{index}]"))
+            Cow::Owned(format!("slot[{index}]"))
         }
     }
 

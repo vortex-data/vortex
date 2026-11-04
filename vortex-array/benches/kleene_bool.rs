@@ -21,6 +21,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -181,6 +182,9 @@ fn or_null_constant_shifted(bencher: Bencher) {
 }
 
 fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
 
     bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
@@ -193,6 +197,9 @@ fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operat
 }
 
 fn bench_kleene_constant_fold(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
 
     bencher.bench_local(|| {

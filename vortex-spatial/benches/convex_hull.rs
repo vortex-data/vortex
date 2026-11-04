@@ -27,6 +27,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
@@ -96,6 +97,8 @@ fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 }
 
 fn bench_hulls(bencher: Bencher, input: ArrayRef) {
+    mark_optimized(&input, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(input.len()))

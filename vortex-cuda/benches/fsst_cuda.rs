@@ -35,6 +35,7 @@ use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::VarBinExportLayout;
@@ -121,8 +122,12 @@ fn make_fixture(n: usize) -> FSSTBenchFixture {
     .vortex_expect("rebuild FSST fixture with Binary dtype")
     .into_array();
 
+    let utf8 = fsst.into_array();
+    mark_optimized(&utf8, &vortex_cuda::cuda_session()).unwrap();
+    mark_optimized(&binary, &vortex_cuda::cuda_session()).unwrap();
+
     FSSTBenchFixture {
-        utf8: fsst.into_array(),
+        utf8,
         binary,
         uncompressed_size,
     }

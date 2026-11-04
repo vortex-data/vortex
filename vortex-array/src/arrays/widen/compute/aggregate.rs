@@ -86,6 +86,9 @@ fn aggregate_decimal(
         return Ok(Some(partial));
     }
 
+    // Kernel registrations apply to the whole encoding. Keep this decimal allowlist so adding an
+    // integer aggregate cannot enable it here without checking its partials against canonical decimal
+    // execution. Every other decimal aggregate uses the default path.
     if !(aggregate_fn.is::<MinMax>()
         || aggregate_fn.is::<Min>()
         || aggregate_fn.is::<Max>()

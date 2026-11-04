@@ -26,6 +26,7 @@ use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -128,6 +129,9 @@ fn deferred_bool<const ROWS: usize>(bencher: Bencher, &(shape, scenario): &(Inpu
         ),
         InputShape::ConstantLhs => (ConstantArray::new(512_i64, ROWS).into_array(), column),
     };
+    mark_optimized(&lhs, &SESSION).vortex_expect("optimize the benchmark input");
+    mark_optimized(&rhs, &SESSION).vortex_expect("optimize the benchmark input");
+
     let args = VecExecutionArgs::new(vec![lhs, rhs], ROWS);
     let function = Predicate;
     drop(

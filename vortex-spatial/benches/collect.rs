@@ -28,6 +28,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
@@ -147,6 +148,8 @@ fn collect_list_rows(geometry_lists: &ArrayRef, ctx: &mut ExecutionCtx) -> Array
 }
 
 fn bench_collect(bencher: Bencher, geometry_lists: ArrayRef) {
+    mark_optimized(&geometry_lists, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -191,6 +194,8 @@ fn envelope_of_collect(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[divan::bench]
 fn envelope_of_collected_points(bencher: Bencher) {
     let input = point_lists(false);
+    mark_optimized(&input, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))

@@ -20,6 +20,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
@@ -58,6 +59,7 @@ fn fsl_i32<const LIST_SIZE: u32>(bencher: Bencher, density: f64) {
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE as usize) as i32).into_array();
     let array =
         FixedSizeListArray::new(elements, LIST_SIZE, Validity::NonNullable, len).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     let mut rng = StdRng::seed_from_u64(0);
     let bits = BitBuffer::from_iter((0..len).map(|_| rng.random_bool(density)));

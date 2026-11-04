@@ -151,8 +151,8 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan.is::<SegmentScan>() {
         return Ok(false);
     }
-    for child in plan.children().iter() {
-        if !metadata_only(&child?)? {
+    for child in plan.children() {
+        if !metadata_only(child?)? {
             return Ok(false);
         }
     }
