@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 b4802f5118685e56475939eed3023f73d2de0096e7da25b39e2126b3e1c9180b */
+   sha256 f72dcbd5bd26d786f0f151e872964fb81a282c42d4b796fa04da0dd2da9692bd */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -69,7 +69,6 @@ main[tabindex="-1"]:focus {
   user-select: all;
   overflow-wrap: anywhere;
 }
-.vx-stat,
 .vx-num {
   font-variant-numeric: tabular-nums;
 }
@@ -119,31 +118,16 @@ main[tabindex="-1"]:focus {
 
 /* Headings take ink, so a page never has to say so. It sits in base, which every site
    copies. :where() keeps it at no specificity, so any component that colours its own headings wins. */
-:where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5, .vx-stat) { color: var(--ink); }
+:where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and DetailStrip
+/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
    both draw it, so it sits in base, which every site copies. */
 .vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
 .vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
 .vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ site */
-/* Page: the frame and the bands a page is built from. .vx-page holds the header, a main and the
-   footer in a column, so the footer sits at the bottom of a short page. A .vx-band is one slice of
-   the page, at page-max with page-pad on both sides, as the header and footer are. */
-.vx-page { min-height: 100dvh; display: flex; flex-direction: column; }
-.vx-page > main { flex: 1 0 auto; }
-.vx-band { width: 100%; max-width: var(--page-max); margin-inline: auto; padding: var(--space-80) var(--page-pad); }
-.vx-band.is-compact { padding-block: var(--space-48); }
-@media (min-width: 761px) {
-  .vx-band { padding-block: var(--space-152); }
-  .vx-band.is-compact { padding-block: var(--space-120); }
-}
-/* A page head: an Eyebrow, the heading and a lede, at the reading measure. */
-.vx-page-head { display: grid; justify-items: start; gap: var(--space-18); max-width: 840px; }
-.vx-page-head > * { margin: 0; }
-.vx-page-head > .vx-lede { color: var(--ink-body); }
 /* The frame: the terminal's dashed rule, 1px wide, 12px on and 4px off, in ink-body. The header
    draws it below itself and the footer above itself, on the side that faces the page, and a
    .vx-frame box draws it on all four, over the ground, so it can sit on the ASCII mark. Inside a
@@ -160,11 +144,6 @@ main[tabindex="-1"]:focus {
   background-position: left top, left bottom, left top, right top;
 }
 .vx-frame .vx-tabs-list { border-bottom: 0; background: var(--vx-dash-x) left bottom / 16px 1px repeat-x; }
-/* Two columns on the 24px gutter. They stack at 760px. */
-.vx-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gutter); align-items: start; }
-@media (max-width: 760px) {
-  .vx-split { grid-template-columns: minmax(0, 1fr); }
-}
 .vx-btn {
   display: inline-flex;
   align-items: center;
@@ -621,29 +600,6 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
 .vx-table.is-data tr.is-spacer td { height: auto; padding: 0; border: 0; }
 
 /* ------------------------------------------------------------------ app: Explorer */
-/* Chips filter a view. A pressed chip is a selected item: an accent-soft wash and an accent-ink border, which holds 3:1. */
-.vx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
-.vx-chip {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  height: var(--control-sm);
-  margin: 0;
-  padding: 0 var(--space-12);
-  background: var(--raised);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-control);
-  font: 400 12.5px/1 var(--font-sans);
-  color: var(--ink-body);
-  cursor: pointer;
-  transition: border-color var(--vx-motion), color var(--vx-motion), background-color var(--vx-motion);
-}
-.vx-chip:hover { border-color: var(--ink); color: var(--ink); }
-.vx-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--ink); }
-/* After the pressed rule, so a press shows on a chip that is already on. */
-.vx-chip:active { background: var(--edge); }
-.vx-chip.is-all { font-weight: 500; }
-
 .vx-tree { padding: var(--space-8) 0; font: 400 12.5px/1 var(--font-mono); }
 .vx-tree-node {
   display: grid;
@@ -676,18 +632,8 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
 .vx-tree-toggle.is-leaf { visibility: hidden; }
 .vx-tree-node:hover .vx-tree-toggle { fill: var(--ink); }
 
-/* A selected segment carries an accent ring, and the others step back. */
-.vx-filemap { display: grid; gap: var(--space-8); }
-.vx-filemap-bar { display: flex; height: 34px; border: 1px solid var(--edge); border-radius: var(--radius-control); overflow: hidden; }
-.vx-filemap-bar > button { all: unset; box-sizing: border-box; display: block; height: 100%; border-right: 1px solid var(--surface); background: var(--vx-dt-fill); box-shadow: inset 0 0 0 1px var(--vx-dt-edge); cursor: pointer; transition: opacity var(--vx-motion); }
-.vx-filemap-bar > button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
-.vx-filemap-bar:has(> [aria-pressed="true"]) > button:not([aria-pressed="true"]) { opacity: 0.4; }
-.vx-filemap-axis { display: flex; justify-content: space-between; }
-.vx-filemap-legend { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); font: 400 12.5px/1.3 var(--font-sans); color: var(--ink-muted); }
-.vx-filemap-swatch { display: inline-block; width: 10px; height: 10px; margin-right: var(--space-8); vertical-align: -1px; background: var(--vx-dt, var(--chart-muted)); }
-
 /* Dtype colours: one per dtype family (components/lib/dtype.js names the family), shared by the
-   tree's dots, the file map, and every Explorer view. Five families take chart-2 to chart-6, never
+   tree's dots and every Explorer view. Five families take chart-2 to chart-6, never
    Blue. A list or struct is muted, because its children carry their own colours. The dtype's name
    always shows beside its colour, so the colour is never the only cue. */
 .vx-dt-int { --vx-dt: var(--chart-5); }
@@ -732,18 +678,6 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
 .vx-facts dt { margin: 0; }
 .vx-facts dd { margin: 0; color: var(--ink); font: 400 13px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
-/* The detail strip measures its own width, so it lays out the same in any column. */
-.vx-detail { container-type: inline-size; overflow: hidden; }
-.vx-detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-12); padding: var(--space-12) var(--space-16); border-bottom: 1px solid var(--line); }
-.vx-detail-name { color: var(--ink); }
-.vx-detail-cells { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.6fr); gap: 1px; background: var(--line); }
-.vx-detail-cell { display: grid; gap: var(--space-8); align-content: start; padding: var(--space-12) var(--space-16); background: var(--surface); }
-.vx-detail-value { color: var(--ink); }
-@container (max-width: 520px) {
-  .vx-detail-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vx-detail-cell:last-child { grid-column: 1 / -1; }
-}
-
 .vx-status-line { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-20); padding: var(--space-8) var(--space-20); border-top: 1px solid var(--line); }
 .vx-status-item { display: inline-flex; align-items: center; gap: var(--space-8); }
 .vx-status-item::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--status-idle); }
@@ -757,4 +691,4 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
    segments inside a clipped container draw it inside their edge. */
 :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
 .vx-docs-toggle:focus-visible ~ .vx-docs-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }
