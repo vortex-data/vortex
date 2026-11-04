@@ -122,4 +122,13 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
     fn is_indivisible(&self) -> bool {
         false
     }
+
+    /// The child whose split boundaries this layout's readers register as their own, if they
+    /// register no others.
+    ///
+    /// A layout whose split child is indivisible is itself indivisible, which lets parents skip
+    /// materializing wrappers such as zone maps around flat data.
+    fn split_child(&self) -> Option<usize> {
+        None
+    }
 }

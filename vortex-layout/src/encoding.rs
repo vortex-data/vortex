@@ -136,6 +136,12 @@ pub trait LayoutPlugin: 'static + Send + Sync + Debug {
     fn is_indivisible(&self) -> bool {
         false
     }
+
+    /// The child whose split boundaries this layout registers as its own, if it registers no
+    /// others (see [`VTable::split_child`]).
+    fn split_child(&self) -> Option<usize> {
+        None
+    }
 }
 
 impl<V: VTable> LayoutPlugin for V {
@@ -172,6 +178,10 @@ impl<V: VTable> LayoutPlugin for V {
 
     fn is_indivisible(&self) -> bool {
         VTable::is_indivisible(self)
+    }
+
+    fn split_child(&self) -> Option<usize> {
+        VTable::split_child(self)
     }
 }
 
