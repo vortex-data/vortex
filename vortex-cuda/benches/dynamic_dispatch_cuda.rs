@@ -75,8 +75,7 @@ use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<CudaSession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

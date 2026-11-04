@@ -42,8 +42,7 @@ use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<CudaSession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_cuda::cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
