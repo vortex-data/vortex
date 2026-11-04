@@ -388,6 +388,11 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
         }
 
         eprintln!("metrics for query={query_idx}, {format}:");
+        eprintln!(
+            "{}",
+            datafusion_physical_plan::display::DisplayableExecutionPlan::with_metrics(plan.as_ref())
+                .indent(true)
+        );
         for (scan_idx, metrics_set) in metric_sets.iter().enumerate() {
             eprintln!("\tscan[{scan_idx}]:");
             for metric in metrics_set.aggregate().sorted_for_display().iter() {
