@@ -10,7 +10,9 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!bun.lock", "!crate", "!public"]
+    // src/styles/vortex*.css are copies of the Vortex design system's
+    // stylesheets: change the system, not the copies.
+    "includes": ["**", "!bun.lock", "!crate", "!public", "!src/styles/vortex*.css"]
   },
   // The style that .prettierrc.json set before the move to Biome.
   "formatter": {
