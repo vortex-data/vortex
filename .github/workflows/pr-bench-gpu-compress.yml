@@ -21,7 +21,7 @@ jobs:
     name: GPU Compression
     timeout-minutes: 120
     runs-on: >-
-      runs-on=${{ github.run_id }}/region=us-east-1/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
+      runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (!(github.event.pull_request.updated_at || github.event.head_commit.timestamp) && 'us-east-1') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T00') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T01') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T02') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T03')) && 'eu-west-2') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T0') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T10') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T11')) && 'us-east-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'ap-northeast-1' }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
     steps:
       - uses: runs-on/action@v2
         with:

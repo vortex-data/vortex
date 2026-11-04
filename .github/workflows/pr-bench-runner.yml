@@ -35,6 +35,12 @@ on:
         required: false
         type: string
         default: ""
+      region:
+        description: >-
+          RunsOn region for the build and bench jobs. Empty follows the night-region rotation.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -46,7 +52,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=arm64-bench/tag={1}{2}', format('{0}/region={1}', github.run_id, inputs.region || vars.CI_REGION || (!(github.event.pull_request.updated_at || github.event.head_commit.timestamp) && 'us-east-1') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T00') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T01') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T02') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T03')) && 'eu-west-2') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T0') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T10') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T11')) && 'us-east-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'ap-northeast-1'), inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -82,7 +88,7 @@ jobs:
       - name: Upload benchmark binary
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
-          name: ${{ inputs.benchmark_id }}-binary
+          name: ${{ inputs.benchmark_id }}${{ inputs.variant_id }}-binary
           path: target/release_debug/${{ inputs.benchmark_id }}
 
   bench:
@@ -91,7 +97,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', format('{0}/region={1}', github.run_id, inputs.region || vars.CI_REGION || (!(github.event.pull_request.updated_at || github.event.head_commit.timestamp) && 'us-east-1') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T00') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T01') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T02') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T03')) && 'eu-west-2') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T0') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T10') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T11')) && 'us-east-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'ap-northeast-1'), inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       # `extras=s3-cache` points ACTIONS_RESULTS_URL at the RunsOn artifact proxy, but only
@@ -114,10 +120,17 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
+      - name: Record runner region
+        shell: bash
+        run: |
+          token=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
+          md() { curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/$1" || echo unknown; }
+          echo "Region: ${RUNS_ON_AWS_REGION:-unknown}, AZ: $(md placement/availability-zone), instance: $(md instance-type)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Download benchmark binary
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
-          name: ${{ inputs.benchmark_id }}-binary
+          name: ${{ inputs.benchmark_id }}${{ inputs.variant_id }}-binary
           path: target/release_debug/
 
       - name: Make benchmark binary executable

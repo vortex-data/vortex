@@ -14,6 +14,14 @@ on:
         required: false
         type: string
         default: c8gd.metal-24xl
+      region:
+        description: >-
+          RunsOn region for the build and bench jobs. Empty follows the night-region rotation.
+          A non-empty region also suffixes artifact names, S3 scratch paths and PR comment tags,
+          so several regions can run in one workflow run.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   resolve-matrix:
@@ -49,7 +57,7 @@ jobs:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=arm64-bench/tag=build{1}', format('{0}/region={1}', github.run_id, inputs.region || vars.CI_REGION || (!(github.event.pull_request.updated_at || github.event.head_commit.timestamp) && 'us-east-1') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T00') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T01') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T02') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T03')) && 'eu-west-2') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T0') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T10') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T11')) && 'us-east-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'ap-northeast-1'), (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -79,7 +87,7 @@ jobs:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
             with:
-              name: bench-binaries
+              name: bench-binaries${{ inputs.region && format('-{0}', inputs.region) || '' }}
               path: |
                 target/release_debug/data-gen
                 target/release_debug/datafusion-bench
@@ -112,7 +120,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family={1}/image=ubuntu26-full-arm64-pre-v2/tag={2}{3}', format('{0}/region={1}', github.run_id, inputs.region || vars.CI_REGION || (!(github.event.pull_request.updated_at || github.event.head_commit.timestamp) && 'us-east-1') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T00') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T01') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T02') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T03')) && 'eu-west-2') || ((contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T0') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T10') || contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T11')) && 'us-east-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'ap-northeast-1'), inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -137,10 +145,17 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
+      - name: Record runner region
+        shell: bash
+        run: |
+          token=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
+          md() { curl -sS -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/$1" || echo unknown; }
+          echo "Region: ${RUNS_ON_AWS_REGION:-unknown}, AZ: $(md placement/availability-zone), instance: $(md instance-type)" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Download binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
-          name: bench-binaries
+          name: bench-binaries${{ inputs.region && format('-{0}', inputs.region) || '' }}
           path: target/release_debug/
       - name: Make binaries executable
         shell: bash
@@ -174,7 +189,7 @@ jobs:
         shell: bash
         env:
           AWS_REGION: "us-east-1"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}${{ inputs.region && format('-{0}', inputs.region) || '' }}/${{ matrix.remote_key }}/"
         run: |
           aws s3 rm --recursive "$REMOTE_STORAGE"
           aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
@@ -224,7 +239,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}${{ inputs.region && format('-{0}', inputs.region) || '' }}/${{ matrix.remote_key }}/"
         run: |
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \
@@ -263,7 +278,7 @@ jobs:
           set -Eeu -o pipefail -x
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
-            "${{ matrix.name }}" --pr-records results.ingest.jsonl > comment.md
+            "${{ matrix.name }}${{ inputs.region && format(' [{0}]', inputs.region) || '' }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
@@ -275,7 +290,7 @@ jobs:
           # this action will *update* the comment instead of posting a new comment. The preset is
           # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
           # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}${{ inputs.region && format('-{0}', inputs.region) || '' }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -285,7 +300,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}${{ inputs.region && format('-{0}', inputs.region) || '' }}
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the

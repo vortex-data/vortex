@@ -1,0 +1,64 @@
+# TEMPORARY EXPERIMENT, NOT FOR MERGE.
+# Runs the same PR benchmarks on the same commit in every RunsOn region, so the PR comments can be
+# compared side by side. Results are compared against the us-east-1 develop baseline as usual.
+# Data still lives in the us-east-1 bucket, so S3 variants outside us-east-1 read cross-region.
+
+name: Bench Region Experiment
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  bench:
+    if: github.head_ref == 'ji/bench-region-rotation-experiment'
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-east-1, eu-west-2, ap-northeast-1]
+        benchmark:
+          - id: random-access-bench
+            name: Random Access
+            with_lance: true
+            variant: ""
+            s3: false
+          - id: random-access-bench
+            name: Random Access (S3)
+            with_lance: true
+            variant: "-s3"
+            s3: true
+          - id: compress-bench
+            name: Compression
+            with_lance: false
+            variant: ""
+            s3: false
+    uses: ./.github/workflows/pr-bench-runner.yml
+    secrets: inherit
+    with:
+      benchmark_id: ${{ matrix.benchmark.id }}
+      benchmark_name: "${{ matrix.benchmark.name }} [${{ matrix.region }}]"
+      with_lance: ${{ matrix.benchmark.with_lance }}
+      variant_id: "${{ matrix.benchmark.variant }}-${{ matrix.region }}"
+      region: ${{ matrix.region }}
+      remote_data_dir: >-
+        ${{ matrix.benchmark.s3
+            && format('s3://vortex-ci-benchmark-datasets/{0}/{1}/random-access-{2}/', github.ref_name, github.run_id, matrix.region)
+            || '' }}
+
+  sql:
+    if: github.head_ref == 'ji/bench-region-rotation-experiment'
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-east-1, eu-west-2, ap-northeast-1]
+    uses: ./.github/workflows/sql-bench-matrix.yml
+    secrets: inherit
+    with:
+      mode: "pr"
+      matrix_preset: "pr"
+      region: ${{ matrix.region }}
