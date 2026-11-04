@@ -617,8 +617,9 @@ scope.
 
 ## Relation to the Decimal and type roadmap
 
-The [Decimal notes](../decimal/README.md) place these phases in a larger graph of type work. Three
-points affect the order:
+The
+[Decimal notes](https://github.com/vortex-data/vortex/blob/ct/decimal-research/research/decimal/README.md)
+place these phases in a larger graph of type work. Three points affect the order:
 
 - `Decimal` stays a built-in type (D1). Its fixes do not wait for this plan, but it follows the same
   rules: claims for one dtype, through the built-in table, and rules that the type owns.

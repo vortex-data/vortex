@@ -65,5 +65,6 @@ agent catalog are not confirmed. No performance claim is measured.
 
 ## Related
 
-The [Decimal notes](../decimal/README.md) use `Decimal` as a test of this design. They also place
-this plan in a larger graph of type work.
+The
+[Decimal notes](https://github.com/vortex-data/vortex/blob/ct/decimal-research/research/decimal/README.md)
+use `Decimal` as a test of this design. They also place this plan in a larger graph of type work.
