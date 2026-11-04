@@ -39,12 +39,14 @@ fn decimal<T: NativeDecimalType>(values: Buffer<T>, validity: Validity) -> Decim
 /// Runs splitting through validation and checks the reported requirement.
 #[track_caller]
 fn assert_split_error(decimal: &DecimalArray, lower_part_count: usize, expected: &str) {
-    let error = split_decimal(
+    let error = match split_decimal(
         decimal,
         lower_part_count,
         &mut SESSION.create_execution_ctx(),
-    )
-    .expect_err("the fixture violates a split requirement");
+    ) {
+        Ok(_) => panic!("the fixture must violate a split requirement"),
+        Err(error) => error,
+    };
     assert!(error.to_string().contains(expected), "{error}");
 }
 
