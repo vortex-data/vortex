@@ -116,6 +116,7 @@ pub struct CUmemPool_attribute(pub c_int);
 
 impl CUmemPool_attribute {
     pub const CU_MEMPOOL_ATTR_RELEASE_THRESHOLD: Self = Self(4);
+    pub const CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT: Self = Self(5);
     pub const CU_MEMPOOL_ATTR_USED_MEM_CURRENT: Self = Self(7);
 }
 
