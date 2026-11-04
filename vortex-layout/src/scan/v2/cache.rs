@@ -3,14 +3,17 @@
 
 //! State derived from a [`ScanFile`](super::ScanFile) that repeated V2 scans can share.
 
+use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -35,19 +38,21 @@ use crate::segments::SegmentSource;
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
 /// distinct projection.
+/// Concurrent scans initialize each entry once. Failed initialization can be retried, and
+/// filter planning and projection planning use separate locks.
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
 #[derive(Default)]
 struct Inner {
-    root: Mutex<Option<PlanRef>>,
+    root: OnceCell<PlanRef>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
-    projections: Mutex<FxHashMap<ExprKey, PlanRef>>,
-    ranges: Mutex<Option<SegmentRanges>>,
+    projections: PlanCache<PlanRef>,
+    ranges: OnceCell<SegmentRanges>,
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
-    filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
+    filters: PlanCache<Arc<FilterPlans>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
@@ -63,65 +68,35 @@ impl ScanCache {
         }))
     }
 
-    /// The lowered root plan an earlier scan kept.
-    pub(super) fn root(&self) -> Option<PlanRef> {
-        self.0.root.lock().clone()
-    }
-
-    /// Keeps `root`, returning the plan already kept if another scan got there first.
-    pub(super) fn insert_root(&self, root: PlanRef) -> PlanRef {
-        self.0.root.lock().get_or_insert(root).clone()
-    }
-
-    /// The optimized plan of `projection` an earlier scan kept.
-    pub(super) fn projection(&self, projection: &BoundExpression) -> Option<PlanRef> {
-        self.0
-            .projections
-            .lock()
-            .get(&ExprKey(projection.clone()))
-            .cloned()
-    }
-
-    /// Keeps the optimized plan of `projection`, returning the plan already kept if another scan
-    /// got there first.
-    pub(super) fn insert_projection(&self, projection: BoundExpression, plan: PlanRef) -> PlanRef {
-        self.0
-            .projections
-            .lock()
-            .entry(ExprKey(projection))
-            .or_insert(plan)
-            .clone()
-    }
-
-    /// The segment byte-range index an earlier scan kept.
-    pub(super) fn ranges(&self) -> Option<SegmentRanges> {
-        self.0.ranges.lock().clone()
-    }
-
-    /// Keeps `ranges`, returning the index already kept if another scan got there first.
-    pub(super) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
-        Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
-    }
-
-    /// The plans of `filter` an earlier scan kept.
-    pub(super) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
-        self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
-    }
-
-    /// Keeps the plans of `filter`, returning the plans already kept if another scan got there
-    /// first.
-    pub(super) fn insert_filter_plans(
+    /// Reuses the lowered root, initializing it once across concurrent scans.
+    pub(super) fn root(
         &self,
-        filter: BoundExpression,
-        plans: Arc<FilterPlans>,
-    ) -> Arc<FilterPlans> {
-        Arc::clone(
-            self.0
-                .filters
-                .lock()
-                .entry(ExprKey(filter))
-                .or_insert(plans),
-        )
+        init: impl FnOnce() -> VortexResult<PlanRef>,
+    ) -> VortexResult<PlanRef> {
+        self.0.root.get_or_try_init(init).cloned()
+    }
+
+    /// Reuses the optimized projection, initializing it once across concurrent scans.
+    pub(super) fn projection(
+        &self,
+        projection: &BoundExpression,
+        init: impl FnOnce() -> VortexResult<PlanRef>,
+    ) -> VortexResult<PlanRef> {
+        self.0.projections.get_or_try_init(projection, init)
+    }
+
+    /// Reuses the segment byte-range index, initializing it once across concurrent scans.
+    pub(super) fn ranges(&self, init: impl FnOnce() -> SegmentRanges) -> SegmentRanges {
+        Arc::clone(self.0.ranges.get_or_init(init))
+    }
+
+    /// Reuses the filter plans, initializing them once across concurrent scans.
+    pub(super) fn filter_plans(
+        &self,
+        filter: &BoundExpression,
+        init: impl FnOnce() -> VortexResult<Arc<FilterPlans>>,
+    ) -> VortexResult<Arc<FilterPlans>> {
+        self.0.filters.get_or_try_init(filter, init)
     }
 
     /// Serves `segments` through the segments the file's scans retain.
@@ -139,6 +114,34 @@ impl ScanCache {
     /// A handle that finds this cache while a scan holds it, without keeping it alive itself.
     pub fn downgrade(&self) -> WeakScanCache {
         WeakScanCache(Arc::downgrade(&self.0))
+    }
+}
+
+/// Initializes each expression under the map lock, so concurrent scans do not repeat planning.
+/// Initializers only build physical plans and must not access this cache recursively. Failed
+/// initialization leaves the entry vacant.
+struct PlanCache<T> {
+    entries: Mutex<FxHashMap<ExprKey, T>>,
+}
+
+impl<T> Default for PlanCache<T> {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(FxHashMap::default()),
+        }
+    }
+}
+
+impl<T: Clone> PlanCache<T> {
+    fn get_or_try_init(
+        &self,
+        expression: &BoundExpression,
+        init: impl FnOnce() -> VortexResult<T>,
+    ) -> VortexResult<T> {
+        match self.entries.lock().entry(ExprKey(expression.clone())) {
+            Entry::Occupied(entry) => Ok(entry.get().clone()),
+            Entry::Vacant(entry) => Ok(entry.insert(init()?).clone()),
+        }
     }
 }
 
@@ -197,59 +200,4 @@ impl WeakScanCache {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::hash::BuildHasher;
-
-    use rstest::rstest;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::root;
-    use vortex_error::VortexResult;
-
-    use super::ExprKey;
-
-    fn ints_gt(value: i32) -> Expression {
-        gt(get_item("ints", root()), lit(value))
-    }
-
-    fn table(ints: PType) -> DType {
-        DType::struct_(
-            [("ints", DType::Primitive(ints, Nullability::NonNullable))],
-            Nullability::NonNullable,
-        )
-    }
-
-    #[test]
-    fn separately_bound_equal_expressions_share_a_key() -> VortexResult<()> {
-        let dtype = table(PType::I32);
-        let lhs = ExprKey(ints_gt(5).bind(&dtype)?);
-        let rhs = ExprKey(ints_gt(5).bind(&dtype)?);
-        assert!(lhs == rhs);
-        assert_eq!(
-            rustc_hash::FxBuildHasher.hash_one(&lhs),
-            rustc_hash::FxBuildHasher.hash_one(&rhs)
-        );
-        Ok(())
-    }
-
-    #[rstest]
-    #[case::literal(ints_gt(6), table(PType::I32))]
-    #[case::function(lt(get_item("ints", root()), lit(5i32)), table(PType::I32))]
-    #[case::dtype(get_item("ints", root()), table(PType::I64))]
-    fn different_expressions_have_different_keys(
-        #[case] other: Expression,
-        #[case] dtype: DType,
-    ) -> VortexResult<()> {
-        let i32s = table(PType::I32);
-        for key in [ints_gt(5), get_item("ints", root())] {
-            assert!(ExprKey(key.bind(&i32s)?) != ExprKey(other.bind(&dtype)?));
-        }
-        Ok(())
-    }
-}
+mod tests;
