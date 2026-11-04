@@ -3,17 +3,21 @@
 
 //! Selects a batch execution strategy.
 //!
-//! [`RowFnExecutionArgs::execute`] handles universal fast paths, then delegates to dense or
-//! valid-only execution.
+//! [`BatchInputs::try_execute_without_retry`] finishes every batch that at most one kernel call can
+//! finish, inside the planning visit. The rest come back as a [`PartiallyValidBatch`] for a dense
+//! retry or valid-row execution. The `visitor::fused` module explains why.
 
 use vortex_error::VortexResult;
 use vortex_mask::MaskValuesRef;
 
-use super::RowFnExecutionArgs;
+use super::BatchInputs;
+use super::BatchPlan;
+use super::PartiallyValidBatch;
 use super::RowPolicy;
 use super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::dtype::DType;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::validity::Validity;
 
@@ -25,16 +29,64 @@ mod valid_only;
 mod output;
 pub(crate) use output::finalize_kernel_output;
 
-impl RowFnExecutionArgs<'_> {
-    /// Apply constant folding and null handling around `kernel`.
+impl<'a> BatchInputs<'a> {
+    /// Execute this batch under `plan` when at most one call to `kernel` can finish it. Otherwise
+    /// return it as a [`PartiallyValidBatch`] that needs a dense retry or valid-row execution.
     ///
-    /// For a partially valid batch, `try_valid_rows` can avoid filtering. `Ok(None)` filters the
-    /// inputs to the valid rows and `execute_filtered_rows` runs the kernel over them while
-    /// writing into the original row domain. Every result is checked against the planned shape
-    /// and dtype.
+    /// A deferred kernel does not report which row failed, and `kernel` returns its failure as an
+    /// error. That is correct here because this method runs a deferred kernel only when no row is
+    /// null, so the failing row is valid.
+    pub(crate) fn try_execute_without_retry(
+        self,
+        arg_dtypes: &[DType],
+        plan: BatchPlan,
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Result<ArrayRef, PartiallyValidBatch<'a>>> {
+        // Every output row is null, so skip the kernel. Checking `has_null_const` as well keeps
+        // this from relying on `BatchProbe::new` to mark a null literal as `AllInvalid`.
+        if matches!(self.probe.validity, Validity::AllInvalid) || self.probe.has_null_const {
+            return Ok(Ok(self.with_plan(arg_dtypes, plan).all_null()));
+        }
+
+        // Every input is constant and no row is null, so one row decides the whole output.
+        // `all_batch_const` sees through extension and masked wrappers, as argument decoding does.
+        if self.probe.row_count > 0
+            && self.probe.validity.definitely_no_nulls()
+            && self.all_batch_const()
+        {
+            return self
+                .with_plan(arg_dtypes, plan)
+                .execute_all_constant(kernel, ctx)
+                .map(Ok);
+        }
+
+        // One kernel call is safe when no row is null or the policy lets the kernel see null rows.
+        // This check does not execute an array-backed validity, because that scans the whole mask.
+        // Each later strategy does so only when it must.
+        if self.probe.validity.definitely_no_nulls() || plan.policy() == RowPolicy::Dense {
+            return self
+                .with_plan(arg_dtypes, plan)
+                .execute_dense(kernel, ctx)
+                .map(Ok);
+        }
+
+        // `PartiallyValidBatch::execute` attaches the plan, so attaching it here would compute the
+        // result dtype twice.
+        Ok(Err(PartiallyValidBatch { batch: self, plan }))
+    }
+}
+
+impl PartiallyValidBatch<'_> {
+    /// Execute the batch with its planned strategy: a dense retry or valid-row execution.
+    ///
+    /// `try_valid_rows` can run the valid rows without filtering. If it returns `Ok(None)`, the
+    /// inputs are filtered to the valid rows, and `execute_filtered_rows` writes each result back
+    /// at its original row. Every result is checked against the planned length and dtype.
     pub(crate) fn execute(
-        &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        self,
+        arg_dtypes: &[DType],
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         execute_dense_attempt: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             &mut ExecutionCtx,
@@ -51,40 +103,21 @@ impl RowFnExecutionArgs<'_> {
         ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // Strictness: an all-null batch has no observable row work. Keep the literal-constant
-        // check explicit alongside the conjoined validity invariant.
-        if matches!(self.batch.probe.validity, Validity::AllInvalid)
-            || self.batch.probe.has_null_const
-        {
-            return Ok(self.all_null());
-        }
+        let Self { batch, plan } = self;
+        let args = batch.with_plan(arg_dtypes, plan);
 
-        // All inputs are constant, and their conjoined validity proves that every row is non-null.
-        // The constant check sees through extension and masked wrappers, just like argument
-        // decoding.
-        if self.batch.probe.row_count > 0
-            && self.batch.probe.validity.definitely_no_nulls()
-            && self.batch.all_batch_const()
-        {
-            return self.execute_all_constant(kernel, ctx);
-        }
-
-        // Do not resolve array-backed validity for the uncommon all-valid or all-null cases here.
-        // That can execute and scan the full mask; each policy resolves it only when necessary.
-        if self.batch.probe.validity.definitely_no_nulls() {
-            return self.execute_dense(kernel, ctx);
-        }
-
-        match self.plan.policy() {
-            RowPolicy::Dense => self.execute_dense(kernel, ctx),
-            RowPolicy::DenseWithRetry => self.execute_dense_with_retry(
+        match args.plan.policy() {
+            RowPolicy::Dense => {
+                unreachable!("BatchInputs::try_execute_without_retry executes every dense batch")
+            }
+            RowPolicy::DenseWithRetry => args.execute_dense_with_retry(
                 execute_dense_attempt,
                 try_valid_rows,
                 execute_filtered_rows,
                 ctx,
             ),
             RowPolicy::ValidOnly => {
-                self.execute_valid_only(kernel, try_valid_rows, execute_filtered_rows, ctx)
+                args.execute_valid_only(kernel, try_valid_rows, execute_filtered_rows, ctx)
             }
         }
     }

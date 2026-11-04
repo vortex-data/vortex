@@ -1387,13 +1387,24 @@ impl RowFn for DeclaredSinkOutput {
 #[derive(Clone)]
 struct ChangingOutputDType {
     dispatches: Arc<AtomicUsize>,
+    policy: RedispatchPolicy,
+}
+
+/// The policy that [`ChangingOutputDType`] selects. Both policies make a partially valid batch
+/// dispatch twice, and the second dispatch drops the declared output dtype.
+#[derive(Clone, Copy)]
+enum RedispatchPolicy {
+    /// Use a deferred visit, which selects `RowPolicy::DenseWithRetry`.
+    DenseWithRetry,
+    /// Use a [`ValidOnlyI64`] input, which is not dense safe and so selects `RowPolicy::ValidOnly`.
+    ValidOnly,
 }
 
 impl RowFn for ChangingOutputDType {
     type Options = EmptyOptions;
 
     const ARG_NAMES: &'static [&'static str] = &["value"];
-    const INFALLIBLE: bool = true;
+    const INFALLIBLE: bool = false;
 
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.changing_output_dtype");
@@ -1412,7 +1423,12 @@ impl RowFn for ChangingOutputDType {
             visitor
         };
 
-        visitor.visit::<(i64,), i64>(|(value,)| value)
+        match self.policy {
+            RedispatchPolicy::DenseWithRetry => {
+                visitor.visit_deferred::<(i64,), i64, bool>(|(value,)| (value, false), |_| Ok(()))
+            }
+            RedispatchPolicy::ValidOnly => visitor.visit::<(ValidOnlyI64,), i64>(|(value,)| value),
+        }
     }
 }
 
@@ -1589,12 +1605,18 @@ fn test_declared_output_dtype_rejects_mismatched_storage() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_execution_rejects_a_changed_output_dtype() -> VortexResult<()> {
+#[rstest]
+#[case::dense_with_retry(RedispatchPolicy::DenseWithRetry)]
+#[case::valid_only(RedispatchPolicy::ValidOnly)]
+fn test_execution_rejects_a_changed_output_dtype(
+    #[case] policy: RedispatchPolicy,
+) -> VortexResult<()> {
     let function = ChangingOutputDType {
         dispatches: Arc::new(AtomicUsize::new(0)),
+        policy,
     };
-    let input = PrimitiveArray::from_iter(vec![1_i64, 2]).into_array();
+    let validity = Validity::from_iter([true, false]);
+    let input = PrimitiveArray::new(vec![1_i64, 2], validity).into_array();
     let args = VecExecutionArgs::new(vec![input], 2);
     let mut ctx = SESSION.create_execution_ctx();
 
