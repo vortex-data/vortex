@@ -35,6 +35,7 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::matcher::Matcher;
 use vortex::buffer::BitChunks;
 use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
@@ -227,6 +228,10 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // A lazy wrapper such as a slice of a run-end array executes to an encoding with an exporter
+    // of its own, instead of to canonical.
+    let array = array.execute_until::<DuckDBExportable>(ctx)?;
+
     let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
@@ -263,6 +268,24 @@ fn new_array_exporter_with_flatten(
     };
 
     canonical::new_exporter(array, cache, ctx)
+}
+
+/// Matches the encodings [`new_array_exporter_with_flatten`] exports without canonicalizing.
+struct DuckDBExportable;
+
+impl Matcher for DuckDBExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<Constant>()
+            || array.is::<Sequence>()
+            || array.is::<RunEnd>()
+            || array.is::<RLE>()
+            || array.is::<Dict>()
+            || array.is::<Chunked>()
+            || array.is::<List>())
+        .then_some(array)
+    }
 }
 
 /// Copy the sliced bits from source into target, returning whether all copied bits are zero,
