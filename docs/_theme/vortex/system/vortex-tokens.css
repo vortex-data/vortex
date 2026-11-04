@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 6f9bfe3e8fff515876223cf46967bcdef4923b3370c58fa2c07354f6401111cc */
+   sha256 d695b0c694d0a60f52d31333e795e1b71cb00dd3ae942ce1a70be37faa33d987 */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -41,10 +41,11 @@
   --on-accent: var(--white);
   --focus-ring: var(--accent-ink);
   --error-ink: #f26a6b;
-  --syntax-plain: var(--grey-400);
-  --syntax-keyword: var(--green);
-  --syntax-function: var(--orange);
-  --syntax-string: var(--white);
+  --syntax-plain: var(--grey-300);
+  --syntax-keyword: var(--blue-soft);
+  --syntax-function: #c9a8f5;
+  --syntax-type: #6fcfd6;
+  --syntax-string: #f2a0c2;
   --syntax-comment: var(--grey-450);
   --chart-vortex: var(--accent);
   --chart-muted: var(--grey-600);
@@ -82,9 +83,10 @@
   --focus-ring: var(--accent-ink);
   --error-ink: #c42b2e;
   --syntax-plain: var(--grey-600);
-  --syntax-keyword: #0b7538;
-  --syntax-function: #a8460f;
-  --syntax-string: var(--black);
+  --syntax-keyword: var(--blue);
+  --syntax-function: #6d24b5;
+  --syntax-type: #0a6b75;
+  --syntax-string: #a8205b;
   --syntax-comment: var(--grey-500);
   --chart-vortex: var(--accent);
   --chart-muted: var(--grey-300);
@@ -120,9 +122,10 @@
     --focus-ring: var(--accent-ink);
     --error-ink: #c42b2e;
     --syntax-plain: var(--grey-600);
-    --syntax-keyword: #0b7538;
-    --syntax-function: #a8460f;
-    --syntax-string: var(--black);
+    --syntax-keyword: var(--blue);
+    --syntax-function: #6d24b5;
+    --syntax-type: #0a6b75;
+    --syntax-string: #a8205b;
     --syntax-comment: var(--grey-500);
     --chart-vortex: var(--accent);
     --chart-muted: var(--grey-300);

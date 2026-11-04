@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 66948f1d86cb3398816fcb1e9478421c9f74daaff426adc213247ccee1646f2e */
+   sha256 bbde517d36436ca64863159b42abb1f61150aecfb211dba63804711f4fa0c0da */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -150,8 +150,9 @@
 .vx-docs-main .highlight-cmake > .highlight::before { content: "CMake"; }
 .vx-docs-main .highlight-protobuf > .highlight::before { content: "Protobuf"; }
 .vx-docs-main .highlight pre { margin: 0; padding: var(--space-16); overflow-x: auto; font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); tab-size: 4; }
-.vx-docs-main .highlight :is(.k, .kn, .kd, .kr, .kt, .kp, .ow, .nt) { color: var(--syntax-keyword); }
-.vx-docs-main .highlight :is(.nf, .fm, .nc, .nb, .bp, .nd, .ne, .nn) { color: var(--syntax-function); }
+.vx-docs-main .highlight :is(.k, .kn, .kd, .kr, .kp, .ow, .nt) { color: var(--syntax-keyword); }
+.vx-docs-main .highlight :is(.nf, .fm, .nb, .bp, .nd) { color: var(--syntax-function); }
+.vx-docs-main .highlight :is(.nc, .ne, .nn, .kt) { color: var(--syntax-type); }
 .vx-docs-main .highlight :is(.s, .s1, .s2, .sa, .sb, .sc, .sd, .se, .sh, .si, .sx, .m, .mi, .mf, .mh, .mo, .il, .kc) { color: var(--syntax-string); }
 .vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs, .cp, .gp) { color: var(--syntax-comment); }
 .vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs) { font-style: italic; }
