@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import math
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -820,3 +821,84 @@ def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> No
 
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["value"] for record in records] == [42]
+
+
+class SqliteBenchmarksDb:
+    """An in-memory stand-in for the benchmarks Postgres, speaking the baseline fetch's SQL."""
+
+    def __init__(self) -> None:
+        self.db = sqlite3.connect(":memory:")
+        self.db.executescript(
+            """
+            CREATE TABLE commits (commit_sha TEXT PRIMARY KEY, timestamp TEXT);
+            CREATE TABLE query_measurements (
+                commit_sha TEXT, commit_timestamp TEXT, dataset TEXT, dataset_variant TEXT,
+                scale_factor TEXT, query_idx INTEGER, storage TEXT, engine TEXT, format TEXT,
+                value_ns INTEGER, all_runtimes_ns TEXT
+            );
+            """
+        )
+
+    def record(self, commit: str, timestamp: str, records: list[dict[str, object]]) -> None:
+        self.db.execute("INSERT OR IGNORE INTO commits VALUES (?, ?)", [commit, timestamp])
+        for r in records:
+            self.db.execute(
+                "INSERT INTO query_measurements VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    commit,
+                    timestamp,
+                    r["dataset"],
+                    r["dataset_variant"],
+                    r["scale_factor"],
+                    r["query_idx"],
+                    r["storage"],
+                    r["engine"],
+                    r["format"],
+                    r["value_ns"],
+                    json.dumps(r["all_runtimes_ns"]),
+                ],
+            )
+
+    def execute(self, sql: str, params: list[object] | None = None) -> sqlite3.Cursor:
+        return self.db.execute(sql.replace("%s", "?"), params or [])
+
+
+def test_baseline_fetch_prefers_the_commit_covering_the_pr_run_over_a_newer_partial_one() -> None:
+    """A nightly run on a commit the develop run skipped must not hide the develop baseline.
+
+    The nightly commit is newer but recorded only one of the PR's measurements, so taking it as
+    the baseline would leave every other PR row with no comparison.
+    """
+
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    pr = [query_record("pr", q, "datafusion", fmt, 100) for q in (1, 2) for fmt in ("parquet", "vortex")]
+    db = SqliteBenchmarksDb()
+    db.record("develop", "2026-11-01T00:00:00Z", [r | {"commit_sha": "develop"} for r in pr])
+    db.record("nightly", "2026-11-02T00:00:00Z", [pr[0] | {"commit_sha": "nightly"}])
+    identities = fetch.identities_by_kind(pr)
+
+    baseline = fetch.select_baseline(db, identities, {"develop", "nightly"})
+
+    assert baseline is not None
+    commit, records = baseline
+    assert commit == "develop"
+    assert {(r["query_idx"], r["format"]) for r in records} == {
+        (1, "parquet"),
+        (1, "vortex"),
+        (2, "parquet"),
+        (2, "vortex"),
+    }
+
+
+def test_baseline_fetch_takes_the_newest_commit_among_equally_complete_ones() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    pr = [query_record("pr", 1, "datafusion", "parquet", 100)]
+    db = SqliteBenchmarksDb()
+    db.record("older", "2026-11-01T00:00:00Z", [pr[0] | {"commit_sha": "older"}])
+    db.record("newer", "2026-11-02T00:00:00Z", [pr[0] | {"commit_sha": "newer"}])
+    db.record("unreachable", "2026-11-03T00:00:00Z", [pr[0] | {"commit_sha": "unreachable"}])
+
+    baseline = fetch.select_baseline(db, fetch.identities_by_kind(pr), {"older", "newer"})
+
+    assert baseline is not None
+    assert baseline[0] == "newer"

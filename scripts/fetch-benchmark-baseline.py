@@ -9,10 +9,10 @@
 
 """Fetch the develop baseline for a PR benchmark run from the benchmarks Postgres.
 
-Reads the PR's `--ingest-jsonl` records, finds the newest commit reachable from
-`HEAD` that recorded any of the same measurements, and writes that commit's
-matching rows in the same JSONL record shape. `compare-benchmark-jsons.py` then
-compares the two record files.
+Reads the PR's `--ingest-jsonl` records, finds the commit reachable from `HEAD`
+that recorded the most of the same measurements (the newest one on a tie), and
+writes that commit's matching rows in the same JSONL record shape.
+`compare-benchmark-jsons.py` then compares the two record files.
 
 It connects as the read-only `bench_ci_read` Postgres user, with an RDS IAM token minted
 (by `post-ingest.py`'s token helper) from the AWS credentials of the assumed
@@ -131,17 +131,17 @@ def identity_condition(kind: str, identity: tuple) -> tuple[str, list]:
     return " AND ".join(conditions), params
 
 
-def newest_baseline_commit(
+def candidate_baseline_commits(
     conn: Connection, identities: dict[str, list[tuple]], reachable: set[str]
-) -> tuple[str, object] | None:
-    """Return the newest reachable commit that recorded any PR identity, with its timestamp.
+) -> set[tuple[str, object]]:
+    """Return each PR identity's newest reachable recorded commit, with its timestamp.
 
     Each identity's rows are read newest first, a page at a time, until one is from a commit
     reachable from `HEAD`. That is usually the first page: the baseline is the PR's merge base
     or close to it. One query per identity, as Postgres plans a `UNION ALL` of them far worse.
     """
 
-    newest = None
+    candidates = set()
     for kind, keys in identities.items():
         table, _dims, _values = _KINDS[kind]
         # `query_measurements` carries its commit's timestamp at the end of its summary index,
@@ -165,9 +165,30 @@ def newest_baseline_commit(
                 if found is not None or len(page) < _PAGE_SIZE:
                     break
                 before = page[-1][1]
-            if found is not None and (newest is None or (found[1], found[0]) > (newest[1], newest[0])):
-                newest = (found[0], found[1])
-    return newest
+            if found is not None:
+                candidates.add((found[0], found[1]))
+    return candidates
+
+
+def select_baseline(
+    conn: Connection, identities: dict[str, list[tuple]], reachable: set[str]
+) -> tuple[str, list[dict]] | None:
+    """Return the baseline commit and its records for the PR identities.
+
+    The baseline is the candidate commit that recorded the most PR identities, the newest one
+    on a tie. Taking the newest commit outright lets one that recorded only a few of them win:
+    a nightly run on a commit the develop run skipped shares little with a PR run, and every
+    PR measurement it did not record would show no comparison.
+    """
+
+    best = None
+    for commit_sha, commit_timestamp in candidate_baseline_commits(conn, identities, reachable):
+        records = baseline_records(conn, identities, commit_sha, commit_timestamp)
+        covered = len({(r["kind"], *(r[dim] for dim in _KINDS[r["kind"]][1])) for r in records})
+        rank = (covered, commit_timestamp, commit_sha)
+        if best is None or rank > best[0]:
+            best = (rank, commit_sha, records)
+    return None if best is None else (best[1], best[2])
 
 
 def baseline_records(
@@ -229,10 +250,9 @@ def main() -> None:
     if identities:
         commits = reachable_commits()
         with connect_postgres(args.postgres, args.region) as conn:
-            newest = newest_baseline_commit(conn, identities, set(commits))
-            if newest is not None:
-                commit_sha, commit_timestamp = newest
-                records = baseline_records(conn, identities, commit_sha, commit_timestamp)
+            baseline = select_baseline(conn, identities, set(commits))
+            if baseline is not None:
+                commit_sha, records = baseline
                 print(f"Baseline commit {commit_sha}: {len(records)} records")
     if not records:
         print("No baseline found; the report shows PR measurements without comparison.")
