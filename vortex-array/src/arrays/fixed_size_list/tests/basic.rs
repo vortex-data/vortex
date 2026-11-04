@@ -5,13 +5,18 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use super::common::create_basic_fsl;
+use super::common::create_nullable_fsl;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -19,6 +24,23 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[test]
+fn test_fixed_size_list_scalar_probe() -> VortexResult<()> {
+    let empty_lists = FixedSizeListArray::new(
+        PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array(),
+        0,
+        Validity::NonNullable,
+        3,
+    );
+    let mut ctx = SESSION.create_execution_ctx();
+    for array in [create_basic_fsl(), create_nullable_fsl(), empty_lists] {
+        let array = array.into_array();
+        test_scalar_probe_consistency(&array, &mut ctx);
+        test_scalar_probe_consistency(&array.slice(1..array.len())?, &mut ctx);
+    }
+    Ok(())
+}
 
 #[test]
 fn test_basic_fixed_size_list() {
