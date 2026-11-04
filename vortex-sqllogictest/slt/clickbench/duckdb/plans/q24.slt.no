@@ -216,7 +216,7 @@ logical_opt [
                                                             "Expressions": [
                                                                 "EventTime",
                                                                 "file_index",
-                                                                "file_row_number"
+                                                                "__vortex_row_id"
                                                             ],
                                                             "Estimated Cardinality": "200000"
                                                         }
@@ -226,7 +226,7 @@ logical_opt [
                                                     "Expressions": [
                                                         "EventTime",
                                                         "file_index",
-                                                        "file_row_number"
+                                                        "__vortex_row_id"
                                                     ],
                                                     "Estimated Cardinality": "200000"
                                                 }
@@ -242,7 +242,7 @@ logical_opt [
                                     "Join Type": "SEMI",
                                     "Conditions": [
                                         "(file_index = file_index)",
-                                        "(file_row_number = file_row_number)"
+                                        "(__vortex_row_id = __vortex_row_id)"
                                     ],
                                     "Estimated Cardinality": "200000"
                                 }
@@ -316,7 +316,7 @@ physical_plan [
                             "Join Type": "SEMI",
                             "Conditions": [
                                 "file_index = file_index",
-                                "file_row_number = file_row_number"
+                                "__vortex_row_id = __vortex_row_id"
                             ],
                             "Estimated Cardinality": "200000"
                         }

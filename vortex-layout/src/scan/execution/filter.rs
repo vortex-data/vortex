@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod ordering;
+
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
@@ -26,6 +29,9 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_session::VortexSession;
 
+use self::ordering::AdaptiveOrder;
+use self::ordering::ChunkOrder;
+use self::ordering::Observation;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::SelectedRows;
@@ -38,6 +44,7 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
 use crate::plan::physical::Zoned;
 use crate::plan::physical::optimize;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::plan_row_idx_expression;
@@ -50,6 +57,8 @@ pub struct FilterPlans {
     predicates: Vec<PlanRef>,
     /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+    dynamic_indices: Vec<usize>,
+    ordering: AdaptiveOrder,
 }
 
 impl FilterPlans {
@@ -63,11 +72,12 @@ impl FilterPlans {
             .conjuncts()
             .iter()
             .map(|expr| {
-                let plan = optimize(
+                // Leaf filters already apply the demand. Wrapping the predicate in another
+                // Filter would reset it to all rows before evaluating the expression.
+                optimize(
                     plan_row_idx_expression(expr.clone(), root.clone())?,
                     session,
-                )?;
-                Ok(FilterPlan::new(plan).into_plan())
+                )
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -88,10 +98,15 @@ impl FilterPlans {
                 }
             })
             .collect::<VortexResult<_>>()?;
+        let dynamic_indices = (0..expression.conjuncts().len())
+            .filter(|&index| expression.dynamic_updates(index).is_some())
+            .collect();
         Ok(Self {
+            ordering: AdaptiveOrder::new(expression.conjuncts().len()),
             expression,
             predicates,
             pruning,
+            dynamic_indices,
         })
     }
 
@@ -122,19 +137,103 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
 
 /// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.
 ///
-/// The first compute starts the reads of every conjunct's segments for the selected rows and
-/// announces the projection's, so the conjuncts run back to back and the projection's reads
-/// coalesce with them. Conjuncts run in the order the shared [`FilterExpr`] picks.
+/// Dynamic pruning is refreshed before data prefetch. Each chunk takes an order from the shared
+/// cost estimates, occasionally exploring another order. A dynamic conjunct is revisited if its
+/// version changes before projection. Static conjuncts retain their results.
 pub(super) struct FilterPlanner {
     scan: Arc<PreparedScan>,
     selected: Option<SelectedRows>,
     filter: Arc<FilterPlans>,
     remaining: BitVec,
-    active: Option<(usize, ScanAdaptor)>,
+    order: ChunkOrder,
+    active: Option<ActiveConjunct>,
+    dynamic: Vec<DynamicConjunct>,
     pieces: Vec<Mask>,
+    rechecks: RecheckStats,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
+}
+
+/// Versions are sampled before evaluation so an update during I/O or compute is checked again.
+struct DynamicConjunct {
+    index: usize,
+    pruned: Option<u64>,
+    filtered: Option<u64>,
+}
+
+#[derive(Clone, Copy)]
+enum Evaluation {
+    Prune,
+    Filter { recheck: bool },
+}
+
+struct ActiveConjunct {
+    index: usize,
+    version: Option<u64>,
+    evaluation: Evaluation,
+    adaptor: ScanAdaptor,
+    started: Option<Instant>,
+    cpu_ns: u128,
+}
+
+impl ActiveConjunct {
+    fn new(
+        scan: &PreparedScan,
+        selected: &SelectedRows,
+        plan: PlanRef,
+        index: usize,
+        version: Option<u64>,
+        evaluation: Evaluation,
+    ) -> VortexResult<Self> {
+        let learn = matches!(evaluation, Evaluation::Filter { recheck: false })
+            && scan
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.predicates.len() > 1);
+        let started = (learn || tracing::enabled!(tracing::Level::DEBUG)).then(Instant::now);
+        // Dense demand keeps vectorized evaluation cheaper than gathering almost every row.
+        // Random access and selective predicates retain demand all the way to their leaves.
+        let plan = if matches!(evaluation, Evaluation::Filter { .. })
+            && scan.access_mode() == AccessMode::Scan
+            && !selected.mask.all_true()
+            && selected.mask.true_count().saturating_mul(2) >= selected.mask.len()
+        {
+            FilterPlan::new(plan).into_plan()
+        } else {
+            plan
+        };
+        let pipeline = Scan::try_new(
+            scan.session.clone(),
+            plan,
+            vec![Split {
+                rows: selected.scope.rows.clone(),
+                mask: selected.mask.clone(),
+            }],
+        )?
+        .with_row_offset(scan.row_offset)
+        .with_value_cache(scan.values.clone())
+        .with_access_mode(scan.access_mode());
+        let cpu_ns = started.map_or(0, |started| started.elapsed().as_nanos());
+        Ok(Self {
+            index,
+            version,
+            evaluation,
+            adaptor: ScanAdaptor::new(pipeline, Arc::clone(&scan.locations)),
+            started,
+            cpu_ns,
+        })
+    }
+}
+
+#[derive(Default)]
+struct RecheckStats {
+    prunes: usize,
+    pruned_rows: usize,
+    prune_cpu_ns: u128,
+    filters: usize,
+    filtered_rows: usize,
+    filter_cpu_ns: u128,
 }
 
 /// The segments `plans` read over `rows` under `mask`, each once, in id order. Compiling finds
@@ -155,18 +254,188 @@ pub(super) fn segments_read<'a>(
 }
 
 impl FilterPlanner {
-    pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
+    pub(super) fn new(
+        scan: Arc<PreparedScan>,
+        selected: SelectedRows,
+        already_pruned: bool,
+    ) -> Self {
         let filter = Arc::clone(scan.filter.as_ref().vortex_expect("filter plans exist"));
+        let order = filter.ordering.begin_chunk();
+        tracing::debug!(
+            row_start = selected.scope.rows.start,
+            row_end = selected.scope.rows.end,
+            order = ?order.indices,
+            exploration = order.exploration,
+            "v2 predicate order selected"
+        );
         Self {
+            order,
             remaining: BitVec::from_elem(filter.predicates.len(), true),
+            dynamic: filter
+                .dynamic_indices
+                .iter()
+                .map(|&index| DynamicConjunct {
+                    index,
+                    // Version zero was captured when the filter plans were built, before any
+                    // scan could prune. A supplied pruning mask is at least this recent.
+                    pruned: already_pruned.then_some(0),
+                    filtered: None,
+                })
+                .collect(),
             scan,
             selected: Some(selected),
             filter,
             active: None,
             pieces: Vec::new(),
+            rechecks: RecheckStats::default(),
             announced: false,
             next_hint: u32::MAX,
         }
+    }
+
+    fn advance_active(&mut self) -> VortexResult<Option<PlannerOutput>> {
+        let Some(mut active) = self.active.take() else {
+            return Ok(None);
+        };
+        if active.adaptor.state() != State::Done {
+            let started = active.started.map(|_| Instant::now());
+            let output = match active.adaptor.compute()? {
+                AdaptorStep::Yield => PlannerOutput::Continue,
+                AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+                AdaptorStep::Piece(piece) => {
+                    self.pieces.push(piece_mask(&self.scan.session, piece)?);
+                    PlannerOutput::Continue
+                }
+            };
+            if let Some(started) = started {
+                active.cpu_ns += started.elapsed().as_nanos();
+            }
+            self.active = Some(active);
+            return Ok(Some(output));
+        }
+        self.finish_active(active)?;
+        Ok(None)
+    }
+
+    fn finish_active(&mut self, mut active: ActiveConjunct) -> VortexResult<()> {
+        let selected = self.selected.as_mut().vortex_expect("selected rows exist");
+        let finished = active.started.map(|_| Instant::now());
+        let input = selected.mask.true_count();
+        let result = Mask::concat(self.pieces.iter())?;
+        vortex_ensure_eq!(result.len(), input);
+        selected.mask = selected.mask.intersect_by_rank(&match active.evaluation {
+            Evaluation::Prune => !result,
+            Evaluation::Filter { .. } => result,
+        });
+        if let Some(finished) = finished {
+            active.cpu_ns += finished.elapsed().as_nanos();
+        }
+        let output = selected.mask.true_count();
+        let dynamic = self
+            .dynamic
+            .iter_mut()
+            .find(|dynamic| dynamic.index == active.index);
+        match active.evaluation {
+            Evaluation::Prune => {
+                if let Some(dynamic) = dynamic {
+                    dynamic.pruned = active.version;
+                }
+                self.rechecks.prunes += 1;
+                self.rechecks.pruned_rows += input - output;
+                self.rechecks.prune_cpu_ns += active.cpu_ns;
+                tracing::debug!(
+                    row_start = selected.scope.rows.start,
+                    row_end = selected.scope.rows.end,
+                    conjunct = active.index,
+                    version = active.version,
+                    input_rows = input,
+                    output_rows = output,
+                    cpu_ns = active.cpu_ns,
+                    elapsed_ns = active
+                        .started
+                        .map_or(0, |started| started.elapsed().as_nanos()),
+                    "v2 dynamic pruning evaluated"
+                );
+            }
+            Evaluation::Filter { recheck } => {
+                if let Some(dynamic) = dynamic {
+                    dynamic.filtered = active.version;
+                }
+                if recheck {
+                    self.rechecks.filters += 1;
+                    self.rechecks.filtered_rows += input - output;
+                    self.rechecks.filter_cpu_ns += active.cpu_ns;
+                }
+                tracing::debug!(
+                    row_start = selected.scope.rows.start,
+                    row_end = selected.scope.rows.end,
+                    conjunct = active.index,
+                    version = active.version,
+                    recheck,
+                    input_rows = input,
+                    output_rows = output,
+                    cpu_ns = active.cpu_ns,
+                    elapsed_ns = active
+                        .started
+                        .map_or(0, |started| started.elapsed().as_nanos()),
+                    "v2 filter conjunct evaluated"
+                );
+                self.filter.ordering.report(
+                    active.index,
+                    Observation {
+                        version: active.version.unwrap_or(0),
+                        input_rows: input,
+                        output_rows: output,
+                        compute_ns: active.cpu_ns,
+                        recheck,
+                    },
+                );
+            }
+        }
+        self.pieces.clear();
+        if matches!(active.evaluation, Evaluation::Prune) && !selected.mask.all_false() {
+            // Trim newly excluded edge zones before compiling another predicate or prefetching
+            // its data, including dictionary values living in a separate row domain.
+            let first = selected.mask.first().vortex_expect("non-empty mask");
+            let end = selected.mask.last().vortex_expect("non-empty mask") + 1;
+            selected.scope.rows =
+                selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
+            selected.mask = selected.mask.slice(first..end);
+        }
+        Ok(())
+    }
+
+    fn refresh_dynamic(&mut self) -> VortexResult<bool> {
+        let selected = self.selected.as_ref().vortex_expect("selected rows exist");
+        // Refresh metadata before prefetching data, and revisit only dynamic conjuncts whose
+        // version changed while another conjunct or an I/O request was running.
+        for dynamic in &mut self.dynamic {
+            let version = self
+                .filter
+                .expression
+                .dynamic_updates(dynamic.index)
+                .vortex_expect("dynamic conjunct has a tracker")
+                .version();
+            if dynamic.pruned != Some(version) {
+                self.filter.ordering.version_changed(dynamic.index, version);
+                if let Some(plan) = &self.filter.pruning[dynamic.index] {
+                    self.active = Some(ActiveConjunct::new(
+                        &self.scan,
+                        selected,
+                        plan.clone(),
+                        dynamic.index,
+                        Some(version),
+                        Evaluation::Prune,
+                    )?);
+                    return Ok(true);
+                }
+                dynamic.pruned = Some(version);
+            }
+            if dynamic.filtered.is_some_and(|filtered| filtered != version) {
+                self.remaining.set(dynamic.index, true);
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -200,8 +469,8 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, adaptor)) = &mut self.active {
-            adaptor.set_io_result(request, result);
+        if let Some(active) = &mut self.active {
+            active.adaptor.set_io_result(request, result);
         }
     }
 }
@@ -212,15 +481,30 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
+            Some(active) if active.adaptor.state() != State::Done => active.adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        let Some(selected) = &mut self.selected else {
+        if self.selected.is_none() {
             return Ok(PlannerOutput::Done);
-        };
+        }
+        if let Some(output) = self.advance_active()? {
+            return Ok(output);
+        }
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| selected.mask.all_false())
+        {
+            self.selected = None;
+            return Ok(PlannerOutput::Done);
+        }
+        if self.refresh_dynamic()? {
+            return Ok(PlannerOutput::Continue);
+        }
+        let selected = self.selected.as_ref().vortex_expect("selected rows exist");
         if !self.announced {
             self.announced = true;
             let session = &self.scan.session;
@@ -260,55 +544,19 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, adaptor)) = &mut self.active {
-            if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
-                    AdaptorStep::Yield => PlannerOutput::Continue,
-                    AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
-                    AdaptorStep::Piece(piece) => {
-                        self.pieces.push(piece_mask(&self.scan.session, piece)?);
-                        PlannerOutput::Continue
-                    }
-                });
-            }
-            let input = selected.mask.true_count();
-            let result = Mask::concat(self.pieces.iter())?;
-            vortex_ensure_eq!(result.len(), input);
-            selected.mask = selected.mask.intersect_by_rank(&result);
-            tracing::debug!(
-                row_start = selected.scope.rows.start,
-                row_end = selected.scope.rows.end,
-                input_rows = input,
-                output_rows = selected.mask.true_count(),
-                conjunct = *index,
-                "v2 filter conjunct evaluated"
-            );
-            self.filter
-                .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
-            self.active = None;
-            self.pieces.clear();
-        }
-        if selected.mask.all_false() {
-            self.selected = None;
-            return Ok(PlannerOutput::Done);
-        }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        if let Some(index) = self.order.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
-            let scan = Scan::try_new(
-                self.scan.session.clone(),
+            let dynamic = self.dynamic.iter().find(|dynamic| dynamic.index == index);
+            let version = dynamic.and_then(|dynamic| dynamic.pruned);
+            let recheck = dynamic.is_some_and(|dynamic| dynamic.filtered.is_some());
+            self.active = Some(ActiveConjunct::new(
+                &self.scan,
+                selected,
                 self.filter.predicates[index].clone(),
-                vec![Split {
-                    rows: selected.scope.rows.clone(),
-                    mask: selected.mask.clone(),
-                }],
-            )?
-            .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
-            self.active = Some((
                 index,
-                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
-            ));
+                version,
+                Evaluation::Filter { recheck },
+            )?);
             return Ok(PlannerOutput::Continue);
         }
         let selected = self.selected.take().vortex_expect("selected rows exist");
@@ -316,5 +564,21 @@ impl Planner for FilterPlanner {
             selected.scope.clone(),
             Box::new(ProjectionPlanner::new(Arc::clone(&self.scan), selected)),
         ))
+    }
+}
+
+impl Drop for FilterPlanner {
+    fn drop(&mut self) {
+        if !self.dynamic.is_empty() {
+            tracing::debug!(
+                dynamic_prunes = self.rechecks.prunes,
+                dynamic_pruned_rows = self.rechecks.pruned_rows,
+                dynamic_prune_cpu_ns = self.rechecks.prune_cpu_ns,
+                filter_rechecks = self.rechecks.filters,
+                refiltered_rows = self.rechecks.filtered_rows,
+                refilter_cpu_ns = self.rechecks.filter_cpu_ns,
+                "v2 dynamic recheck summary"
+            );
+        }
     }
 }

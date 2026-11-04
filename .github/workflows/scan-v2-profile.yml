@@ -1,0 +1,164 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: Scan V2 Profiles
+
+on:
+  workflow_call:
+    inputs:
+      source_run_id:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+jobs:
+  profile:
+    if: github.repository == 'vortex-data/vortex'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: tpch-10-q13
+            suite: tpch
+            scale: "10.0"
+            query: "13"
+          - id: clickbench-q19
+            suite: clickbench
+            scale: ""
+            query: "19"
+    runs-on: >-
+      ${{ format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag=profile-{1}/extras=s3-cache', github.run_id, matrix.id) }}
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    steps:
+      - name: Validate profile inputs
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-cpu
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/setup-duckdb
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          name: scan-comparison-head-binaries
+          path: target/scan-profile
+      - name: Place inputs and profiles on local NVMe
+        env:
+          CASE_ID: ${{ matrix.id }}
+        run: |
+          data_dir="/mnt/ephemeral/scan-profile-data/$GITHUB_RUN_ID/$CASE_ID"
+          sudo install -d -o "$(id -u)" -g "$(id -g)" "$data_dir" "$data_dir/data" "$data_dir/tmp"
+          mv target "$data_dir/target"
+          ln -s "$data_dir/target" target
+          ln -s "$data_dir/data" vortex-bench/data
+          mkdir -p scan-profile-results
+          ln -s "$data_dir/tmp" scan-profile-results/tmp
+      - name: Verify measured binaries
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          chmod +x target/scan-profile/{data-gen,datafusion-bench}
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          directory = Path("target/scan-profile")
+          manifest = json.loads((directory / "build-manifest.json").read_text())
+          assert manifest["commit"] == os.environ["SOURCE_SHA"]
+          for name in ("data-gen", "datafusion-bench"):
+              with (directory / name).open("rb") as executable:
+                  assert hashlib.file_digest(executable, "sha256").hexdigest() == manifest["binaries"][name]
+          (Path("scan-profile-results") / "build-manifest.json").write_text(json.dumps(manifest, indent=2))
+          PY
+          readelf -n target/scan-profile/datafusion-bench > scan-profile-results/elf-notes.txt
+      - name: Install pinned profiler
+        run: cargo install --locked samply --version 0.13.1 --root "$RUNNER_TEMP/samply"
+      - name: Prepare shared input files
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+        run: |
+          options=()
+          if [[ -n "$SCALE" ]]; then
+            options+=(--opt "scale-factor=$SCALE")
+          fi
+          export LD_LIBRARY_PATH="$(find target/scan-profile -name libduckdb.so -printf '%h:')${LD_LIBRARY_PATH:-}"
+          target/scan-profile/data-gen "$SUITE" --formats vortex "${options[@]}"
+      - name: Prepare profile CPUs
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Record V1 and V2 metrics and CPU profiles serially
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+          QUERY: ${{ matrix.query }}
+          RUST_LOG: warn
+          TOKIO_WORKER_THREADS: "94"
+          DATAFUSION_EXECUTION_TARGET_PARTITIONS: "94"
+        run: |
+          options=()
+          if [[ -n "$SCALE" ]]; then
+            options+=(--opt "scale-factor=$SCALE")
+          fi
+          export TMPDIR="$PWD/scan-profile-results/tmp"
+          export LD_LIBRARY_PATH="$(find target/scan-profile -name libduckdb.so -printf '%h:')${LD_LIBRARY_PATH:-}"
+          for version in 1 2; do
+            scan_v1=true
+            if [[ "$version" == 2 ]]; then
+              scan_v1=false
+            fi
+            command=("$PWD/target/scan-profile/datafusion-bench" "$SUITE"
+              --formats vortex --scan-v1 "$scan_v1" --runner scan-v2-profile
+              --queries "$QUERY" --hide-progress-bar --display-format gh-json "${options[@]}")
+            bash scripts/bench-taskset.sh "${command[@]}" --iterations 1 --show-metrics --emit-plan \
+              -o "scan-profile-results/v$version-metrics.jsonl" > "scan-profile-results/v$version-metrics.log" 2>&1
+            bash scripts/bench-taskset.sh sudo -n env \
+              RUST_LOG="$RUST_LOG" TOKIO_WORKER_THREADS="$TOKIO_WORKER_THREADS" \
+              DATAFUSION_EXECUTION_TARGET_PARTITIONS="$DATAFUSION_EXECUTION_TARGET_PARTITIONS" TMPDIR="$TMPDIR" \
+              LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+              "$RUNNER_TEMP/samply/bin/samply" record --save-only --rate 1000 \
+              --output "$PWD/scan-profile-results/v$version.profile.json.gz" -- \
+              "${command[@]}" --iterations 300 -o "$PWD/scan-profile-results/v$version-sampled.jsonl" \
+              > "scan-profile-results/v$version-profile.log" 2>&1
+            sudo chmod a+r "scan-profile-results/v$version.profile.json.gz"
+          done
+      - name: Resolve native symbols on the profile host
+        run: |
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/symbolicate-samply.py" \
+            --output scan-profile-results/symbolicate-samply.py
+          for version in 1 2; do
+            python3 scan-profile-results/symbolicate-samply.py \
+              "scan-profile-results/v$version.profile.json.gz" --binary target/scan-profile/datafusion-bench \
+              --output "scan-profile-results/v$version-symbolicated.profile.json.gz"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: scan-profile-${{ matrix.id }}
+          path: |
+            scan-profile-results/
+            !scan-profile-results/tmp/**

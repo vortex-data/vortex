@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
@@ -34,6 +35,7 @@ use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::pipeline::PredicateCache;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -138,39 +140,88 @@ impl PlanVTable for Take {
         }
     }
 
-    /// A take whose values an earlier scan of the split produced looks its codes up in them;
-    /// otherwise it joins its codes with the whole of its values.
+    /// Reuses whole-value results or evaluates a static string predicate over selected values.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
-            return Ok(None);
-        };
-        let cache = compiler.values().clone();
-        let values_plan = plan.values()?;
-        if let Some(values) = cache.get(&values_plan) {
-            let source = TakeSource::new(plan.clone(), Some(values), None);
-            return Ok(Some(compiler.join(vec![codes], source)));
+        let values = plan.values()?;
+        if let Some(eval) = values.as_opt::<Eval>()
+            && eval.expression().dtype().is_boolean()
+            && (eval.child_plan()?.dtype().is_utf8() || eval.child_plan()?.dtype().is_binary())
+            && (mask.true_count().saturating_mul(4) < usize::try_from(values.row_count())?
+                || compiler.values().predicate(&values).is_some())
+            && compiler.values().get(&values).is_none()
+            && expression_is_strict_and_infallible(eval.expression())
+            && !eval.expression().contains::<DynamicComparison>()?
+        {
+            let cache = compiler
+                .values()
+                .predicate_or_insert(&values, usize::try_from(values.row_count())?);
+            let take = TakePlan::new(plan.codes()?, eval.child_plan()?);
+            return compile_take(
+                &take,
+                rows,
+                mask,
+                compiler,
+                Some((eval.expression().clone(), cache)),
+            );
         }
-        let values = values_plan;
-        let values_rows = 0..values.row_count();
-        let len = usize::try_from(values_rows.end)?;
-        let values = match compiler.compile(&values, values_rows, &Mask::new_true(len))? {
-            Some(values) => values,
-            None => Chain::new(OnceSource::new(
-                Canonical::empty(values.dtype()).into_array(),
-            )),
-        };
-        let source = TakeSource::new(plan.clone(), None, Some(cache));
-        Ok(Some(compiler.join_with(
-            vec![codes, values],
-            TakeSource::capacity,
-            source,
-        )))
+        compile_take(plan, rows, mask, compiler, None)
     }
+}
+
+/// Reads codes and reusable dictionary values together, applying sparse predicates after gather.
+fn compile_take(
+    plan: &TakePlan,
+    rows: Range<u64>,
+    mask: &Mask,
+    compiler: &mut Compiler<'_>,
+    predicate: Option<(BoundExpression, Arc<PredicateCache>)>,
+) -> VortexResult<Option<Chain>> {
+    let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
+        return Ok(None);
+    };
+    let cache = compiler.values().clone();
+    let values_plan = plan.values()?;
+    let cached = cache.get(&values_plan);
+    let mut source = TakeSource::new(
+        plan.clone(),
+        cached.clone(),
+        cached.is_none().then_some(cache),
+        compiler.access_mode(),
+    );
+    if let Some((expression, cache)) = predicate {
+        source = source.with_predicate(expression, cache);
+    }
+    if cached.is_some() {
+        return Ok(Some(compiler.join(vec![codes], source)));
+    }
+    let values_rows = 0..values_plan.row_count();
+    let len = usize::try_from(values_rows.end)?;
+    let values = match compiler.compile(&values_plan, values_rows, &Mask::new_true(len))? {
+        Some(values) => values,
+        None => Chain::new(OnceSource::new(
+            Canonical::empty(values_plan.dtype()).into_array(),
+        )),
+    };
+    Ok(Some(compiler.join_with(
+        vec![codes, values],
+        TakeSource::capacity,
+        source,
+    )))
+}
+
+fn expression_is_strict_and_infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|scalar| scalar.signature().is_strict() && scalar.signature().is_infallible())
+        && expression
+            .children()
+            .iter()
+            .all(expression_is_strict_and_infallible)
 }
 
 /// Pushes an expression, or the part of it that reads the values, onto the dictionary values of

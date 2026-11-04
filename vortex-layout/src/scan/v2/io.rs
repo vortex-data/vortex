@@ -34,15 +34,42 @@ use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// Byte ranges of a file's segments, keyed by `(offset, length)`, back to their segment ids.
-pub(crate) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
+/// Byte ranges of a file's segments back to their segment ids.
+pub(crate) type SegmentRanges = Arc<SegmentRangeIndex>;
 
-pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
+pub(crate) enum SegmentRangeIndex {
+    Ordered(Arc<[SegmentLocation]>),
+    Indexed(HashMap<(u64, usize), SegmentId>),
+}
+
+impl SegmentRangeIndex {
+    fn get(&self, key: &(u64, usize)) -> Option<SegmentId> {
+        match self {
+            Self::Ordered(locations) => {
+                let end = locations.partition_point(|location| {
+                    (location.offset, location.length as usize) <= *key
+                });
+                let index = end.checked_sub(1)?;
+                let location = &locations[index];
+                ((location.offset, location.length as usize) == *key)
+                    .then(|| SegmentId::from(u32::try_from(index).unwrap_or(u32::MAX)))
+            }
+            Self::Indexed(ranges) => ranges.get(key).copied(),
+        }
+    }
+}
+
+pub(super) fn segment_ranges(locations: Arc<[SegmentLocation]>) -> SegmentRanges {
+    // File segment tables are ordered already. Reuse their storage so a narrow scan need not
+    // allocate and hash the ranges of every column before it can issue its first read.
+    if locations.is_sorted_by_key(|location| (location.offset, location.length)) {
+        return Arc::new(SegmentRangeIndex::Ordered(locations));
+    }
     let ranges = locations.iter().enumerate().map(|(id, location)| {
         let id = SegmentId::from(u32::try_from(id).unwrap_or(u32::MAX));
         ((location.offset, location.length as usize), id)
     });
-    Arc::new(ranges.collect())
+    Arc::new(SegmentRangeIndex::Indexed(ranges.collect()))
 }
 
 /// Serves splits from any [`SegmentSource`], by segment id.
@@ -115,7 +142,7 @@ impl IoSource for SegmentIoSource {
                     request.target
                 );
             };
-            let segment = *self
+            let segment = self
                 .ranges
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
@@ -240,6 +267,7 @@ mod tests {
     use futures::channel::oneshot;
     use futures::future;
     use parking_lot::Mutex;
+    use rstest::rstest;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
@@ -258,6 +286,34 @@ mod tests {
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
+
+    #[rstest]
+    #[case::empty(vec![])]
+    #[case::ordered(vec![(8, 0), (8, 4), (8, 4), (16, 4)])]
+    #[case::unordered(vec![(16, 4), (8, 4), (8, 0), (8, 4)])]
+    fn ranges_preserve_offsets_lengths_and_duplicate_ids(
+        #[case] keys: Vec<(u64, u32)>,
+    ) -> VortexResult<()> {
+        let locations = keys
+            .iter()
+            .map(|&(offset, length)| SegmentLocation {
+                offset,
+                length,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let ranges = segment_ranges(locations);
+        for key in [(0, 4), (8, 0), (8, 1), (8, 4), (16, 4), (20, 4)] {
+            let expected = keys
+                .iter()
+                .rposition(|&(offset, length)| (offset, length as usize) == key)
+                .map(u32::try_from)
+                .transpose()?
+                .map(SegmentId::from);
+            assert_eq!(ranges.get(&key), expected, "range {key:?}");
+        }
+        Ok(())
+    }
 
     /// Serves four bytes per segment and counts the reads it is asked for.
     #[derive(Default)]
@@ -307,7 +363,7 @@ mod tests {
             length: 4,
             alignment: Alignment::none(),
         });
-        let io = SegmentIoSource::new(segments, segment_ranges(&locations));
+        let io = SegmentIoSource::new(segments, segment_ranges(Arc::from(locations)));
         let mut pending = request(IoIntent::Fetch, 1);
         pending.target = IoTarget::range(4, 4);
         io.submit(IoOwnerId(0), vec![pending, request(IoIntent::Fetch, 0)])?;
@@ -340,7 +396,10 @@ mod tests {
             length: 4,
             alignment: Alignment::none(),
         };
-        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
+        let io = SegmentIoSource::new(
+            Arc::clone(&segments) as _,
+            segment_ranges(Arc::from([location])),
+        );
 
         io.submit(IoOwnerId(0), vec![request(IoIntent::Prefetch, 0)])?;
         assert_eq!(segments.0.load(Ordering::Relaxed), 1);
@@ -378,7 +437,10 @@ mod tests {
             length: 4,
             alignment: Alignment::none(),
         };
-        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
+        let io = SegmentIoSource::new(
+            Arc::clone(&segments) as _,
+            segment_ranges(Arc::from([location])),
+        );
         io.submit(
             IoOwnerId(0),
             vec![

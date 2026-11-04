@@ -5,6 +5,8 @@ use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::AtomicUsize;
+use std::time::Instant;
 
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -56,17 +58,13 @@ use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ChunkPlanner;
-use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
-use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -83,6 +81,8 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
+use crate::persistent::scan_v2::initial_ranges;
+use crate::persistent::scan_v2::scan_planner;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -137,9 +137,10 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
-    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
-    /// partition only as far as the engine has not.
+    /// How many partitions the engine runs the scan on, used to scale its default read concurrency.
     pub partitions: usize,
+    /// Startup work shared by every file opened on this execution partition.
+    pub initial_chunks: Arc<AtomicUsize>,
 }
 
 impl FileOpener for VortexOpener {
@@ -177,6 +178,7 @@ impl FileOpener for VortexOpener {
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
+        let initial_chunks = Arc::clone(&self.initial_chunks);
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
@@ -211,7 +213,11 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
         }
 
+        let scan_span = tracing::debug_span!("v2_scan", path = %file.path());
         Ok(async move {
+            let started = Instant::now();
+            let observed_predicate = file_pruning_predicate.clone();
+            let observed_path = file.path().to_string();
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
             let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
                 FilePruner::try_new(
@@ -423,6 +429,7 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
+            let mut first_batch = true;
             let map_batch = move |chunk| {
                 let mut ctx = session.create_execution_ctx();
                 let arrow_session = ctx.session().clone();
@@ -434,6 +441,10 @@ impl FileOpener for VortexOpener {
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
+                let narrow_unfiltered = native_filter.is_none()
+                    && scan_dtype
+                        .element_size()
+                        .is_some_and(|bytes| bytes > 0 && bytes <= 16);
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
                     &segment_sources,
@@ -446,7 +457,17 @@ impl FileOpener for VortexOpener {
                     .with_some_filter(native_filter);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
+                    let mut rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
+                    if narrow_unfiltered {
+                        // Small dimensions otherwise repeat planning for a few thousand rows on
+                        // every worker. Shared boundaries still assign every row exactly once.
+                        let boundary = |row: u64| {
+                            row.div_ceil(65_536)
+                                .saturating_mul(65_536)
+                                .min(vxf.row_count())
+                        };
+                        rows = boundary(rows.start)..boundary(rows.end);
+                    }
                     if rows.is_empty() {
                         return Ok(stream::empty().boxed());
                     }
@@ -459,14 +480,12 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
+                // Reads and downstream consumers can leave a partition waiting, so keep multiple
+                // chunk streams available per worker even when partitions fill the cores.
+                let workers = get_available_parallelism().unwrap_or(1);
+                let concurrency =
+                    scan_concurrency.unwrap_or_else(|| workers.div_ceil(partitions).max(1));
+                let in_flight = concurrency.saturating_mul(workers).max(1);
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
@@ -475,27 +494,21 @@ impl FileOpener for VortexOpener {
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
                 let scan = Arc::new(scan);
 
-                // The planners, composed: with a filter, its pruning plans first over the whole
-                // partition, continuing into the chunks of the rows they keep; without a
-                // filter, the chunks directly. A chunk plans its conjuncts, then its
-                // projection.
-                let chunks = {
-                    let scan = Arc::clone(&scan);
-                    move |kept: Option<Mask>| -> Box<dyn Planner> {
-                        let rows = scan.rows().clone();
-                        let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-                    }
-                };
-                let root: Box<dyn Planner> = if scan.filter().is_some() {
-                    let rows = scan.rows().clone();
-                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
+                let initial = if !has_output_ordering {
+                    initial_ranges(scan.rows().clone(), &initial_chunks)
                 } else {
-                    chunks(None)
+                    Vec::new()
                 };
+                let bulk_start = initial.last().map_or_else(|| scan.rows().start, |rows| rows.end);
+                tracing::debug!(
+                    initial_chunks = initial.len(),
+                    bulk_start,
+                    "v2 topk startup"
+                );
+                let root = scan_planner(Arc::clone(&scan), bulk_start..scan.rows().end);
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                let driver = ScanDriver::new(handle, in_flight, has_output_ordering);
+                Ok(driver.run(scan, root, initial, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -587,6 +600,11 @@ impl FileOpener for VortexOpener {
                     }
                 }
                 let batch = projector.project_batch(&batch)?;
+                tracing::debug!(path = %residual_path, rows = batch.num_rows(), "scan batch returned");
+                if first_batch {
+                    first_batch = false;
+                    tracing::debug!(path = %residual_path, elapsed_us = started.elapsed().as_micros(), rows = batch.num_rows(), "scan first batch");
+                }
 
                 let (_, columns, row_count) = batch.into_parts();
                 Ok(Some(RecordBatch::try_new_with_options(
@@ -616,12 +634,16 @@ impl FileOpener for VortexOpener {
             if let Some(file_pruner) = file_pruner
                 && file_pruner.is_watching()
             {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
+                let mut stream = PrunableStream::new(file_pruner, stream);
+                if scan_v2 && let Some(predicate) = observed_predicate {
+                    stream = stream.observe_filter(predicate, observed_path, started)?;
+                }
+                Ok(stream.boxed())
             } else {
                 Ok(stream)
             }
         }
-        .in_current_span()
+        .instrument(scan_span)
         .boxed())
     }
 }
@@ -832,6 +854,8 @@ mod tests {
     use std::fmt;
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use arrow_array::record_batch;
     use arrow_schema::Field;
@@ -854,6 +878,8 @@ mod tests {
     use datafusion::scalar::ScalarValue;
     use datafusion_common::Statistics;
     use datafusion_common::arrow::compute::concat_batches;
+    use datafusion_common::arrow::compute::sort_to_indices;
+    use datafusion_common::arrow::compute::take_record_batch;
     use datafusion_common::assert_batches_eq;
     use datafusion_common::stats::Precision;
     use datafusion_datasource::file::FileSource;
@@ -870,8 +896,11 @@ mod tests {
     use itertools::Itertools;
     use object_store::ObjectStore;
     use object_store::memory::InMemory;
+    use object_store::throttle::ThrottleConfig;
+    use object_store::throttle::ThrottledStore;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::array::VortexSessionExecute;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
@@ -880,6 +909,7 @@ mod tests {
     use vortex::scan::selection::Selection;
     use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
     use vortex::session::VortexSession;
+    use vortex_array::assert_arrays_eq;
 
     use super::*;
     use crate::VortexAccessPlan;
@@ -1033,11 +1063,12 @@ mod tests {
         #[values(false, true)] scan_v2: bool,
         #[values(false, true)] warm_cache: bool,
         #[values(3, 8)] partitions: usize,
+        #[values(30_000, 150_000)] row_count: usize,
     ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "rows/file.vortex";
-        let values: Vec<Option<i32>> = (0..30_000).map(Some).collect();
-        let batch = record_batch!(("a", Int32, values)).unwrap();
+        let values: Vec<Option<i32>> = (0..i32::try_from(row_count)?).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values))?;
         let data_size =
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
         let file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -1077,31 +1108,19 @@ mod tests {
         assert_eq!(files.len(), partitions);
 
         let mut data = Vec::new();
+        let mut populated = 0;
         for file in files {
             let batches = opener
                 .open(file.clone())?
                 .await?
                 .try_collect::<Vec<_>>()
                 .await?;
-            if scan_v2 {
-                let bytes = file.range.as_ref().expect("partition has a byte range");
-                let rows = partition_row_range(
-                    u64::try_from(bytes.start)?..u64::try_from(bytes.end)?,
-                    data_size,
-                    batch.num_rows() as u64,
-                );
-                assert_eq!(
-                    concat_batches(&batch.schema(), &batches)?,
-                    batch.slice(
-                        usize::try_from(rows.start)?,
-                        usize::try_from(rows.end - rows.start)?,
-                    ),
-                );
-            }
+            populated += usize::from(!batches.is_empty());
             data.extend(batches);
         }
         assert_eq!(concat_batches(&batch.schema(), &data)?, batch);
         if scan_v2 {
+            assert_eq!(populated, row_count.div_ceil(65_536));
             assert!(opener.layout_readers.is_empty());
             assert!(opener.natural_splits.is_empty());
         }
@@ -1127,6 +1146,109 @@ mod tests {
         Ok(summary.size())
     }
 
+    #[rstest]
+    #[tokio::test]
+    async fn v2_bounds_narrow_arrow_batches(
+        #[values(0, 2)] scan_concurrency: usize,
+        #[values(false, true)] filtered: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let batch = record_batch!(("a", UInt32, (0..150_000).collect::<Vec<u32>>()))?;
+        let schema = batch.schema();
+        let size =
+            write_arrow_to_vortex(Arc::clone(&object_store), "batches.vortex", batch.clone())
+                .await?;
+        let filter = filtered.then(|| logical2physical(&col("a").gt(lit(0_u32)), &schema));
+        let mut opener = make_opener(object_store, TableSchema::from(Arc::clone(&schema)), filter);
+        opener.scan_v2 = true;
+        opener.scan_concurrency = Some(scan_concurrency);
+        opener.has_output_ordering = true;
+        let batches = opener
+            .open(PartitionedFile::new("batches.vortex", size))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert!(batches.iter().all(|batch| batch.num_rows() <= 65_536));
+        let expected = if filtered {
+            batch.slice(1, batch.num_rows() - 1)
+        } else {
+            batch
+        };
+        assert_arrays_eq!(
+            SESSION
+                .arrow()
+                .from_arrow_record_batch(concat_batches(&schema, &batches)?, &schema)?,
+            SESSION.arrow().from_arrow_record_batch(expected, &schema)?,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn startup_and_bulk_keep_filtered_selected_rows_once(
+        #[values(0, 2)] initial_chunks: usize,
+        #[values(false, true)] roaring: bool,
+        #[values(0, 1)] scan_concurrency: usize,
+    ) -> anyhow::Result<()> {
+        // Delay payload reads so one root can retire while another still waits for IO.
+        let object_store = Arc::new(ThrottledStore::new(
+            InMemory::new(),
+            ThrottleConfig {
+                wait_get_per_call: Duration::from_millis(10),
+                ..Default::default()
+            },
+        )) as Arc<dyn ObjectStore>;
+        let payload = |row: u32| {
+            u64::from(row)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                .rotate_left(row % 64)
+        };
+        let batch = record_batch!(
+            ("a", UInt32, (0..150_000).collect::<Vec<_>>()),
+            ("b", UInt64, (0..150_000).map(payload).collect::<Vec<_>>())
+        )?;
+        let schema = batch.schema();
+        let size =
+            write_arrow_to_vortex(Arc::clone(&object_store), "startup.vortex", batch).await?;
+        let table_schema = TableSchema::from(Arc::clone(&schema));
+        let filter = logical2physical(&col("a").gt(lit(10_u32)), table_schema.table_schema());
+        let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.file_schema());
+        let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.projection = projection;
+        opener.scan_v2 = true;
+        opener.scan_concurrency = Some(scan_concurrency);
+        opener.initial_chunks = Arc::new(AtomicUsize::new(initial_chunks));
+        let indices = vec![3, 17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999];
+        let selection = if roaring {
+            Selection::IncludeRoaring(indices.into_iter().collect())
+        } else {
+            Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from(indices))?)
+        };
+        let file = PartitionedFile::new("startup.vortex".to_string(), size)
+            .with_extension(VortexAccessPlan::default().with_selection(selection));
+        let batches = tokio::time::timeout(
+            Duration::from_secs(5),
+            opener.open(file)?.await?.try_collect::<Vec<_>>(),
+        )
+        .await??;
+        assert_eq!(opener.initial_chunks.load(Ordering::Relaxed), 0);
+        let actual = concat_batches(&schema, &batches)?;
+        let order = sort_to_indices(actual.column(0), None, None)?;
+        let actual = take_record_batch(&actual, &order)?;
+        let expected_rows = [17, 8188, 8192, 16_390, 65_535, 65_536, 140_000, 149_999];
+        let expected = record_batch!(
+            ("a", UInt32, expected_rows.to_vec()),
+            ("b", UInt64, expected_rows.map(payload).to_vec())
+        )?;
+        assert_arrays_eq!(
+            SESSION.arrow().from_arrow_record_batch(actual, &schema)?,
+            SESSION.arrow().from_arrow_record_batch(expected, &schema)?,
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
     fn make_opener(
         object_store: Arc<dyn ObjectStore>,
         table_schema: TableSchema,
@@ -1148,6 +1270,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1558,6 +1681,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1650,6 +1774,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1833,6 +1958,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1898,6 +2024,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -2114,6 +2241,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            initial_chunks: Default::default(),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,

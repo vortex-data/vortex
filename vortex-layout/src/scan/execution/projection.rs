@@ -20,6 +20,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_scan::planning::planner::WorkScope;
 
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::selection::selected;
@@ -31,8 +32,8 @@ use crate::scan::execution::adaptor::ScanAdaptor;
 
 const MAX_OUTPUT_ROWS: usize = 65_536;
 
-/// Keeps sparse selections together and subdivides dense selections to avoid large copies when
-/// converting chunked projection results to Arrow.
+/// Scan projections stream stored pieces. Random-access projections keep sparse selections
+/// together and subdivide dense filtered selections to bound copies during Arrow conversion.
 pub(super) struct ProjectionPlanner {
     scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
@@ -41,7 +42,10 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
+        let selected = if scan.access_mode() == AccessMode::Scan
+            || scan.filter.is_none()
+            || selected.mask.true_count() <= MAX_OUTPUT_ROWS
+        {
             vec![selected]
         } else {
             (0..selected.mask.len())
@@ -97,8 +101,8 @@ impl Planner for ProjectionPlanner {
     }
 }
 
-/// Runs the projection plan over a split's selected rows and returns them as one batch, in row
-/// order. A selection that projects to no rows finishes without a batch.
+/// Projects selected rows in order, streaming scan pieces and gathering filtered random-access
+/// pieces into one batch. A selection that projects to no rows finishes without a batch.
 struct ProjectionMorsel {
     scan: Arc<PreparedScan>,
     dtype: DType,
@@ -176,7 +180,8 @@ impl Morsel for ProjectionMorsel {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+            .with_value_cache(self.scan.values.clone())
+            .with_access_mode(self.scan.access_mode());
             self.adaptor = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(MorselOutput::Continue);
         };
@@ -186,6 +191,14 @@ impl Morsel for ProjectionMorsel {
         Ok(match adaptor.compute()? {
             AdaptorStep::Yield => MorselOutput::Continue,
             AdaptorStep::NeedsIO(batch) => MorselOutput::NeedsIO(batch),
+            AdaptorStep::Piece(piece) if piece.array.is_empty() => MorselOutput::Continue,
+            // Preserve stored boundaries instead of making Arrow conversion copy across them.
+            // The chunk planner bounds the row domain of these pieces.
+            AdaptorStep::Piece(piece)
+                if self.scan.filter.is_none() || self.scan.access_mode() == AccessMode::Scan =>
+            {
+                MorselOutput::Batch(piece.array)
+            }
             AdaptorStep::Piece(piece) => {
                 self.pieces.push(piece);
                 MorselOutput::Continue

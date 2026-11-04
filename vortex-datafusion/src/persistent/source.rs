@@ -4,6 +4,7 @@
 use std::fmt::Formatter;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::AtomicUsize;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
@@ -15,6 +16,7 @@ use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
@@ -40,6 +42,7 @@ use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
@@ -379,6 +382,21 @@ impl VortexSource {
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
+            initial_chunks: Arc::new(AtomicUsize::new(
+                if self.options.scan_v2
+                    && self.full_predicate.as_ref().is_some_and(|predicate| {
+                        DynamicFilterTracking::classify(predicate).contains_dynamic_filter()
+                    })
+                {
+                    self.options.dynamic_filter_initial_chunks.saturating_mul(
+                        get_available_parallelism()
+                            .unwrap_or(1)
+                            .div_ceil(base_config.file_groups.len().max(1)),
+                    )
+                } else {
+                    0
+                },
+            )),
         };
 
         Ok(opener)
@@ -592,6 +610,8 @@ impl FileSource for VortexSource {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
@@ -605,7 +625,9 @@ mod tests {
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
@@ -751,6 +773,38 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    #[rstest]
+    fn startup_is_reserved_for_v2_dynamic_filters(
+        #[values(false, true)] scan_v2: bool,
+        #[values(false, true)] dynamic: bool,
+        #[values(0, 2)] chunks: usize,
+    ) -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let predicate =
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))) as PhysicalExprRef;
+        let mut source = sort_test_source(Arc::clone(&schema));
+        source.options.scan_v2 = scan_v2;
+        source.options.dynamic_filter_initial_chunks = chunks;
+        source.full_predicate = Some(if dynamic {
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![], predicate))
+        } else {
+            predicate
+        });
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .build();
+        let opener = source.create_vortex_opener(Arc::new(InMemory::new()), &config, 0)?;
+        let expected = if scan_v2 && dynamic {
+            chunks * get_available_parallelism().unwrap_or(1)
+        } else {
+            0
+        };
+        assert_eq!(opener.initial_chunks.load(Ordering::Relaxed), expected);
         Ok(())
     }
 

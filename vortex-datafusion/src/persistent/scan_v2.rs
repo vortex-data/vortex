@@ -7,12 +7,15 @@
 //! opener composes the planners over a [`PreparedScan`] and hands the driver the first; the
 //! driver runs it and everything it emits on planning runs it owns: the root run stepped on
 //! `spawn_cpu` tasks as the stream is polled, each spawned chunk on a task of its own, or on the
-//! root run when the engine's partitions already fill the cores. Every read is a `spawn_io` task
+//! root run when its chunk concurrency is one. Every read is a `spawn_io` task
 //! of the file's segment source. The DataFusion thread polling the stream does no scan work
 //! itself.
 
 use std::future;
+use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
@@ -25,32 +28,86 @@ use futures::stream::BoxStream;
 use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::io::request::IoSource;
+use vortex::io::request::IoService;
 use vortex::io::runtime::Handle;
+use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
+use vortex::layout::scan::v2::PrunePlanner;
+use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
-use vortex_utils::parallelism::get_available_parallelism;
+
+#[cfg(test)]
+mod tests;
 
 /// Maps a scan's batches to Arrow on the task that produced them.
 type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>;
 
+const INITIAL_CHUNK_ROWS: u64 = 8192;
+const MAX_ARROW_BATCH_ROWS: usize = 65_536;
+const MAX_ARROW_ROW_BYTES: usize = 16;
+
+/// Claims a partition's startup budget across its files, without duplicating their rows.
+pub(crate) fn initial_ranges(rows: Range<u64>, remaining: &AtomicUsize) -> Vec<Range<u64>> {
+    let needed =
+        usize::try_from((rows.end - rows.start).div_ceil(INITIAL_CHUNK_ROWS)).unwrap_or(usize::MAX);
+    let mut previous = remaining.load(Ordering::Relaxed);
+    let claimed = loop {
+        let claimed = previous.min(needed);
+        if claimed == 0 {
+            break 0;
+        }
+        match remaining.compare_exchange_weak(
+            previous,
+            previous - claimed,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break claimed,
+            Err(current) => previous = current,
+        }
+    };
+    (0..claimed)
+        .map(|index| {
+            let start = rows.start + index as u64 * INITIAL_CHUNK_ROWS;
+            start..start.saturating_add(INITIAL_CHUNK_ROWS).min(rows.end)
+        })
+        .collect()
+}
+
+/// Composes pruning, filtering and projection for an independent file-local range.
+pub(crate) fn scan_planner(scan: Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
+    let chunks = {
+        let scan = Arc::clone(&scan);
+        let rows = rows.clone();
+        move |kept: Option<Mask>| -> Box<dyn Planner> {
+            let selection = scan.selection().clone();
+            Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+        }
+    };
+    if scan.filter().is_some() {
+        Box::new(PrunePlanner::new(scan, rows, Box::new(chunks)))
+    } else {
+        chunks(None)
+    }
+}
+
 /// Runs one partition's V2 scan on DataFusion's runtime.
 pub(crate) struct ScanDriver {
     handle: Handle,
-    /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
-    concurrency: usize,
+    /// Concurrent chunks in this partition; at 1 they run on the scan's own run.
+    in_flight: usize,
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
 }
 
 impl ScanDriver {
-    pub(crate) fn new(handle: Handle, concurrency: usize, ordered: bool) -> Self {
+    pub(crate) fn new(handle: Handle, in_flight: usize, ordered: bool) -> Self {
         Self {
             handle,
-            concurrency,
+            in_flight,
             ordered,
         }
     }
@@ -61,32 +118,64 @@ impl ScanDriver {
         self,
         scan: Arc<PreparedScan>,
         root: Box<dyn Planner>,
+        initial: Vec<Range<u64>>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
-        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        let in_flight = self.in_flight;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
         let io = scan.io();
-        let (chunk_handle, chunk_io, chunk_map) =
-            (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
-        let batches = run_stream(self.handle, root, scope, io.session(), map, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
+        let initial_count = initial.len().max(1);
+        let (initial_handle, initial_io, initial_map, initial_scan) = (
+            self.handle.clone(),
+            Arc::clone(&io),
+            Arc::clone(&map),
+            Arc::clone(&scan),
+        );
+        let initial = stream::iter(initial)
+            .map(move |rows| {
+                let scope = WorkScope {
+                    file_ordinal: 0,
+                    rows: rows.clone(),
+                };
+                chunk_stream(
+                    &initial_handle,
+                    scan_planner(Arc::clone(&initial_scan), rows),
                     scope,
-                    chunk_io.session(),
-                    Arc::clone(&chunk_map),
-                ),
+                    Arc::clone(&initial_io),
+                    Arc::clone(&initial_map),
+                )
             })
-            .try_flatten_unordered(in_flight);
+            .flatten_unordered(initial_count);
+        let batches = if in_flight <= 1 {
+            // Start only after startup batches drain, and keep the run on one task across IO waits.
+            stream::once(async move { chunk_stream(&self.handle, root, scope, io, map) })
+                .flatten()
+                .boxed()
+        } else {
+            let (chunk_handle, chunk_io, chunk_map) =
+                (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
+            run_stream(self.handle, root, scope, io, map)
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        stream::once(future::ready(Ok((start, batch)))).boxed()
+                    }
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        Arc::clone(&chunk_io),
+                        Arc::clone(&chunk_map),
+                    ),
+                })
+                .try_flatten_unordered(in_flight)
+                .boxed()
+        };
+        // Drain startup batches before admitting bulk work, so TopK can tighten its bound.
+        let batches = initial.chain(batches);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
         let batches = batches.chain(stream::poll_fn(move |_| {
@@ -128,33 +217,24 @@ struct RunState {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    io: Arc<dyn IoSource>,
     map: MapBatch,
-    /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
-    inline: bool,
 }
 
 /// Runs `root` over `scope` on a planning run of its own, reading through `io`, each CPU step
-/// on a `spawn_cpu` task, and yields its mapped batches and, unless `inline`, the chunks it
-/// spawns. Inline, a spawned chunk runs on this run beside the others: the run's steps already
-/// interleave every chunk's work, and a run per chunk would only add a hand-off per chunk for
-/// parallelism the engine provides.
+/// on a `spawn_cpu` task, and yields its mapped batches and the chunks it spawns.
 fn run_stream(
     handle: Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn IoService>,
     map: MapBatch,
-    inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded>> {
     let mut run = Run::new();
-    run.admit(root, scope, Arc::clone(&io));
+    run.admit(root, scope, io.session());
     let state = RunState {
         handle,
         run: Some(run),
-        io,
         map,
-        inline,
     };
     stream::try_unfold(state, |mut state| async move {
         loop {
@@ -186,9 +266,6 @@ fn run_stream(
                 Step::Batch(start, batch) => {
                     return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
-                Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, Arc::clone(&state.io));
-                }
                 Step::Spawn(scope, child) => {
                     return Ok(Some((Yielded::Spawn(scope, child), state)));
                 }
@@ -211,25 +288,50 @@ fn chunk_stream(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn IoService>,
     map: MapBatch,
 ) -> BoxStream<'static, VortexResult<(u64, RecordBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit(root, scope, io.session());
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
-                    let batch = map(batch.array);
-                    let failed = batch.is_err();
-                    if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
-                        return Ok(());
+                    let len = batch.array.len();
+                    // Narrow values and their casts benefit from a small working set. Wider
+                    // conversions retain stored boundaries to amortize their setup cost.
+                    let split = len > MAX_ARROW_BATCH_ROWS
+                        && batch
+                            .array
+                            .dtype()
+                            .element_size()
+                            .is_some_and(|bytes| (1..=MAX_ARROW_ROW_BYTES).contains(&bytes));
+                    if !split {
+                        let batch = map(batch.array);
+                        let failed = batch.is_err();
+                        if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
+                            return Ok(());
+                        }
+                    } else {
+                        // Retain large scan work chunks, but bound materialization before Arrow
+                        // conversion so decoded values and downstream casts fit smaller working sets.
+                        for offset in (0..len).step_by(MAX_ARROW_BATCH_ROWS) {
+                            let array = batch.array.slice(
+                                offset..offset.saturating_add(MAX_ARROW_BATCH_ROWS).min(len),
+                            )?;
+                            let batch = map(array);
+                            let failed = batch.is_err();
+                            if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed
+                            {
+                                return Ok(());
+                            }
+                        }
                     }
                 }
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                    run.admit(child, scope, io.session());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
