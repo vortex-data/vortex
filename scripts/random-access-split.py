@@ -24,8 +24,6 @@ FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
-# Seconds each measurement runs for, passed as --time-limit.
-TIME_LIMIT_SECS = 5
 
 
 def drop_os_caches() -> None:
@@ -100,8 +98,6 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         pattern,
                         "--open-mode",
                         open_mode,
-                        "--time-limit",
-                        str(TIME_LIMIT_SECS),
                         "-d",
                         "gh-json",
                         "-o",
