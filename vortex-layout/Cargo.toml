@@ -108,6 +108,10 @@ harness = false
 name = "pipeline_scan"
 harness = false
 
+[[bench]]
+name = "pack_pushdown"
+harness = false
+
 [lints]
 workspace = true
 
