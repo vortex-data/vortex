@@ -265,9 +265,15 @@ impl Planner for FilterPlanner {
             self.announced = true;
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
+            let expression = &self.filter.expression;
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| !expression.is_switched_off(*idx))
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
