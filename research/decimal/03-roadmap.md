@@ -7,14 +7,17 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 ## The type work
 
-Many planned type changes depend on each other. The IDs below match the full graph in section 7
-of [`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25.
-The decision IDs (D1 to D42, X1 to X34, C1 to C3) and the open questions (DQ5 to DQ7, XQ1, XQ8,
-CQ1 and CQ2) come from [`decisions.md`](../decisions.md).
+Many planned type changes depend on each other. The IDs below match the full graph in section 7 of
+[`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25. The
+decision IDs D1 to D42 and the open questions DQ5 to DQ7 come from
+[`decisions.md`](../decisions.md). The decision IDs X1 to X34 and C1 to C3 and the open questions
+XQ1, XQ8, CQ1 and CQ2 come from
+[`research/decisions.md`](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/decisions.md)
+on `ct/ext-types-research`.
 
 | ID | Work | Kind |
 | --- | --- | --- |
-| N1 | Extension opacity fixes ([part 4](../extension-types/04-urgent-changes.md) of the extension notes) | Urgent |
+| N1 | Extension opacity fixes ([part 4](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/04-urgent-changes.md) of the extension notes) | Urgent |
 | N2 | Rewrite rules that the type owns, registered with the type (X4) | Research, then implementation |
 | N3 | Claims for one dtype (X2, X13) | Implementation |
 | N4 | Cast rules for pairs of dtypes (C1), with cast hooks for extension types ([#8570](https://github.com/vortex-data/vortex/issues/8570)) | Implementation |
@@ -143,7 +146,7 @@ one brief for each PR.
    It closed without a merge as #10746. The rule pushes the cast into the MSP, and the MSP cast
    fails on a null row, so no result was wrong. #10798 documents that form as valid.
 3. **Extension opacity fixes (N1).** These are the urgent changes in
-   [part 4 of the extension notes](../extension-types/04-urgent-changes.md).
+   [part 4 of the extension notes](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/04-urgent-changes.md).
 4. **The integer `Widen` in memory.** The draft PRs
    [#10223](https://github.com/vortex-data/vortex/pull/10223),
    [#10332](https://github.com/vortex-data/vortex/pull/10332) and
@@ -154,7 +157,7 @@ one brief for each PR.
    narrowing call sites to `encode_values` (decided, D28). The last PR of the stack adds the rules
    that move structural encodings above `Widen` (decided, D25). The fix for dictionary fill codes
    is its own PR, before that last PR. Decimal support needs real kernel changes, because some
-   kernels assume an integer child. [`decisions.md`](../decisions.md#the-narrow-pull-requests) lists
+   kernels assume an integer child. [`decisions.md`](../decisions.md#the-widen-pull-requests) lists
    the state of these PRs.
 
 ## One canonical form

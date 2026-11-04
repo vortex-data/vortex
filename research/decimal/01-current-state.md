@@ -45,9 +45,10 @@ blocks safe additions to both enums, so a fix is part of the independent changes
 ## `Decimal` as a test of the extension design
 
 Each decimal operation is an integer operation plus bookkeeping for the scale. So `Decimal` has the
-shape of an extension type over integer storage, and it is a good test of the
-[extension design](../extension-types/03-design.md). It needs both kinds of behavior from that
-design: operations that derive from the storage, and operations that the type must rewrite.
+shape of an extension type over integer storage, and it is a good test of the [extension
+design](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/03-design.md).
+It needs both kinds of behavior from that design: operations that derive from the storage, and
+operations that the type must rewrite.
 
 | Operation | Same precision and scale | Different scales |
 | --- | --- | --- |
@@ -69,7 +70,8 @@ within one precision and scale. Then storage equality and storage hashing are va
 value hashing.
 
 Other pairs are different dtypes. `1.0` at scale 1 is stored as `10`, and `1.00` at scale 2 is
-stored as `100`. So a comparison across scales must rescale one side first. Two precisions with
-the same scale can have different storage widths, so their comparison must widen one side first.
-Under decision X3 in [`decisions.md`](../decisions.md), the engine does this step with a cast to a
-common dtype. Vortex then compares only equal dtypes.
+stored as `100`. So a comparison across scales must rescale one side first. Two precisions with the
+same scale can have different storage widths, so their comparison must widen one side first. Under
+decision X3 in
+[`decisions.md`](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/decisions.md),
+the engine does this step with a cast to a common dtype. Vortex then compares only equal dtypes.

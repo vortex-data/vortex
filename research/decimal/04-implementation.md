@@ -16,11 +16,10 @@ planning review on 2026-10-23.
 
 - Give a coding agent one brief, `decisions.md`, and the repository rules in `AGENTS.md` and
   `STYLE.md`. The brief names the branch, the files, the steps, the tests and the acceptance checks.
-- The briefs and `decisions.md` exist only on the `ct/ext-types-research` branch. The agent's own
+- The briefs and `decisions.md` exist only on the `ct/decimal-research` branch. The agent's own
   worktree branches from `develop` and has no `research/` directory, so the relative links in the
-  briefs do not work there. Give the agent absolute paths into the research worktree
-  (`/Users/connor/spiral/vortex-data/vortex1/research/`), or tell it to read the files with
-  `git show ct/ext-types-research:research/<path>`. Do not change a brief while an agent works from
+  briefs do not work there. Tell the agent to read the files with
+  `git show ct/decimal-research:research/<path>`. Do not change a brief while an agent works from
   it. If a brief must change, tell that agent.
 - When a PR opens, merges or changes scope, the agent updates its line in the collapsed PR list of
   [#10701](https://github.com/vortex-data/vortex/issues/10701) or

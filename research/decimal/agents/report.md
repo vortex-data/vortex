@@ -7,14 +7,17 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 This file is the detailed report behind the summary in `../README.md`. It is research, not an
 accepted design, and it changes no code. Paths and line numbers are for `develop` at `5fc5cb8`
-(2026-10-17), the same commit as the extension-type notes in `../../extension-types/`.
+(2026-10-17), the same commit as the extension-type notes in
+`https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/`.
 
 The maintainer reviewed these notes on 2026-10-19, 2026-10-22 and 2026-10-23.
-[`decisions.md`](../../decisions.md) records the decisions (D1 to D20, X1 to X9, C1) and the open
-questions (DQ5 to DQ7, XQ1 to XQ6, CQ1, CQ2). This report follows that file. If the two disagree,
-the decisions file wins. Issue #10701 tracks the fix of the canonical decimal encoding. A design
-pass on 2026-10-29 later added X10 to X24 and C2, and it settled XQ2 to XQ7. Section 7.5 maps the
-extension items onto the graph.
+[`decisions.md`](../../decisions.md) records the decisions D1 to D20 and the open questions DQ5 to
+DQ7. The decisions X1 to X9 and C1 and the open questions XQ1 to XQ6, CQ1 and CQ2 are in
+[`research/decisions.md`](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/decisions.md)
+on `ct/ext-types-research`. This report follows those files. If they disagree with this report, the
+decisions files win. Issue #10701 tracks the fix of the canonical decimal encoding. A design pass on
+2026-10-29 later added X10 to X24 and C2, and it settled XQ2 to XQ7. Section 7.5 maps the extension
+items onto the graph.
 
 D20 makes the integer view, wide integers, FixedSizeBinary, decimal arithmetic across precisions
 and scales, and casts that lose information future work. Sections 3.2, 3.4, 4, 5 and 6 describe
@@ -47,10 +50,10 @@ Conventions:
 - Issue and pull request numbers refer to `vortex-data/vortex` on GitHub. Section 10 links
   each one.
 - Two claims come from running Rust code, with probes R1 and R6 in
-  `../../extension-types/agents/probe_followup.rs`. They are the cast in section 1.1 and the
-  pushdown rules in section 3.3. The other claims come from reading code, RFC drafts, issues, and
-  pull requests. Appendix A holds the one Python script that ran. Section 10 lists what is not
-  verified.
+  `https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/agents/probe_followup.rs`.
+  They are the cast in section 1.1 and the pushdown rules in section 3.3. The other claims come from
+  reading code, RFC drafts, issues, and pull requests. Appendix A holds the one Python script that
+  ran. Section 10 lists what is not verified.
 
 ## 1. Summary
 
@@ -1604,8 +1607,11 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 
 ### 7.5 Mapping to the extension-type research
 
-The extension-type notes in `../../extension-types/` use their own ids for urgent changes (U1 to
-U9) and phases (0 to 7, from the plan of 2026-10-29, plus two low-priority items). The decisions
+The extension-type notes in
+`https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/` use
+their own ids for urgent changes (U1 to U9) and phases (0 to 7, from the plan of 2026-10-29, plus
+two low-priority items). The
+[decisions](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/decisions.md)
 file adds ids X1 to X34 and XQ1 to XQ8. This table maps them onto the graph.
 
 | Extension research item | Node here |
@@ -1879,8 +1885,10 @@ Code read at commit `5fc5cb8`: the files cited in sections 2 to 6, plus the supp
 inventories. Every count in this report comes from `grep` over the workspace, excluding `target`.
 
 The maintainer decisions of 2026-10-19, 2026-10-22 and 2026-10-23 are recorded in
-[`decisions.md`](../../decisions.md). Sections 1 and 3 to 9 follow them. Section 3 replaced a
-wrapper design with one integer child, which D2 rejects.
+[`decisions.md`](../../decisions.md) and
+[`research/decisions.md`](https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/decisions.md)
+on `ct/ext-types-research`. Sections 1 and 3 to 9 follow them. Section 3 replaced a wrapper design
+with one integer child, which D2 rejects.
 
 The review of 2026-10-23 read these files in the worktree of this branch, which has the code of
 `5fc5cb8`:
@@ -1998,8 +2006,9 @@ Verified outside the repository:
 - A search of the GitHub issues on 2026-10-23 found no issue for the DBP cast rule.
 - Byte order against integer order, with the script in appendix A.
 
-Verified with a run: `../../extension-types/agents/probe_followup.rs` ran in a debug build of
-`vortex-btrblocks` on `5fc5cb8`.
+Verified with a run:
+`https://github.com/vortex-data/vortex/blob/ct/ext-types-research/research/extension-types/agents/probe_followup.rs`
+ran in a debug build of `vortex-btrblocks` on `5fc5cb8`.
 
 - Probe R1 checks the decimal to `f32` cast of section 1.1. The array path fails with `No
   CastKernel to cast canonical array vortex.decimal from decimal(10,2) to f32`. The row path
