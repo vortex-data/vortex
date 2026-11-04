@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::io;
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::SinkExt;
@@ -19,6 +22,8 @@ use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_buffer::Alignment;
+#[cfg(not(target_arch = "wasm32"))]
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -36,6 +41,9 @@ use crate::std_file::read_exact_at;
 pub const DEFAULT_CONCURRENCY: usize = 192;
 
 /// An object store backed I/O source.
+///
+/// The object must remain unchanged while the source is in use. Local file payloads retain
+/// their opened file for subsequent reads, including when the path is renamed or replaced.
 pub struct ObjectStoreReadAt {
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
@@ -44,6 +52,9 @@ pub struct ObjectStoreReadAt {
     allocator: BufferAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
+    /// Keep the opened local object for subsequent ranges, as with `FileReadAt`.
+    #[cfg(not(target_arch = "wasm32"))]
+    local_file: Arc<OnceLock<Arc<File>>>,
 }
 
 impl ObjectStoreReadAt {
@@ -73,6 +84,8 @@ impl ObjectStoreReadAt {
             allocator,
             concurrency: DEFAULT_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
+            #[cfg(not(target_arch = "wasm32"))]
+            local_file: Arc::new(OnceLock::new()),
         }
     }
 
@@ -95,6 +108,7 @@ async fn read_object_store_range(
     io_handle: Handle,
     allocator: BufferAllocatorRef,
     request: ReadAtRequest,
+    #[cfg(not(target_arch = "wasm32"))] local_file: Arc<OnceLock<Arc<File>>>,
 ) -> VortexResult<BufferHandle> {
     let ReadAtRequest {
         offset,
@@ -106,6 +120,11 @@ async fn read_object_store_range(
     // SAFETY: each return path checks that every byte was initialized.
     unsafe { buffer.set_len(length) };
 
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(file) = local_file.get() {
+        return read_file_range(Arc::clone(file), io_handle, buffer, offset).await;
+    }
+
     let response = store
         .get_opts(
             &path,
@@ -116,15 +135,14 @@ async fn read_object_store_range(
         )
         .await?;
 
-    let buffer = match response.payload {
+    match response.payload {
         #[cfg(not(target_arch = "wasm32"))]
-        GetResultPayload::File(file, _) => io_handle
-            .spawn_blocking(move || {
-                read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
-                Ok::<_, io::Error>(buffer)
-            })
-            .await
-            .map_err(io::Error::other)?,
+        GetResultPayload::File(file, _) => {
+            // Resolve the path through the store once, preserving prefixed/custom stores.
+            // Concurrent first reads all use the same opened file once it is published.
+            let file = local_file.get_or_init(|| Arc::new(file));
+            read_file_range(Arc::clone(file), io_handle, buffer, offset).await
+        }
         #[cfg(target_arch = "wasm32")]
         GetResultPayload::File(..) => {
             unreachable!("File payload not supported on wasm32")
@@ -152,11 +170,24 @@ async fn read_object_store_range(
                 range
             );
 
-            buffer
+            Ok(BufferHandle::new_host(buffer.freeze()))
         }
-    };
+    }
+}
 
-    Ok(BufferHandle::new_host(buffer.freeze()))
+#[cfg(not(target_arch = "wasm32"))]
+async fn read_file_range(
+    file: Arc<File>,
+    handle: Handle,
+    mut buffer: BufferMut<u8>,
+    offset: u64,
+) -> VortexResult<BufferHandle> {
+    handle
+        .spawn_blocking(move || {
+            read_exact_at(&file, buffer.as_mut_slice(), offset)?;
+            Ok(BufferHandle::new_host(buffer.freeze()))
+        })
+        .await
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
@@ -203,6 +234,8 @@ impl VortexReadAt for ObjectStoreReadAt {
                 io_handle,
                 allocator,
                 ReadAtRequest::new(offset, length, alignment),
+                #[cfg(not(target_arch = "wasm32"))]
+                Arc::clone(&self.local_file),
             ))
             .boxed()
     }
@@ -219,6 +252,8 @@ impl VortexReadAt for ObjectStoreReadAt {
         let concurrency = self.concurrency.max(1);
         let (mut send, recv) = mpsc::channel(concurrency);
         let io_handle = handle.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let local_file = Arc::clone(&self.local_file);
 
         // A single runtime task drives all GETs, avoiding one spawn per range. Do not use
         // ObjectStore::get_ranges here: it returns one Vec after every range completes, whereas
@@ -229,9 +264,19 @@ impl VortexReadAt for ObjectStoreReadAt {
                 let path = path.clone();
                 let io_handle = io_handle.clone();
                 let allocator = allocator.clone();
+                #[cfg(not(target_arch = "wasm32"))]
+                let local_file = Arc::clone(&local_file);
                 async move {
-                    let result =
-                        read_object_store_range(store, path, io_handle, allocator, request).await;
+                    let result = read_object_store_range(
+                        store,
+                        path,
+                        io_handle,
+                        allocator,
+                        request,
+                        #[cfg(not(target_arch = "wasm32"))]
+                        local_file,
+                    )
+                    .await;
                     (request, result)
                 }
             });
@@ -258,11 +303,17 @@ impl VortexReadAt for ObjectStoreReadAt {
 #[cfg(test)]
 mod tests {
 
+    #[cfg(unix)]
+    use std::fs;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use object_store::PutPayload;
+    #[cfg(unix)]
+    use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
+    #[cfg(unix)]
+    use tempfile::tempdir;
 
     use super::*;
     use crate::runtime::AbortHandle;
@@ -366,6 +417,46 @@ mod tests {
         assert_eq!(executor.spawn_io_count.load(Ordering::SeqCst), 1);
         assert_eq!(executor.spawn_count.load(Ordering::SeqCst), 0);
 
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn local_ranges_keep_the_opened_file() -> VortexResult<()> {
+        let directory = tempdir()?;
+        let file_path = directory.path().join("test.bin");
+        fs::write(&file_path, TEST_DATA)?;
+        let store = Arc::new(LocalFileSystem::new_with_prefix(directory.path())?);
+        let executor = Arc::new(CountingExecutor::default()) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&executor));
+        let reader = ObjectStoreReadAt::new(store, ObjectPath::from("test.bin"), handle);
+
+        let buffer = reader.read_at(7, 5, Alignment::new(64)).await?;
+        assert_eq!(buffer.to_host().await.as_slice(), b"store");
+        fs::rename(&file_path, directory.path().join("old.bin"))?;
+        fs::write(&file_path, b"replacement")?;
+
+        let requests: Arc<[ReadAtRequest]> = Arc::from([
+            ReadAtRequest::new(18, 4, Alignment::new(64)),
+            ReadAtRequest::new(0, 6, Alignment::new(64)),
+            ReadAtRequest::new(7, 5, Alignment::new(64)),
+        ]);
+        let results = reader.read_ranges(requests).collect::<Vec<_>>().await;
+        assert_eq!(results.len(), 3);
+        for (request, result) in results {
+            let buffer = result?.to_host().await;
+            let offset = usize::try_from(request.offset)?;
+            assert_eq!(
+                buffer.as_slice(),
+                &TEST_DATA[offset..offset + request.length]
+            );
+            assert_eq!(buffer.as_ptr() as usize % 64, 0);
+        }
+
+        // A retained descriptor must still report a short read rather than return uninitialized data.
+        assert!(reader.read_at(20, 4, Alignment::new(64)).await.is_err());
+        let buffer = reader.read_at(18, 4, Alignment::new(64)).await?;
+        assert_eq!(buffer.to_host().await.as_slice(), b"data");
         Ok(())
     }
 }
