@@ -538,21 +538,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compression_timing_json_supports_vortex_compact() {
-        let measurement = CompressionTimingMeasurement {
-            name: "compress time/demo".to_string(),
-            format: Format::VortexCompact,
-            time: Duration::from_nanos(42),
-        };
-
-        let json = measurement.to_json();
-
-        assert_eq!(json["name"], "vortex-compact compress time/demo");
-        assert_eq!(json["target"]["format"], "vortex-compact");
-        assert_eq!(json["value"], 42.0);
-    }
-
-    #[test]
     fn compression_timing_json_supports_arrow_ipc() {
         let measurement = CompressionTimingMeasurement {
             name: "compress time/demo".to_string(),

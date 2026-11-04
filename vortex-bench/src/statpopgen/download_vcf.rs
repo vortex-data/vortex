@@ -23,9 +23,6 @@ use noodles_vcf::Record;
 use noodles_vcf::r#async::io::Reader as VcfAsyncReader;
 use noodles_vcf::io::Reader as VcfReader;
 use parquet::arrow::AsyncArrowWriter;
-use parquet::basic::Compression;
-use parquet::basic::ZstdLevel;
-use parquet::file::properties::WriterProperties;
 use reqwest::Client;
 use reqwest::StatusCode;
 use reqwest::header::CONTENT_LENGTH;
@@ -85,10 +82,7 @@ impl StatPopGenBenchmark {
                 );
                 let schema = schema_from_vcf_header(&header);
                 let file = File::create(parquet_output_path).await?;
-                let properties = WriterProperties::builder()
-                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
-                    .build();
-                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), Some(properties))
+                let mut writer = AsyncArrowWriter::try_new(file, Arc::clone(&schema), None)
                     .context("Failed to create parquet writer")?;
 
                 // Splitting lines is cheap and stays serial; parsing each row group's lines into
