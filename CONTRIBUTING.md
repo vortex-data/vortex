@@ -82,6 +82,29 @@ Read the [Rust version compatibility policy](README.md#rust-version-compatibilit
 changing `rust-version`; when the MSRV job fails, the usual fix is in the code or the dependency
 update, not the MSRV.
 
+### Faster clean builds with headstart (experimental)
+
+[headstart](https://github.com/PowderworksCode/headstart) is a prototype patched rustc and cargo
+that starts compiling a crate as soon as its dependencies' interfaces are checked. It helps most on
+machines with many cores; on 4 cores, a clean `cargo check -p vortex` was only about 1% faster.
+`scripts/headstart.sh` pins a revision and runs it opt-in, next to the normal toolchain:
+
+```bash
+scripts/headstart.sh setup                  # once: builds rustc from source (about an hour)
+scripts/headstart.sh check -p vortex        # any cargo command, headstart on
+HEADSTART=0 scripts/headstart.sh check -p vortex   # same toolchain, headstart off
+```
+
+Builds go to `target/headstart`, and the toolchain to `~/.cache/vortex-headstart` (override with
+`HEADSTART_DIR`). The patched rustc is newer than the pinned toolchain, so it can report lints
+that CI does not. To compare clean builds, use headstart's own
+`$HEADSTART_DIR/scripts/bench.sh -n 3 /path/to/vortex::-p vortex`.
+
+A stock sccache holds rustc's output until it exits, which hides the early-metadata messages
+headstart starts crates on. With `RUSTC_WRAPPER=sccache`, the script runs a patched sccache
+instead (`scripts/headstart/sccache.patch`, built by `setup`). It runs rustc in sccache's
+client-side mode, streams rustc's output, and keys each crate on its dependencies' early metadata.
+
 ### Pruning Rust dependencies
 
 Use [cargo-shear](https://github.com/Boshen/cargo-shear) to find unused dependencies. Install it
