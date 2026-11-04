@@ -7,6 +7,7 @@ use std::ops::AddAssign;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -109,22 +110,21 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
 ) -> VortexResult<(PrimitiveArray, Mask)> {
     let mut filtered_run_ends = BufferMut::<R>::zeroed_in(run_ends.len(), allocator.clone());
 
-    let mut run_start = 0u64;
     let mut retained_run_count = 0;
     let mut filtered_end = R::zero();
+    let mut rank = MaskRank::new(mask);
+    let mut selected_before_run = 0;
 
     let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
         let run_end = min(run_ends[run_idx].as_() - offset, length);
-
-        // Bulk popcount is SIMD-capable and avoids per-bit reads. The input contract and clamp prove
-        // `run_start_idx <= run_end_idx <= mask.len()`.
-        let run_start_idx = run_start
-            .try_into()
-            .vortex_expect("run start index must fit in usize");
         let run_end_idx = run_end
             .try_into()
             .vortex_expect("run end index must fit in usize");
-        let selected_in_run = mask.count_range(run_start_idx, run_end_idx);
+        // Run ends increase, so the rank walks the mask's words once over all runs instead of
+        // counting each run's range from scratch, which dominates when runs are short.
+        let selected_through_run = rank.rank(run_end_idx);
+        let selected_in_run = selected_through_run - selected_before_run;
+        selected_before_run = selected_through_run;
         filtered_end += <R as NumCast>::from(selected_in_run)
             .vortex_expect("run popcount must fit in run-end native type");
         let retain_run = selected_in_run > 0;
@@ -134,7 +134,6 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
         filtered_run_ends[retained_run_count] = filtered_end;
         retained_run_count += retain_run as usize;
 
-        run_start = run_end;
         retain_run
     })
     .into();
@@ -147,8 +146,55 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     ))
 }
 
+/// Counts the set bits of a mask before non-decreasing positions, reading each 64-bit word once.
+struct MaskRank<'a> {
+    words: BitChunkIterator<'a>,
+    remainder: u64,
+    /// The index of `word` among the mask's words.
+    word_idx: usize,
+    word: u64,
+    /// The set bits in the words before `word`.
+    before_word: usize,
+}
+
+impl<'a> MaskRank<'a> {
+    fn new(mask: &'a BitBuffer) -> Self {
+        let chunks = mask.chunks();
+        let remainder = chunks.remainder_bits();
+        let mut words = chunks.iter();
+        let word = words.next().unwrap_or(remainder);
+        Self {
+            words,
+            remainder,
+            word_idx: 0,
+            word,
+            before_word: 0,
+        }
+    }
+
+    /// The set bits in `0..pos`, for `pos` no smaller than in the previous call.
+    #[inline]
+    fn rank(&mut self, pos: usize) -> usize {
+        let word_idx = pos / 64;
+        while self.word_idx < word_idx {
+            self.before_word += self.word.count_ones() as usize;
+            self.word_idx += 1;
+            self.word = self.words.next().unwrap_or(self.remainder);
+        }
+        let bits = pos % 64;
+        let low = if bits == 0 {
+            0
+        } else {
+            u64::MAX >> (64 - bits)
+        };
+        self.before_word + (self.word & low).count_ones() as usize
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
@@ -157,6 +203,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::runend::RunEnd;
     use crate::arrays::runend::RunEndArray;
+    use crate::arrays::runend::compute::filter::filter_run_end_primitive;
     use crate::arrays::runend::tests::SESSION;
     use crate::assert_arrays_eq;
 
@@ -215,6 +262,51 @@ mod tests {
             .collect();
         assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected), &mut ctx);
 
+        Ok(())
+    }
+
+    /// The rank walk must count the same rows per run as counting each run's range, for masks
+    /// that start inside a byte and end inside or at the end of a word.
+    #[rstest]
+    #[case(0, 128)]
+    #[case(3, 128)]
+    #[case(5, 200)]
+    #[case(61, 64)]
+    #[case(7, 1)]
+    fn short_runs_count_each_runs_selected_rows(
+        #[case] mask_offset: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let bits = BitBuffer::from_iter((0..mask_offset + len).map(|i| i % 3 != 0 || i % 7 == 0));
+        let mask = bits.slice(mask_offset..mask_offset + len);
+        // Runs of 1, 2 and 3 rows.
+        let mut run_ends = Vec::new();
+        let mut end = 0u32;
+        let mut run_len = 1;
+        while (end as usize) < len {
+            end = (end + run_len).min(u32::try_from(len)?);
+            run_ends.push(end);
+            run_len = run_len % 3 + 1;
+        }
+
+        let ctx = SESSION.create_execution_ctx();
+        let (filtered_ends, values_mask) =
+            filter_run_end_primitive(&run_ends, 0, len as u64, &mask, ctx.allocator())?;
+
+        let mut expected_ends = Vec::new();
+        let mut expected_values = Vec::new();
+        let (mut start, mut selected) = (0, 0u32);
+        for &end in &run_ends {
+            let in_run = mask.count_range(start, end as usize);
+            selected += u32::try_from(in_run)?;
+            expected_values.push(in_run > 0);
+            if in_run > 0 {
+                expected_ends.push(selected);
+            }
+            start = end as usize;
+        }
+        assert_eq!(filtered_ends.as_slice::<u32>(), expected_ends.as_slice());
+        assert_eq!(values_mask, Mask::from_iter(expected_values));
         Ok(())
     }
 }
