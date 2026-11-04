@@ -1340,13 +1340,18 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut BitBufferMut,
 ) -> VortexResult<()> {
+    let bytes = mask.inner().as_slice();
     let mut rank = 0;
     let mut previous_index = 0;
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
         let index = patch_index_to_usize(*patch_index, offset)?;
 
-        rank += mask.count_range(previous_index, index);
+        rank += if index - previous_index < RANK_SIMD_MIN_BITS {
+            count_ones_between(bytes, mask.offset() + previous_index, mask.offset() + index)
+        } else {
+            mask.count_range(previous_index, index)
+        };
         previous_index = index;
 
         if mask.value(index) {
@@ -1356,6 +1361,40 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     }
 
     Ok(())
+}
+
+/// Gaps between patches at least this many bits long are counted by [`BitBuffer::count_range`],
+/// whose SIMD kernel amortizes its dispatch; shorter ones word by word inline.
+const RANK_SIMD_MIN_BITS: usize = 2048;
+
+/// Counts the set bits of `bytes` in `start..end`, bit positions in the buffer, one unaligned
+/// 64-bit load at a time.
+#[inline]
+fn count_ones_between(bytes: &[u8], start: usize, end: usize) -> usize {
+    let mut count = 0;
+    let mut bit = start;
+    while bit < end {
+        let byte = bit / 8;
+        let shift = bit % 8;
+        let tail = &bytes[byte..];
+        let word = match tail.first_chunk::<8>() {
+            Some(word) => u64::from_le_bytes(*word),
+            None => {
+                let mut word = [0u8; 8];
+                word[..tail.len()].copy_from_slice(tail);
+                u64::from_le_bytes(word)
+            }
+        } >> shift;
+        let len = (64 - shift).min(end - bit);
+        let bits = if len == 64 {
+            word
+        } else {
+            word & ((1u64 << len) - 1)
+        };
+        count += bits.count_ones() as usize;
+        bit += len;
+    }
+    count
 }
 
 #[inline]
@@ -1431,6 +1470,29 @@ mod test {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::aligned(0)]
+    #[case::unaligned(3)]
+    #[case::past_a_word(70)]
+    fn count_ones_between_matches_count_range(#[case] offset: usize) {
+        let len = 300;
+        let bits = BitBuffer::collect_bool(offset + len, |i| (i * 7 + i / 5) % 3 != 0)
+            .slice(offset..offset + len);
+        let bytes = bits.inner().as_slice();
+        for start in [0, 1, 7, 63, 64, 65, 200] {
+            for end in [start, start + 1, start + 9, start + 64, start + 65, len] {
+                if end < start || end > len {
+                    continue;
+                }
+                assert_eq!(
+                    super::count_ones_between(bytes, bits.offset() + start, bits.offset() + end),
+                    bits.count_range(start, end),
+                    "offset {offset} range {start}..{end}"
+                );
+            }
+        }
+    }
 
     #[rstest]
     #[case::unchunked(false)]
