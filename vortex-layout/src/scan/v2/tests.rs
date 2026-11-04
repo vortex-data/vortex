@@ -125,9 +125,18 @@ async fn write(
     session: &VortexSession,
     strategy: &dyn LayoutStrategy,
 ) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
+    write_chunks(session, strategy, CHUNKS).await
+}
+
+/// Writes `count` table chunks with `strategy`.
+async fn write_chunks(
+    session: &VortexSession,
+    strategy: &dyn LayoutStrategy,
+    count: usize,
+) -> VortexResult<(Arc<dyn SegmentSource>, LayoutRef)> {
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
-    let chunks = (0..CHUNKS)
+    let chunks = (0..count)
         .map(|chunk| Ok((sequence_id.advance(), table_chunk(chunk * CHUNK_ROWS)?)))
         .collect::<Vec<_>>();
     let dtype = table_chunk(0)?.dtype().clone();
@@ -940,21 +949,21 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     }
 }
 
-/// Pruning some of a scan's rows again, as an engine does once a dynamic filter has tightened,
-/// prunes with the tightened value from the zone maps the first pruning read: it reads no segment,
-/// even when nothing is retained.
-#[tokio::test]
-async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
+/// A scan whose filter is `ints > bound`, a dynamic comparison, over `chunks` table chunks whose
+/// segment reads are counted.
+async fn dynamic_scan(
+    chunks: usize,
+    bound: &Arc<AtomicI32>,
+) -> VortexResult<(Arc<PreparedScan>, Arc<CountingSegmentSource>)> {
     let session = new_session().with_tokio();
-    let (segments, layout) = write(&session, zoned_table().as_ref()).await?;
+    let (segments, layout) = write_chunks(&session, zoned_table().as_ref(), chunks).await?;
     let counted = Arc::new(CountingSegmentSource::new(segments));
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     file.cache = Some(ScanCache::with_retained_bytes(0));
-    let bound = Arc::new(AtomicI32::new(-1));
     let ints = get_item("ints", root());
     let filter = {
-        let bound = Arc::clone(&bound);
+        let bound = Arc::clone(bound);
         dynamic(
             CompareOperator::Gt,
             move || Some(bound.load(Ordering::Relaxed).into()),
@@ -963,21 +972,42 @@ async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
             ints,
         )
     };
-    let scan = Arc::new(
-        ScanBuilder::new(session.clone(), file)
-            .with_some_filter(Some(filter.bind(layout.dtype())?))
-            .prepare()?,
-    );
+    let scan = ScanBuilder::new(session, file)
+        .with_some_filter(Some(filter.bind(layout.dtype())?))
+        .prepare()?;
+    Ok((Arc::new(scan), counted))
+}
+
+/// Pruning some of a scan's rows again, as an engine does once a dynamic filter has tightened,
+/// prunes with the tightened value from the zone maps the first pruning read: it reads no segment,
+/// even when nothing is retained.
+#[tokio::test]
+async fn pruning_again_reuses_the_first_reads() -> VortexResult<()> {
+    // Both prunings cover more rows than one filtered chunk, so neither skips the dynamic plan.
+    let bound = Arc::new(AtomicI32::new(-1));
+    let (scan, counted) = dynamic_scan(200, &bound).await?;
 
     let all = prune(&scan, scan.rows().clone()).await?;
     let reads = counted.requests();
     assert!(reads > 0, "the first pruning reads the zone maps");
-    assert_eq!(all.map(|kept| kept.true_count()), Some(4_000));
+    assert_eq!(all.map(|kept| kept.true_count()), Some(200_000));
 
     bound.store(2_999, Ordering::Relaxed);
-    let part = prune(&scan, 1_000..4_000).await?;
-    assert_eq!(part.map(|kept| kept.true_count()), Some(1_000));
+    let part = prune(&scan, 1_000..151_000).await?;
+    assert_eq!(part.map(|kept| kept.true_count()), Some(148_000));
     assert_eq!(counted.requests(), reads);
+    Ok(())
+}
+
+/// A scan of at most one filtered chunk skips the pruning plan of a dynamic conjunct and reads no
+/// zone map: its chunk evaluates the conjunct next.
+#[tokio::test]
+async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
+    let bound = Arc::new(AtomicI32::new(2_999));
+    let (scan, counted) = dynamic_scan(CHUNKS, &bound).await?;
+
+    assert!(prune(&scan, scan.rows().clone()).await?.is_none());
+    assert_eq!(counted.requests(), 0);
     Ok(())
 }
 
