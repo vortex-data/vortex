@@ -7,6 +7,7 @@ mod expr;
 mod reader;
 pub mod writer;
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use reader::ListReader;
@@ -108,6 +109,21 @@ impl ElementSamples {
     /// The list holding element row `k * stride`, for each `k`.
     pub fn lists(&self) -> &[u64] {
         &self.lists
+    }
+
+    /// The element rows holding `lists` in a layout of `element_rows` elements: every element of
+    /// those lists, and at most `stride` more on either side.
+    pub fn element_range(&self, lists: Range<u64>, element_rows: u64) -> Range<u64> {
+        // Sample `k` is at or before the first list's first element exactly when an earlier
+        // list holds it, and before the last list's end exactly when a list before the end
+        // holds it.
+        let after_start = self.lists.partition_point(|&list| list < lists.start) as u64;
+        let through_end = self.lists.partition_point(|&list| list < lists.end) as u64;
+        if through_end == 0 {
+            // No list before the end holds an element.
+            return 0..0;
+        }
+        after_start.saturating_sub(1) * self.stride..(through_end * self.stride).min(element_rows)
     }
 }
 
@@ -372,6 +388,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::registry::ReadContext;
 
+    use super::ElementSamples;
     use super::List;
     use super::ListLayoutMetadata;
     use crate::LayoutBuildContext;
@@ -419,6 +436,46 @@ mod tests {
             PType::U32
         );
 
+        Ok(())
+    }
+
+    /// Every run of lists maps to element rows holding all of their elements, and at most a
+    /// stride more on either side.
+    #[test]
+    fn element_range_bounds_the_elements_of_any_lists() -> VortexResult<()> {
+        let lengths = [0u64, 0, 5, 1, 0, 40, 3, 0, 0, 7, 1, 1, 0, 64, 2, 0];
+        let mut offsets = vec![0u64];
+        for length in lengths {
+            offsets.push(offsets[offsets.len() - 1] + length);
+        }
+        let element_rows = offsets[offsets.len() - 1];
+        let list_rows = lengths.len() as u64;
+        for stride in [1, 3, 8, 16, 1_000] {
+            // The list holding each sampled element: the last list starting at or before it.
+            let lists = (0..element_rows)
+                .step_by(usize::try_from(stride)?)
+                .map(|row| {
+                    offsets[..lengths.len()].partition_point(|&start| start <= row) as u64 - 1
+                })
+                .collect();
+            let samples = ElementSamples::try_new(stride, lists, list_rows, element_rows)?;
+            for start in 0..list_rows {
+                for end in start..=list_rows {
+                    let (first, last) = (
+                        offsets[usize::try_from(start)?],
+                        offsets[usize::try_from(end)?],
+                    );
+                    let range = samples.element_range(start..end, element_rows);
+                    assert!(
+                        range.start <= first && last <= range.end,
+                        "{start}..{end} @ {stride}"
+                    );
+                    if first < last {
+                        assert!(first <= range.start + stride && range.end < last + stride);
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
