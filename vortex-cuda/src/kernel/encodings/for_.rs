@@ -232,7 +232,7 @@ mod tests {
             .take(1024)
             .collect::<Buffer<_>>()
             .into_array();
-        let packed = BitPacked::encode(&values, 3, &mut SESSION.create_execution_ctx())
+        let packed = BitPacked::encode(&values, 3, &mut ctx)
             .unwrap()
             .into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
@@ -275,7 +275,7 @@ mod tests {
         }
 
         let values = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let packed = BitPacked::encode(&values, 8, &mut SESSION.create_execution_ctx())?;
+        let packed = BitPacked::encode(&values, 8, &mut ctx)?;
         assert!(
             packed.patches().is_some(),
             "test setup expects the exceptions to be stored as patches"
