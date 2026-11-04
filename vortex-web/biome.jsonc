@@ -33,9 +33,6 @@
     }
   },
   "css": {
-    "parser": {
-      "tailwindDirectives": true
-    },
     "formatter": {
       "quoteStyle": "single"
     }
@@ -66,26 +63,12 @@
         "noArrayIndexKey": "off"
       },
       "a11y": {
-        // Mouse-only elements that need keyboard support. Warnings until the
-        // UI rework replaces them; then make these errors.
-        "noStaticElementInteractions": "warn",
-        "useKeyWithClickEvents": "warn"
+        // Every pointer control needs a keyboard path.
+        "noStaticElementInteractions": "error",
+        "useKeyWithClickEvents": "error"
       }
     }
   },
-  "overrides": [
-    {
-      "includes": ["src/index.css"],
-      "linter": {
-        "rules": {
-          // theme() is a Tailwind function.
-          "correctness": { "noUnknownFunction": "off" },
-          // The .light and :root:not(.light) selectors never match together.
-          "style": { "noDescendingSpecificity": "off" }
-        }
-      }
-    }
-  ],
   "assist": {
     "enabled": true,
     "actions": {

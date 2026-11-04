@@ -1,6 +1,6 @@
 # Vortex Web
 
-A web UI for exploring Vortex data files, built with React, TypeScript, Tailwind CSS, and Rust/WASM.
+A web UI for exploring Vortex data files, built with React, TypeScript, and Rust/WASM, and drawn with the Vortex design system.
 
 ## Prerequisites
 
@@ -49,6 +49,15 @@ This starts a dev server at http://localhost:6006.
 | `bun run typecheck`       | Run TypeScript type checking               |
 | `bun run check`           | Build WASM + Biome check + typecheck       |
 
+## Styles
+
+The Explorer uses the Vortex design system's CSS and no CSS framework.
+
+- `src/styles/vortex-tokens.css`, `vortex-base.css`, and `vortex.css` are copies of the design system's styles. Change the system, then copy them again; do not edit the copies.
+- `src/styles/explorer.css` lays out the Explorer on top of the system. Its classes start with `x-`; the system's start with `vx-`.
+- Colours come from the system's tokens, so every view follows the theme. A dtype's colour comes from its `vx-dt-*` class (`dtypeClass` in `components/swimlane/utils.ts`). An encoding has no colour; the views name it.
+- The production CSP allows no inline script, so `public/theme.js` sets the theme before the first paint.
+
 ## Writing Stories
 
 Add story files alongside your components as `*.stories.tsx`:
@@ -75,6 +84,7 @@ export const Default: Story = {
 vortex-web/
   crate/            # Rust WASM crate (vortex bindings)
   src/              # React/TypeScript frontend
+    styles/         # The design system's CSS, and the Explorer's own
     wasm/pkg/       # Generated WASM bindings (not checked in)
   .storybook/       # Storybook configuration
   public/           # Static assets
