@@ -60,6 +60,7 @@ export function BuffersPane({ node }: BuffersPaneProps) {
       <div className="w-[160px] flex-shrink-0 border-r border-vortex-grey-light/40 dark:border-white/[0.06] overflow-y-auto">
         {bufferLengths.map((len, i) => (
           <button
+            type="button"
             key={i}
             className={`w-full text-left px-2.5 py-1.5 text-xs border-b border-vortex-grey-light/20 dark:border-white/[0.04] hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] ${
               selectedBuffer === i

@@ -100,7 +100,7 @@ function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; heigh
     const gap = 0.5;
     const w = histogram.length * (barW + gap) - gap;
     return (
-      <svg width={w} height={height} className="flex-shrink-0 opacity-50">
+      <svg aria-hidden="true" width={w} height={height} className="flex-shrink-0 opacity-50">
         <line
           x1={0}
           y1={height / 2}
@@ -118,7 +118,7 @@ function SparkHistogram({ histogram, height = 12 }: { histogram: number[]; heigh
   const gap = 0.5;
   const w = histogram.length * (barW + gap) - gap;
   return (
-    <svg width={w} height={height} className="flex-shrink-0 opacity-70">
+    <svg aria-hidden="true" width={w} height={height} className="flex-shrink-0 opacity-70">
       {histogram.map((v, i) => {
         const barH = Math.max(0.5, (v / max) * height);
         return (

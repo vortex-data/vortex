@@ -124,24 +124,14 @@ export function FileMap() {
       }
 
       // Check subtree hit
-      let isSubtree = false;
-      if (hasSubtree) {
-        for (let s = segIdx; s < subtreeSegments.length; s++) {
-          if (subtreeSegments[s].byteOffset >= byteEnd) break;
-          isSubtree = true;
-          break;
-        }
-      }
+      const isSubtree =
+        hasSubtree &&
+        segIdx < subtreeSegments.length &&
+        subtreeSegments[segIdx].byteOffset < byteEnd;
 
       // Check hover hit
-      let isHovered = false;
-      if (hasHover) {
-        for (let h = hoverIdx; h < hoverSegments.length; h++) {
-          if (hoverSegments[h].byteOffset >= byteEnd) break;
-          isHovered = true;
-          break;
-        }
-      }
+      const isHovered =
+        hasHover && hoverIdx < hoverSegments.length && hoverSegments[hoverIdx].byteOffset < byteEnd;
 
       // Check focused segment hit
       let isFocused = false;

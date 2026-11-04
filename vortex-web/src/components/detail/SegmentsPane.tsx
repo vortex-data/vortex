@@ -42,6 +42,7 @@ export function SegmentsPane({ node, segments }: SegmentsPaneProps) {
             <span key={pathNode.id}>
               {i > 0 && <span className="opacity-40">/</span>}
               <button
+                type="button"
                 className="hover:text-vortex-light-blue"
                 onClick={(e) => {
                   e.stopPropagation();

@@ -36,6 +36,7 @@ export function TreeSearch({ onSearch }: TreeSearchProps) {
       />
       {value && (
         <button
+          type="button"
           onClick={handleClear}
           className="text-[10px] text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg"
         >

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
 import type { Split } from './types';
 import { MIN_LABEL_WIDTH } from './styles';
 

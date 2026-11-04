@@ -30,6 +30,7 @@ export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
         <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5">
           {(['details', 'swimlane'] as const).map((v) => (
             <button
+              type="button"
               key={v}
               className={`px-3 py-0.5 text-[11px] rounded-[3px] transition-colors ${
                 view === v
@@ -46,12 +47,14 @@ export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
         <div className="flex items-center gap-1">
           <ThemePicker />
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-md text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg hover:bg-vortex-grey-lightest dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
             title="Close file"
             aria-label="Close file"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"

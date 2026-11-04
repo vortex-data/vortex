@@ -160,6 +160,7 @@ function ModeToggle({ mode, onChange }: { mode: TreeMode; onChange: (m: TreeMode
     <div className="flex rounded-md bg-vortex-grey-lightest dark:bg-white/[0.06] p-0.5 flex-shrink-0">
       {(['schema', 'layout'] as const).map((m) => (
         <button
+          type="button"
           key={m}
           className={`px-2 py-0.5 text-[10px] rounded-[3px] transition-colors ${
             mode === m

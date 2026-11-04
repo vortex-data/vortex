@@ -15,6 +15,7 @@ const labels: Record<ThemeChoice, string> = {
 function SunIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="14"
       height="14"
       viewBox="0 0 24 24"
@@ -33,6 +34,7 @@ function SunIcon() {
 function MoonIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="14"
       height="14"
       viewBox="0 0 24 24"
@@ -50,6 +52,7 @@ function MoonIcon() {
 function MonitorIcon() {
   return (
     <svg
+      aria-hidden="true"
       width="14"
       height="14"
       viewBox="0 0 24 24"
@@ -84,6 +87,7 @@ export function ThemePicker() {
 
   return (
     <button
+      type="button"
       onClick={next}
       className="p-1.5 rounded-md text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg hover:bg-vortex-grey-lightest dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
       title={labels[theme]}

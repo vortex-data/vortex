@@ -76,6 +76,7 @@ export function DetailPanel() {
         <div className="flex">
           {tabs.map((tab) => (
             <button
+              type="button"
               key={tab.id}
               className={`px-2.5 py-1 text-[10px] font-medium border-b-2 transition-colors ${
                 currentTab === tab.id
@@ -115,6 +116,7 @@ export function DetailPanel() {
                     </span>
                   ) : (
                     <button
+                      type="button"
                       className="hover:text-vortex-light-blue truncate"
                       onClick={() => selectNode(node.id)}
                     >

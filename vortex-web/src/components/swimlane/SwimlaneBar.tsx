@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import React from 'react';
+import type React from 'react';
 import type { LayoutTreeNode, FlattenedRow, PhysicalSegment } from './types';
 import { collectSubtreeSegments, getDtypeCategory, MIN_CELL_WIDTH } from './utils';
 import { DTYPE_COLORS, getEncodingStyle } from './styles';

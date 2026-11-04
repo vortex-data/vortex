@@ -301,6 +301,7 @@ export function BlockTreemap({
       {/* Zoom-out control, shown when drilled into a child layout. */}
       {drillParent && (
         <button
+          type="button"
           onClick={() => {
             selfSelected.current = drillParent.id;
             setDrillId(drillParent.id);
@@ -314,6 +315,8 @@ export function BlockTreemap({
       )}
       {size && (
         <svg
+          role="img"
+          aria-label="Layout treemap"
           ref={svgRef}
           width={size.w}
           height={size.h}
@@ -389,7 +392,7 @@ export function BlockTreemap({
 
 function truncate(s: string, maxChars: number): string {
   if (maxChars < 2) return '';
-  return s.length > maxChars ? s.slice(0, maxChars - 1) + '…' : s;
+  return s.length > maxChars ? `${s.slice(0, maxChars - 1)}…` : s;
 }
 
 function TileTooltip({

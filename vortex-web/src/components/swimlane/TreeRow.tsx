@@ -68,7 +68,7 @@ export function TreeRow({
       dtypeCat === 'struct'
         ? 'struct'
         : dtypeStr.length > 20
-          ? dtypeStr.slice(0, 18) + '…'
+          ? `${dtypeStr.slice(0, 18)}…`
           : dtypeStr;
     badgeColor = DTYPE_COLORS[dtypeCat];
   } else {
