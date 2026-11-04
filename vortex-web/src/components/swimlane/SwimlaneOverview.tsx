@@ -121,7 +121,7 @@ export function SwimlaneOverview() {
                     disabled={!expandable}
                     onClick={() => toggleExpanded(node.id)}
                   >
-                    <Icon name="chevron_right" />
+                    <Icon name="chevron_right" className="vx-tree-toggle" />
                   </button>
                   <button
                     type="button"

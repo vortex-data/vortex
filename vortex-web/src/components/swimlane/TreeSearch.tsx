@@ -27,7 +27,7 @@ export function TreeSearch({ onSearch }: TreeSearchProps) {
       </label>
       <input
         id={id}
-        className="vx-field"
+        className="vx-field is-sm"
         type="search"
         value={value}
         onChange={handleChange}

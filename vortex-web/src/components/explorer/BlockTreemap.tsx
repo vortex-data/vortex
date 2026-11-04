@@ -178,24 +178,6 @@ export function BlockTreemap({
     return desc;
   }, [tree, size]);
 
-  const byId = useMemo(() => {
-    const m = new Map<string, RectNode>();
-    for (const n of nodes) m.set(n.data.nodeId, n);
-    return m;
-  }, [nodes]);
-
-  // Node ids in the selected subtree — rendered with a solid tint.
-  const selectedSubtreeIds = useMemo<Set<string>>(() => {
-    const ids = new Set<string>();
-    const sel = selectedNodeId ? byId.get(selectedNodeId) : undefined;
-    if (!sel) return ids;
-    (function walk(n: RectNode) {
-      ids.add(n.data.nodeId);
-      if (n.children) for (const c of n.children) walk(c);
-    })(sel);
-    return ids;
-  }, [selectedNodeId, byId]);
-
   const activeHover = localHover ?? hoveredNodeId;
 
   /** Deepest tile (below the root) containing a point. A container's header band
@@ -322,13 +304,13 @@ export function BlockTreemap({
             const cls = [
               d.dtype,
               isLeaf ? 'is-leaf' : 'is-container',
-              selectedSubtreeIds.has(d.nodeId) ? 'is-selected' : '',
+              // Only the selected block takes the ring: its blocks are inside it already.
+              d.nodeId === selectedNodeId ? 'is-selected' : '',
               d.nodeId === activeHover ? 'is-hovered' : '',
             ]
               .filter(Boolean)
               .join(' ');
-            const maxChars = Math.floor((w - 6) / 6);
-            const label = maxChars < 2 ? '' : truncate(d.name, maxChars);
+            const label = fitLabel(d.name, Math.floor((w - 8) / CHAR_WIDTH));
 
             return (
               <g key={d.nodeId} className={cls} pointerEvents="none">
@@ -336,13 +318,13 @@ export function BlockTreemap({
                 {/* Name sits locally on the block: in a leaf's body, or in a
                     container's header band (which children never occupy, so it
                     cannot collide with them). */}
-                {label && h > 11 && (
-                  <text x={n.x0 + 4} y={n.y0 + 11}>
+                {label && h > 16 && (
+                  <text x={n.x0 + 4} y={n.y0 + 13}>
                     {label}
                   </text>
                 )}
-                {isLeaf && w > 50 && h > 26 && (
-                  <text className="is-size" x={n.x0 + 4} y={n.y0 + 22}>
+                {isLeaf && w > 64 && h > 32 && (
+                  <text className="is-size" x={n.x0 + 4} y={n.y0 + 27}>
                     {formatBytes(d.bytes)}
                   </text>
                 )}
@@ -357,9 +339,15 @@ export function BlockTreemap({
   );
 }
 
-function truncate(s: string, maxChars: number): string {
-  if (maxChars < 2) return '';
-  return s.length > maxChars ? `${s.slice(0, maxChars - 1)}…` : s;
+/** The width of one 11px Geist Mono character, which the labels use (vx-label-sm). */
+const CHAR_WIDTH = 6.6;
+/** The fewest characters a cut label keeps: a shorter stub ("[25…") says nothing. */
+const MIN_CUT = 8;
+
+/** The name if it fits, else the name cut with an ellipsis, else nothing. */
+function fitLabel(s: string, maxChars: number): string {
+  if (s.length <= maxChars) return s;
+  return maxChars >= MIN_CUT ? `${s.slice(0, maxChars - 1)}…` : '';
 }
 
 function TileTooltip({

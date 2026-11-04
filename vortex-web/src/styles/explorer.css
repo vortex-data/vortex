@@ -2,8 +2,9 @@
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
 /* The Explorer's own rules, on top of the Vortex design system (vortex-tokens.css, vortex-base.css
-   and vortex.css, which are copies: change the system, not them). Every value is a token or a
-   calc() of tokens. The classes start with x-. */
+   and vortex.css, which are copies: change the system, not them). A value is a token wherever
+   the system has one. The exceptions are fixed widths, SVG stroke widths, and the run frame's
+   corner. The classes start with x-. */
 
 /* ------------------------------------------------------------------ the frame
    One screen: the header, the work area, and the status line. The panes scroll, the page does not.
@@ -18,11 +19,8 @@
 }
 .x-app > .vx-header {
   flex: none;
-  margin-top: 0;
 }
-.x-app .vx-header-end {
-  margin-left: auto;
-}
+/* The tools and the end group sit together at the right. */
 .x-app .vx-header-tools + .vx-header-end {
   margin-left: 0;
 }
@@ -54,7 +52,7 @@
   display: grid;
   grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
   gap: var(--space-16);
-  padding: var(--space-16) var(--page-pad) 0;
+  padding: var(--space-16) var(--page-pad);
 }
 .x-work.is-wide {
   grid-template-columns: minmax(0, 1fr);
@@ -102,7 +100,6 @@
 .x-preview {
   grid-column: 1 / -1;
   grid-row: 3;
-  margin-bottom: var(--space-16);
 }
 
 /* A pane's body with no table or tree in it gets the card's padding. */
@@ -140,12 +137,10 @@
 }
 
 /* ------------------------------------------------------------------ the tree
-   The search field fills the head beside the switch. */
+   The search field (vx-field is-sm) fills the head beside the switch. */
 .x-tree-pane .vx-pane-head .vx-field {
   flex: 1 1 120px;
   min-width: 0;
-  height: var(--control-sm);
-  font-size: 13px;
 }
 .x-tree-name {
   display: flex;
@@ -371,10 +366,6 @@
   min-width: 100%;
 }
 .x-table-scroll .vx-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--surface);
   white-space: nowrap;
 }
 .x-table-scroll .vx-table th button {
@@ -395,14 +386,6 @@
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.x-table-scroll .vx-table.is-data tr.is-spacer td {
-  height: auto;
-  padding: 0;
-  border: 0;
-}
-.x-table-scroll .vx-table.is-data tbody tr:not(.is-spacer):hover td {
-  background: var(--wash);
 }
 .x-table-scroll .vx-table tr.is-link {
   cursor: pointer;
@@ -440,8 +423,6 @@
   position: absolute;
   pointer-events: none;
   font-weight: 400;
-  text-transform: none;
-  letter-spacing: normal;
   z-index: 2;
   top: 100%;
   left: 0;
@@ -494,8 +475,9 @@
 }
 
 /* ------------------------------------------------------------------ the treemap
-   Each block takes its dtype's colour, faint for a container and stronger for a leaf. Selection
-   and hover use the accent. The SVG reads its colours from the tokens, so it follows the theme. */
+   Each block takes its dtype's colour, faint for a container and stronger for a leaf. The selected
+   block takes the accent ring (Blue marks a selection), and a hovered one an ink stroke. The SVG
+   reads its colours from the tokens, so it follows the theme. */
 .x-treemap {
   position: relative;
   width: 100%;
@@ -517,25 +499,22 @@
   fill-opacity: 0.24;
   stroke-width: 0.5;
 }
-.x-treemap .is-selected rect {
-  fill-opacity: 0.4;
-}
 .x-treemap .is-hovered rect {
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+.x-treemap .is-selected rect {
   stroke: var(--accent);
   stroke-width: 2;
 }
 .x-treemap text {
-  font: 400 10px var(--font-mono);
+  font: 400 11px var(--font-mono);
   fill: var(--ink);
 }
 .x-treemap .is-container text {
   font-weight: 600;
 }
 .x-treemap text.is-size {
-  font-size: 9px;
-  fill: var(--ink-muted);
-}
-.x-treemap .is-selected text.is-size {
   fill: var(--ink-body);
 }
 .x-treemap-up {
@@ -612,24 +591,16 @@
 .x-lane.is-selected .x-lane-select {
   color: var(--ink);
 }
+/* The chevron is the tree's (vx-tree-toggle), which turns under aria-expanded. */
 .x-lane-toggle {
   all: unset;
   flex: none;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  margin-right: var(--space-4);
   cursor: pointer;
 }
-.x-lane-toggle svg {
-  width: 16px;
-  height: 16px;
-  fill: var(--ink-muted);
-  transition: rotate var(--vx-motion);
-}
-.x-lane-toggle[aria-expanded='true'] svg {
-  rotate: 90deg;
+.x-lane-toggle .vx-tree-toggle {
+  vertical-align: 0;
 }
 .x-lane-toggle.is-leaf {
   visibility: hidden;
