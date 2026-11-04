@@ -90,9 +90,11 @@ extern "C" {
  * Release Vortex's cached file mappings that no open scan uses.
  *
  * Scans keep their files mapped so later scans of the same file reuse filled page tables.
- * `posix_fadvise(POSIX_FADV_DONTNEED)` skips pages mapped into a process, so call this before
- * evicting files with it, for example before a cold-cache measurement. Mappings still used by
- * open streams stay mapped until those streams are released.
+ * On Linux, both `posix_fadvise(POSIX_FADV_DONTNEED)` and `/proc/sys/vm/drop_caches`
+ * skip pages mapped into a process, although memory pressure can still reclaim them.
+ * Call this before using either to evict file pages, for example before a cold-cache
+ * measurement. Mappings still used by open streams stay mapped until those streams
+ * are released.
  */
 void vx_cuda_release_file_mappings(void);
 
