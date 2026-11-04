@@ -235,8 +235,8 @@ pub struct DefaultExpressionConverter {
 
 /// What `$` is where an expression is converted.
 enum Scope {
-    /// The scan's columns: a column `c` reads `$.c`.
-    Columns,
+    /// Outside any lambda, the scan's columns: a column `c` reads `$.c`.
+    Global,
     /// A lambda's parameters: a parameter `x` reads `$.x`, as Vortex runs a lambda's body. Vortex
     /// lambdas can't read columns yet.
     Lambda(StructFields),
@@ -254,7 +254,7 @@ impl DefaultExpressionConverter {
     pub fn new(session: VortexSession) -> Self {
         Self {
             session,
-            scope: Scope::Columns,
+            scope: Scope::Global,
         }
     }
 
@@ -370,7 +370,7 @@ impl DefaultExpressionConverter {
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
             return match self.scope {
-                Scope::Columns => Ok(get_item(col_expr.name(), root())),
+                Scope::Global => Ok(get_item(col_expr.name(), root())),
                 Scope::Lambda(_) => Err(Unconverted::Unsupported),
             };
         }
