@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 35d41bda602e2f40e7e3af7c16d5e3d1ee7710b5793573ddefac533960a26f49 */
+   sha256 66948f1d86cb3398816fcb1e9478421c9f74daaff426adc213247ccee1646f2e */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -35,7 +35,7 @@
 .vx-docs-search { position: relative; display: flex; align-items: center; width: 360px; margin: 0 auto; color: var(--ink-muted); }
 .vx-docs-search svg { position: absolute; left: var(--space-12); pointer-events: none; }
 .vx-docs-search input { width: 100%; height: var(--control-md); padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 0.875rem var(--font-sans); transition: border-color var(--vx-motion); }
-.vx-docs-search input:hover { border-color: var(--ink-muted); }
+.vx-docs-search input:hover { border-color: var(--ink); }
 .vx-docs-search input::placeholder { color: var(--ink-muted); opacity: 1; }
 .vx-docs-links { display: flex; align-items: center; gap: var(--space-16); margin-left: auto; font: 500 0.75rem/1.3 var(--font-mono); }
 .vx-docs-links a { display: flex; color: var(--ink-muted); text-decoration: none; transition: color var(--vx-motion); }
@@ -97,15 +97,17 @@
 .vx-docs-edit a:hover { color: var(--ink); }
 
 /* The footer: Footer, solid. */
-.vx-docs-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16) var(--space-24); padding: var(--space-16) var(--page-pad); border-top: 1px solid var(--line); font: 400 0.75rem/1.5 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16) var(--space-24); padding: var(--space-16) var(--page-pad); border-top: 1px solid var(--line); font: 400 0.6875rem/1.5 var(--font-mono); letter-spacing: 0.02em; color: var(--ink-muted); }
 .vx-docs-footer p { flex: 1 1 420px; min-width: 0; margin: 0; }
 .vx-docs-footer nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); }
 .vx-docs-footer a { color: inherit; text-decoration: none; }
-.vx-docs-footer a:hover, .vx-docs-footer p a { color: var(--ink); }
+.vx-docs-footer a:hover { color: var(--ink); }
+/* A link in the footer's text is underlined, as vx-link draws it, so colour is not its only mark. */
+.vx-docs-footer p a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent); text-underline-offset: 3px; }
 
 /* The reading column. :where() keeps the flow margins below any element's own. */
 .vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-20); }
-.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple, dl.footnote)) { max-width: 68ch; }
+.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple)) { max-width: 68ch; }
 .vx-docs-main li + li { margin-top: var(--space-4); }
 .vx-docs-main li::marker { color: var(--ink-muted); }
 .vx-docs-main :is(h1, h2, h3, h4) { scroll-margin-top: var(--space-16); font-family: var(--font-mono); font-weight: 500; line-height: 1.25; color: var(--ink); text-wrap: balance; }
@@ -134,7 +136,7 @@
 /* CodeBlock: Pygments' classes on the four syntax tokens, under a label from highlight-<lang>. */
 .vx-docs-main div[class*="highlight-"] > .highlight { background: var(--raised); border-radius: var(--radius-card); overflow: hidden; }
 .vx-docs-main :where(div[class*="highlight-"]) > .highlight::before { content: "Text"; display: block; padding: var(--space-8) var(--space-16); border-bottom: 1px solid var(--edge); line-height: 20px; }
-.vx-docs-main :is(.highlight-default, .highlight-python, .highlight-pycon) > .highlight::before { content: "Python"; }
+.vx-docs-main :is(.highlight-python, .highlight-pycon) > .highlight::before { content: "Python"; }
 .vx-docs-main :is(.highlight-bash, .highlight-sh, .highlight-shell, .highlight-console) > .highlight::before { content: "Shell"; }
 .vx-docs-main .highlight-rust > .highlight::before { content: "Rust"; }
 .vx-docs-main .highlight-sql > .highlight::before { content: "SQL"; }
@@ -164,8 +166,8 @@
 
 /* Tables: the tables section's heads and hairline rows. */
 .vx-docs-main table.docutils { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
-.vx-docs-main table.docutils th { padding: var(--space-8) var(--space-24) var(--space-8) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
-.vx-docs-main table.docutils td { padding: var(--space-8) var(--space-24) var(--space-8) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.vx-docs-main table.docutils th { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.6875rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main table.docutils td { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .vx-docs-main :is(td, th) > p { margin: 0; }
 
 /* The API reference: a signature on raised, then its description and fields. */
@@ -174,7 +176,7 @@
 .vx-docs-main dt.sig { padding: var(--space-8) var(--space-12); background: var(--raised); border-radius: var(--radius-control); font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); overflow-wrap: anywhere; }
 .vx-docs-main dt.sig .sig-name { font-weight: 600; color: var(--ink); }
 .vx-docs-main dt.sig :is(.sig-prename, .sig-paren) { color: var(--ink-muted); }
-.vx-docs-main dt.sig em.property, .vx-docs-main dt.sig .k { font-style: normal; color: var(--syntax-keyword); }
+.vx-docs-main dt.sig .property, .vx-docs-main dt.sig .k { font-style: normal; color: var(--syntax-keyword); }
 .vx-docs-main dt.sig em { font-style: normal; }
 .vx-docs-main dt.sig a { text-decoration: none; }
 .vx-docs-main :is(dl.py, dl.c) > dd { margin: var(--space-12) 0 0 var(--space-24); }
@@ -229,4 +231,4 @@
    segments inside a clipped container draw it inside their edge. */
 :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
 .vx-docs-toggle:focus-visible ~ .vx-docs-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button):focus-visible { outline-offset: -2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }

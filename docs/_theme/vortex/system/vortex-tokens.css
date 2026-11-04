@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 518327f27a1dfe121d46819fbbf6613db19d8380f59a2bf07916af1de8d32f5e */
+   sha256 6f9bfe3e8fff515876223cf46967bcdef4923b3370c58fa2c07354f6401111cc */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -166,7 +166,7 @@
   --vx-motion: 150ms ease-out;
   --font-display: "Funnel Display", Geist, sans-serif;
   --font-sans: Geist, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Cascadia Mono", "Liberation Mono", monospace;
 }
 @media (max-width: 640px) {
   :root {

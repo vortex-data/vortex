@@ -17,7 +17,7 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
-.vortex-wordmark { display: block; max-width: min(400px, 100%); margin: var(--space-24) auto var(--space-48); }
+.vx-docs-main .vortex-wordmark { display: block; max-width: min(400px, 100%); margin: var(--space-24) auto var(--space-48); }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
