@@ -41,11 +41,14 @@ use object_store::ObjectStoreExt;
 use object_store::memory::InMemory;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
+use vortex::array::EmptyMetadata;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::NullArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::assert_arrays_eq;
@@ -68,6 +71,7 @@ use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
+use vortex_json::Json;
 use vortex_tensor::fixed_shape_tensor::FixedShapeTensor;
 use vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata;
 use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
@@ -1023,6 +1027,89 @@ async fn test_copy_fixed_shape_tensor_column() -> anyhow::Result<()> {
         .read_all()
         .await?;
     assert_arrays_eq!(copied, table, &mut session.create_execution_ctx());
+
+    Ok(())
+}
+
+/// Creates table `t` over two Vortex files whose only column, `value`, holds a `Json` string in the
+/// first file and `other` in the second.
+async fn json_table_with_other_file(other: ArrayRef) -> anyhow::Result<TestSessionContext> {
+    let session = VortexSession::default();
+    vortex_json::initialize(&session);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new_with_session(session.clone()),
+    ));
+
+    let strings = VarBinArray::from(vec![r#"{"x":1}"#]).into_array();
+    let json_dtype = ExtDType::<Json>::try_new(EmptyMetadata, strings.dtype().clone())?.erased();
+    let json = ExtensionArray::new(json_dtype, strings).into_array();
+
+    for (path, column) in [("table/json.vortex", json), ("table/other.vortex", other)] {
+        let array = StructArray::from_fields(&[("value", column)])?.into_array();
+        let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &path.into()).await?;
+        session
+            .write_options()
+            .write(&mut writer, array.to_array_stream())
+            .await?;
+        writer.shutdown().await?;
+    }
+
+    ctx.session
+        .sql("CREATE EXTERNAL TABLE t STORED AS vortex LOCATION '/table/'")
+        .await?;
+
+    Ok(ctx)
+}
+
+/// Schema inference merges a `Json` column and a plain `Utf8` column into a `Json` table column, so
+/// the scan of the plain file must fail instead of labeling its strings as `Json`.
+#[tokio::test]
+async fn test_scan_rejects_plain_file_in_extension_column() -> anyhow::Result<()> {
+    let plain_strings = VarBinArray::from(vec![r#"{"x":2}"#]).into_array();
+    let ctx = json_table_with_other_file(plain_strings).await?;
+
+    let error = ctx
+        .session
+        .sql("SELECT * FROM t")
+        .await?
+        .collect()
+        .await
+        .expect_err("the plain file must not scan as Json");
+    assert!(
+        error.to_string().contains(
+            "Failed to compute the physical schema of table/other.vortex: Execution error: Field value must name no Arrow extension type for Vortex DType utf8, got Arrow extension type arrow.json"
+        ),
+        "{error}"
+    );
+
+    Ok(())
+}
+
+/// Schema inference merges a `Null` column into a `Json` table column. The `Null` file has no
+/// values to mislabel, so it scans as nulls.
+#[tokio::test]
+async fn test_scan_null_file_in_extension_column() -> anyhow::Result<()> {
+    let ctx = json_table_with_other_file(NullArray::new(1).into_array()).await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT value FROM t ORDER BY value NULLS FIRST")
+        .await?
+        .collect()
+        .await?;
+
+    assert_eq!(
+        result[0].schema().field(0).extension_type_name(),
+        Some("arrow.json")
+    );
+    assert_snapshot!(pretty_format_batches(&result)?, @r#"
+    +---------+
+    | value   |
+    +---------+
+    |         |
+    | {"x":1} |
+    +---------+
+    "#);
 
     Ok(())
 }

@@ -39,6 +39,7 @@ use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -59,6 +60,20 @@ async fn vortex_source_from_batch_with_session(
     session: &VortexSession,
 ) -> anyhow::Result<VortexDataSource> {
     let schema = batch.schema();
+    let data_source = data_source_from_batch(batch, session).await?;
+
+    Ok(VortexDataSource::builder(data_source, session.clone())
+        .with_arrow_schema(schema)
+        .build()
+        .await?)
+}
+
+/// Writes `batch` to an in-memory Vortex file and returns the file as a data source.
+async fn data_source_from_batch(
+    batch: RecordBatch,
+    session: &VortexSession,
+) -> anyhow::Result<DataSourceRef> {
+    let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
     let mut buffer = ByteBufferMut::empty();
     session
@@ -66,12 +81,7 @@ async fn vortex_source_from_batch_with_session(
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(
-        VortexDataSource::builder(file.data_source()?, session.clone())
-            .with_arrow_schema(schema)
-            .build()
-            .await?,
-    )
+    Ok(file.data_source()?)
 }
 
 #[tokio::test]
@@ -540,6 +550,34 @@ async fn test_extension_projection_preserves_arrow_type() -> anyhow::Result<()> 
 
     let actual = concat_batches(&plan_schema, &batches)?;
     assert_eq!(actual.column(0), fixture.batch.column(1));
+
+    Ok(())
+}
+
+/// The builder checks a caller-supplied schema against the dtype of the data source, so the scan
+/// cannot label plain strings as `Json`.
+#[tokio::test]
+async fn test_build_rejects_extension_column_over_plain() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_json::initialize(&session);
+
+    let batch = arrow_array::record_batch!(("value", Utf8, vec![r#"{"x":1}"#]))?;
+    let data_source = data_source_from_batch(batch, &session).await?;
+
+    let mut json_field = Field::new("value", DataType::Utf8, true);
+    json_field.try_with_extension_type(ArrowJson::default())?;
+
+    let error = VortexDataSource::builder(data_source, session)
+        .with_arrow_schema(Arc::new(Schema::new(vec![json_field])))
+        .build()
+        .await
+        .expect_err("the plain column must not scan as Json");
+    assert!(
+        error.to_string().contains(
+            "Field value must name no Arrow extension type for Vortex DType utf8?, got Arrow extension type arrow.json"
+        ),
+        "{error}"
+    );
 
     Ok(())
 }

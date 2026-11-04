@@ -206,8 +206,8 @@ impl VortexDataSourceBuilder {
     /// If not specified, the builder derives an Arrow schema from the Vortex
     /// dtype.
     ///
-    /// Note that this schema is not validated against the Vortex DType so any errors will be
-    /// deferred until read time.
+    /// [`Self::build`] fails when the Vortex dtype cannot be read as this schema, for example when
+    /// a field does not name the Arrow extension type of its column's dtype.
     pub fn with_arrow_schema(mut self, arrow_schema: SchemaRef) -> Self {
         self.arrow_schema = Some(arrow_schema);
         self
@@ -264,7 +264,15 @@ impl VortexDataSourceBuilder {
 
         // Resolve the Arrow schema
         let mut arrow_schema = match self.arrow_schema {
-            Some(schema) => schema,
+            Some(schema) => {
+                // The physical schema checks this schema against the dtype of every column, as the
+                // file opener does. Each scan computes the physical schema of its own projection,
+                // so only the check matters here.
+                calculate_physical_schema(self.data_source.dtype(), &schema, &self.session.arrow())
+                    .map_err(VortexError::external)?;
+
+                schema
+            }
             None => Arc::new(
                 self.session
                     .arrow()
