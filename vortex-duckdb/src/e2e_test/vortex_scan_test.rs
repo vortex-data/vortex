@@ -1435,3 +1435,78 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     assert_eq!(v2?, v1);
     Ok(())
 }
+
+/// The rows the Vortex scan of a profiled query emitted, read from DuckDB's JSON profile.
+fn vortex_scan_rows(profile: &str) -> Option<u64> {
+    let scan = profile.find("\"Function\": \"Vortex Scan\"")?;
+    let rows = &profile[scan..];
+    let key = "\"intermediate_rows\": ";
+    let start = rows.find(key)? + key.len();
+    let end = rows[start..].find(|c: char| !c.is_ascii_digit())?;
+    rows[start..start + end].parse().ok()
+}
+
+/// A hash join pushes bloom and prefix range filters on its key into the probe scan. The build
+/// sides here hold too many keys for DuckDB to push them as an IN list, which Vortex would apply
+/// itself, so only these filters can drop probe rows before the join. The reader applies them to
+/// each chunk it exports: the scan emits fewer rows than the file has, and the join still returns
+/// exactly the matching rows.
+#[rstest]
+#[case::prefix_range(
+    "p.id = b.id",
+    "CREATE TABLE b AS SELECT (range * 40)::BIGINT AS id FROM range(5000)",
+    5_000,
+    499_900_000
+)]
+#[case::bloom(
+    "p.name = b.name",
+    "CREATE TABLE b AS SELECT 'k' || (range * 10) AS name FROM range(100)",
+    20_000,
+    1_999_900_000
+)]
+fn test_join_filters_drop_probe_rows(
+    #[case] condition: &str,
+    #[case] build: &str,
+    #[case] expected_count: i64,
+    #[case] expected_sum: i64,
+) -> Result<()> {
+    const ROWS: i64 = 200_000;
+    let file = RUNTIME.block_on(async {
+        let ids = PrimitiveArray::from_iter(0..ROWS);
+        let names = VarBinViewArray::from_iter_str((0..ROWS).map(|id| format!("k{}", id % 1000)));
+        write_vortex_file([("id", ids.into_array()), ("name", names.into_array())].into_iter())
+            .await
+    });
+    let conn = database_connection();
+    conn.query(build)?;
+    let profile = NamedTempFile::with_suffix(".json")?;
+    conn.query("PRAGMA enable_profiling = 'json'")?;
+    conn.query(&format!(
+        "PRAGMA profiling_output = '{}'",
+        profile.path().display()
+    ))?;
+    let query = format!(
+        "SELECT count(*), sum(p.id)::BIGINT FROM '{}' p JOIN b ON {condition}",
+        file.path().to_string_lossy()
+    );
+    let result = conn.query(&query)?;
+    let chunk = result.into_iter().next().unwrap();
+    assert_eq!(
+        chunk.get_vector(0).as_slice_with_len::<i64>(1),
+        [expected_count]
+    );
+    assert_eq!(
+        chunk.get_vector(1).as_slice_with_len::<i64>(1),
+        [expected_sum]
+    );
+    conn.query("PRAGMA disable_profiling")?;
+
+    let profile = std::fs::read_to_string(profile.path())?;
+    let scanned = vortex_scan_rows(&profile).expect("profile has the Vortex scan's rows");
+    // Without the join filters the scan emits nearly every row: the build keys span the file.
+    assert!(
+        scanned < ROWS as u64 / 2,
+        "the scan emitted {scanned} of {ROWS} rows:\n{profile}"
+    );
+    Ok(())
+}

@@ -8,6 +8,11 @@
 #include "vortex.h"
 
 #include "duckdb/execution/operator/scan/physical_table_scan.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
+#include "duckdb/storage/table/column_segment.hpp"
 
 unique_ptr<FunctionData> VortexBindData::Copy() const {
     auto result = make_uniq<VortexBindData>();
@@ -261,12 +266,106 @@ bool VortexBaseReader::TryInitializeScan(ClientContext &,
     return duckdb_reader_try_initialize_scan(ffi_local, ffi_file_ptr);
 }
 
-AsyncResult VortexBaseReader::Scan(ClientContext &,
+/// Collects the selectivity-optional filters of `expr`, at its root or under an AND. A hash join
+/// pushes its bloom and prefix range filters into the scan as these.
+static void CollectJoinFilters(const Expression &expr, vector<unique_ptr<Expression>> &out) {
+    if (expr.GetExpressionClass() == ExpressionClass::BOUND_FUNCTION &&
+        expr.Cast<BoundFunctionExpression>().Function().GetName() ==
+            SelectivityOptionalFilterScalarFun::NAME) {
+        out.push_back(expr.Copy());
+        return;
+    }
+    if (expr.GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
+        for (const auto &child : expr.Cast<BoundConjunctionExpression>().GetChildren()) {
+            CollectJoinFilters(*child, out);
+        }
+    }
+}
+
+/// The join filters of `reader`'s single-column filters on columns the reader exports as they are.
+///
+/// Vortex prunes and filters with what it can express, and skips an optional filter it cannot,
+/// such as a bloom or prefix range filter. Evaluating these on each chunk, as DuckDB's Parquet
+/// reader does, drops rows the join would discard. A filter Vortex already applied keeps every
+/// row, so DuckDB pauses it.
+static vector<VortexJoinFilter> InitializeJoinFilters(ClientContext &context, const BaseFileReader &reader) {
+    vector<VortexJoinFilter> result;
+    if (!reader.filters) {
+        return result;
+    }
+    for (const auto &entry : *reader.filters) {
+        const idx_t column = entry.GetIndex().GetIndex();
+        // The column needs a cast before the filter applies, which this reader does not run.
+        if (reader.expression_map.find(entry.GetIndex()) != reader.expression_map.end()) {
+            continue;
+        }
+        const auto &filter = entry.Filter();
+        if (filter.filter_type != TableFilterType::EXPRESSION_FILTER) {
+            continue;
+        }
+        const auto &expression_filter = filter.Cast<ExpressionFilter>();
+        if (!expression_filter.column_indexes.empty()) {
+            continue;
+        }
+        vector<unique_ptr<Expression>> join_filters;
+        CollectJoinFilters(*expression_filter.expr, join_filters);
+        if (join_filters.empty()) {
+            continue;
+        }
+        unique_ptr<Expression> expr;
+        if (join_filters.size() == 1) {
+            expr = std::move(join_filters[0]);
+        } else {
+            auto conjunction = make_uniq<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_AND);
+            conjunction->GetChildrenMutable() = std::move(join_filters);
+            expr = std::move(conjunction);
+        }
+        auto owned = make_uniq<ExpressionFilter>(std::move(expr));
+        auto state = TableFilterState::Initialize(context, *owned);
+        result.push_back(VortexJoinFilter {column, std::move(owned), std::move(state)});
+    }
+    return result;
+}
+
+/// Keeps the rows of `chunk` that pass every join filter.
+static void ApplyJoinFilters(vector<VortexJoinFilter> &filters, DataChunk &chunk) {
+    const idx_t count = chunk.size();
+    if (filters.empty() || count == 0) {
+        return;
+    }
+    SelectionVector sel;
+    sel.Initialize(nullptr);
+    idx_t approved = count;
+    for (auto &filter : filters) {
+        if (filter.column >= chunk.ColumnCount()) {
+            continue;
+        }
+        ColumnSegment::FilterSelection(sel, chunk.data[filter.column], *filter.state, count, approved);
+        if (approved == 0) {
+            break;
+        }
+    }
+    if (approved == count) {
+        return;
+    }
+    if (approved == 0) {
+        chunk.Reset();
+        return;
+    }
+    chunk.Slice(sel, approved);
+}
+
+AsyncResult VortexBaseReader::Scan(ClientContext &context,
                                    GlobalTableFunctionState &global_state,
                                    LocalTableFunctionState &local_state,
                                    DataChunk &chunk) {
     VortexGlobalState &global = global_state.Cast<VortexGlobalState>();
     VortexLocalState &local = local_state.Cast<VortexLocalState>();
+
+    if (local.join_filters_reader != this) {
+        local.join_filters = InitializeJoinFilters(context, *this);
+        local.join_filters_reader = this;
+    }
 
     duckdb_vx_error error = nullptr;
     duckdb_data_chunk ffi_chunk = reinterpret_cast<duckdb_data_chunk>(&chunk);
@@ -277,6 +376,7 @@ AsyncResult VortexBaseReader::Scan(ClientContext &,
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
+    ApplyJoinFilters(local.join_filters, chunk);
     return has_more_data ? SourceResultType::HAVE_MORE_OUTPUT : SourceResultType::FINISHED;
 }
 
