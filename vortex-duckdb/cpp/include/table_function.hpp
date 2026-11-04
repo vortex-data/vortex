@@ -19,6 +19,7 @@ static_assert(sizeof(idx_t) == 8);
 bool is_vortex_scan(const BoundTableFunction &function);
 
 constexpr inline idx_t COUNT_STAR_PROJ_IDX = std::numeric_limits<idx_t>::max();
+constexpr inline column_t VORTEX_ROW_ID_COLUMN = UINT64_C(9223372036854775811);
 
 struct TableFunctionUngroupedAggregateInput {
     const LogicalGet &get;
