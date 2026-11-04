@@ -1,6 +1,6 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections docs,focus
+   Made by: node tools/site-styles.mjs <site> --sections docs,focus --reads ../vortex.css,../layout.html
    sha256 5d736a53f20516436d214b33f5c9cd717ac1e3d960a70ec168ac484b6b98a9a4 */
 
 /* ------------------------------------------------------------------ docs
