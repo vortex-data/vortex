@@ -25,7 +25,7 @@ use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::cached_values_dict;
 use crate::exporter::constant;
-use crate::exporter::new_array_exporter;
+use crate::exporter::new_array_exporter_with_flatten;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -53,6 +53,7 @@ pub(crate) fn new_exporter_with_flatten(
             validity,
             cache,
             ctx,
+            flatten,
         );
     }
 
@@ -84,13 +85,15 @@ pub(crate) fn new_exporter_with_flatten(
                 canonical
             }
         };
-        return new_array_exporter(
+        // The caller wants a flat vector, so nested children must be flat too.
+        return new_array_exporter_with_flatten(
             DictArray::new(array.codes().clone(), canonical.into_array())
                 .into_array()
                 .execute::<Canonical>(ctx)?
                 .into_array(),
             cache,
             ctx,
+            true,
         );
     }
 

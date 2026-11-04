@@ -262,7 +262,7 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
-    canonical::new_exporter(array, cache, ctx)
+    canonical::new_exporter(array, cache, ctx, flatten)
 }
 
 /// Copy the sliced bits from source into target, returning whether all copied bits are zero,

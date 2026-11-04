@@ -144,9 +144,13 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
     use num_traits::AsPrimitive;
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
@@ -287,6 +291,45 @@ mod tests {
 "#
         );
 
+        Ok(())
+    }
+
+    /// A list's elements are exported in one call covering every row, so a chunked struct child
+    /// (what the file reader hands back for a `list<struct>` column) must be flattened rather than
+    /// kept chunk-aligned.
+    #[test]
+    fn test_export_list_of_structs_with_chunked_child() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let chunk0 = buffer![1i32, 2].into_array();
+        let chunk1 = buffer![3i32, 4, 5].into_array();
+        let dtype = chunk0.dtype().clone();
+        let field = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
+        let elements = StructArray::from_fields(&[("v", field)])?.into_array();
+        // [{1}], [{2}, {3}], [{4}], [{5}]: the second list straddles the chunk boundary.
+        let offsets = buffer![0u32, 1, 3, 4, 5].into_array();
+        let list =
+            ListArray::try_new(elements, offsets, Validity::AllValid, &mut ctx)?.into_array();
+
+        let struct_type = LogicalType::struct_type(
+            vec![LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)],
+            vec![CString::new("v").map_err(|e| vortex::error::vortex_err!("{e}"))?],
+        )?;
+        let mut chunk = DataChunk::new([LogicalType::list_type(struct_type)?]);
+
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            4,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(4);
+
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT STRUCT(v INTEGER)[]: 4 = [ [{'v': 1}], [{'v': 2}, {'v': 3}], [{'v': 4}], [{'v': 5}]]
+"#
+        );
         Ok(())
     }
 

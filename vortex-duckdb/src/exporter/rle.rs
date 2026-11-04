@@ -42,14 +42,16 @@ pub(crate) fn new_exporter_with_flatten(
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if flatten || array.is_empty() {
-        return canonical::new_exporter(array.into_array(), cache, ctx);
+        return canonical::new_exporter(array.into_array(), cache, ctx, flatten);
     }
     // DuckDB dictionary can't carry validity on codes.
     // Don't execute the validity mask, if there's a chance of NULL,
     // canonicalize
     match array.indices().validity()? {
         Validity::AllInvalid => return Ok(all_invalid::new_exporter()),
-        Validity::Array(_) => return canonical::new_exporter(array.into_array(), cache, ctx),
+        Validity::Array(_) => {
+            return canonical::new_exporter(array.into_array(), cache, ctx, flatten);
+        }
         _ => {}
     }
 

@@ -27,7 +27,7 @@ pub(crate) fn new_exporter_with_flatten(
     // DuckDB's sequence vector API takes signed start/step values and rejects unsigned logical
     // types, so unsigned Vortex sequences must be exported as flat primitive vectors.
     if flatten || array.ptype().is_unsigned_int() {
-        return canonical::new_exporter(array.clone().into_array(), cache, ctx);
+        return canonical::new_exporter(array.clone().into_array(), cache, ctx, flatten);
     }
     Ok(Box::new(SequenceExporter {
         start: array.base().as_i64().vortex_expect("cannot have null base"),

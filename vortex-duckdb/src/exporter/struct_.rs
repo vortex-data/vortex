@@ -15,17 +15,22 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::all_invalid;
-use crate::exporter::new_array_exporter;
+use crate::exporter::new_array_exporter_with_flatten;
 use crate::exporter::validity;
 
 struct StructExporter {
     children: Vec<Box<dyn ColumnExporter>>,
 }
 
+/// Create an exporter for a struct array.
+///
+/// `flatten` is passed on to the children: a list or dictionary exports its elements in one call
+/// covering every row, which a chunk-aligned child exporter cannot serve.
 pub(crate) fn new_exporter(
     array: StructArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
     let StructDataParts {
@@ -49,10 +54,12 @@ pub(crate) fn new_exporter(
 
     let iter = fields.into_iter();
     let children = if let Some(validity) = validity.as_ref() {
-        iter.map(|child| new_array_exporter(child.mask(validity.clone())?, cache, ctx))
-            .collect::<VortexResult<Vec<_>>>()
+        iter.map(|child| {
+            new_array_exporter_with_flatten(child.mask(validity.clone())?, cache, ctx, flatten)
+        })
+        .collect::<VortexResult<Vec<_>>>()
     } else {
-        iter.map(|child| new_array_exporter(child.into_array(), cache, ctx))
+        iter.map(|child| new_array_exporter_with_flatten(child.into_array(), cache, ctx, flatten))
             .collect::<VortexResult<Vec<_>>>()
     }?;
 
@@ -120,7 +127,7 @@ mod tests {
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+        new_exporter(arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
             .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
@@ -181,7 +188,7 @@ mod tests {
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+        new_exporter(arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
             .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
@@ -223,7 +230,7 @@ mod tests {
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+        new_exporter(arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
             .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();

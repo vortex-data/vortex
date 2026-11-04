@@ -26,7 +26,7 @@ pub(crate) fn new_exporter_with_flatten(
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if flatten {
-        return canonical::new_exporter(array.into_array(), cache, ctx);
+        return canonical::new_exporter(array.into_array(), cache, ctx, flatten);
     }
 
     let chunk_offsets = array.chunk_offset_values().to_vec();

@@ -18,10 +18,15 @@ use crate::exporter::primitive;
 use crate::exporter::struct_;
 use crate::exporter::varbinview;
 
+/// Create an exporter for the canonical form of `array`.
+///
+/// With `flatten`, nested exporters must also serve arbitrary ranges in one `export` call, so a
+/// struct's children are canonicalized instead of keeping chunk-aligned exporters.
 pub(crate) fn new_exporter(
     array: ArrayRef,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     match array.execute::<Canonical>(ctx)? {
         Canonical::Null(_) => Ok(all_invalid::new_exporter()),
@@ -32,7 +37,7 @@ pub(crate) fn new_exporter(
         Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
         Canonical::Map(_) => vortex_bail!("Map arrays can't be exported to DuckDB"),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
-        Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
+        Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx, flatten),
         Canonical::Union(_) => {
             vortex_bail!("TODO(connor)[Union]: implement DuckDB export for Union arrays")
         }

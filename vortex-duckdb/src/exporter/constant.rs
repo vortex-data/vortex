@@ -15,7 +15,7 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::canonical;
-use crate::exporter::new_array_exporter;
+use crate::exporter::new_array_exporter_with_flatten;
 use crate::exporter::validity;
 
 struct ConstantExporter {
@@ -27,6 +27,7 @@ pub(crate) fn new_exporter_with_validity(
     validity: Validity,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
+    flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(match validity.execute_mask(array.len(), ctx)? {
         Mask::AllTrue(_) => return new_exporter(array),
@@ -34,7 +35,7 @@ pub(crate) fn new_exporter_with_validity(
         // duckdb cannot have a nullable constant vector
         mask @ Mask::Values(_) => {
             let array = array.into_array().execute::<Canonical>(ctx)?.into_array();
-            let exporter = new_array_exporter(array, cache, ctx)?;
+            let exporter = new_array_exporter_with_flatten(array, cache, ctx, flatten)?;
             // TODO(joe): we can splat the constant in a specific exporter and save a copy.
             validity::new_exporter_with_mask(mask, exporter)
         }
@@ -48,7 +49,7 @@ pub(crate) fn new_exporter_with_flatten(
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if flatten {
-        return canonical::new_exporter(array.into_array(), cache, ctx);
+        return canonical::new_exporter(array.into_array(), cache, ctx, flatten);
     }
     new_exporter(array)
 }

@@ -45,7 +45,7 @@ pub(crate) fn new_exporter_with_flatten(
     // Our canonicalization is faster than creating a dictionary vector and
     // letting duckdb flatten it for us.
     if flatten {
-        return canonical::new_exporter(array.into_array(), cache, ctx);
+        return canonical::new_exporter(array.into_array(), cache, ctx, flatten);
     }
 
     let offset = array.offset();
