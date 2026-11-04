@@ -26,6 +26,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
 use vortex_session::VortexSession;
 
+use super::FILTERED_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::SelectedRows;
@@ -53,12 +54,21 @@ pub struct FilterPlans {
 }
 
 impl FilterPlans {
+    /// Plans `expression`'s conjuncts over `root`.
+    ///
+    /// With `skip_unselective_dynamic`, a dynamic conjunct that kept almost every row on its last
+    /// chunks is switched off, skipping both its zone pruning and its evaluation, until its dynamic
+    /// values change. Only enable it when the producer of the dynamic expressions applies them
+    /// again. [`find_between`] only merges comparisons against literals, so a switched-off
+    /// conjunct never carries a static restriction with it.
     pub(crate) fn new(
         expression: BoundExpression,
         root: &PlanRef,
         session: &VortexSession,
+        skip_unselective_dynamic: bool,
     ) -> VortexResult<Self> {
-        let expression = FilterExpr::new(find_between(expression)?);
+        let expression = FilterExpr::new(find_between(expression)?)
+            .with_skip_unselective_dynamic(skip_unselective_dynamic);
         let predicates = expression
             .conjuncts()
             .iter()
@@ -95,9 +105,38 @@ impl FilterPlans {
         })
     }
 
-    /// The pruning plans, run once over a scan's rows before its chunks are planned.
+    /// Whether dynamic conjuncts that keep almost every row are switched off.
+    pub(crate) fn skips_unselective_dynamic(&self) -> bool {
+        self.expression.skips_unselective_dynamic()
+    }
+
+    /// Whether the conjunct is a dynamic conjunct that is currently switched off.
+    #[cfg(test)]
+    pub(crate) fn is_switched_off(&self, conjunct_idx: usize) -> bool {
+        self.expression.is_switched_off(conjunct_idx)
+    }
+
+    /// The pruning plans of every conjunct that has one.
+    #[cfg(test)]
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
+    }
+
+    /// The pruning plans worth running before a scan of `rows` rows.
+    ///
+    /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
+    /// pruning it first saves little and delays the chunk. Pruning a dynamic conjunct such as a
+    /// join's key bounds also proves its current predicate over the zones again. Without those
+    /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
+    /// SF10 was unchanged.
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+        let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
+        self.pruning
+            .iter()
+            .enumerate()
+            .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
+            .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
+            .filter_map(|(_, plan)| plan.as_ref())
     }
 }
 
@@ -112,8 +151,8 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan.is::<SegmentScan>() {
         return Ok(false);
     }
-    for child in plan.children().iter() {
-        if !metadata_only(&child?)? {
+    for child in plan.children() {
+        if !metadata_only(child?)? {
             return Ok(false);
         }
     }
@@ -130,7 +169,8 @@ pub(super) struct FilterPlanner {
     selected: Option<SelectedRows>,
     filter: Arc<FilterPlans>,
     remaining: BitVec,
-    active: Option<(usize, ScanAdaptor)>,
+    /// The conjunct being evaluated, its dynamic version when it has one, and its scan.
+    active: Option<(usize, Option<u64>, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -200,7 +240,7 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, adaptor)) = &mut self.active {
+        if let Some((_, _, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -212,7 +252,7 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
+            Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
@@ -225,9 +265,15 @@ impl Planner for FilterPlanner {
             self.announced = true;
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
+            let expression = &self.filter.expression;
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| !expression.is_switched_off(*idx))
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -260,7 +306,7 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, adaptor)) = &mut self.active {
+        if let Some((index, version, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
@@ -283,9 +329,15 @@ impl Planner for FilterPlanner {
                 conjunct = *index,
                 "v2 filter conjunct evaluated"
             );
+            let selectivity = selected.mask.true_count() as f64 / input as f64;
             self.filter
                 .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
+                .report_selectivity(*index, selectivity);
+            if let Some(version) = version {
+                self.filter
+                    .expression
+                    .report_dynamic_selectivity(*index, *version, selectivity);
+            }
             self.active = None;
             self.pieces.clear();
         }
@@ -293,8 +345,24 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
+            // Sampled before evaluating, so an update during evaluation is not credited to it.
+            let version = self.filter.expression.dynamic_version(index);
+            if let Some(version) = version
+                && self
+                    .filter
+                    .expression
+                    .skips_dynamic_conjunct(index, version)
+            {
+                tracing::debug!(
+                    row_start = selected.scope.rows.start,
+                    row_end = selected.scope.rows.end,
+                    conjunct = index,
+                    "v2 filter conjunct switched off"
+                );
+                continue;
+            }
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].clone(),
@@ -307,6 +375,7 @@ impl Planner for FilterPlanner {
             .with_value_cache(self.scan.values.clone());
             self.active = Some((
                 index,
+                version,
                 ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
             ));
             return Ok(PlannerOutput::Continue);

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::DynLayout;
@@ -19,6 +20,7 @@ use crate::LayoutId;
 use crate::LayoutParts;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
+use crate::plan::physical::PlanRef;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -113,6 +115,19 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Construct a physical plan for this layout.
+    ///
+    /// The root operator should be built immediately and its children planned lazily, on first
+    /// access, so that planning a layout tree reads and plans only what is used.
+    ///
+    /// The default implementation returns an error: the layout has no physical plan.
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        vortex_bail!(
+            "No physical plan implementation for layout '{}'",
+            layout.vtable().id()
+        )
+    }
 
     /// Returns `true` if this layout is indivisible: its readers never register natural split
     /// boundaries strictly inside their row range (see [`crate::LayoutReader::register_splits`]).

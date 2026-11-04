@@ -29,6 +29,7 @@ use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
 use arrow_array::RunArray;
+use arrow_array::cast::AsArray;
 use arrow_array::make_array;
 use arrow_array::types::Int16Type;
 use arrow_array::types::Int32Type;
@@ -185,7 +186,15 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
 ///
-/// Plugins are dispatched by `arrow_ext_id`.
+/// Plugins are dispatched by `arrow_ext_id`. The session peels Arrow dictionaries before it
+/// dispatches, so a plugin never sees a [`DataType::Dictionary`] field or array. It sees the value
+/// field, with the dictionary field's metadata, and the values array. The session then wraps the
+/// plugin's result in a [`DictArray`] with the dictionary's codes.
+///
+/// Arrow stores dictionary values as a bare [`DataType`], so their extension metadata lives on
+/// the outer [`Field`]. Peeling the dictionary lets the importer see the value type described by
+/// that metadata. [`DataType::RunEndEncoded`] has a separate values field that can carry its own
+/// extension metadata, so its values use the normal nested-field import path.
 ///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
 /// use the methods on [`ArrowSession`].
@@ -391,6 +400,8 @@ impl ArrowSession {
 
     /// Build the Vortex [`DType`] for an Arrow [`Field`].
     ///
+    /// A [`DataType::Dictionary`] field converts as its value field with the same metadata.
+    ///
     /// Plugins registered against the field's Arrow extension name are tried in
     /// registration order; the first plugin to return `Some(dtype)` wins. If none
     /// match (or all return `None`), the builtin `arrow.parquet.variant` extension maps
@@ -399,6 +410,11 @@ impl ArrowSession {
     /// fields is preserved.
     #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
+        if let DataType::Dictionary(_, value_type) = field.data_type() {
+            return self
+                .from_arrow_field(&field.clone().with_data_type(value_type.as_ref().clone()));
+        }
+
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             for plugin in self.importers(&Id::new(name)).iter() {
                 if let Some(dtype) = plugin.from_arrow_field(field, self)? {
@@ -409,10 +425,6 @@ impl ArrowSession {
             if name == "arrow.parquet.variant" {
                 return Ok(DType::Variant(field.is_nullable().into()));
             }
-        }
-        if let DataType::Dictionary(_, value_type) = field.data_type() {
-            return self
-                .from_arrow_field(&field.clone().with_data_type(value_type.as_ref().clone()));
         }
         self.from_arrow_datatype(field.data_type(), field.is_nullable().into())
     }
@@ -596,6 +608,9 @@ impl ArrowSession {
     /// extension fields nested inside containers reach their importers; leaf types fall
     /// through to the canonical Arrow → Vortex array conversion.
     ///
+    /// A dictionary array imports as a [`DictArray`]. Its values import as described above, with
+    /// `field`'s metadata.
+    ///
     /// # Errors
     ///
     /// Returns an error if the field (or requested nullability) is non-nullable but the array
@@ -609,15 +624,20 @@ impl ArrowSession {
         self.from_arrow_array_inner(array, field.as_ref())
     }
 
-    /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: probe the import
-    /// plugins registered for the field's extension name, then fall back to the canonical
-    /// conversion. Also the recursion point for nested fields, which already have a [`Field`].
+    /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: peel a dictionary,
+    /// probe the import plugins registered for the field's extension name, then fall back to the
+    /// canonical conversion. Also the recursion point for nested fields, which already have a
+    /// [`Field`].
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_inner(
         &self,
         array: ArrowArrayRef,
         field: &Field,
     ) -> VortexResult<ArrayRef> {
+        if let DataType::Dictionary(..) = field.data_type() {
+            return self.dictionary_from_arrow(array.as_ref(), field);
+        }
+
         if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
             let importers = self.importers(&Id::new(extension_name));
@@ -668,8 +688,6 @@ impl ArrowSession {
         array: &dyn ArrowArray,
         field: &Field,
     ) -> VortexResult<ArrayRef> {
-        use arrow_array::cast::AsArray;
-
         match field.data_type() {
             DataType::Struct(fields) => {
                 let arrow_struct = array.as_struct();
@@ -790,20 +808,6 @@ impl ArrowSession {
                     ),
                 }
             }
-            DataType::Dictionary(..) => {
-                let dict = array.as_any_dictionary();
-                // Extension metadata on the dictionary field describes its values.
-                let values_field = field
-                    .clone()
-                    .with_data_type(dict.values().data_type().clone());
-                let values =
-                    self.from_arrow_array(ArrowArrayRef::clone(dict.values()), &values_field)?;
-                let codes = dict.keys();
-                let codes = from_arrow_dyn(codes, codes.is_nullable())?;
-                // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the
-                // codes are in-bounds for the values.
-                Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
-            }
             _ => from_arrow_dyn(array, field.is_nullable()),
         }
     }
@@ -826,6 +830,34 @@ impl ArrowSession {
         let values =
             self.from_arrow_array_inner(ArrowArrayRef::clone(run_array.values()), values_field)?;
         run_end_from_arrow(run_array, values)
+    }
+
+    /// Decode an Arrow dictionary array into a [`DictArray`], importing its values with `field`'s
+    /// metadata so that an extension name on the dictionary field reaches its importer.
+    fn dictionary_from_arrow(
+        &self,
+        array: &dyn ArrowArray,
+        field: &Field,
+    ) -> VortexResult<ArrayRef> {
+        let dict = array.as_any_dictionary_opt().ok_or_else(|| {
+            vortex_err!(
+                "expected an Arrow DictionaryArray, got {}",
+                array.data_type()
+            )
+        })?;
+
+        let values_field = field
+            .clone()
+            .with_data_type(dict.values().data_type().clone());
+        let values =
+            self.from_arrow_array_inner(ArrowArrayRef::clone(dict.values()), &values_field)?;
+
+        let codes = dict.keys();
+        let codes = from_arrow_dyn(codes, codes.is_nullable())?;
+
+        // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the codes are
+        // in-bounds for the values.
+        Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
     }
 }
 
@@ -1072,16 +1104,69 @@ mod tests {
         Ok(())
     }
 
-    /// A plain Arrow dictionary imports as a Vortex `Dict` array over the dictionary values,
-    /// matching the dtype the schema conversion reports.
-    #[test]
-    fn dictionary_imports_as_dict_encoding() -> VortexResult<()> {
+    static REJECT_DICTIONARY_ID: CachedId = CachedId::new("test.reject_dictionary");
+
+    /// An importer that fails on an Arrow dictionary and imports anything else as its storage.
+    #[derive(Debug)]
+    struct DictionaryRejectingImporter;
+
+    impl ArrowImportVTable for DictionaryRejectingImporter {
+        fn arrow_ext_id(&self) -> Id {
+            *REJECT_DICTIONARY_ID
+        }
+
+        fn from_arrow_field(
+            &self,
+            field: &Field,
+            session: &ArrowSession,
+        ) -> VortexResult<Option<DType>> {
+            vortex_ensure!(
+                !matches!(field.data_type(), DataType::Dictionary(..)),
+                "an importer must never see a dictionary field, got {}",
+                field.data_type()
+            );
+            session
+                .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                .map(Some)
+        }
+
+        fn from_arrow_array(
+            &self,
+            array: ArrowArrayRef,
+            field: &Field,
+            _dtype: &DType,
+            session: &ArrowSession,
+        ) -> VortexResult<ArrowImport> {
+            vortex_ensure!(
+                !matches!(array.data_type(), DataType::Dictionary(..)),
+                "an importer must never see a dictionary array, got {}",
+                array.data_type()
+            );
+            session
+                .from_arrow_array(array, field.is_nullable())
+                .map(ArrowImport::Imported)
+        }
+    }
+
+    /// An Arrow dictionary imports as a Vortex `Dict` array over the dictionary values, matching
+    /// the dtype the schema conversion reports. The session peels the dictionary before any
+    /// importer runs, so a dictionary field named for an importer that fails on dictionaries still
+    /// imports.
+    #[rstest]
+    #[case::plain(None)]
+    #[case::extension_name(Some(*REJECT_DICTIONARY_ID))]
+    fn dictionary_imports_as_dict_encoding(#[case] extension_name: Option<Id>) -> VortexResult<()> {
         let session = ArrowSession::default();
+        session.register_importer(Arc::new(DictionaryRejectingImporter));
         let dict: ArrowArrayRef = Arc::new(DictionaryArray::<Int32Type>::try_new(
             Int32Array::from(vec![0, 1, 0, 1]),
             Arc::new(StringArray::from(vec!["a", "b"])),
         )?);
-        let field = Field::new("s", dict.data_type().clone(), false);
+        let metadata = extension_name
+            .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
+            .into_iter()
+            .collect();
+        let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
         assert_eq!(dtype, DType::Utf8(Nullability::NonNullable));
@@ -1089,7 +1174,6 @@ mod tests {
         let array = session.from_arrow_array(dict, &field)?;
         assert!(array.is::<Dict>(), "expected a Dict encoding, got {array}");
         assert_eq!(array.dtype(), &dtype);
-        assert_eq!(array.len(), 4);
         assert_arrays_eq!(
             array,
             VarBinViewArray::from_iter_str(["a", "b", "a", "b"]),

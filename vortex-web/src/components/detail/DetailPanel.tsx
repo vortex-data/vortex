@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState, type KeyboardEvent } from 'react';
 import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { useSelection } from '../../contexts/SelectionContextCore';
 import {
@@ -9,9 +9,8 @@ import {
   findPathToNode,
   getDtypeCategory,
   shortEncoding,
-  DTYPE_COLORS,
+  dtypeClass,
 } from '../swimlane/utils';
-import { SummarySidebar } from './SummarySidebar';
 import { EncodingPane } from './EncodingPane';
 import { SegmentsPane } from './SegmentsPane';
 import { BlockTreemap } from '../explorer/BlockTreemap';
@@ -68,116 +67,126 @@ export function DetailPanel() {
   // Prefer the active tab; otherwise fall back to the first available tab.
   const currentTab = tabs.find((t) => t.id === activeTab)?.id ?? tabs[0]?.id;
 
-  return (
-    <div className="flex flex-col flex-1 min-h-0 h-full bg-vortex-white dark:bg-vortex-black">
-      {/* Breadcrumb + tab bar */}
-      <div className="flex items-center border-b border-vortex-grey-light/40 dark:border-white/[0.06] px-2 flex-shrink-0">
-        {/* Tabs */}
-        <div className="flex">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className={`px-2.5 py-1 text-[10px] font-medium border-b-2 transition-colors ${
-                currentTab === tab.id
-                  ? 'border-vortex-light-blue text-vortex-light-blue'
-                  : 'border-transparent text-vortex-grey-dark hover:text-vortex-fg-light dark:hover:text-vortex-fg'
-              }`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+  const ids = useId();
+  const tabId = (id: TabId) => `${ids}-tab-${id}`;
+  const panelId = `${ids}-panel`;
 
-        {/* Breadcrumb — right of tabs */}
-        {breadcrumb.length > 1 && (
-          <div className="flex items-center gap-0.5 ml-auto text-[10px] text-vortex-grey-dark overflow-hidden">
-            {breadcrumb.map((node, i) => {
-              const isLast = i === breadcrumb.length - 1;
-              const isShared = isHoverBreadcrumb && selectedIdSet.has(node.id);
-              const dimClass = isHoverBreadcrumb && !isShared ? 'opacity-50' : '';
-              const prevNode = i > 0 ? breadcrumb[i - 1] : null;
-              const isArrayBoundary = node.isArrayNode && prevNode && !prevNode.isArrayNode;
-              return (
-                <span key={node.id} className={`flex items-center gap-0.5 min-w-0 ${dimClass}`}>
-                  {isArrayBoundary && (
-                    <span
-                      className="opacity-40 flex-shrink-0 mx-0.5"
-                      title={`array: ${shortEncoding(prevNode.encoding)}`}
-                    >
-                      ›
-                    </span>
-                  )}
-                  {i > 0 && !isArrayBoundary && <span className="opacity-40 flex-shrink-0">/</span>}
-                  {isLast && !isHoverBreadcrumb ? (
-                    <span className="text-vortex-fg-light dark:text-vortex-fg truncate">
-                      {getNodeDisplayName(node)}
-                    </span>
-                  ) : (
-                    <button
-                      className="hover:text-vortex-light-blue truncate"
-                      onClick={() => selectNode(node.id)}
-                    >
-                      {getNodeDisplayName(node)}
-                    </button>
-                  )}
-                </span>
-              );
-            })}
-            {(() => {
-              const tip = breadcrumb[breadcrumb.length - 1];
-              if (!tip) return null;
-              const cat = getDtypeCategory(tip.dtype);
-              return (
-                <span
-                  className="ml-1.5 px-1 py-0 rounded text-[9px] font-medium text-white flex-shrink-0"
-                  style={{ backgroundColor: DTYPE_COLORS[cat] }}
-                  title={tip.dtype}
-                >
-                  {cat}
-                </span>
-              );
-            })()}
+  // Left and Right move between the tabs, Home and End to the ends: the WAI-ARIA tabs pattern.
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = tabs.findIndex((t) => t.id === currentTab);
+    const next = {
+      ArrowRight: at + 1,
+      ArrowLeft: at - 1,
+      Home: 0,
+      End: tabs.length - 1,
+    }[e.key];
+    if (next === undefined || tabs.length === 0) return;
+    e.preventDefault();
+    const tab = tabs[(next + tabs.length) % tabs.length]!;
+    setActiveTab(tab.id);
+    document.getElementById(tabId(tab.id))?.focus();
+  };
+
+  const tip = breadcrumb[breadcrumb.length - 1];
+
+  return (
+    <section className="vx-card vx-pane x-view" aria-label="Selected node">
+      <div className="x-view-head">
+        {tabs.length > 0 && (
+          <div className="vx-tabs-list" role="tablist" aria-label="Views" onKeyDown={onTabKey}>
+            {tabs.map((tab) => (
+              <button
+                type="button"
+                role="tab"
+                key={tab.id}
+                id={tabId(tab.id)}
+                aria-selected={currentTab === tab.id}
+                aria-controls={panelId}
+                tabIndex={currentTab === tab.id ? 0 : -1}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
+        )}
+
+        {breadcrumb.length > 1 && (
+          <nav
+            className={`vx-label-sm x-crumbs${isHoverBreadcrumb ? ' is-preview' : ''}`}
+            aria-label="Path"
+          >
+            <ol>
+              {breadcrumb.map((node, i) => {
+                const isLast = i === breadcrumb.length - 1;
+                const prevNode = i > 0 ? breadcrumb[i - 1] : null;
+                const isArrayBoundary = node.isArrayNode && prevNode && !prevNode.isArrayNode;
+                const isShared = isHoverBreadcrumb && selectedIdSet.has(node.id);
+                return (
+                  <li
+                    key={node.id}
+                    className={isArrayBoundary ? 'is-array' : undefined}
+                    {...(isArrayBoundary && prevNode
+                      ? { title: `array: ${shortEncoding(prevNode.encoding)}` }
+                      : {})}
+                  >
+                    {isLast && !isHoverBreadcrumb ? (
+                      <span aria-current="location">{getNodeDisplayName(node)}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => selectNode(node.id)}
+                        {...(isShared ? { 'aria-current': 'location' as const } : {})}
+                      >
+                        {getNodeDisplayName(node)}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+            {tip && (
+              <span className={`x-dtype ${dtypeClass(tip.dtype)}`} title={tip.dtype}>
+                {getDtypeCategory(tip.dtype)}
+              </span>
+            )}
+          </nav>
         )}
       </div>
 
-      {/* Main content: tab content (left) + summary sidebar (right) */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 overflow-auto min-w-0">
-          {currentTab === 'encoding' && selection.selectedNode && (
-            <div className="p-2.5">
-              <EncodingPane node={selection.selectedNode} />
-            </div>
-          )}
-          {currentTab === 'segments' && selection.selectedNode && (
-            <SegmentsPane node={selection.selectedNode} segments={file.segments} />
-          )}
-          {currentTab === 'treemap' && selection.selectedNode && (
-            <BlockTreemap
-              root={file.layoutTree}
-              segments={file.segments}
-              fileSize={file.fileSize}
-              selectedNodeId={selection.selectedNodeId}
-              hoveredNodeId={selection.hoveredNodeId}
-              onSelectNode={selectNode}
-              onHoverNode={hoverNode}
-              onExpand={file.expandArrayTree}
-            />
-          )}
-          {currentTab === 'buffers' && selection.selectedNode && (
-            <BuffersPane node={selection.selectedNode} />
-          )}
-          {!selection.selectedNode && (
-            <div className="p-2.5 text-xs text-vortex-grey-dark">
-              Select a node to view details.
-            </div>
-          )}
-        </div>
-
-        {/* Summary sidebar — always visible */}
-        <SummarySidebar />
+      <div
+        className="vx-pane-body"
+        {...(currentTab
+          ? { role: 'tabpanel', id: panelId, 'aria-labelledby': tabId(currentTab) }
+          : {})}
+      >
+        {currentTab === 'encoding' && selection.selectedNode && (
+          <EncodingPane node={selection.selectedNode} />
+        )}
+        {currentTab === 'segments' && selection.selectedNode && (
+          <SegmentsPane node={selection.selectedNode} segments={file.segments} />
+        )}
+        {currentTab === 'treemap' && selection.selectedNode && (
+          <BlockTreemap
+            root={file.layoutTree}
+            segments={file.segments}
+            fileSize={file.fileSize}
+            selectedNodeId={selection.selectedNodeId}
+            hoveredNodeId={selection.hoveredNodeId}
+            onSelectNode={selectNode}
+            onHoverNode={hoverNode}
+            onExpand={file.expandArrayTree}
+          />
+        )}
+        {currentTab === 'buffers' && selection.selectedNode && (
+          <BuffersPane node={selection.selectedNode} />
+        )}
+        {!selection.selectedNode && (
+          <p className="vx-label x-empty">
+            Select a column or a layout in the tree to see its treemap, segments, and encoding.
+          </p>
+        )}
       </div>
-    </div>
+    </section>
   );
 }

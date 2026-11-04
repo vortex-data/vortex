@@ -39,6 +39,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -121,6 +122,7 @@ where
 
         for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
             let array = make_alp_array::<T>(len, patch_freq);
+            mark_optimized(array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
             group.bench_with_input(
                 BenchmarkId::new(format!("cuda/alp_{}/{}", type_name, patch_label), len_str),

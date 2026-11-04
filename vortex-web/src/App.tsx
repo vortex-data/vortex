@@ -86,7 +86,7 @@ function App() {
       setFileState((prev) => {
         if (!prev) return prev;
         const node = findNodeById(prev.layoutTree, nodeId);
-        if (!node || node.encoding !== 'vortex.flat') return prev;
+        if (node?.encoding !== 'vortex.flat') return prev;
         if (node.children.some((c) => c.isArrayNode)) return prev;
 
         const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
@@ -169,10 +169,12 @@ function App() {
   }
 
   return (
-    <VortexFileProvider value={fileContextValue!}>
-      <SelectionProvider tree={fileContextValue!.layoutTree}>
+    <VortexFileProvider value={fileContextValue}>
+      <SelectionProvider tree={fileContextValue.layoutTree}>
+        {/* The whole window takes a dropped file, so a new file can replace the open one. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag and drop has no keyboard form; Close and the open screen's button do. */}
         <div
-          className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black relative"
+          className="x-app"
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -182,8 +184,8 @@ function App() {
           <MainArea view={view} />
           <StatusBar />
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-vortex-black/50 dark:bg-black/50 backdrop-blur-sm pointer-events-none">
-              <p className="font-mono text-sm text-white/80">Drop to open file</p>
+            <div className="x-drop-veil">
+              <p className="vx-mono">Drop to open the file</p>
             </div>
           )}
         </div>

@@ -574,6 +574,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::TemporalArray;
     use crate::arrays::VarBinArray;
     use crate::dtype::BigCast;
     use crate::dtype::DType;
@@ -587,6 +588,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::extension::datetime::TimeUnit;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -606,6 +608,30 @@ mod tests {
                 max: 3.into()
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_timestamp_min_max_beyond_jiff_range() -> VortexResult<()> {
+        // Midnight on 9999-12-31 UTC.
+        const END_OF_9999_US: i64 = 253_402_214_400_000_000;
+        let timestamps = TemporalArray::new_timestamp(
+            PrimitiveArray::from_iter([0i64, END_OF_9999_US]).into_array(),
+            TimeUnit::Microseconds,
+            None,
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let MinMaxResult { min, max } =
+            min_max(&timestamps, &mut ctx, NumericalAggregateOpts::default())?
+                .vortex_expect("two non-null timestamps have min and max");
+
+        assert_eq!(min.as_extension().to_storage_scalar(), 0i64.into());
+        assert_eq!(
+            max.as_extension().to_storage_scalar(),
+            END_OF_9999_US.into()
+        );
+
         Ok(())
     }
 
@@ -1065,6 +1091,54 @@ mod tests {
 
             Ok(())
         })
+    }
+
+    #[rstest]
+    #[case::one_element(buffer![100i8])]
+    #[case::min_max(buffer![1i8, 100i8])]
+    #[case::negative_min(buffer![-100i8, 1i8])]
+    fn test_decimal_value_outside_precision_errors(#[case] values: Buffer<i8>) -> VortexResult<()> {
+        // 100 and -100 do not fit in decimal(2, 0), and `DecimalArray::new` does not check the
+        // values.
+        let decimal = DecimalArray::new(values, DecimalDType::new(2, 0), Validity::NonNullable);
+        let mut ctx = SESSION.create_execution_ctx();
+        let err = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        // The out-of-range value sits in a null slot, so it must be ignored.
+        let decimal = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
+
+        let expected = Scalar::decimal(
+            DecimalValue::I8(5),
+            DecimalDType::new(2, 0),
+            Nullability::NonNullable,
+        );
+        assert_eq!(result.min, expected);
+        assert_eq!(result.max, expected);
+        Ok(())
     }
 
     #[test]

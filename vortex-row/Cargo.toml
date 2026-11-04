@@ -28,7 +28,6 @@ vortex-session = { workspace = true }
 [dev-dependencies]
 arrow-array = { workspace = true }
 arrow-row = { workspace = true }
-arrow-schema = { workspace = true }
 divan = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }

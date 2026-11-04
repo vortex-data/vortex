@@ -29,6 +29,7 @@ use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::Utf8Column;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -140,7 +141,9 @@ fn make_input(layout: Layout, len: usize) -> ArrayRef {
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = cases())]
 fn starts_with(bencher: Bencher, case: Case) {
-    let args = VecExecutionArgs::new(vec![make_input(case.layout, case.len)], ROWS);
+    let input = make_input(case.layout, case.len);
+    mark_optimized(&input, &SESSION).vortex_expect("optimize the benchmark input");
+    let args = VecExecutionArgs::new(vec![input], ROWS);
 
     bencher
         .counter(ItemsCount::new(ROWS))

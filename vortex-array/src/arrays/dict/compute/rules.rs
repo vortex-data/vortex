@@ -64,7 +64,6 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let values = array.values();
         let codes_dtype = array.codes().dtype().clone();
-        let mut code_chunks = Vec::with_capacity(parent.nchunks());
         let mut all_values_referenced = array.has_all_values_referenced();
 
         for chunk in parent.iter_chunks() {
@@ -78,9 +77,11 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
                 return Ok(None);
             }
             all_values_referenced |= dict.has_all_values_referenced();
-            code_chunks.push(dict.codes().clone());
         }
 
+        let code_chunks = parent
+            .iter_chunks()
+            .map(|chunk| chunk.as_::<Dict>().codes().clone());
         let codes = ChunkedArray::try_new(code_chunks, codes_dtype)?.into_array();
         let dict = DictArray::try_new(codes, values.clone())?;
         let dict = if all_values_referenced {
