@@ -28,6 +28,9 @@ use crate::LayoutReaderRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
+use crate::plan::physical::FilterPlan;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::SegmentScanPlan;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -119,6 +122,19 @@ impl VTable for Flat {
             segment_source,
             session.clone(),
         )))
+    }
+
+    /// A flat layout plans a [`Filter`](crate::plan::physical::Filter) over its segment scan, so
+    /// the scan returns only the rows it is executed with.
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        let scan = SegmentScanPlan::new(
+            layout.dtype().clone(),
+            layout.row_count(),
+            layout.segment_id(),
+            layout.array_ctx().clone(),
+            layout.array_tree().cloned(),
+        );
+        Ok(FilterPlan::new(scan.into_plan()).into_plan())
     }
 }
 

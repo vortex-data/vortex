@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::LayoutRef;
 use crate::plan::physical::PlanRef;
 
 type SlotInitializer = dyn Fn() -> VortexResult<PlanRef> + 'static + Send + Sync;
@@ -79,6 +80,36 @@ impl fmt::Debug for LazyPlanRef {
 pub struct PlanSlots(SmallVec<[Option<LazyPlanRef>; 4]>);
 
 impl PlanSlots {
+    /// One lazy plan slot per slot of `layout`, at the same position.
+    pub(crate) fn from_layout(layout: &LayoutRef) -> Self {
+        Self::from_layout_slots(layout, 0..layout.nslots())
+    }
+
+    /// One lazy plan slot per entry of `layout_slots`: plan slot `i` plans layout slot
+    /// `layout_slots[i]`.
+    ///
+    /// This is where every layout maps its slots to plan slots. An absent layout slot is an
+    /// absent plan slot; presence comes from the layout's metadata, so nothing is read or planned
+    /// until a plan slot is first accessed.
+    pub(crate) fn from_layout_slots(
+        layout: &LayoutRef,
+        layout_slots: impl IntoIterator<Item = usize>,
+    ) -> Self {
+        layout_slots
+            .into_iter()
+            .map(|slot| {
+                layout.slot_type(slot)?;
+                let layout = Arc::clone(layout);
+                Some(LazyPlanRef::lazy(move || {
+                    let child = layout
+                        .slot(slot)?
+                        .ok_or_else(|| vortex_err!("Layout child slot {slot} is absent"))?;
+                    child.new_plan()
+                }))
+            })
+            .collect()
+    }
+
     /// Creates empty slots with room for `capacity` slots.
     pub fn with_capacity(capacity: usize) -> Self {
         Self(SmallVec::with_capacity(capacity))
