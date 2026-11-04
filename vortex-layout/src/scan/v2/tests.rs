@@ -645,7 +645,9 @@ async fn filter_continuation_reuses_shared_projection_segments(
     .await?;
     assert_arrays_eq!(
         actual,
-        PrimitiveArray::from_iter((CHUNK_ROWS - expected_rows) as i32..CHUNK_ROWS as i32),
+        PrimitiveArray::from_iter(
+            i32::try_from(CHUNK_ROWS - expected_rows)?..i32::try_from(CHUNK_ROWS)?
+        ),
         &mut session.create_execution_ctx()
     );
     assert_eq!(reads.lock().len(), 1);
@@ -1145,7 +1147,7 @@ async fn pruned_rows_get_no_chunk(
 /// Runs only the pruning plans of `scan` over `rows`, returning the rows they kept.
 async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Option<Mask>> {
     let io = scan.io();
-    let kept = Arc::new(parking_lot::Mutex::new(None));
+    let kept = Arc::new(Mutex::new(None));
     let next = {
         let scan = Arc::clone(scan);
         let kept = Arc::clone(&kept);
