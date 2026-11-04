@@ -304,7 +304,8 @@ impl Planner for FilterPlanner {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+            .with_value_cache(self.scan.values.clone())
+            .with_access_mode(self.scan.access_mode());
             self.active = Some((
                 index,
                 ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
