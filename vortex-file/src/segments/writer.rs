@@ -19,13 +19,13 @@ use vortex_layout::sequence::SequenceId;
 use crate::footer::SegmentSpec;
 
 pub struct BufferedSegmentSink {
-    buffers: Sender<ByteBuffer>,
+    buffers: Sender<Vec<ByteBuffer>>,
     byte_offset: AtomicU64,
     segment_specs: Mutex<Vec<SegmentSpec>>,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(send: Sender<ByteBuffer>, byte_offset: u64) -> Self {
+    pub fn new(send: Sender<Vec<ByteBuffer>>, byte_offset: u64) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
@@ -45,7 +45,7 @@ impl SegmentSink for BufferedSegmentSink {
     async fn write(
         &self,
         mut sequence_id: SequenceId,
-        buffers: Vec<ByteBuffer>,
+        mut buffers: Vec<ByteBuffer>,
     ) -> VortexResult<SegmentId> {
         // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
         // reference to this one, we essentially have an exclusive lock on the segment writer.
@@ -90,12 +90,11 @@ impl SegmentSink for BufferedSegmentSink {
             }
         };
 
+        // Send the whole segment at once: one handoff per segment rather than per buffer.
         if let Some(padding) = padding_buffer {
-            drop(self.buffers.send(padding).await);
+            buffers.insert(0, padding);
         }
-        for buffer in buffers {
-            drop(self.buffers.send(buffer).await);
-        }
+        drop(self.buffers.send(buffers).await);
 
         Ok(segment_id)
     }

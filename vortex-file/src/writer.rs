@@ -342,7 +342,8 @@ impl VortexWriteOptions {
         write.write_all(ByteBuffer::copy_from(MAGIC_BYTES)).await?;
         let mut position = MAGIC_BYTES.len() as u64;
 
-        // Create a channel to send buffers from the segment sink to the output stream.
+        // Create a channel to send each segment's buffers from the segment sink to the output
+        // stream, one message per segment.
         let (send, recv_stream) = bounded(1);
 
         let segments = Arc::new(BufferedSegmentSink::new(send, position));
@@ -366,12 +367,14 @@ impl VortexWriteOptions {
 
         // Flush buffers as they arrive
         pin_mut!(recv_stream);
-        while let Some(buffer) = recv_stream.next().await {
-            if buffer.is_empty() {
-                continue;
+        while let Some(segment) = recv_stream.next().await {
+            for buffer in segment {
+                if buffer.is_empty() {
+                    continue;
+                }
+                position += buffer.len() as u64;
+                write.write_all(buffer).await?;
             }
-            position += buffer.len() as u64;
-            write.write_all(buffer).await?;
         }
 
         let (layout, segment_specs) = layout_fut.await?;
