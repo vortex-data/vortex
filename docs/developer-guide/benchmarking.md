@@ -361,18 +361,14 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 - **Single SQL benchmark** -- `action/bench-sql/<id>` runs one SQL benchmark at its `pr-all`
   coverage, for example `action/bench-sql/polarsignals` or `action/bench-sql/tpch-nvme`. `<id>` is
-  any `id` printed by `vx-bench matrix pr-all`.
-- **Chosen SQL benchmarks and queries** -- dispatch the `PR SQL Benchmarks` workflow to pick the
-  preset, the `benchmarks` (comma-separated IDs such as `polarsignals,tpch-nvme`) and the `queries`
-  (numbers and ranges such as `1,3,5-7`, applied to every selected benchmark). Set `pr_number` to
-  benchmark that pull request's head and post the comparison to it, the same comment a label run
-  posts; a query subset gets its own comment. Leave `pr_number` empty to benchmark the branch the
-  workflow runs on and read the comparison in the run summary. Pull requests from forks must use
-  the labels. For example:
+  any `id` printed by `vx-bench matrix pr-all`. To run several, another preset, or only some
+  queries, dispatch the `PR SQL Benchmarks` workflow with `benchmarks` (such as
+  `polarsignals,tpch-nvme`) and `queries` (such as `1,3,5-7`). It posts the results to `pr_number`,
+  or to the dispatched branch's open PR when `pr_number` is empty, and otherwise only to the run
+  summary. Fork PRs must use the labels.
 
   ```bash
-  gh workflow run pr-bench-sql.yml --ref develop \
-    -f matrix_preset=pr-all -f benchmarks=tpch-nvme -f queries=1,6 -f pr_number=1234
+  gh workflow run pr-bench-sql.yml --ref my-branch -f benchmarks=tpch-nvme -f queries=1,6
   ```
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
   and the `pr-all` SQL preset, the union of the `pr`, `pr-compact`, and `pr-full` coverage, without
