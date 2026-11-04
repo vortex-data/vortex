@@ -16,6 +16,7 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::builders::ArrayBuilder;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
@@ -207,6 +208,14 @@ pub trait DynAccumulator: 'static + Send {
     /// Compute the final aggregate result as a scalar without resetting state.
     fn final_scalar(&self) -> VortexResult<Scalar>;
 
+    /// Append one finalized result without resetting state.
+    ///
+    /// `builder` must have the aggregate's return dtype. Typed accumulators can avoid an
+    /// intermediate scalar; the default supports custom scalar-only accumulators.
+    fn finalize_into(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.append_scalar(&self.final_scalar()?)
+    }
+
     /// Flush the accumulation state and return the partial aggregate result as a scalar.
     ///
     /// Resets the accumulator state back to the initial state.
@@ -361,6 +370,21 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         Ok(result)
     }
 
+    fn finalize_into(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            builder.dtype(),
+            &self.dtypes.return_dtype,
+            "Aggregate result builder has the wrong dtype",
+        );
+        let args = self.dtypes.args(&self.options);
+        match &self.partial {
+            Some(partial) => self.vtable.finalize_into(args, partial, builder),
+            None => self
+                .vtable
+                .finalize_into(args, &self.empty_partial()?, builder),
+        }
+    }
+
     fn flush(&mut self) -> VortexResult<Scalar> {
         let partial = self.partial_scalar()?;
         self.reset();
@@ -389,27 +413,109 @@ mod tests {
     use crate::aggregate_fn::AccumulatorRef;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
+    use crate::aggregate_fn::fns::count::Count;
     use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::min::Min;
+    use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::kernels::DynAggregateKernel;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::array::VTable;
+    use crate::arrays::ConstantArray;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
+    use crate::builders::builder_with_capacity_in;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::expr::stats::StatsProviderExt;
+    use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    #[test]
+    fn finalize_into_matches_scalar_finalization() -> VortexResult<()> {
+        let options = NumericalAggregateOpts::include_nans();
+        let numbers = PrimitiveArray::from_option_iter([Some(3i64), None, Some(7)]).into_array();
+        let strings = VarBinViewArray::from_iter_nullable_str([
+            Some("longer than an inline string"),
+            None,
+            Some("a"),
+        ])
+        .into_array();
+        let cases = [
+            (Count.bind(options), numbers.clone()),
+            (Sum.bind(options), numbers.clone()),
+            (Sum.bind(options), buffer![u64::MAX, 1].into_array()),
+            (Sum.bind(options), buffer![1.5f64, f64::NAN].into_array()),
+            (
+                Sum.bind(options),
+                ConstantArray::new(Scalar::null(numbers.dtype().clone()), 3).into_array(),
+            ),
+            (
+                Sum.bind(options),
+                ConstantArray::new(
+                    Scalar::decimal(
+                        DecimalValue::I64(123),
+                        DecimalDType::new(10, 2),
+                        Nullability::Nullable,
+                    ),
+                    3,
+                )
+                .into_array(),
+            ),
+            (MinMax.bind(options), buffer![1.5f64, f64::NAN].into_array()),
+            (Min.bind(options), strings.clone()), // default scalar fallback, variable-width result
+            (MinMax.bind(options), strings), // structured result without a temporary struct scalar
+            (MinMax.bind(options), numbers),
+        ];
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        for (function, input) in cases {
+            let dtype = function.return_dtype(input.dtype()).unwrap();
+            let mut actual = builder_with_capacity_in(&dtype, 4, ctx.allocator());
+            let mut expected = builder_with_capacity_in(&dtype, 4, ctx.allocator());
+            let mut accumulator = function.accumulator(input.dtype())?;
+            for _ in 0..2 {
+                // Empty and nonempty state, repeated finalization, then continued accumulation.
+                accumulator.finalize_into(actual.as_mut())?;
+                expected.append_scalar(&accumulator.final_scalar()?)?;
+                accumulator.accumulate(&input, &mut ctx)?;
+                accumulator.finalize_into(actual.as_mut())?;
+                expected.append_scalar(&accumulator.final_scalar()?)?;
+            }
+            assert_eq!(actual.len(), 4);
+            assert_arrays_eq!(actual.finish(), expected.finish(), &mut ctx);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn finalize_into_rejects_wrong_builder_dtype() -> VortexResult<()> {
+        let input = buffer![1i64, 2].into_array();
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let mut accumulator = Count
+            .bind(NumericalAggregateOpts::default())
+            .accumulator(input.dtype())?;
+        accumulator.accumulate(&input, &mut ctx)?;
+        let mut builder = builder_with_capacity_in(input.dtype(), 1, ctx.allocator());
+        assert!(accumulator.finalize_into(builder.as_mut()).is_err());
+        assert_eq!(builder.len(), 0);
+        Ok(())
+    }
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`

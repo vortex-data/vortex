@@ -16,6 +16,8 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::nan_count::nan_count;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -138,6 +140,20 @@ impl AggregateFnVTable for Count {
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(partials)
+    }
+
+    fn finalize_into(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<u64>>() {
+            builder.append_value(*partial);
+            Ok(())
+        } else {
+            builder.append_scalar(&self.finalize_scalar(args, partial)?)
+        }
     }
 
     fn finalize_scalar(
