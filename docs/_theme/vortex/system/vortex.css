@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 675cf1be5e9598e8353c3823adda879922d22b4d3888df08fdcee79afb4e1a71 */
+   sha256 50c570c8c3406341288b2842d2bb6dffbf7280b03edd7e9c44cd54b4420fed89 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -97,7 +97,7 @@
 
 /* The footer: Footer, solid. */
 .vx-docs-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-16) var(--space-24); padding: var(--space-16) var(--page-pad); border-top: 1px solid var(--line); font: 400 0.6875rem/1.5 var(--font-mono); letter-spacing: 0.02em; color: var(--ink-muted); }
-.vx-docs-footer p { flex: 1 1 420px; min-width: 0; margin: 0; }
+.vx-docs-footer p { flex: 1 1 420px; min-width: 0; margin: 0; text-wrap: balance; }
 .vx-docs-footer nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); }
 .vx-docs-footer a { color: inherit; text-decoration: none; }
 .vx-docs-footer a:hover { color: var(--ink); }
