@@ -2205,9 +2205,11 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "vortex",
  "vortex-arrow",
  "vortex-bench",
+ "vortex-btrblocks",
  "vortex-cuda",
 ]
 
@@ -12251,6 +12253,7 @@ dependencies = [
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
+ "vortex-sparse",
  "vortex-utils",
 ]
 

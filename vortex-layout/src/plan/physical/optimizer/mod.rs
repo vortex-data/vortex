@@ -20,6 +20,7 @@ use super::Concat;
 use super::Eval;
 use super::LegacyStats;
 use super::Pack;
+use super::Sparse;
 use super::PlanRef;
 use super::Take;
 use super::Zoned;
@@ -27,6 +28,7 @@ use super::plans::EvalIdentityRule;
 use super::plans::ExpressionConcatRule;
 use super::plans::ExpressionLegacyStatsRule;
 use super::plans::ExpressionPackRule;
+use super::plans::ExpressionSparseRule;
 use super::plans::ExpressionTakeRule;
 use super::plans::ExpressionZonedRule;
 use super::plans::LegacyStatsRule;
@@ -56,6 +58,8 @@ static EXPRESSION_TAKE_RULE: PlanParentReduceRuleAdapter<Take, ExpressionTakeRul
     PlanParentReduceRuleAdapter::new(ExpressionTakeRule);
 static EXPRESSION_PACK_RULE: PlanParentReduceRuleAdapter<Pack, ExpressionPackRule> =
     PlanParentReduceRuleAdapter::new(ExpressionPackRule);
+static EXPRESSION_SPARSE_RULE: PlanParentReduceRuleAdapter<Sparse, ExpressionSparseRule> =
+    PlanParentReduceRuleAdapter::new(ExpressionSparseRule);
 static EXPRESSION_ZONED_RULE: PlanParentReduceRuleAdapter<Zoned, ExpressionZonedRule> =
     PlanParentReduceRuleAdapter::new(ExpressionZonedRule);
 static EXPRESSION_LEGACY_STATS_RULE: PlanParentReduceRuleAdapter<
@@ -68,6 +72,7 @@ static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
     &EXPRESSION_CONCAT_RULE,
     &EXPRESSION_TAKE_RULE,
     &EXPRESSION_PACK_RULE,
+    &EXPRESSION_SPARSE_RULE,
     &EXPRESSION_ZONED_RULE,
     &EXPRESSION_LEGACY_STATS_RULE,
 ]);

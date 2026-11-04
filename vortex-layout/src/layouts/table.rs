@@ -9,6 +9,11 @@
 //! to those structural writers as the strategy for their children, arbitrarily nested struct/list
 //! trees are written with no manual wiring.
 //!
+//! With [`with_sparse_layout`][TableStrategy::with_sparse_layout], every nullable (sub)stream is
+//! first offered to [`SparseLayoutStrategy`], which checks the stream's own data and writes it as
+//! a sparse layout when enough of it is null. Its present rows are then dispatched again, so each
+//! nesting level decides for itself.
+//!
 //! The dispatcher also owns field-path overrides, letting callers force a specific leaf field —
 //! at any depth — onto a custom strategy.
 
@@ -27,6 +32,7 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
+use crate::layouts::sparse::writer::SparseLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -61,6 +67,12 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// The fraction of null rows at or above which a nullable stream is written as a sparse
+    /// layout. `None` disables sparse layouts.
+    sparse_min_null_fraction: Option<f64>,
+    /// Whether this level's stream was already offered to the sparse layout, so its present rows
+    /// are dispatched without being offered again.
+    sparse_checked: bool,
 }
 
 impl TableStrategy {
@@ -88,6 +100,8 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            sparse_min_null_fraction: None,
+            sparse_checked: false,
         }
     }
 
@@ -175,6 +189,16 @@ impl TableStrategy {
         self.list_layout_factory = Some(Arc::new(factory));
         self
     }
+
+    /// Write each nullable (sub)stream with at least `min_null_fraction` of its rows null as a
+    /// sparse layout, which stores only its present rows.
+    ///
+    /// **Note**: this is an unstable and experimental layout that is expected to change.
+    /// Using it may lead to unreadable files in the future. Only the v2 scan reads it.
+    pub fn with_sparse_layout(mut self, min_null_fraction: f64) -> Self {
+        self.sparse_min_null_fraction = Some(min_null_fraction);
+        self
+    }
 }
 
 impl TableStrategy {
@@ -244,6 +268,8 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            sparse_min_null_fraction: self.sparse_min_null_fraction,
+            sparse_checked: false,
         }
     }
 
@@ -255,7 +281,34 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            sparse_min_null_fraction: self.sparse_min_null_fraction,
+            sparse_checked: false,
         }
+    }
+
+    /// This dispatcher at the same level, with its stream already offered to the sparse layout.
+    fn sparse_checked(&self) -> Self {
+        Self {
+            leaf_writers: self.leaf_writers.clone(),
+            validity: Arc::clone(&self.validity),
+            leaf: Arc::clone(&self.leaf),
+            list_layout_factory: self.list_layout_factory.clone(),
+            sparse_min_null_fraction: self.sparse_min_null_fraction,
+            sparse_checked: true,
+        }
+    }
+
+    /// The sparse layout writer for a nullable stream at this level, if sparse layouts are on and
+    /// the stream was not offered to it yet. Its values and dense fallback are this level again.
+    fn sparse_strategy(&self) -> Option<SparseLayoutStrategy> {
+        let min_null_fraction = self.sparse_min_null_fraction.filter(|_| !self.sparse_checked)?;
+        let level: Arc<dyn LayoutStrategy> = Arc::new(self.sparse_checked());
+        Some(SparseLayoutStrategy::new(
+            Arc::clone(&self.leaf),
+            Arc::clone(&level),
+            level,
+            min_null_fraction,
+        ))
     }
 
     fn validate_path(&self, path: FieldPath) -> FieldPath {
@@ -289,6 +342,14 @@ impl LayoutStrategy for TableStrategy {
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
+
+        if dtype.is_nullable()
+            && let Some(sparse) = self.sparse_strategy()
+        {
+            return sparse
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
 
         if dtype.is_struct() {
             return self

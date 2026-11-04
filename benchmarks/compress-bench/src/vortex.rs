@@ -18,6 +18,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::file::v2::ScanDriver;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
@@ -28,7 +29,12 @@ use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
+use vortex_bench::enable_sparse_bench_edition;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
+
+/// Nullable columns, at any nesting level, with at least this fraction of null rows are written
+/// with the experimental sparse layout.
+const SPARSE_MIN_NULL_FRACTION: f64 = 0.9;
 
 /// Compressor implementation for Vortex format.
 pub struct VortexCompressor;
@@ -46,6 +52,7 @@ impl Compressor for VortexCompressor {
 
     async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
         let array = input.vortex()?.clone();
+        enable_sparse_bench_edition();
 
         // Run the timed work as a task so it uses only the runtime's worker threads, the same
         // pool the Parquet compressor runs on.
@@ -54,6 +61,11 @@ impl Compressor for VortexCompressor {
             let mut buf = Vec::new();
             SESSION
                 .write_options()
+                .with_strategy(
+                    WriteStrategyBuilder::from_session(&SESSION)
+                        .with_sparse_layout(SPARSE_MIN_NULL_FRACTION)
+                        .build(),
+                )
                 .write(&mut Cursor::new(&mut buf), array.to_array_stream())
                 .await?;
             anyhow::Ok(buf)

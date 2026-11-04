@@ -10,6 +10,7 @@ mod pack;
 mod row_idx;
 mod segment_scan;
 mod share;
+mod sparse;
 mod take;
 mod zoned;
 
@@ -49,6 +50,10 @@ pub use segment_scan::SegmentScanPlan;
 pub use share::Share;
 pub use share::ShareData;
 pub use share::SharePlan;
+pub(crate) use sparse::ExpressionSparseRule;
+pub use sparse::Sparse;
+pub use sparse::SparseData;
+pub use sparse::SparsePlan;
 pub(crate) use take::ExpressionTakeRule;
 pub use take::Take;
 pub use take::TakePlan;

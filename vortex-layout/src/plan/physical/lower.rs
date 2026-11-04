@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -21,6 +22,8 @@ use crate::layouts::list::List;
 use crate::layouts::list::ListLayout;
 use crate::layouts::list::OFFSETS_CHILD_INDEX;
 use crate::layouts::list::VALIDITY_CHILD_INDEX;
+use crate::layouts::sparse;
+use crate::layouts::sparse::SparseLayout;
 use crate::layouts::struct_::Struct;
 use crate::layouts::struct_::StructLayout;
 use crate::layouts::zoned::LegacyStats;
@@ -33,6 +36,7 @@ use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SparsePlan;
 use crate::plan::physical::TakePlan;
 use crate::plan::physical::ZonedPlan;
 
@@ -62,6 +66,9 @@ pub fn lower(layout: &LayoutRef) -> VortexResult<PlanRef> {
     }
     if let Some(layout) = layout.as_opt::<List>() {
         return Ok(lower_list(layout)?.into_plan());
+    }
+    if let Some(layout) = layout.as_opt::<sparse::Sparse>() {
+        return Ok(lower_sparse(layout).into_plan());
     }
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
         return lower_zoned(layout);
@@ -151,6 +158,24 @@ fn lower_list(layout: &ListLayout) -> VortexResult<ListPackPlan> {
             lazy_children(layout.to_layout(), slots),
         )
     })
+}
+
+fn lower_sparse(layout: &SparseLayout) -> SparsePlan {
+    // SAFETY: Sparse layout construction validates that its indices and values children have
+    // the present-row count of its blocks and that the values share its nullable dtype, whose
+    // null is the fill of every absent row.
+    unsafe {
+        SparsePlan::from_children_unchecked(
+            layout.dtype().clone(),
+            layout.row_count(),
+            layout.blocks().clone(),
+            Scalar::null(layout.dtype().clone()),
+            lazy_children(
+                layout.to_layout(),
+                vec![sparse::INDICES_CHILD_INDEX, sparse::VALUES_CHILD_INDEX],
+            ),
+        )
+    }
 }
 
 fn lazy_children(layout: LayoutRef, slots: Vec<usize>) -> PlanChildren {

@@ -114,6 +114,26 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+/// A family of its own, so enabling the sparse layout does not enable the list layout, which
+/// later editions of the `bench` family would inherit.
+const SPARSE_BENCH_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "benchsparse",
+    origin: "vortex-bench",
+    doc: "The unstable sparse layout, which benchmarks write and the V2 scan reads.",
+};
+
+/// The sparse layout from the unstable edition, on its own. The V2 scan reads it.
+const SPARSE_BENCH: EditionId = EditionId::new("benchsparse", 2026, 11, 0);
+
+static SPARSE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: SPARSE_BENCH,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::layout(&"vortex.sparse")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -125,7 +145,25 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
     session
+        .editions()
+        .declare_family(&SPARSE_BENCH_EDITION_FAMILY)
+        .vortex_expect("sparse bench edition family is valid");
+    session
+        .register_edition(&SPARSE_BENCH_DECLARATION)
+        .vortex_expect("sparse bench edition declaration is valid");
+    session
 });
+
+/// Enables [`SPARSE_BENCH`] on [`SESSION`], so it can write the sparse layout. Safe to call
+/// more than once.
+pub fn enable_sparse_bench_edition() {
+    static ENABLED: std::sync::Once = std::sync::Once::new();
+    ENABLED.call_once(|| {
+        SESSION
+            .enable_edition(SPARSE_BENCH)
+            .vortex_expect("sparse bench edition is registered");
+    });
+}
 
 /// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
 ///

@@ -12,6 +12,7 @@ mod filter;
 mod once;
 mod pack;
 mod scan;
+mod sparse;
 mod take;
 mod whole;
 
@@ -21,6 +22,7 @@ pub(crate) use filter::*;
 pub(crate) use once::*;
 pub(crate) use pack::*;
 pub(crate) use scan::*;
+pub(crate) use sparse::*;
 use smallvec::SmallVec;
 pub(crate) use take::*;
 use vortex_array::ArrayRef;

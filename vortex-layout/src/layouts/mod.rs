@@ -18,6 +18,7 @@ pub mod flat;
 pub(crate) mod foreign;
 pub mod indexed;
 pub mod list;
+pub mod sparse;
 pub(crate) mod partitioned;
 pub mod repartition;
 pub mod row_idx;
