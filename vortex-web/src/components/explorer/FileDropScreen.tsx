@@ -94,7 +94,8 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   return (
     <div className="x-app is-page">
       <Header />
-      <main className="x-open">
+      <main className="x-open has-dot-field">
+        <div className="vx-dot-field" aria-hidden="true" />
         <div className="x-open-body">
           <div className="x-open-head">
             <h1 className="vx-display-mono">Open a Vortex file.</h1>
