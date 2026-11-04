@@ -1,6 +1,6 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
    sha256 8dc23dccb215c58c2ff3a26443eb2e86ca16e776835bcce4661ec2d9eef81240 */
 :root, [data-theme="dark"] {
   --white: #ffffff;
