@@ -49,6 +49,12 @@ final class VortexScan(
   private val hadoopConf =
     sparkSession.sessionState.newHadoopConfWithOptions(caseSensitiveOptions)
   private val io = VortexIo.create(options, hadoopConf)
+
+  /** The I/O the readers use, whose configuration is broadcast once rather than
+    * shipped with every task.
+    */
+  private lazy val executorIo =
+    VortexIo.broadcast(options, hadoopConf, sparkSession.sparkContext)
   private val caseSensitive =
     sparkSession.sessionState.conf.caseSensitiveAnalysis
 
@@ -63,7 +69,7 @@ final class VortexScan(
       case Some(aggregation) =>
         new VortexAggregateReaderFactory(
           fileOptions,
-          io,
+          executorIo,
           options,
           readDataSchema,
           readPartitionSchema,
@@ -72,7 +78,7 @@ final class VortexScan(
       case None =>
         new VortexPartitionReaderFactory(
           fileOptions,
-          io,
+          executorIo,
           options,
           dataSchema,
           readDataSchema,
