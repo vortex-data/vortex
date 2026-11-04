@@ -3,6 +3,7 @@
 
 //! Test modules for scalars.
 
+mod array_compare;
 mod casting;
 mod consistency;
 mod nested;
