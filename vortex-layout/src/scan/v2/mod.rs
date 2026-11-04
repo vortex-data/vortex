@@ -43,7 +43,6 @@ use vortex_session::VortexSession;
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
-use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
@@ -169,7 +168,7 @@ impl ScanBuilder {
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {
             Some(root) => root,
-            None => cache.insert_root(lower(&file.layout)?),
+            None => cache.insert_root(file.layout.new_plan()?),
         };
         let row_count = root.row_count();
         let filtered_chunk_rows = self

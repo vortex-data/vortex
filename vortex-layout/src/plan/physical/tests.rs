@@ -87,7 +87,7 @@ fn unsupported(row_count: u64, dtype: DType) -> LayoutRef {
 }
 
 fn make_plan(layout: LayoutRef) -> VortexResult<PlanRef> {
-    lower(&layout)
+    layout.new_plan()
 }
 
 fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
@@ -118,7 +118,8 @@ fn unsupported_layout_has_no_plan() -> VortexResult<()> {
     let layout = unsupported(3, DType::Null);
 
     assert_unsupported(
-        lower(&layout)
+        layout
+            .new_plan()
             .err()
             .ok_or_else(|| vortex_err!("unsupported layout unexpectedly produced a plan"))?,
     );
