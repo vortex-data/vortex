@@ -18,7 +18,7 @@ phases 2 to 4 use hardcoded lists of types (X35).
 | --- | --- | --- |
 | 0 | Urgent fixes U1 to U8, the path-consistency test helper, and four fixes outside part 4: the `Timestamp` range (#10953), the `Date` display (EXT-V10), the spatial nested nullability (EXT-N2), and imports that fail on nested nulls (X29) | Nothing |
 | 1 | The storage declaration: `storage_dtype`, `validate_metadata`, strict reads, the move of storage facts into the metadata, and `ExtensionArray::new_unchecked` | U4 and U5, both merged, and the spatial validator fix SN1 |
-| 2 | Declarations with hardcoded opt-ins: `ExtensionUse` with `None`, `Structural` and `Specific`, `extension_use` on both vtables, and the hardcoded lists of X35. Then the declarations of the built-in functions, by family. Nothing reads them yet, so behavior does not change. U9 can land at any time | Nothing |
+| 2 | Declarations with hardcoded opt-ins: `ExtensionUse` with `None`, `Structural` and `Specific`, `extension_use` on both vtables, and the hardcoded lists of X35. Then the declarations of the built-in functions, by family. Nothing reads them yet, so behavior does not change. U9 was dropped (#11243) | Nothing |
 | 3 | Typing: the check that rejects every call that answers `None` | 0 (U1, U2), 2 |
 | 4 | Statistics: readers ignore min and max of types outside the order list, and writers drop the storage fallback | 2 for the readers, 3 for the writers |
 | 5 | Type rules and casts: `ExtVTable::rules` over `ReduceNode`, exact unit casts, and the named lossy unit function | 3 |
@@ -30,8 +30,8 @@ Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on
 2026-10-30. Its storage declaration includes the strict reads, so it lands after the spatial
 validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6). The Arrow
 export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
-declarations that nothing reads yet, so it can start at any time. U9 changes only the results of
-the composite aggregates, which only tests use. Phase 3 is the critical step: it turns on typing,
+declarations that nothing reads yet, so it can start at any time. U9 was dropped, and SP4 fixes the
+results of the composite aggregates (#11243). Phase 3 is the critical step: it turns on typing,
 and from then on extension types are opaque. Phases 4 and 5 build on it. Phase 6 runs in parallel
 with phases 2 to 5.
 
@@ -54,7 +54,7 @@ dotted line without an arrow links an open PR that changes the same code, so the
 coordination. Each node is one PR, and its ID is the ID of that PR in the PR plan of
 [#11114](https://github.com/vortex-data/vortex/issues/11114), or of
 [#11115](https://github.com/vortex-data/vortex/issues/11115) for the claims (CL) and the storage
-paths (SP).
+paths (SP). A gray node was dropped.
 
 ```mermaid
 flowchart TD
@@ -97,7 +97,7 @@ flowchart TD
         TY3["TY3 structural functions declare Structural"]
         TY4["TY4 list_contains declares Specific"]
         TY5["TY5 type-specific functions declare Specific"]
-        U9["U9 wrap storage pushdown results<br/>#11188"]:::open
+        U9["U9 dropped, SP4 fixes EXT-A3<br/>#11243"]:::dropped
     end
     FD --> TY1
     FD --> TY2
@@ -195,7 +195,6 @@ flowchart TD
         PT["Comparisons proven true from statistics<br/>#10686"]:::open
         OS["optimize only with a session<br/>#10793"]:::open
     end
-    AG -.- U9
     AG -.- TY2
     AG -.- SP4
     BB -.- FD
@@ -208,6 +207,7 @@ flowchart TD
 
     classDef merged fill:#d7f0dc,stroke:#2f7a45,color:#10261a
     classDef open fill:#fbefc7,stroke:#a87c0f,color:#2b2105
+    classDef dropped fill:#e6e6e6,stroke:#7a7a7a,color:#333333,stroke-dasharray:4 3
 ```
 
 ## Order constraints
@@ -253,14 +253,14 @@ breaks something that works today. Those parts must land together, or in a fixed
    The check rejects every call that answers `None`, so a family without its declaration stops
    working. For example, a compare of two `Timestamp` columns would fail when it is built.
 
-TY2, U9 and SP4 also need coordination with
+TY2 and SP4 also need coordination with
 [#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the aggregate
 implementations that they change into `vortex-aggregates`.
 
 ## Phase 0: urgent fixes
 
 - Write the path-consistency helper first, because U1 and U2 use it. It merged as #11013.
-- Land U1 to U8 as separate PRs. U9 is listed in phase 2, but it can land at any time.
+- Land U1 to U8 as separate PRs. U9 was dropped on 2026-11-04 (#11243).
 - The maintainer finished [#10953](https://github.com/vortex-data/vortex/pull/10953) with commits
   instead of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
   `DateTimeParts` days wrap (EXT-S3). The maintainer commits of 2026-10-30 merge `develop`, update
@@ -369,8 +369,8 @@ implementations that they change into `vortex-aggregates`.
 - The hand-written paths of today stay, and they do the work for the types on the lists. For
   example, the extension compare kernel still compares storage. After phase 3, typing rejects every
   other call before it reaches them.
-- U9 wraps the results of today's `ExtensionStoragePushdown`. Part 4 has the details. It needs no
-  declaration, so it can land at any time.
+- U9 was dropped on 2026-11-04. SP4 gives the results of today's `ExtensionStoragePushdown` their
+  extension dtype instead, and #11243 tracks the bug until then. Part 4 has the details.
 - Coordinate with [#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the
   aggregate implementations into a new `vortex-aggregates` crate, and with
   [#10837](https://github.com/vortex-data/vortex/pull/10837), which changes
@@ -551,7 +551,7 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 | EXT-Q2 | TY1 and the typing check of phase 3, with the hardcoded lists, and then SP3 with the claims |
 | EXT-A1 | SP4 and SP5 |
 | EXT-A2 | Phase 4, and SP6 for the claims |
-| EXT-A3 | U9 |
+| EXT-A3 | SP4, tracked in #11243 (U9 was dropped) |
 | EXT-V1 | U3 for the panics, merged in #11014, and phase 6 for the value check of `try_new` |
 | EXT-V2, EXT-V7 | U6, merged in #11014 |
 | EXT-V3 | U7, merged in #11014 |

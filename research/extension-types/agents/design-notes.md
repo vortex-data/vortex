@@ -589,8 +589,9 @@ sees the same partial dtype as today. For example, a zone map of a `Timestamp` c
 already wraps its result after each batch today
 (`vortex-array/src/aggregate_fn/fns/min_max/extension.rs:28-29` at `1d09649bbd`).
 
-U9 comes first (part 4). It wraps the results of today's adapter with a fixed mapping for `MinMax`
-and `IsSorted`, so that the composite aggregates return logical values before SP4 removes them.
+U9 was meant to come first (part 4), with a fixed mapping for `MinMax` and `IsSorted` in today's
+adapter. The maintainer dropped it on 2026-11-04, so the composite aggregates return storage values
+until SP4 removes them (#11243).
 
 ## 5. Wrapping storage
 

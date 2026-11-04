@@ -231,6 +231,12 @@ and uses `ExtensionArray::new_unchecked`, and debug builds run the value check. 
 `Rewrap` must guarantee legal results. `Eq` and `Ord` do, because their results are input values. A
 future arithmetic claim can overflow, so it needs a checked mapping.
 
+Open question: `Fields` is a positional list next to the dtype of the result, for example the two
+`Rewrap`s of `min_max`. U9 (#11188) named such fields by index, and the maintainer rejected it as a
+half-measure, because the indices can drift from the real fields. Each aggregate already builds its
+dtypes from an element dtype, for example `make_minmax_dtype`. So SP1 can find out whether an
+aggregate that builds its dtypes over the extension dtype needs a mapping at all.
+
 ### Aggregates
 
 `develop` has a narrower opt-in for aggregates, from
@@ -254,8 +260,9 @@ When `AggregateDTypes::try_new` meets an extension input, it asks the type first
 A partial state stays in storage form in memory. It gets the logical form when it leaves the
 accumulator: `finalize`, `finalize_scalar` and `to_scalar` wrap, and `partial_from_scalar`
 unwraps. So consumers see the same partial dtype as today, and the cost is constant for each
-partial. The composite IDs and `register_storage_ordered` go away. U9 first wraps the results of
-today's adapter, so its results are right before the move.
+partial. The composite IDs and `register_storage_ordered` go away. Until then, the adapter
+returns storage values, and
+[#11243](https://github.com/vortex-data/vortex/issues/11243) tracks this bug.
 
 ### Operations across dtypes
 

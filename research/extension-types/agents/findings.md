@@ -318,8 +318,9 @@ Terms:
   `storage_pushdown.rs`, only the registrations (`vortex-array/src/aggregate_fn/session.rs:134-136`
   and `:192-194`, `encodings/uuid/src/lib.rs:46`) and the `Uuid` tests name the adapter. The test
   `pushes_down_into_storage` (`storage_pushdown.rs:350`) asserts the storage result.
-- **Fix:** U9. The adapter gives each result that is a value of the input the extension dtype back
-  (X12).
+- **Fix:** SP4, tracked in [#11243](https://github.com/vortex-data/vortex/issues/11243). U9
+  (#11188) gave each result that is a value of the input the extension dtype back inside the
+  adapter (X12), but the maintainer dropped it on 2026-11-04.
 
 ### EXT-V1: Arrays are never value-checked, and reads panic on bad values
 

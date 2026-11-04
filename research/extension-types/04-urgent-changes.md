@@ -6,11 +6,11 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # 4. Urgent changes
 
 These changes fix wrong results and panics. U1 to U8 do not depend on the design in part 3, and
-each one fits in a small PR with a regression test. U9 does not depend on the design either, and it
-can land at any time (X35). Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
-2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
-part are for that commit. U5 merged in #11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on
-2026-11-02. U1 has no PR yet, and U9 is the open draft #11188.
+each one fits in a small PR with a regression test. The maintainer dropped U9 on 2026-11-04, and
+SP4 fixes its finding instead (see the U9 section). Finding IDs refer to
+[`agents/findings.md`](agents/findings.md). On 2026-10-29, every change was still needed on
+`develop` at `1d09649bbd`, and the line numbers in this part are for that commit. U5 merged in
+#11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on 2026-11-02. U1 has no PR yet.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -22,7 +22,7 @@ part are for that commit. U5 merged in #11015 on 2026-10-30. U2, U3, U4, U6, U7 
 | U6 | Check the storage dtype of arrays and scalars | EXT-V2, EXT-V7 | An array or a scalar with the wrong storage is rejected |
 | U7 | Stop invalid zero values | EXT-V3 | No invalid scalars |
 | U8 | Fix `Debug for ExtDTypeRef` | EXT-R1 | Correct debug output |
-| U9 | Wrap the results of the storage pushdown | EXT-A3 | `vortex.min_max[vortex.timestamp]` returns timestamps, not `i64` values |
+| ~~U9~~ | ~~Wrap the results of the storage pushdown~~ Dropped, SP4 fixes it (#11243) | EXT-A3 | ~~`vortex.min_max[vortex.timestamp]` returns timestamps, not `i64` values~~ |
 
 ## Test requirement
 
@@ -142,6 +142,13 @@ caller. The storage declaration of phase 1 replaces this interim form (X27).
 
 ## U9. Storage pushdown results
 
+The maintainer dropped U9 on 2026-11-04 and closed its PR #11188. The PR named the value fields of
+each partial and result by index (`[0, 1]` for `min_max`, `[2, 3]` for `is_sorted`), with a new
+trait that also limited what `finalize` can do. The indices can drift from the real fields, and
+SP4 removes the adapter anyway, so the fix was a half-measure. SP4 fixes EXT-A3 instead, and issue
+[#11243](https://github.com/vortex-data/vortex/issues/11243) tracks the bug until then. The rest
+of this section records the original plan.
+
 U9 does not wait for `ResultMapping` (X35). `register_storage_ordered` wraps only `MinMax` and
 `IsSorted` (`vortex-array/src/aggregate_fn/session.rs:195-198` at `c7449d567a`), and each of them
 maps its result in a fixed way:
@@ -180,7 +187,7 @@ On 2026-11-04, the PRs for part 4 stand as follows:
   the other operand, so `Uuid` and `Json` filters still push down. Its tests cover dynamic filter
   updates. It also makes the export of a non-temporal extension scalar as a bare DataFusion
   `ScalarValue` an error. So item 1 of "Order constraints" in part 5 holds.
-- U9 is the open draft #11188.
+- U9 closed without a merge as #11188 on 2026-11-04. Issue #11243 tracks EXT-A3 until SP4.
 - U1 has no PR yet. The Arrow export that lands before it (AX) is the open draft #11224.
 
 Three more PRs touch this work:
@@ -265,8 +272,9 @@ Three PRs added or proposed mechanisms for extension semantics:
 - [#10566](https://github.com/vortex-data/vortex/pull/10566) added `ExtensionStoragePushdown`, an
   aggregate adapter with a composite ID, and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
-  and `Uuid`. Both merged on 2026-10-20. U9 fixes its results. In SP4, its body becomes the
-  default storage path of aggregate binding, and its composite IDs go away (X10, X21).
+  and `Uuid`. Both merged on 2026-10-20. In SP4, its body becomes the default storage path of
+  aggregate binding, its composite IDs go away, and its results get their extension dtype (X10,
+  X21, #11243).
 - [#10408](https://github.com/vortex-data/vortex/pull/10408) proposed a `between` pushdown for
   `AnyTemporal`. It closed without a merge on 2026-11-03.
 
@@ -274,7 +282,7 @@ SP4 replaces the hand-written registrations of the adapter with the claims of th
 
 [#10769](https://github.com/vortex-data/vortex/pull/10769) (draft) moves the aggregate
 implementations into a new `vortex-aggregates` crate, including the tests of the storage pushdown.
-U9 changes the same code, so the order of the two needs agreement.
+SP4 changes the same code, so the order of the two needs agreement.
 
 The new extension types `Duration` ([#10467](https://github.com/vortex-data/vortex/pull/10467))
 and `Interval` ([#10468](https://github.com/vortex-data/vortex/pull/10468)) are open. Both edit

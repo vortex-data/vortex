@@ -112,7 +112,7 @@ both paths. The cast rows stay until U1.
   `between`, but it closed without a merge on 2026-11-03.
 - **Storage pushdown results (EXT-A3).** The separate aggregates return storage values. The min of a
   `Timestamp(ms)` column is a raw `i64`, while plain `min_max` returns a `Timestamp`. Nothing wraps
-  the result later (X12, U9).
+  the result later (X12). Issue #11243 tracks this bug until SP4 fixes it.
 - **Zone maps (EXT-A2).** When a statistic rejects an extension dtype, the zone map uses the storage
   dtype. JSON and WKB columns store exact, unbounded bounds, so WKB zone maps hold whole geometry
   blobs. Writers have stored storage-order min and max for every extension type for at least a
