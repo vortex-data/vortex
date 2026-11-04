@@ -19,6 +19,8 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::tree_node::Transformed as DFTransformed;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::contains::ContainsFunc;
@@ -66,6 +68,7 @@ use vortex::expr::strpos;
 use vortex::expr::traversal::NodeExt;
 use vortex::expr::traversal::Transformed;
 use vortex::expr::var;
+use vortex::layout::layouts::row_idx;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
@@ -75,6 +78,8 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+
+use crate::row_index::RowIndex;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
@@ -175,30 +180,66 @@ pub trait ExpressionConverter: Send + Sync {
         source_projection: ProjectionExprs,
         input_schema: &Schema,
     ) -> DFResult<ProcessedProjection> {
-        let (scan_projection, scan_reference_schema) =
-            raw_projection(&source_projection.column_indices(), input_schema)?;
-        Ok(ProcessedProjection {
-            scan_projection,
-            scan_reference_schema,
-            leftover_projection: source_projection,
-        })
+        raw_projection(
+            &source_projection.column_indices(),
+            input_schema,
+            source_projection,
+        )
     }
 }
 
-/// Read the raw columns at `indices` in file order, without involving custom expression
-/// conversion. Returns the scan projection and the Arrow schema of its output.
+/// Read raw columns and any physical row index needed by the leftover projection,
+/// without involving custom expression conversion. Replace row-index leaves with scan columns.
 pub(crate) fn raw_projection(
     indices: &[usize],
     input_schema: &Schema,
-) -> DFResult<(Expression, Schema)> {
+    source_projection: ProjectionExprs,
+) -> DFResult<ProcessedProjection> {
     let schema = input_schema.project(indices)?;
-    let scan_columns = schema.fields().iter().map(|field| {
-        (
-            field.name().clone(),
-            get_item(field.name().as_str(), root()),
-        )
-    });
-    Ok((pack(scan_columns, Nullability::NonNullable), schema))
+    let mut scan_columns = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            (
+                field.name().clone(),
+                get_item(field.name().as_str(), root()),
+            )
+        })
+        .collect_vec();
+    // Use a private, collision-free scan field, independently of output aliases.
+    let mut row_index_name = "__vortex_row_index".to_owned();
+    while input_schema.field_with_name(&row_index_name).is_ok() {
+        row_index_name.push('_');
+    }
+    let mut needs_row_index = false;
+    let leftover_projection = source_projection.try_map_exprs(|expr| {
+        expr.transform_up(|expr| {
+            if expr.is::<RowIndex>() {
+                needs_row_index = true;
+                Ok(DFTransformed::yes(
+                    Arc::new(df_expr::Column::new(&row_index_name, indices.len()))
+                        as Arc<dyn PhysicalExpr>,
+                ))
+            } else {
+                Ok(DFTransformed::no(expr))
+            }
+        })
+        .map(|transformed| transformed.data)
+    })?;
+    let mut fields = schema.fields().to_vec();
+    if needs_row_index {
+        scan_columns.push((row_index_name.clone(), row_idx::row_idx()));
+        fields.push(Arc::new(Field::new(
+            row_index_name,
+            DataType::UInt64,
+            false,
+        )));
+    }
+    Ok(ProcessedProjection {
+        scan_projection: pack(scan_columns, Nullability::NonNullable),
+        scan_reference_schema: Schema::new_with_metadata(fields, schema.metadata().clone()),
+        leftover_projection,
+    })
 }
 
 /// Why an expression was not converted.
@@ -330,6 +371,9 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if expr.is::<RowIndex>() {
+            return Ok(row_idx::row_idx());
+        }
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
