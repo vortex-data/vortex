@@ -175,7 +175,40 @@ jobs:
         run: |
           bench="${{ inputs.benchmark_id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
-            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+            ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }} \
+            ${{ inputs.benchmark_id == 'random-access-bench' && '--prepare-stage base' || '' }}
+
+      # LitData is most of the data generation time and does not depend on Vortex, so it is
+      # cached. The key hashes the Parquet files it is converted from, so it changes exactly when
+      # the source data does. Keep the litdata version in sync with the Install LitData step.
+      - name: Restore LitData data
+        id: litdata-cache
+        if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: vortex-bench/data/random_access/*/*.litdata
+          key: >-
+            random-access-litdata-v1-litdata0.2.76-${{ hashFiles(
+              'vortex-bench/data/taxi/taxi.parquet',
+              'vortex-bench/data/random_access/*/*.parquet',
+              'scripts/litdata-random-access.py',
+              'benchmarks/random-access-bench/src/litdata.rs') }}
+
+      - name: Generate LitData data
+        if: inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: python3 scripts/random-access-split.py --prepare-data --prepare-stage litdata
+
+      - name: Save LitData data
+        if: >-
+          inputs.benchmark_id == 'random-access-bench' && inputs.remote_data_dir == ''
+          && steps.litdata-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: vortex-bench/data/random_access/*/*.litdata
+          key: ${{ steps.litdata-cache.outputs.cache-primary-key }}
 
       - name: Upload benchmark data to S3
         if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false

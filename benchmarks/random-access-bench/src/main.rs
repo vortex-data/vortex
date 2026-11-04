@@ -88,9 +88,6 @@ struct Args {
     /// Whether to reopen the file on each iteration, use a cached handle, or run both.
     #[arg(long, value_enum, default_value_t = OpenMode::Both)]
     open_mode: OpenMode,
-    /// Skip the fixed-index legacy taxi measurement that every taxi run otherwise repeats.
-    #[arg(long)]
-    skip_taxi_legacy: bool,
     /// Read the data files from this remote directory (e.g. `s3://bucket/prefix/`) instead of
     /// local disk. The directory must mirror the layout of the local benchmark data directory,
     /// as produced by `--prepare-data`.
@@ -127,7 +124,6 @@ async fn main() -> Result<()> {
         patterns: args.patterns,
         time_limit: args.time_limit,
         open_mode: args.open_mode,
-        skip_taxi_legacy: args.skip_taxi_legacy,
         display_format: args.display_format,
         output_path: args.output_path,
         ingest_output: args.ingest_output,
