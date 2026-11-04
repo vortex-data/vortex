@@ -19,11 +19,11 @@ definition that allows efficiently querying the layout.
 
 Other considerations for the Vortex file format include:
 
-- File compatibility. Editions constrain which serialized components a writer can use. A writer
+* File compatibility. Editions constrain which serialized components a writer can use. A writer
   built with newer Vortex crates can target an older edition that its intended readers support.
-- Fine-grained encryption.
-- Efficient access for both local disk and cloud storage.
-- Minimal overhead reading few columns or rows from wide or long arrays.
+* Fine-grained encryption.
+* Efficient access for both local disk and cloud storage.
+* Minimal overhead reading few columns or rows from wide or long arrays.
 
 ## File Specification
 
