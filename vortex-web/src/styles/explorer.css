@@ -510,7 +510,7 @@
   stroke-width: 0.5;
 }
 .x-treemap .is-selected rect {
-  fill-opacity: 0.48;
+  fill-opacity: 0.4;
 }
 .x-treemap .is-hovered rect {
   stroke: var(--accent);
@@ -526,6 +526,9 @@
 .x-treemap text.is-size {
   font-size: 9px;
   fill: var(--ink-muted);
+}
+.x-treemap .is-selected text.is-size {
+  fill: var(--ink-body);
 }
 .x-treemap-up {
   position: absolute;
