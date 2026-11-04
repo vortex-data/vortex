@@ -3,41 +3,44 @@
 
 //! Resolves known selections before allocating a chunk's planner or its masks.
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 
-use super::PreparedScan;
 use super::SelectedRows;
 
-/// Plans only the selected span of a chunk, with one planner and one mask per chunk.
+/// The selected rows of a chunk, bounded to their span, with one mask per chunk.
 ///
 /// `kept` is the mask zone pruning left over the scan's rows, with the row its first bit
-/// stands for. A chunk none of whose rows were kept is not planned.
-pub(super) fn plan_selection(
-    scan: &Arc<PreparedScan>,
+/// stands for. A chunk none of whose rows were selected and kept has no rows.
+pub(super) fn select_chunk(
     scope: WorkScope,
     selection: &Selection,
     kept: Option<(&Mask, u64)>,
-) -> Option<(WorkScope, Box<dyn Planner>)> {
-    let mut selected = select_rows(scope, selection)?;
-    if let Some((kept, first_row)) = kept {
-        let offset = usize::try_from(selected.scope.rows.start - first_row)
-            .vortex_expect("a work chunk fits usize");
-        let kept = kept.slice(offset..offset + selected.mask.len());
-        let mask = &selected.mask & &kept;
+) -> Option<SelectedRows> {
+    let selected = select_rows(scope, selection)?;
+    let Some((kept, first_row)) = kept else {
+        return Some(selected);
+    };
+    let offset = usize::try_from(selected.scope.rows.start - first_row)
+        .vortex_expect("a work chunk fits usize");
+    let kept = kept.slice(offset..offset + selected.mask.len());
+    SelectedRows::narrowed(selected.scope, &selected.mask & &kept)
+}
+
+impl SelectedRows {
+    /// The rows of `scope` that `mask`, over all of them, selects, bounded to their span, or
+    /// `None` when it selects none.
+    pub(super) fn narrowed(mut scope: WorkScope, mask: Mask) -> Option<Self> {
         let first = mask.first()?;
         let end = mask.last()? + 1;
-        selected.scope.rows =
-            selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
-        selected.mask = mask.slice(first..end);
+        scope.rows = scope.rows.start + first as u64..scope.rows.start + end as u64;
+        Some(Self {
+            scope,
+            mask: mask.slice(first..end),
+        })
     }
-    let scope = selected.scope.clone();
-    Some((scope, scan.split_planner(selected)))
 }
 
 fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRows> {
@@ -62,13 +65,7 @@ fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRo
     } else {
         selection.row_mask(&scope.rows).mask().clone()
     };
-    let first = mask.first()?;
-    let end = mask.last()? + 1;
-    scope.rows = scope.rows.start + first as u64..scope.rows.start + end as u64;
-    Some(SelectedRows {
-        scope,
-        mask: mask.slice(first..end),
-    })
+    SelectedRows::narrowed(scope, mask)
 }
 
 #[cfg(test)]
