@@ -50,9 +50,13 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
 }
 
-// The type of the values can be determined by looking at the type info...right?
+/// Metadata for the existing `vortex.decimal` wire representation.
 #[derive(prost::Message)]
 pub struct DecimalMetadata {
+    /// Stored [`DecimalType`] discriminant, retained for wire compatibility.
+    ///
+    /// The legacy format records the actual width separately from the logical dtype. Readers
+    /// need this field even when the in-memory representation uses canonical decimal leaves.
     #[prost(int32, tag = "1")]
     pub(super) values_type: i32,
 }

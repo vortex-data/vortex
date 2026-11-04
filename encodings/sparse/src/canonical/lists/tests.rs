@@ -27,10 +27,10 @@ fn empty_fill_reuses_elements(#[values(false, true)] null_fill: bool) -> VortexR
     crate::initialize(&session);
     let mut ctx = session.create_execution_ctx();
 
-    let elements = buffer![1i32, 2, 8, 9, 3].into_array();
+    let elements = buffer![1i32, 2, 3].into_array();
     let lists = ListArray::try_new(
         elements.clone(),
-        buffer![0u32, 2, 4, 5].into_array(),
+        buffer![0u32, 2, 2, 3].into_array(),
         Validity::from_iter([true, false, true]),
         &mut ctx,
     )?;
@@ -66,6 +66,38 @@ fn empty_fill_reuses_elements(#[values(false, true)] null_fill: bool) -> VortexR
     )?;
 
     assert_arrays_eq!(actual, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn empty_fill_drops_null_patch_elements() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    // The null patch still holds [8, 9], as a masked list does.
+    let lists = ListArray::try_new(
+        buffer![1i32, 2, 8, 9, 3].into_array(),
+        buffer![0u32, 2, 4, 5].into_array(),
+        Validity::from_iter([true, false, true]),
+        &mut ctx,
+    )?;
+    let fill = Scalar::null(lists.dtype().clone());
+    let actual = Sparse::try_new(
+        buffer![1u32, 4, 7].into_array(),
+        lists.into_array(),
+        10,
+        fill,
+        &mut ctx,
+    )?
+    .into_array()
+    .execute_until::<List>(&mut ctx)?;
+
+    assert_arrays_eq!(
+        actual.as_::<List>().elements().clone(),
+        buffer![1i32, 2, 3].into_array(),
+        &mut ctx
+    );
     Ok(())
 }
 

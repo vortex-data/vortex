@@ -6,7 +6,7 @@
     "take_union": 4
   },
   "vortex-alp": {
-    "alp_compress": 96
+    "alp_compress": 36
   },
   "vortex-array": {
     "aggregate_grouped": 18,
@@ -16,20 +16,20 @@
     "bool_zip": 2,
     "cast_decimal": 6,
     "cast_primitive": 6,
-    "chunk_array_builder": 32,
+    "chunk_array_builder": 31,
     "chunked_dict_builder": 24,
     "chunked_fsl_canonicalize": 6,
     "compare": 9,
     "compare_sorted": 3,
     "copy_to_canonical_width": 0,
-    "dict_compare": 27,
-    "dict_compress": 70,
+    "dict_compare": 16,
+    "dict_compress": 25,
     "dict_mask": 16,
     "dict_unreferenced_mask": 10,
     "expr_case_when": 28,
     "expr_large_struct_pack": 4,
     "expr_optimize": 1,
-    "filter_bool": 61,
+    "filter_bool": 47,
     "filter_fixed_width": 30,
     "filter_fsl": 4,
     "filter_list": 12,
@@ -49,7 +49,7 @@
     "row_fn_bool_retry": 0,
     "row_fn_output": 0,
     "row_fn_utf8_input": 0,
-    "run_end_compress": 77,
+    "run_end_compress": 35,
     "run_end_decode": 29,
     "run_end_decode_primitive": 12,
     "run_end_filter": 8,
@@ -62,7 +62,7 @@
     "scalar_subtract": 0,
     "search_sorted": 1,
     "slice_dict_primitive": 3,
-    "take_chunked": 27,
+    "take_chunked": 0,
     "take_filter": 32,
     "take_fsl": 12,
     "take_patches": 36,
@@ -75,7 +75,7 @@
     "varbinview_try_new": 6,
     "varbinview_zip": 2,
     "widen": 17,
-    "widen_decimal": 6
+    "widen_decimal": 9
   },
   "vortex-buffer": {
     "allocation": 35,
@@ -83,7 +83,7 @@
     "cpu_dispatch": 6,
     "take_bits": 0,
     "vortex_bitbuffer": 58,
-    "vortex_buffer": 34
+    "vortex_buffer": 29
   },
   "vortex-compressor": {
     "dict_encode": 0,
@@ -95,7 +95,7 @@
     "lane_kernels": 7
   },
   "vortex-datetime-parts": {
-    "split_temporal": 4
+    "split_temporal": 6
   },
   "vortex-decimal-byte-parts": {
     "dbp_assemble": 0,
@@ -109,12 +109,12 @@
     "bitpack_blocked": 0,
     "bitpack_blocked_decompress": 0,
     "bitpack_compare": 2,
-    "bitpack_compare_sweep": 232,
+    "bitpack_compare_sweep": 56,
     "bitpacking_filter": 0,
     "bitpacking_take": 40,
-    "canonicalize_bench": 32,
+    "canonicalize_bench": 14,
     "cast_bitpacked": 6,
-    "compute_between": 33,
+    "compute_between": 11,
     "for_decode": 0,
     "for_encode": 0
   },
@@ -123,7 +123,7 @@
   },
   "vortex-fsst": {
     "chunked_dict_fsst_builder": 12,
-    "fsst_compress": 66,
+    "fsst_compress": 22,
     "fsst_like": 14,
     "fsst_take": 24,
     "fsst_url_compare": 8
@@ -147,7 +147,7 @@
     "row_encode": 5
   },
   "vortex-sparse": {
-    "sparse_canonical": 4,
+    "sparse_canonical": 6,
     "sparse_pushdown": 5
   },
   "vortex-spatial": {

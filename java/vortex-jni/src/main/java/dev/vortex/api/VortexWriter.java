@@ -171,7 +171,7 @@ public final class VortexWriter implements AutoCloseable {
                 }
                 return new VortexWriter(pointer, arrowSchema);
             } finally {
-                // Native code only borrows the schema, so the children the export allocated are ours to release.
+                // Native code takes and releases the schema. If it failed before it took the schema, release it here.
                 if (ffi.snapshot().release != 0) {
                     ffi.release();
                 }
@@ -216,8 +216,9 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Write a batch directly from Arrow C Data Interface addresses. These buffers share the producer's batch release
-     * callback; use {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for independently retained Java allocations.
+     * Write a batch directly from Arrow C Data Interface addresses. Native code takes both the array and the schema,
+     * and releases them. These buffers share the producer's batch release callback; use
+     * {@link #writeBatch(VectorSchemaRoot, BufferAllocator)} for independently retained Java allocations.
      */
     public synchronized void writeBatch(long arrowArrayAddr, long arrowSchemaAddr) throws IOException {
         Preconditions.checkState(!closed.get(), "writer already closed");

@@ -56,17 +56,19 @@ jobs:
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
         with:
           tool: wasm-pack@0.15.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: 1.4.3
+      # Storybook and Vite run on Node, and Bun runs their scripts with it.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "24"
-          cache: "npm"
-          cache-dependency-path: vortex-web/package-lock.json
-      - run: npm ci
-      - run: npm run wasm
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run build-storybook
+      - run: bun install --frozen-lockfile
+      - run: bun run wasm
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run build-storybook
 
   build:
     name: Build
@@ -83,13 +85,15 @@ jobs:
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
         with:
           tool: wasm-pack@0.15.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: 1.4.3
+      # Storybook and Vite run on Node, and Bun runs their scripts with it.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "24"
-          cache: "npm"
-          cache-dependency-path: vortex-web/package-lock.json
-      - run: npm ci
-      - run: npm run build
+      - run: bun install --frozen-lockfile
+      - run: bun run build
       - name: Upload build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:

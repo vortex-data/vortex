@@ -15,6 +15,7 @@ use vortex::array::EqMode;
 use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
 use vortex::array::OperationsVTable;
+use vortex::array::ProbeState;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
@@ -124,12 +125,20 @@ impl VTable for PythonVTable {
 impl OperationsVTable<PythonVTable> for PythonVTable {
     type ProbeState = ();
 
-    fn scalar_at(
-        _array: ArrayView<'_, PythonVTable>,
+    fn probe_scalar(
+        _state: &mut ProbeState<'_, PythonVTable>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         vortex_bail!("PythonArray scalar_at is not supported");
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, PythonVTable>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
