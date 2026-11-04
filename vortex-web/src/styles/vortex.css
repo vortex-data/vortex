@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 dbc7af41ba8de3e8c22cfbf9d82485f4dd352e23b1d379d17d530a971edfc906 */
+   sha256 c026a7919a45297b7cd67c27217f22423515c90211daeef8a8763284ecdcfa79 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -169,7 +169,8 @@ main[tabindex="-1"]:focus {
    switch, the GitHub button and, on a narrow screen, the Menu. No breakpoint depends on the tools,
    so at a given width the shared items look the same and sit in the same place on every surface;
    the tools fit themselves into the room between. One solid line rule below it, sticky at the top
-   of the window. */
+   of the window. It takes the --page-max column, centred, with its rule, on every surface: the
+   site and bench draw it inside their page frame, and the docs and the Explorer have none. */
 .vx-header {
   position: sticky;
   top: 0;
@@ -177,7 +178,10 @@ main[tabindex="-1"]:focus {
   display: flex;
   align-items: center;
   gap: var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
   height: 64px;
+  margin-inline: auto;
   padding: 0 var(--page-pad);
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -451,7 +455,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-results { padding: var(--space-18) var(--space-24); font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); }
 .vx-results-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4) var(--space-16); margin: 0 0 var(--space-12); color: var(--ink); }
 /* The source line: bench's link and the read date, which wrap as one line each. */
-.vx-results-src { display: inline-flex; flex-wrap: wrap; gap: 0 var(--space-8); color: var(--ink-muted); }
+/* On the text's baseline: the link holds a 16px icon, and its text must line up with the date's. */
+.vx-results-src { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-8); color: var(--ink-muted); }
 .vx-results-src > * { white-space: nowrap; }
 /* The foot: the key, then a note for each panel with a range, one per line. */
 .vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
