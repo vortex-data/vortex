@@ -59,8 +59,9 @@ impl CompareKernel for FoR {
 
 /// Compares the array to a constant through its encoded values.
 ///
-/// Equality survives the wrapping subtraction. Ordering compares unsigned distances from the
-/// reference.
+/// No valid value is below the reference, so a constant below it answers every row. Otherwise
+/// the constant is a distance from the reference. Equality survives the wrapping subtraction.
+/// Ordering compares unsigned distances.
 fn compare_constant<T>(
     lhs: ArrayView<'_, FoR>,
     rhs: T,
@@ -81,35 +82,36 @@ where
         .typed_value::<T>()
         .vortex_expect("FoR reference is non-null and matches the array ptype");
 
-    match operator {
-        CompareOperator::Eq | CompareOperator::NotEq => {
-            compare_encoded(lhs, rhs.wrapping_sub(&reference), nullability, operator).map(Some)
-        }
-        CompareOperator::Lt | CompareOperator::Lte | CompareOperator::Gt | CompareOperator::Gte => {
-            // No value is below the reference.
-            if rhs < reference {
-                let answer = matches!(operator, CompareOperator::Gt | CompareOperator::Gte);
-                return constant_answer(lhs, answer, nullability).map(Some);
-            }
+    if rhs < reference {
+        let answer = matches!(
+            operator,
+            CompareOperator::NotEq | CompareOperator::Gt | CompareOperator::Gte
+        );
+        return constant_answer(lhs, answer, nullability).map(Some);
+    }
 
-            let distance = rhs.wrapping_sub(&reference);
-            if T::PTYPE.is_unsigned_int() {
-                compare_encoded(lhs, distance, nullability, operator).map(Some)
-            } else {
-                compare_signed_encoded(lhs, distance, nullability, operator).map(Some)
-            }
-        }
+    let distance = rhs.wrapping_sub(&reference);
+    let is_equality = matches!(operator, CompareOperator::Eq | CompareOperator::NotEq);
+
+    if is_equality || T::PTYPE.is_unsigned_int() {
+        compare_unsigned_encoded(lhs, distance, nullability, operator).map(Some)
+    } else {
+        compare_signed_encoded(lhs, distance, nullability, operator).map(Some)
     }
 }
 
-fn compare_encoded<T: NativePType + Into<PValue>>(
+/// Compares the encoded values to `distance` with the operator unchanged.
+///
+/// This is correct for equality on any integer type, and for ordering on unsigned types, where
+/// the encoded values and `distance` order as unsigned distances from the reference.
+fn compare_unsigned_encoded<T: IntegerPType + Into<PValue>>(
     lhs: ArrayView<'_, FoR>,
-    encoded: T,
+    distance: T,
     nullability: Nullability,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     lhs.encoded().binary(
-        ConstantArray::new(Scalar::primitive(encoded, nullability), lhs.len()).into_array(),
+        ConstantArray::new(Scalar::primitive(distance, nullability), lhs.len()).into_array(),
         Operator::from(operator),
     )
 }
@@ -127,6 +129,14 @@ fn compare_signed_encoded<T>(
 where
     T: IntegerPType + Into<PValue>,
 {
+    let strictness = |strict: bool| {
+        if strict {
+            StrictComparison::Strict
+        } else {
+            StrictComparison::NonStrict
+        }
+    };
+
     let below = matches!(operator, CompareOperator::Lt | CompareOperator::Lte);
     let (lower, upper, options, negate) = if distance >= T::zero() {
         let upper_strict = matches!(operator, CompareOperator::Lt | CompareOperator::Gte);
@@ -153,14 +163,6 @@ where
         .between(bound(lower), bound(upper), options)?;
 
     if negate { in_range.not() } else { Ok(in_range) }
-}
-
-fn strictness(strict: bool) -> StrictComparison {
-    if strict {
-        StrictComparison::Strict
-    } else {
-        StrictComparison::NonStrict
-    }
 }
 
 /// A constant answer for every row that still carries the array's validity.
