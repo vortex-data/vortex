@@ -22,13 +22,30 @@ impl RowFnExecutionArgs<'_> {
     /// Run every stored payload, then attach the input validity without materializing its mask.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        // A kernel that attaches the validity while it builds the output skips the masking step,
+        // which would build the array a second time. Only `ExecuteFused::visit_bool` takes the
+        // offer, for dense batches that its direct path rejects. No benchmark isolates this case.
+        let offered = matches!(self.batch.probe.validity, Validity::Array(_));
+        let mut validity = offered.then(|| self.batch.probe.validity.clone());
         let values = kernel(
             self.execution_args(&self.batch.inputs, self.batch.probe.row_count),
+            &mut validity,
             ctx,
         )?;
+
+        // Taking the validity does not prove that the kernel attached it. Row kernels build
+        // non-nullable storage, so only a nullable output can carry it, and every other output is
+        // masked.
+        if offered && validity.is_none() && values.dtype().is_nullable() {
+            return self.finalize_output(values, self.batch.probe.row_count);
+        }
 
         self.finalize_dense_output(values, ctx)
     }

@@ -20,6 +20,7 @@ use std::borrow::Cow;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::ScalarFnId;
 use crate::validity::Validity;
 
@@ -55,6 +56,10 @@ pub(crate) struct BatchProbe {
 
     /// Whether any input is a null literal constant.
     has_null_const: bool,
+
+    /// The output nullability, which is nullable when any input dtype is nullable. The direct
+    /// Boolean path reads it to build the final validity without a [`BatchPlan`].
+    nullability: Nullability,
 }
 
 /// The same-length input columns of one row-function execution, with their [`BatchProbe`].

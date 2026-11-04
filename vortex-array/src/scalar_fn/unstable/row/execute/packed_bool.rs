@@ -25,37 +25,99 @@ use crate::arrays::BoolArray;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::unstable::row::FailureEvidence;
 use crate::scalar_fn::unstable::row::IndexedElementTuple;
+use crate::scalar_fn::unstable::row::batch::RowInputs;
+use crate::scalar_fn::unstable::row::types::decode_row_inputs;
 use crate::scalar_fn::unstable::row::types::decoded_source;
 use crate::validity::Validity;
 
-/// Decode every input column, then pack infallible Boolean outputs.
+/// Decode every input column, then pack infallible Boolean outputs with `validity` attached.
 pub(crate) fn execute_owned_infallible_bool<Args, const MULTIVERSIONED: bool>(
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
+    validity: Validity,
     apply: impl Fn(Args::Elems<'_>) -> bool,
 ) -> VortexResult<ArrayRef>
 where
     Args: IndexedElementTuple,
 {
     let columns = Args::decode(args, ctx)?;
-    let row_count = args.row_count();
 
-    let Some(source) = decoded_source::<Args>(&columns, row_count) else {
+    pack_infallible_bool::<Args, MULTIVERSIONED>(&columns, args.row_count(), ctx, validity, apply)
+}
+
+/// Decode one borrowed array per argument, then pack infallible Boolean outputs with `validity`
+/// attached.
+///
+/// `const_mask` marks the batch-constant inputs, as [`decode_row_inputs`] describes.
+///
+/// `#[inline(never)]` is for code size. A `RowFn::dispatch` holds one copy of this function per
+/// type and operator, and with one codegen unit (the release profile), rustc 1.99.1 otherwise
+/// inlines all 66 primitive comparison copies, adding about 35,000 lines of LLVM IR. The decode and
+/// pack helpers still inline here, so a short batch pays for one call.
+#[inline(never)]
+pub(crate) fn execute_row_inputs_infallible_bool<Args, I, const MULTIVERSIONED: bool>(
+    inputs: &I,
+    const_mask: u32,
+    ctx: &mut ExecutionCtx,
+    validity: Validity,
+    apply: impl Fn(Args::Elems<'_>) -> bool,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+    I: RowInputs + ?Sized,
+{
+    let columns = decode_row_inputs::<Args, I>(inputs, const_mask, ctx)?;
+
+    pack_infallible_bool::<Args, MULTIVERSIONED>(&columns, inputs.row_count(), ctx, validity, apply)
+}
+
+/// Pack `apply` over the `row_count` rows of `columns`, then attach `validity`.
+///
+/// This fails when a column or `validity` does not have exactly `row_count` rows.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+fn pack_infallible_bool<Args, const MULTIVERSIONED: bool>(
+    columns: &Args::Columns,
+    row_count: usize,
+    ctx: &mut ExecutionCtx,
+    validity: Validity,
+    apply: impl Fn(Args::Elems<'_>) -> bool,
+) -> VortexResult<ArrayRef>
+where
+    Args: IndexedElementTuple,
+{
+    // No plain-view branch is needed. LLVM unswitches the per-argument constant checks of this
+    // source, so its two-column copy is already the plain vector loop (rustc 1.99.1, x86 AVX-512
+    // and aarch64).
+    let Some(source) = decoded_source::<Args>(columns, row_count) else {
         vortex_bail!("a decoded row input does not address exactly {row_count} rows");
     };
 
+    let values = collect_source_bits::<MULTIVERSIONED, _>(&source, row_count, ctx, &apply);
+
+    Ok(BoolArray::try_new(values, validity)?.into_array())
+}
+
+/// Pack `apply` over the `row_count` rows of `source`.
+#[expect(clippy::inline_always)]
+#[inline(always)]
+fn collect_source_bits<const MULTIVERSIONED: bool, S: IndexedSource>(
+    source: &S,
+    row_count: usize,
+    ctx: &ExecutionCtx,
+    apply: &impl Fn(S::Item) -> bool,
+) -> BitBuffer {
     let collect = |index| {
-        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the decoded
-        // source was constructed with exactly `row_count` rows.
+        // SAFETY: Both collectors only invoke this closure with `index < row_count`, and the
+        // source addresses exactly `row_count` rows.
         apply(unsafe { source.get_unchecked(index) })
     };
-    let values = if MULTIVERSIONED {
+
+    if MULTIVERSIONED {
         BitBuffer::collect_bool_multiversioned_in(row_count, collect, ctx.allocator().clone())
     } else {
         BitBuffer::collect_bool_in(row_count, collect, ctx.allocator().clone())
-    };
-
-    Ok(BoolArray::new(values, Validity::NonNullable).into_array())
+    }
 }
 
 /// Decode every input column, then pack Boolean outputs while combining failure evidence.
