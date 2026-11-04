@@ -463,7 +463,6 @@
   background: var(--raised);
   border: 1px solid var(--edge);
   border-radius: var(--radius-card);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--black) 24%, transparent);
 }
 .x-tip-head {
   display: flex;
@@ -696,21 +695,6 @@
   color: var(--ground);
   pointer-events: none;
   white-space: nowrap;
-}
-
-/* ------------------------------------------------------------------ the file map */
-.x-filemap {
-  padding: var(--space-16);
-}
-.x-filemap .vx-filemap-legend {
-  font-family: var(--font-mono);
-}
-.x-filemap-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-8) var(--space-24);
 }
 
 /* ------------------------------------------------------------------ dropping a file */
