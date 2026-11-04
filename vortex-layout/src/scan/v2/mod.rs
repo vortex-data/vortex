@@ -193,23 +193,11 @@ impl ScanBuilder {
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
-                let skip = self.skip_unselective_dynamic;
                 match cache.filter_plans(&filter) {
-                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Some(_) => Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?)),
+                    Some(plans) => Ok(plans),
                     None => {
-                        let plans = Arc::new(FilterPlans::new(
-                            filter.clone(),
-                            &root,
-                            &self.session,
-                            skip,
-                        )?);
+                        let plans =
+                            Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
                         Ok(cache.insert_filter_plans(filter, plans))
                     }
                 }
@@ -253,6 +241,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            skip_unselective_dynamic: self.skip_unselective_dynamic,
         })
     }
 }
