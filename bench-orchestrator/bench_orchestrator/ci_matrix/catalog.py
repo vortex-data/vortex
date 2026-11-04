@@ -55,6 +55,7 @@ FULL_PR_TARGETS = df(
 DEFAULT_WITH_DUCKDB_TARGETS = DEFAULT_TARGETS | duck(Format.DUCKDB)
 STANDARD_WITH_DUCKDB_TARGETS = STANDARD_TARGETS | duck(Format.DUCKDB)
 DATAFUSION_VORTEX_TARGETS = df(Format.VORTEX)
+DATAFUSION_TARGETS = df(Format.PARQUET, Format.VORTEX)
 COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
     Format.PARQUET,
     Format.VORTEX_COMPACT,
@@ -73,6 +74,7 @@ DEFAULT_WITH_DUCKDB_PR_FULL = Coverage(
 )
 STANDARD_WITH_DUCKDB = Coverage(STANDARD_WITH_DUCKDB_TARGETS)
 DATAFUSION_VORTEX = Coverage(DATAFUSION_VORTEX_TARGETS)
+DATAFUSION = Coverage(DATAFUSION_TARGETS)
 COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 
@@ -217,9 +219,10 @@ BENCHMARKS = (
         benchmark=Benchmark.TPCDS,
         name="TPC-DS SF=10 on NVME",
         scale_factor=10.0,
+        # DataFusion only in PRs: DuckDB on Vortex intermittently runs out of memory on q64.
         runs={
-            "pr": DEFAULT,
-            "pr-full": DEFAULT,
+            "pr": DATAFUSION,
+            "pr-full": DATAFUSION,
             "nightly": DEFAULT,
         },
     ),
