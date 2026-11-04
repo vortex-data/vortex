@@ -69,7 +69,7 @@ function computeStats(values: unknown[]): ColumnStats {
       const range = max - min;
       for (const n of nums) {
         const idx = Math.min(bins - 1, Math.floor(((n - min) / range) * bins));
-        histogram[idx]++;
+        histogram[idx] = (histogram[idx] ?? 0) + 1;
       }
     } else {
       histogram[0] = nums.length;
@@ -333,7 +333,7 @@ export function DataTable({
         (col): ColumnDef<Record<string, unknown>> => ({
           accessorKey: col,
           header: () => (
-            <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />
+            <ColumnHeader name={col} stats={columnStats[col]!} approximate={approximate} />
           ),
           cell: (info) => {
             const renderer = cellRenderers?.[col];
@@ -411,6 +411,7 @@ export function DataTable({
           )}
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = tableRows[virtualRow.index];
+            if (!row) return null;
             return (
               <tr
                 key={row.id}

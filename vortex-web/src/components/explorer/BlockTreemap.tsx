@@ -144,6 +144,7 @@ export function BlockTreemap({
     const el = boxRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
+      if (!entry) return;
       const { width, height } = entry.contentRect;
       if (width > 0 && height > 0) setSize({ w: width, h: height });
     });

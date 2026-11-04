@@ -231,8 +231,8 @@ export function groupChildren(
     const groupNodes = children.slice(i, Math.min(i + GROUP_SIZE, children.length));
     const startIdx = i;
     const endIdx = Math.min(i + GROUP_SIZE - 1, children.length - 1);
-    const firstNode = groupNodes[0];
-    const lastNode = groupNodes[groupNodes.length - 1];
+    const firstNode = groupNodes[0]!;
+    const lastNode = groupNodes[groupNodes.length - 1]!;
 
     groups.push({
       id: `${parentId}_group_${startIdx}_${endIdx}`,

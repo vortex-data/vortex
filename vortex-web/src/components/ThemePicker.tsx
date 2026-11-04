@@ -80,7 +80,7 @@ export function ThemePicker() {
 
   const next = () => {
     const idx = cycle.indexOf(theme);
-    setTheme(cycle[(idx + 1) % cycle.length]);
+    setTheme(cycle[(idx + 1) % cycle.length]!);
   };
 
   const Icon = icons[theme];

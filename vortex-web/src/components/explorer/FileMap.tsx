@@ -108,30 +108,22 @@ export function FileMap() {
       const byteEnd = (px + 1) * bytesPerPixel;
 
       // Advance subtree scan
-      while (
-        segIdx < subtreeSegments.length &&
-        subtreeSegments[segIdx].byteOffset + subtreeSegments[segIdx].byteLength <= byteStart
-      ) {
-        segIdx++;
+      let subtreeSeg = subtreeSegments[segIdx];
+      while (subtreeSeg && subtreeSeg.byteOffset + subtreeSeg.byteLength <= byteStart) {
+        subtreeSeg = subtreeSegments[++segIdx];
       }
 
       // Advance hover scan
-      while (
-        hoverIdx < hoverSegments.length &&
-        hoverSegments[hoverIdx].byteOffset + hoverSegments[hoverIdx].byteLength <= byteStart
-      ) {
-        hoverIdx++;
+      let hoverSeg = hoverSegments[hoverIdx];
+      while (hoverSeg && hoverSeg.byteOffset + hoverSeg.byteLength <= byteStart) {
+        hoverSeg = hoverSegments[++hoverIdx];
       }
 
       // Check subtree hit
-      const isSubtree =
-        hasSubtree &&
-        segIdx < subtreeSegments.length &&
-        subtreeSegments[segIdx].byteOffset < byteEnd;
+      const isSubtree = hasSubtree && subtreeSeg !== undefined && subtreeSeg.byteOffset < byteEnd;
 
       // Check hover hit
-      const isHovered =
-        hasHover && hoverIdx < hoverSegments.length && hoverSegments[hoverIdx].byteOffset < byteEnd;
+      const isHovered = hasHover && hoverSeg !== undefined && hoverSeg.byteOffset < byteEnd;
 
       // Check focused segment hit
       let isFocused = false;
@@ -204,7 +196,7 @@ export function FileMap() {
       let hi = sortedSegments.length - 1;
       while (lo <= hi) {
         const mid = (lo + hi) >>> 1;
-        const seg = sortedSegments[mid];
+        const seg = sortedSegments[mid]!;
         if (byte < seg.byteOffset) {
           hi = mid - 1;
         } else if (byte >= seg.byteOffset + seg.byteLength) {

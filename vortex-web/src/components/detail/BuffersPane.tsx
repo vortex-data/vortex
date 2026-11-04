@@ -107,7 +107,7 @@ function HexView({ data }: { data: Uint8Array }) {
       const bytes: HexRow['bytes'] = [];
       const end = Math.min(i + BYTES_PER_ROW, data.length);
       for (let j = i; j < end; j++) {
-        bytes.push({ value: data[j], absIndex: j });
+        bytes.push({ value: data[j]!, absIndex: j });
       }
       result.push({ offset: i, bytes });
     }

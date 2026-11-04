@@ -51,8 +51,8 @@
         "useHookAtTopLevel": "error"
       },
       "style": {
-        // Refs set in effects and the root element are non-null by design;
-        // TypeScript's strict checks cover the rest.
+        // A ! marks a ref set in an effect, the root element, or an index
+        // that noUncheckedIndexedAccess cannot prove is in range.
         "noNonNullAssertion": "off"
       },
       "suspicious": {
