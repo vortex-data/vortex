@@ -79,11 +79,13 @@ both paths. The cast rows stay until U1.
   stopped the second validation on 2026-11-02.
 - **Timestamps near year 9999 (EXT-V9).** `Timestamp` accepts only the range of jiff, which ends 26
   hours before the end of year 9999. Writing `9999-12-31` panics while the writer computes min and
-  max statistics (issue [#8860](https://github.com/vortex-data/vortex/issues/8860)). #10953 makes
-  every `i64` legal (X31).
+  max statistics (issue [#8860](https://github.com/vortex-data/vortex/issues/8860)).
+  [#10953](https://github.com/vortex-data/vortex/pull/10953) made every `i64` legal (X31) on
+  2026-11-03.
 - **Spatial nested nullability (EXT-N2).** The spatial validators check only the coordinates, so
   they accept nullable lists and nullable coordinate structs. GeoArrow allows nulls only at the
-  outer level (X26).
+  outer level (X26). [#11183](https://github.com/vortex-data/vortex/pull/11183) made the validators
+  reject nullable nested levels on 2026-11-04.
 - **Zero values skip validation (EXT-V3).** `Scalar::zero_value` uses the storage zero. For a type
   that rejects zero, debug builds panic and release builds return an invalid scalar. Confirmed.
   Since U7 (#11014) merged on 2026-11-02, `Scalar::zero_value` checks the value. For such a type,
@@ -105,9 +107,9 @@ both paths. The cast rows stay until U1.
   [#10616](https://github.com/vortex-data/vortex/pull/10616) add separate aggregates, such as
   `vortex.is_sorted[vortex.timestamp]`, that run on storage for `Date`, `Time`, `Timestamp` and
   `Uuid`. Plain `is_sorted` and `min_max` do not use them. In SP4, their computation becomes the
-  default storage path of the plain aggregates, and the separate IDs go away (X10, X21). The open
-  draft
-  [#10408](https://github.com/vortex-data/vortex/pull/10408) adds yet another opt-in for `between`.
+  default storage path of the plain aggregates, and the separate IDs go away (X10, X21).
+  [#10408](https://github.com/vortex-data/vortex/pull/10408) proposed yet another opt-in for
+  `between`, but it closed without a merge on 2026-11-03.
 - **Storage pushdown results (EXT-A3).** The separate aggregates return storage values. The min of a
   `Timestamp(ms)` column is a raw `i64`, while plain `min_max` returns a `Timestamp`. Nothing wraps
   the result later (X12, U9).

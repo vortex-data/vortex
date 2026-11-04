@@ -27,9 +27,9 @@ phases 2 to 4 use hardcoded lists of types (X35).
 | Claims | [#11115](https://github.com/vortex-data/vortex/issues/11115): `Claim`, `DType::holds`, `ExtVTable::claims` and the claims of the types. Then `ExtensionUse::Storage`, `ResultMapping`, the generic storage rewrite, and the storage paths that replace the hardcoded lists | 1 for the claims, 3 for the storage paths |
 
 Phases 0 and 1 can run in parallel. Phase 1 builds on U4 and U5, which merged on 2026-11-02 and
-2026-10-30. Its storage declaration includes the strict reads, so it waits for the spatial fix
-(see "Order constraints", items 3 and 6). The Arrow export with metadata is part of phase 7, but it
-lands in phase 0, before U1. Phase 2 adds
+2026-10-30. Its storage declaration includes the strict reads, so it lands after the spatial
+validator fix SN1, which merged on 2026-11-04 (see "Order constraints", items 3 and 6). The Arrow
+export with metadata is part of phase 7, but it lands in phase 0, before U1. Phase 2 adds
 declarations that nothing reads yet, so it can start at any time. U9 changes only the results of
 the composite aggregates, which only tests use. Phase 3 is the critical step: it turns on typing,
 and from then on extension types are opaque. Phases 4 and 5 build on it. Phase 6 runs in parallel
@@ -47,7 +47,7 @@ check to `try_new`.
 ## Dependency graph
 
 The graph shows every change of the extension type work, grouped by phase, with its state on
-2026-11-03. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
+2026-11-04. Green nodes merged, yellow nodes have an open PR, and white nodes have no PR yet. A
 solid arrow is a hard dependency: the later change must not land first. A dashed arrow is an order
 rule or a soft dependency, and a label such as "item 3" names the rule in "Order constraints". A
 dotted line without an arrow links an open PR that changes the same code, so the two need
@@ -67,10 +67,10 @@ flowchart TD
         DF["DF DataFusion extension literals<br/>#11067"]:::merged
         AX["AX Arrow export with metadata, from phase 7<br/>X24"]
         U1["U1 no storage casts"]
-        TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::open
-        V10["V10 Date display fallback<br/>EXT-V10"]
-        SN1["SN1 spatial validators reject nullable nested levels<br/>EXT-N2"]
-        DP["DP dictionary peel before the Arrow importers"]
+        TS["TS Timestamp accepts every i64, DateTimeParts days<br/>#10953"]:::merged
+        V10["V10 Date display fallback<br/>#11187"]:::merged
+        SN1["SN1 spatial validators reject nullable nested levels<br/>#11183"]:::merged
+        DP["DP dictionary peel before the Arrow importers<br/>#11185"]:::open
         SN2["SN2 Arrow importers of known types convert or fail<br/>X29"]
     end
     PC --> U2
@@ -80,7 +80,7 @@ flowchart TD
     DP --> SN2
 
     subgraph PH1["Phase 1"]
-        SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata"]
+        SD["SD storage declaration and strict reads<br/>storage_dtype, validate_metadata, facts in metadata<br/>#11184"]:::open
         NU["NU new_unchecked, validate_array, conformance harness"]
     end
     U4 -->|"item 3"| SD
@@ -89,12 +89,12 @@ flowchart TD
     SD --> NU
 
     subgraph PH2["Phase 2"]
-        FD["FD ExtensionUse without Storage, hardcoded lists"]
+        FD["FD ExtensionUse without Storage, hardcoded lists<br/>#11186"]:::open
         TY1["TY1 compare and between declare Specific"]
         TY2["TY2 aggregates declare Specific"]
         TY3["TY3 structural functions declare Structural"]
         TY4["TY4 list_contains declares Specific"]
-        U9["U9 wrap storage pushdown results"]
+        U9["U9 wrap storage pushdown results<br/>#11188"]:::open
     end
     FD --> TY1
     FD --> TY2
@@ -183,7 +183,6 @@ flowchart TD
     subgraph OTHER["Open PRs to coordinate with"]
         AG["vortex-aggregates move<br/>#10769"]:::open
         BB["Spatial bounding boxes in file statistics<br/>#10837"]:::open
-        BT["between pushdown for temporal types<br/>#10408"]:::open
         DI["Duration and Interval<br/>#10467, #10468"]:::open
         CS["IsCompoundSorted<br/>#10661"]:::open
         PT["Comparisons proven true from statistics<br/>#10686"]:::open
@@ -193,8 +192,6 @@ flowchart TD
     AG -.- TY2
     AG -.- SP4
     BB -.- FD
-    BT -.- TY1
-    BT -.- SP3
     DI -.- U1
     DI -.- U2
     DI -.- RU2
@@ -243,6 +240,8 @@ breaks something that works today. Those parts must land together, or in a fixed
    reads strict. A check on 2026-11-03 found that no Vortex producer wrote a spatial dtype with a
    nullable nested level. Only storage that a user builds by hand through the public Rust API can
    have one. The maintainer accepted that such files stop reading, so no read plugin is needed.
+   SN1 ([#11183](https://github.com/vortex-data/vortex/pull/11183)) merged on 2026-11-04 as
+   `956c1ea188`, so this order holds.
 7. The declarations of phase 2 (TY1 to TY4) land before the typing check of phase 3, or with it.
    The check rejects every call that answers `None`, so a family without its declaration stops
    working. For example, a compare of two `Timestamp` columns would fail when it is built.
@@ -255,8 +254,8 @@ implementations that they change into `vortex-aggregates`.
 
 - Write the path-consistency helper first, because U1 and U2 use it. It merged as #11013.
 - Land U1 to U8 as separate PRs. U9 is listed in phase 2, but it can land at any time.
-- Finish [#10953](https://github.com/vortex-data/vortex/pull/10953) with maintainer commits instead
-  of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
+- The maintainer finished [#10953](https://github.com/vortex-data/vortex/pull/10953) with commits
+  instead of waiting on its author. It makes `Timestamp` accept every `i64` (X31) and fixes the
   `DateTimeParts` days wrap (EXT-S3). The maintainer commits of 2026-10-30 merge `develop`, update
   the binding tests that expect the old range, and drop the `min_max/extension.rs` change that
   #11014 owns. In place of the days range check, the split keeps `i32` days, and it rebuilds the
@@ -268,23 +267,26 @@ implementations that they change into `vortex-aggregates`.
   `24a7085f84`, and `df5feb4baa` address scalar overflow, the conversion error regression, and
   fixture/benchmark cleanups. With the maintainer's approval, `d6e73bd40e` removes the cached-bounds
   fast path and its duplicate loop variants, test cases, and benchmark inputs. On 2026-11-03 the
-  maintainer pushed all four with four cleanup commits. The head is `7943b4e983`, and the PR waits
-  for an approval. The two benchmark runs and default-writer probe are in part 4. They support
+  maintainer pushed all four with four cleanup commits. The head is `7943b4e983`, and the PR merged
+  that day. The two benchmark runs and default-writer probe are in part 4. They support
   removing the fast path: the millisecond gain is 11 to 13%, but the tested writer passes no exact
   bounds to `split_temporal`. Seconds gain nothing from caching. At `d6e73bd40e`, a comparison
   with the PR's `develop` base `d8e7467f8b` shows a repeatable 12.9% millisecond split slowdown and
   no slowdown in the other units. No run measured the pushed head `7943b4e983`. Part 4 records
   the two runs per revision, the table, and the checks. All requested scoped checks passed.
 - Land the spatial fix (EXT-N2) in two PRs. SN1 makes the five list-based spatial validators
-  require non-null nested levels. SN2 makes every Arrow importer of a known type (spatial,
-  `Vector`, `Uuid` and `Json`) convert children that are marked nullable but hold no nulls, and
-  fail on data outside the domain instead of declining (X29).
+  require non-null nested levels. It merged as #11183 on 2026-11-04. SN2 makes every Arrow importer
+  of a known type (spatial, `Vector`, `Uuid` and `Json`) convert children that are marked nullable
+  but hold no nulls, and fail on data outside the domain instead of declining (X29). On 2026-11-03,
+  the maintainer approved a one-pass design: the canonical Arrow import passes the visible rows of
+  each level down to its children, so it drops masked nulls (nulls under a null parent) once. The
+  importer boundary keeps one rebuild, because `ArrowImportVTable` carries no visibility.
 - SN2 builds on DP. Today a dictionary-encoded extension field imports only because its importer
   declines it first, and the session then retries with the value type. DP peels the dictionary
   before the importers run, so importers never see dictionaries and can fail. The result stays
   `Dict(codes, Ext(values))`.
 - V10 gives the `Display` of `Date` the fallback that #10953 gives `Timestamp`, in its own PR on
-  `develop` (EXT-V10).
+  `develop` (EXT-V10). It merged as #11187 on 2026-11-04.
 - U4 is the interim form of the storage declaration: `with_nullability` stops validating again, and
   the documentation of `validate_dtype` states that its result must not depend on the top-level
   nullability. #11012 merged in this form on 2026-11-02. An earlier version validated every dtype
@@ -342,7 +344,7 @@ implementations that they change into `vortex-aggregates`.
   limit.
 - Declare the built-in functions by family, each in its own PR with tests of its declarations:
   1. TY1: compare and `between` answer `Specific` when the extension operands are on the list that
-     the operator needs. If #10408 merges first, its `between` pushdown uses the same answer.
+     the operator needs.
   2. TY2: the aggregates that read values answer `Specific` for the types on the list that they
      need. For example, `min`, `max`, `min_max` and `is_sorted` need the order list.
   3. TY3: the structural functions answer `Structural`.
@@ -435,7 +437,8 @@ implementations that they change into `vortex-aggregates`.
   a storage-like target type. This part can start at any time.
 - DS: the DataFusion physical schema rejects extension dtypes inside List, FixedSizeList, Map,
   ListView and Utf8 storage (`vortex-datafusion/src/convert/schema.rs`), which probably breaks
-  `Vector` columns. DS fixes it, once a regression test confirms the failure.
+  `Vector` columns. DS fixes it, once a regression test confirms the failure. DS is implemented on
+  a branch, but it has no PR yet.
 - Add converter traits for DuckDB, Python and JNI, modeled on the Arrow registry. Move the
   hard-coded type lists into converters, and add converters where the implicit conversions of today
   stop.
@@ -531,14 +534,14 @@ Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this pl
 | EXT-V2, EXT-V7 | U6, merged in #11014 |
 | EXT-V3 | U7, merged in #11014 |
 | EXT-V4, EXT-V5, EXT-V8 | U5, merged in #11015 |
-| EXT-V9 | [#10953](https://github.com/vortex-data/vortex/pull/10953) (X31) |
-| EXT-V10 | V10, its own PR on `develop`. It gives the `Display` of `Date` the fallback of `Timestamp` |
+| EXT-V9 | [#10953](https://github.com/vortex-data/vortex/pull/10953) (X31), merged |
+| EXT-V10 | V10, merged in #11187. It gives the `Display` of `Date` the fallback of `Timestamp` |
 | EXT-V6 | Phase 6. The trait allows a type without a value check, so a type adds one only where its values have constraints |
 | EXT-N1 | U4 (merged in #11012) as the interim fix, and the storage declaration of phase 1 |
 | EXT-N2 | SN1 for the validators, before SD ("Order constraints", item 6), and SN2 for the Arrow importers |
 | EXT-S1 | The low-priority lift rule and the shared pushdown (X34). Code handles both shapes today, so no result is wrong |
 | EXT-S2 | The low-priority move of `DateTimeParts` under the wrapper. U2 fixed its compare kernel in #11016 |
-| EXT-S3 | #10953 |
+| EXT-S3 | #10953, merged |
 | EXT-B1 | U2 and #11067 for literals, both merged, and phase 7 for schema and scalar conversion |
 | EXT-B2 | U1 for the storage leak, and phase 7 for the export with metadata |
 | EXT-B3 | U1 for `vx.scalar`, and phase 7 for `as_py` |

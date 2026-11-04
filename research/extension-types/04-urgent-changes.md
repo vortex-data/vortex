@@ -10,7 +10,7 @@ each one fits in a small PR with a regression test. U9 does not depend on the de
 can land at any time (X35). Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
 2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
 part are for that commit. U5 merged in #11015 on 2026-10-30. U2, U3, U4, U6, U7 and U8 merged on
-2026-11-02. U1 and U9 have no PR yet.
+2026-11-02. U1 has no PR yet, and U9 is the open draft #11188.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -110,8 +110,8 @@ caller. The storage declaration of phase 1 replaces this interim form (X27).
 
 [#11015](https://github.com/vortex-data/vortex/pull/11015) made these changes and merged on
 2026-10-30 as `5d8429064a`. It kept the jiff range of `Timestamp`.
-[#10953](https://github.com/vortex-data/vortex/pull/10953) removes that range, so that `Timestamp`
-accepts every `i64` (X31, EXT-V9).
+[#10953](https://github.com/vortex-data/vortex/pull/10953) removed that range and merged on
+2026-11-03 as `8896ab27d0`, so that `Timestamp` accepts every `i64` (X31, EXT-V9).
 
 ## U6. Storage checks for arrays and scalars
 
@@ -166,7 +166,7 @@ adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
 
-On 2026-11-02, the PRs for part 4 stand as follows:
+On 2026-11-04, the PRs for part 4 stand as follows:
 
 - The path-consistency helper (#11013) and U5 (#11015) merged on 2026-10-30.
 - U4 and U8 (#11012) merged on 2026-11-02 as `b9b02f6288`, in the reworked form of U4.
@@ -180,7 +180,9 @@ On 2026-11-02, the PRs for part 4 stand as follows:
   the other operand, so `Uuid` and `Json` filters still push down. Its tests cover dynamic filter
   updates. It also makes the export of a non-temporal extension scalar as a bare DataFusion
   `ScalarValue` an error. So item 1 of "Order constraints" in part 5 holds.
-- U1 and the Arrow export that lands before it have no PR yet.
+- U9 is the open draft #11188.
+- U1 and the Arrow export that lands before it have no PR yet. The export is implemented on a
+  branch.
 
 Three more PRs touch this work:
 
@@ -203,7 +205,7 @@ Three more PRs touch this work:
   extreme constant, and removes dead benchmark code. With the maintainer's approval, `d6e73bd40e`
   removes the cached-bounds fast path, duplicate loop variants, and cache-only test and benchmark
   parameters. On 2026-11-03 the maintainer pushed them with four cleanup commits. The PR head is
-  `7943b4e983`, and the PR waits for an approval.
+  `7943b4e983`, and the PR merged on 2026-11-03 as `8896ab27d0`.
   The hot `combine_parts` decode loop is unchanged, because its overflow risk predates this PR.
 
   `d6e73bd40e` removed the fast path after the following measurements and writer probe. At the
@@ -254,9 +256,10 @@ Three more PRs touch this work:
   X34. It merged on 2026-11-03 as `194a9f92fd`.
 - Two PRs fix EXT-N2 (X26, X29). SN1 makes the spatial validators require non-null nested levels.
   SN2 makes the Arrow importers of known types convert or fail. It builds on DP, which peels
-  dictionary fields before the importers run. On 2026-11-03 none of the three has a PR yet.
+  dictionary fields before the importers run. SN1 (#11183) merged on 2026-11-04 as `956c1ea188`.
+  DP (#11185) is in review. SN2 is implemented on a branch that stacks on DP, but it has no PR yet.
 
-Three PRs added or add mechanisms for extension semantics:
+Three PRs added or proposed mechanisms for extension semantics:
 
 - [#10246](https://github.com/vortex-data/vortex/pull/10246) proposed a per-type aggregate kernel
   registry. It closed without a merge on 2026-10-19.
@@ -265,12 +268,10 @@ Three PRs added or add mechanisms for extension semantics:
   [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
   and `Uuid`. Both merged on 2026-10-20. U9 fixes its results. In SP4, its body becomes the
   default storage path of aggregate binding, and its composite IDs go away (X10, X21).
-- [#10408](https://github.com/vortex-data/vortex/pull/10408) adds `between` pushdown for
-  `AnyTemporal`. It is an open draft.
+- [#10408](https://github.com/vortex-data/vortex/pull/10408) proposed a `between` pushdown for
+  `AnyTemporal`. It closed without a merge on 2026-11-03.
 
-TY1 gives the `between` pushdown the hardcoded declaration of X35, and SP3 turns it into a
-`Storage` declaration. SP4 replaces the hand-written registrations of the adapter with the claims
-of the types.
+SP4 replaces the hand-written registrations of the adapter with the claims of the types.
 
 [#10769](https://github.com/vortex-data/vortex/pull/10769) (draft) moves the aggregate
 implementations into a new `vortex-aggregates` crate, including the tests of the storage pushdown.

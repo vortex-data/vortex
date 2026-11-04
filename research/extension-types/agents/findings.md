@@ -17,8 +17,9 @@ EXT-V8, EXT-B4 and EXT-R4 gained new facts. `../04-urgent-changes.md` gives the 
 A third pass on 2026-10-30 added EXT-V9, EXT-N2 and EXT-S3. Their line numbers are for `develop`
 at `493967ce33`, except where an entry names `d197efd007`. The code that they cite is the same at
 both commits. #11015 fixed EXT-V4, EXT-V5 and EXT-V8 on 2026-10-30. On 2026-11-02, #11012, #11014,
-#11016 and #11067 merged U2 to U4 and U6 to U8. `../05-implementation.md` maps each one to its
-findings.
+#11016 and #11067 merged U2 to U4 and U6 to U8. #10953 fixed EXT-V9 and EXT-S3 on 2026-11-03. On
+2026-11-04, #11187 fixed EXT-V10, and #11183 fixed the validator part of EXT-N2.
+`../05-implementation.md` maps each one to its findings.
 
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
@@ -269,8 +270,8 @@ Terms:
     `vortex_uuid::initialize` calls it for `Uuid` (`encodings/uuid/src/lib.rs:46`). It deleted
     `is_sorted/extension.rs`, and it taught `min_max` and `is_sorted` to order a `FixedSizeList`
     of non-nullable `u8` by bytes.
-  - PR #10408 adds a `between` pushdown that matches `AnyTemporal` inside the rule. It is an open
-    draft.
+  - PR #10408 proposed a `between` pushdown that matches `AnyTemporal` inside the rule. It closed
+    without a merge on 2026-11-03.
 - **State at `1d09649bbd`.** Only the composite aggregates, such as
   `vortex.is_sorted[vortex.timestamp]`, use the new path, and only tests ask for them. Plain
   `is_sorted` still rejects every extension dtype (`is_sorted/mod.rs:259-278`) and returns `false`
@@ -461,7 +462,7 @@ Terms:
   panics. Nothing ran here.
 - **Expected:** Arrow, Parquet and many SQL engines accept `9999-12-31`. The range of `Timestamp` is
   every `i64` count of its unit (X31).
-- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) removes the range check, and
+- **Fix:** [#10953](https://github.com/vortex-data/vortex/pull/10953) removed the range check, and
   `Display` prints the raw count for a value that jiff cannot show. #11014, merged on 2026-11-02,
   made the wrap in `min_max` fallible, which covers other types whose values can fail the check.
   `TemporalMetadata::to_jiff` returns an error for values outside the range of jiff
@@ -469,7 +470,8 @@ Terms:
   reject those values: its same-zone `raise` shortcut returned them unchanged. The author's
   commit `94c7ead8a0` on 2026-11-03 moves the jiff conversion before that shortcut. The review
   commit `24a7085f84` adds conversion context and checks the specific error, with an in-range
-  control for both timezone targets. It is part of the pushed head `7943b4e983`.
+  control for both timezone targets. It is part of the pushed head `7943b4e983`. #10953 merged
+  at that head on 2026-11-03.
 
 ### EXT-V10: `Date` Display panics on valid storage values
 
@@ -484,7 +486,7 @@ Terms:
 - **Fix:** V10, its own PR on `develop`: use `TimeUnit::to_jiff_span` and `checked_add`, then print
   `{value}{unit}` if either fails. This follows the fallback pattern that #10953 gives
   `TimestampValue`. #10953 changes only `timestamp.rs`, so it does not fix this finding. The
-  maintainer confirmed V10 on 2026-11-03.
+  maintainer confirmed V10 on 2026-11-03. #11187 made this change on 2026-11-04.
 
 ### EXT-N1: A nullability change can panic
 
@@ -531,8 +533,9 @@ Terms:
   0.84.0 use the older `vortex.geo.*` IDs.
 - **Fix:** SN1 makes the five list-based validators require non-null nested levels. `Point` and
   `Rect` already do. `validate_dtype` runs on every read, so files in the other form stop reading,
-  which the maintainer accepted on 2026-11-03. SN2 makes the Arrow importers convert children that
-  are marked nullable but hold no nulls, and fail on nested nulls (X29).
+  which the maintainer accepted on 2026-11-03. #11183 made the SN1 change on 2026-11-04. SN2 makes
+  the Arrow importers convert children that are marked nullable but hold no nulls, and fail on
+  nested nulls (X29).
 
 ### EXT-S1: A constant extension column has two shapes
 
@@ -579,7 +582,8 @@ Terms:
   cast that fails (`encodings/datetime-parts/src/compute/compare.rs:242-257`). D28 marks that
   `narrow` call for a later decision, so internal children can stop narrowing their dtype. The
   `i64` days part still works then: the integer compressor stores the days in few bits whatever
-  the declared width, and only the decoded days child grows to 8 bytes per row.
+  the declared width, and only the decoded days child grows to 8 bytes per row. #10953 merged on
+  2026-11-03.
 
 ### EXT-B1: DataFusion converts extension values to storage values
 
