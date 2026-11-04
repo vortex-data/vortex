@@ -44,6 +44,8 @@ use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::Optimizer;
+use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
@@ -179,9 +181,17 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        // One optimizer serves the whole execution, so a shared node that one step rewrote is
+        // reused when a later step reaches it. The session is cloned so the optimizer does not
+        // borrow `ctx`.
+        let session = ctx.session().clone();
+        let session_kernels = session.kernels();
+        let session_kernels: &ArrayKernels = &session_kernels;
+        let mut optimizer = Optimizer::new(Some(session_kernels));
+
         // Each node is optimized when execution reaches it: the root here, with the nodes below it
         // that were never optimized, and a child when execution focuses it.
-        let mut current_array = self.optimize_ctx(ctx.session())?;
+        let mut current_array = optimizer.optimize_array(&self)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
@@ -219,7 +229,7 @@ impl ArrayRef {
                         // Kernels build their results with lazy constructors too, such as a
                         // filtered validity, so optimize whatever execution produced. This is
                         // free when the array is already marked as optimized.
-                        current_array = current_array.optimize_ctx(ctx.session())?;
+                        current_array = optimizer.optimize_array(&current_array)?;
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }
@@ -256,7 +266,7 @@ impl ArrayRef {
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = result.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&result)?;
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
@@ -274,7 +284,7 @@ impl ArrayRef {
                 && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
-                let optimized = rewritten.optimize_ctx(ctx.session())?;
+                let optimized = optimizer.optimize_array(&rewritten)?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
                 continue;
@@ -308,7 +318,7 @@ impl ArrayRef {
                         original_dtype: child.dtype().clone(),
                         original_len: child.len(),
                     });
-                    current_array = child.optimize_ctx(ctx.session())?;
+                    current_array = optimizer.optimize_array(&child)?;
                     current_builder = None;
                 }
                 ExecutionStep::AppendChild(i) => {
@@ -351,7 +361,7 @@ impl ArrayRef {
                     }
                     // Kernels build their results with lazy constructors, such as a cast that only
                     // changes nullability. Reduce them before execute-parent kernels see them.
-                    current_array = current_array.optimize_ctx(ctx.session())?;
+                    current_array = optimizer.optimize_array(&current_array)?;
                 }
             }
         }

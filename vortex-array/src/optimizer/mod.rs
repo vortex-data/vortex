@@ -30,6 +30,8 @@
 //! record the session: an array optimized with one session is not optimized again with a session
 //! that registers more kernels.
 
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -145,11 +147,7 @@ impl ArrayOptimizer for ArrayRef {
             return Ok(self.clone());
         }
 
-        Optimizer {
-            session_kernels: None,
-            rewritten_shared: HashMap::new(),
-        }
-        .optimize_root(self.clone())
+        Optimizer::new(None).optimize_root(self.clone())
     }
 
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
@@ -159,11 +157,7 @@ impl ArrayOptimizer for ArrayRef {
 
         let session_kernels = session.kernels();
         let session_kernels: &ArrayKernels = &session_kernels;
-        Optimizer {
-            session_kernels: Some(session_kernels),
-            rewritten_shared: HashMap::new(),
-        }
-        .optimize(self.clone())
+        Optimizer::new(Some(session_kernels)).optimize_array(self)
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
@@ -171,23 +165,78 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
-/// The state of one optimize call.
-struct Optimizer<'a> {
+/// An array keyed by identity: two keys are equal only when they hold the same array, as
+/// [`ArrayRef::ptr_eq`] decides.
+///
+/// The key holds the array, so its address cannot be freed and reused by another array while the
+/// key exists.
+struct ArrayByPtr(ArrayRef);
+
+impl PartialEq for ArrayByPtr {
+    fn eq(&self, other: &Self) -> bool {
+        ArrayRef::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ArrayByPtr {}
+
+impl Hash for ArrayByPtr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.addr().hash(state);
+    }
+}
+
+/// The optimizer state, which can be kept for many optimize calls.
+///
+/// Execution keeps one optimizer for all of [`ArrayRef::execute_until`], so a shared node that one
+/// step rewrote is not rewritten again when a later step reaches it through another parent.
+pub(crate) struct Optimizer<'a> {
     /// The session kernels, tried before the static parent-reduce rules.
     ///
     /// Without them, the optimizer rewrites only the root node and does not mark the result, so
     /// optimizing it later with a session still tries the session kernels.
     session_kernels: Option<&'a ArrayKernels>,
-    /// The shared nodes this call rewrote, by address, each with the array it was rewritten into.
+    /// The shared nodes this optimizer rewrote, each with the array it was rewritten into.
     ///
     /// Many parents can hold the same unoptimized node, such as the struct below every field of a
     /// projection. A rewrite returns a new array and does not mark the node, so without this each
-    /// parent would rewrite the node and its whole subtree again. The entry keeps the node alive,
-    /// so no other array can get its address during the call.
-    rewritten_shared: HashMap<usize, (ArrayRef, ArrayRef)>,
+    /// parent would rewrite the node and its whole subtree again. The key keeps the node alive
+    /// for the life of the optimizer.
+    rewritten_shared: HashMap<ArrayByPtr, ArrayRef>,
 }
 
-impl Optimizer<'_> {
+impl<'a> Optimizer<'a> {
+    /// Creates an optimizer that tries `session_kernels` before the static parent-reduce rules.
+    pub(crate) fn new(session_kernels: Option<&'a ArrayKernels>) -> Self {
+        Self {
+            session_kernels,
+            rewritten_shared: HashMap::new(),
+        }
+    }
+
+    /// Optimizes `array` and the descendants below it that were never optimized, and marks the
+    /// result.
+    ///
+    /// If another owner holds `array` too, the rewrite is remembered, and a later call with the
+    /// same array returns it.
+    pub(crate) fn optimize_array(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        if !array.is_shared() {
+            return self.optimize(array.clone());
+        }
+
+        let key = ArrayByPtr(array.clone());
+        if let Some(rewritten) = self.rewritten_shared.get(&key) {
+            return Ok(rewritten.clone());
+        }
+
+        let optimized = self.optimize(array.clone())?;
+        if !ArrayRef::ptr_eq(&optimized, array) {
+            self.rewritten_shared.insert(key, optimized.clone());
+        }
+
+        Ok(optimized)
+    }
+
     /// Optimizes `array` after the descendants below it that were never optimized, and marks the
     /// result.
     fn optimize(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
@@ -297,7 +346,7 @@ impl Optimizer<'_> {
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let optimized = match slot {
                 Some(child) if !child.optimized_state().is_optimized() => {
-                    let optimized = self.optimize_child(child)?;
+                    let optimized = self.optimize_array(child)?;
                     (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
                 }
                 _ => None,
@@ -326,25 +375,6 @@ impl Optimizer<'_> {
         // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
         // the parent's logical values and statistics remain valid.
         unsafe { array.with_slots(new_slots) }
-    }
-
-    /// Optimizes `child`, and reuses the rewrite of a shared child that this call made before.
-    fn optimize_child(&mut self, child: &ArrayRef) -> VortexResult<ArrayRef> {
-        if !child.is_shared() {
-            return self.optimize(child.clone());
-        }
-
-        if let Some((_, rewritten)) = self.rewritten_shared.get(&child.addr()) {
-            return Ok(rewritten.clone());
-        }
-
-        let optimized = self.optimize(child.clone())?;
-        if !ArrayRef::ptr_eq(&optimized, child) {
-            self.rewritten_shared
-                .insert(child.addr(), (child.clone(), optimized.clone()));
-        }
-
-        Ok(optimized)
     }
 }
 
