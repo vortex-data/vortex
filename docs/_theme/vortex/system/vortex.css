@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 d1671fc60a582807c6f358608f8bdd8b4b8d48ed4fa3065d6e54a8ca0e83f0e8 */
+   sha256 0e6ede3265aee5a70243738eb02f424b641d6690683dd2a7936ba9f4a2a42ff8 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -116,8 +116,9 @@
 .vx-docs-main h3 { margin: var(--space-32) 0 var(--space-8); font: 600 1.125rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
 .vx-docs-main h4 { margin: var(--space-24) 0 var(--space-8); font: 600 1rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
 .vx-docs-main strong { font-weight: 600; color: var(--ink); }
-.vx-docs-main a { color: var(--ink); text-decoration: underline 1px color-mix(in srgb, var(--ink) 30%, transparent); text-underline-offset: 3px; transition: color var(--vx-motion), text-decoration-color var(--vx-motion); }
-.vx-docs-main a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
+/* Prose links are Blue at rest, as the old docs theme's were: a reference page is mostly links, and the reader scans for them. */
+.vx-docs-main a { color: var(--accent-ink); text-decoration: underline 1px color-mix(in srgb, var(--accent-ink) 40%, transparent); text-underline-offset: 3px; transition: color var(--vx-motion), text-decoration-color var(--vx-motion); }
+.vx-docs-main a:hover { text-decoration-color: currentColor; }
 .vx-docs-main a:has(> code) { text-decoration: none; }
 .vx-docs-main hr { margin: var(--space-32) 0; border: 0; border-top: 1px solid var(--line); }
 .vx-docs-main blockquote { padding-left: var(--space-16); border-left: 2px solid var(--edge); }
