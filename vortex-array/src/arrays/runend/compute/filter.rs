@@ -20,10 +20,11 @@
 //! Output rows:      A A C C
 //! ```
 //!
-//! A [`BitRankDirectory`] stores each 64-bit mask word alongside the number of selected rows in
-//! preceding words. A rank query combines that stored count with a population count of the
-//! relevant bits within one word. This avoids setting up a separate range count for every run,
-//! which is especially useful for short runs.
+//! Run ends never decrease, so one walk over the mask's 64-bit words answers every rank query.
+//! The walk keeps the number of selected rows in the words it has passed, and a query adds a
+//! population count of the relevant bits within the current word. This avoids a separate range
+//! count for every run, which is especially useful for short runs, and it builds no index, so
+//! long runs cost no more than one pass over the mask.
 //!
 //! Each query still needs a population count, so the instructions used for counting matter.
 //! [`fearless_simd`] selects a version of the loop compiled for the current CPU's features.
@@ -38,7 +39,7 @@ use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitRankDirectory;
+use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -195,7 +196,7 @@ fn run_end_ranks_simd<S: Simd, R: NativePType + AsPrimitive<u64>>(
 where
     u64: AsPrimitive<R>,
 {
-    let rank = BitRankDirectory::new(mask);
+    let mut rank = MaskRank::new(mask);
     let mut filtered_run_ends = BufferMut::<R>::with_capacity_in(run_ends.len(), allocator.clone());
     let filtered_run_ends_out = filtered_run_ends.spare_capacity_mut();
     let mut retained_run_count = 0;
@@ -208,8 +209,9 @@ where
         let run_end: u64 = run_end.as_();
         let position = <u64 as AsPrimitive<usize>>::as_(min(run_end - offset, length));
 
-        // SAFETY: the clamp keeps the position at most `length`, which is the mask length.
-        let run_rank: u64 = unsafe { rank.rank_unchecked(position) }.as_();
+        // The clamp keeps the position at most `length`, which is the mask length, and run ends
+        // never decrease, so the positions never decrease.
+        let run_rank: u64 = rank.rank(position).as_();
 
         // SAFETY: `retained_run_count <= run_idx`, and the spare capacity holds `run_ends.len()`
         // elements. The rank is at most `length`, which fits in `R` because the source run ends
@@ -227,6 +229,65 @@ where
     unsafe { filtered_run_ends.set_len(retained_run_count) };
 
     (filtered_run_ends, retained_runs)
+}
+
+/// Counts the set bits of a mask before non-decreasing positions, reading each 64-bit word once.
+///
+/// The methods are always inlined, so the rank loop counts with the POPCNT of its dispatch level.
+struct MaskRank<'a> {
+    words: BitChunkIterator<'a>,
+
+    /// The last, partial word of the mask. It is zero when the mask length is a multiple of 64.
+    remainder: u64,
+
+    /// The index of `word` among the mask's words.
+    word_idx: usize,
+
+    word: u64,
+
+    /// The set bits in the words before `word`.
+    before_word: usize,
+}
+
+impl<'a> MaskRank<'a> {
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into the dispatch body to use its POPCNT"
+    )]
+    #[inline(always)]
+    fn new(mask: &'a BitBuffer) -> Self {
+        let chunks = mask.chunks();
+        let remainder = chunks.remainder_bits();
+        let mut words = chunks.iter();
+        let word = words.next().unwrap_or(remainder);
+
+        Self {
+            words,
+            remainder,
+            word_idx: 0,
+            word,
+            before_word: 0,
+        }
+    }
+
+    /// Returns the set bits in `0..pos`, for `pos` at most the mask length and no smaller than in
+    /// the previous call.
+    #[expect(
+        clippy::inline_always,
+        reason = "must inline into the dispatch body to use its POPCNT"
+    )]
+    #[inline(always)]
+    fn rank(&mut self, pos: usize) -> usize {
+        let word_idx = pos / 64;
+        while self.word_idx < word_idx {
+            self.before_word += self.word.count_ones() as usize;
+            self.word_idx += 1;
+            self.word = self.words.next().unwrap_or(self.remainder);
+        }
+
+        let low_bits = (1u64 << (pos % 64)) - 1;
+        self.before_word + (self.word & low_bits).count_ones() as usize
+    }
 }
 
 #[cfg(test)]
