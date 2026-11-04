@@ -11,7 +11,6 @@
 //! and stages, and [`pipeline`] compiles and runs them.
 
 mod display;
-mod lower;
 pub mod operator;
 pub(crate) mod operators;
 mod optimize;
@@ -28,7 +27,6 @@ pub use display::PlanSummaryExtractor;
 pub use display::PlanTreeContext;
 pub use display::PlanTreeDisplay;
 pub use display::PlanTreeExtractor;
-pub use lower::lower;
 pub use optimize::optimize;
 pub use plans::Concat;
 pub use plans::ConcatData;

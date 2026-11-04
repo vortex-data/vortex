@@ -1,0 +1,173 @@
+{
+  "source": "https://github.com/vortex-data/vortex/actions/runs/41869576169",
+  "commit": "141abdc590aa990c5e7b6c49dbc6832c254d50d4",
+  "seconds": {
+    "vortex": {
+      "common_encoding_tree_throughput": 4.073,
+      "pipeline": 0.253,
+      "single_encoding_throughput": 5.819,
+      "take_union": 3.473
+    },
+    "vortex-alp": {
+      "alp_compress": 5.189
+    },
+    "vortex-array": {
+      "aggregate_grouped": 3.823,
+      "aggregate_max": 3.586,
+      "aggregate_sum": 3.199,
+      "binary_ops": 2.881,
+      "bool_zip": 2.524,
+      "cast_decimal": 2.634,
+      "cast_primitive": 2.705,
+      "chunk_array_builder": 4.669,
+      "chunked_dict_builder": 3.92,
+      "chunked_fsl_canonicalize": 2.85,
+      "compare": 2.887,
+      "compare_sorted": 2.552,
+      "copy_to_canonical_width": 0.264,
+      "dict_compare": 4.881,
+      "dict_compress": 4.688,
+      "dict_mask": 4.854,
+      "dict_unreferenced_mask": 2.816,
+      "expr_case_when": 5.956,
+      "expr_large_struct_pack": 2.408,
+      "expr_optimize": 2.377,
+      "filter_bool": 5.08,
+      "filter_fixed_width": 3.863,
+      "filter_fsl": 2.687,
+      "filter_list": 3.708,
+      "interleave": 3.356,
+      "kleene_bool": 3.171,
+      "like": 3.308,
+      "list_contains_set": 3.038,
+      "list_length": 3.084,
+      "list_sum": 3.835,
+      "listview_builder_extend": 2.756,
+      "listview_rebuild": 3.062,
+      "listview_zip": 2.745,
+      "patches_lookup": 2.73,
+      "piecewise_sequence_take_primitive": 2.998,
+      "primitive_zip": 2.671,
+      "probe": 2.779,
+      "row_fn_bool_retry": 0.325,
+      "row_fn_output": 0.329,
+      "row_fn_utf8_input": 0.321,
+      "run_end_compress": 4.505,
+      "run_end_decode": 3.32,
+      "run_end_decode_primitive": 2.917,
+      "run_end_filter": 2.833,
+      "run_end_null_count": 3.881,
+      "run_end_sum": 2.468,
+      "run_end_take": 2.804,
+      "scalar_at_struct": 2.614,
+      "scalar_construction": 2.492,
+      "scalar_fn_probe": 2.918,
+      "scalar_subtract": 0.328,
+      "search_sorted": 0.543,
+      "slice_dict_primitive": 2.451,
+      "take_chunked": 0.33,
+      "take_filter": 5.694,
+      "take_fsl": 3.857,
+      "take_patches": 3.807,
+      "take_primitive": 3.558,
+      "take_struct": 2.642,
+      "take_varbin": 2.5,
+      "validity_is_valid": 2.515,
+      "varbinview_compact": 2.637,
+      "varbinview_fill_null": 2.419,
+      "varbinview_try_new": 2.675,
+      "varbinview_zip": 2.461,
+      "widen": 3.774,
+      "widen_decimal": 2.824
+    },
+    "vortex-buffer": {
+      "allocation": 1.24,
+      "collect_bool": 0.727,
+      "cpu_dispatch": 0.564,
+      "take_bits": 0.265,
+      "vortex_bitbuffer": 1.413,
+      "vortex_buffer": 1.031
+    },
+    "vortex-compressor": {
+      "dict_encode": 0.334,
+      "float_stats": 2.797,
+      "integer_stats": 2.828,
+      "stats_calc": 0.259
+    },
+    "vortex-compute": {
+      "lane_kernels": 1.034
+    },
+    "vortex-datetime-parts": {
+      "split_temporal": 2.741
+    },
+    "vortex-decimal-byte-parts": {
+      "dbp_assemble": 0.259,
+      "dbp_compute": 4.161,
+      "dbp_split": 0.259
+    },
+    "vortex-elias-fano": {
+      "unary": 3.413
+    },
+    "vortex-fastlanes": {
+      "bitpack_blocked": 0.367,
+      "bitpack_blocked_decompress": 0.369,
+      "bitpack_compare": 2.911,
+      "bitpack_compare_sweep": 6.813,
+      "bitpacking_filter": 0.368,
+      "bitpacking_take": 6.285,
+      "canonicalize_bench": 4.221,
+      "cast_bitpacked": 3.256,
+      "compute_between": 3.693,
+      "for_decode": 0.366,
+      "for_encode": 0.368
+    },
+    "vortex-file": {
+      "split_collection": 7.372
+    },
+    "vortex-fsst": {
+      "chunked_dict_fsst_builder": 4.181,
+      "fsst_compress": 4.946,
+      "fsst_like": 3.697,
+      "fsst_take": 8.289,
+      "fsst_url_compare": 3.405
+    },
+    "vortex-layout": {
+      "aggregate_partial_merge": 5.896,
+      "bloom_filter": 5.447,
+      "pipeline_scan": 6.542,
+      "zone_map_prune": 7.638
+    },
+    "vortex-mask": {
+      "intersect_by_rank": 1.29,
+      "mask_iteration": 1.038,
+      "rank": 0.723,
+      "valid_counts": 0.756
+    },
+    "vortex-pco": {
+      "scalar": 3.03
+    },
+    "vortex-row": {
+      "row_encode": 2.976
+    },
+    "vortex-sparse": {
+      "sparse_canonical": 3.52,
+      "sparse_pushdown": 3.121
+    },
+    "vortex-spatial": {
+      "area": 5.079,
+      "binary_predicates": 9.029,
+      "collect": 5.074,
+      "convex_hull": 4.98,
+      "distance": 5.132,
+      "envelope": 4.944,
+      "length": 4.81,
+      "make_line": 4.601,
+      "predicate_bbox": 0.703
+    },
+    "vortex-tensor": {
+      "cosine_similarity": 4.48,
+      "inner_product": 4.206,
+      "l2_norm": 4.136
+    }
+  }
+}

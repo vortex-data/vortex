@@ -48,8 +48,8 @@ jobs:
               - ".github/workflows/codspeed.yml"
 
   # CodSpeed rejects an upload with too many benchmarks, so the simulation benchmarks run in
-  # shards of at most 800. The planner reads only Cargo.toml files and the committed benchmark
-  # counts, so this job needs no Rust toolchain and takes seconds.
+  # shards of at most 800. The planner balances recorded target runtimes across the available
+  # slots, keeping allocation modes separate. It reads only manifests and committed estimates.
   plan-codspeed:
     name: "Plan Codspeed shards"
     if: github.event.pull_request.draft != true

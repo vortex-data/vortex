@@ -6,17 +6,16 @@ import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy';
 import type { HierarchyRectangularNode } from 'd3-hierarchy';
 import type { LayoutTreeNode, SegmentMapEntry } from '../swimlane/types';
 import {
+  dtypeClass,
   getNodeDisplayName,
-  getDtypeCategory,
   shortEncoding,
   collectSubtreeSegments,
   findNodeById,
   findPathToNode,
   isFlatLayout,
   formatBytes,
-  DTYPE_COLORS,
 } from '../swimlane/utils';
-import { useTheme } from '../../contexts/ThemeContextCore';
+import { Facts } from '../detail/Facts';
 import {
   nodePhysicalStats,
   arraySubtreeBytes,
@@ -44,7 +43,8 @@ interface BlockTreemapProps {
 interface TreeNode {
   name: string;
   nodeId: string;
-  color: string;
+  /** The dtype class that colours the block (vx-dt-int and so on). */
+  dtype: string;
   bytes: number;
   layoutNode: LayoutTreeNode;
   children?: TreeNode[];
@@ -79,29 +79,12 @@ function buildTree(node: LayoutTreeNode, segmentMap: Map<number, SegmentMapEntry
   const base = {
     name: getNodeDisplayName(node),
     nodeId: node.id,
-    color: DTYPE_COLORS[getDtypeCategory(node.dtype)],
+    dtype: dtypeClass(node.dtype),
     bytes: Math.max(subtreeBytes(node, segmentMap), 1),
     layoutNode: node,
   };
   if (children.length === 0) return base;
   return { ...base, children: children.map((c) => buildTree(c, segmentMap)) };
-}
-
-interface ThemeColors {
-  fg: string;
-  dim: string;
-  border: string;
-  highlight: string;
-}
-
-function resolveThemeColors(choice: 'light' | 'dark' | 'system'): ThemeColors {
-  const isDark =
-    choice === 'system'
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-      : choice === 'dark';
-  return isDark
-    ? { fg: '#e4e4e8', dim: '#71717a', border: 'rgba(255,255,255,0.12)', highlight: '#2CB9D1' }
-    : { fg: '#18181b', dim: '#71717a', border: 'rgba(0,0,0,0.1)', highlight: '#2CB9D1' };
 }
 
 interface Tooltip {
@@ -132,8 +115,6 @@ export function BlockTreemap({
   // external selections (e.g. clicking the tree panel) drive the zoom.
   const selfSelected = useRef<string | null>(null);
 
-  const { theme: themeChoice } = useTheme();
-  const theme = useMemo(() => resolveThemeColors(themeChoice), [themeChoice]);
   const segmentMap = useMemo(() => new Map(segments.map((s) => [s.index, s])), [segments]);
   const drillNode = useMemo(() => findNodeById(root, drillId) ?? root, [root, drillId]);
   const tree = useMemo(() => buildTree(drillNode, segmentMap), [drillNode, segmentMap]);
@@ -144,6 +125,7 @@ export function BlockTreemap({
     const el = boxRef.current;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
+      if (!entry) return;
       const { width, height } = entry.contentRect;
       if (width > 0 && height > 0) setSize({ w: width, h: height });
     });
@@ -195,24 +177,6 @@ export function BlockTreemap({
     }
     return desc;
   }, [tree, size]);
-
-  const byId = useMemo(() => {
-    const m = new Map<string, RectNode>();
-    for (const n of nodes) m.set(n.data.nodeId, n);
-    return m;
-  }, [nodes]);
-
-  // Node ids in the selected subtree — rendered with a solid tint.
-  const selectedSubtreeIds = useMemo<Set<string>>(() => {
-    const ids = new Set<string>();
-    const sel = selectedNodeId ? byId.get(selectedNodeId) : undefined;
-    if (!sel) return ids;
-    (function walk(n: RectNode) {
-      ids.add(n.data.nodeId);
-      if (n.children) for (const c of n.children) walk(c);
-    })(sel);
-    return ids;
-  }, [selectedNodeId, byId]);
 
   const activeHover = localHover ?? hoveredNodeId;
 
@@ -297,27 +261,36 @@ export function BlockTreemap({
   );
 
   return (
-    <div ref={boxRef} className="relative w-full h-full overflow-hidden">
+    // The drill root draws no block of its own, so when it is the selected node the map's frame
+    // takes the ring.
+    <div
+      ref={boxRef}
+      className={`x-treemap${selectedNodeId === drillNode.id && tree.children?.length ? ' is-selected' : ''}`}
+    >
       {/* Zoom-out control, shown when drilled into a child layout. */}
       {drillParent && (
         <button
+          type="button"
+          className="vx-btn vx-btn-secondary is-mono x-treemap-up"
           onClick={() => {
             selfSelected.current = drillParent.id;
             setDrillId(drillParent.id);
             onSelectNode(drillParent.id);
           }}
-          title={`Up to ${getNodeDisplayName(drillParent)}`}
-          className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 rounded border border-vortex-grey-light/60 dark:border-white/[0.12] bg-vortex-white/90 dark:bg-vortex-black/80 px-1.5 py-0.5 text-[10px] font-mono text-vortex-grey-dark hover:text-vortex-light-blue shadow-sm backdrop-blur-sm cursor-pointer"
         >
-          ↑ {getNodeDisplayName(drillParent)}
+          Up to {getNodeDisplayName(drillParent)}
         </button>
       )}
       {size && (
+        // The tree is the keyboard path to every block, and a selection there zooms the map, so
+        // the map takes the pointer only.
+        // biome-ignore lint/a11y/useKeyWithClickEvents: a pointer shortcut; the tree has the keys.
         <svg
+          role="img"
+          aria-label={`Treemap of ${getNodeDisplayName(drillNode)}, sized by bytes on disk`}
           ref={svgRef}
           width={size.w}
           height={size.h}
-          className="block select-none cursor-pointer"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           onClick={handleClick}
@@ -333,46 +306,30 @@ export function BlockTreemap({
 
             const d = n.data;
             const isLeaf = !n.children || n.children.length === 0;
-            const isHovered = d.nodeId === activeHover;
-            const isSelected = selectedSubtreeIds.has(d.nodeId);
-            const maxChars = Math.floor((w - 6) / 6);
-            const label = maxChars < 2 ? '' : truncate(d.name, maxChars);
+            const cls = [
+              d.dtype,
+              isLeaf ? 'is-leaf' : 'is-container',
+              // Only the selected block takes the ring: its blocks are inside it already.
+              d.nodeId === selectedNodeId ? 'is-selected' : '',
+              d.nodeId === activeHover ? 'is-hovered' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+            const label = fitLabel(d.name, Math.floor((w - 8) / CHAR_WIDTH));
 
             return (
-              <g key={d.nodeId} pointerEvents="none">
-                <rect
-                  x={n.x0}
-                  y={n.y0}
-                  width={w}
-                  height={h}
-                  fill={d.color}
-                  fillOpacity={isSelected ? 0.4 : isLeaf ? 0.18 : 0.06}
-                  stroke={isHovered ? theme.highlight : theme.border}
-                  strokeWidth={isHovered ? 2 : isLeaf ? 0.5 : 1}
-                />
+              <g key={d.nodeId} className={cls} pointerEvents="none">
+                <rect x={n.x0} y={n.y0} width={w} height={h} />
                 {/* Name sits locally on the block: in a leaf's body, or in a
                     container's header band (which children never occupy, so it
                     cannot collide with them). */}
-                {label && h > 11 && (
-                  <text
-                    x={n.x0 + 4}
-                    y={n.y0 + 11}
-                    fill={theme.fg}
-                    fontSize={10}
-                    fontWeight={isLeaf ? 400 : 600}
-                    fontFamily="'Geist Mono', monospace"
-                  >
+                {label && h > 16 && (
+                  <text x={n.x0 + 4} y={n.y0 + 13}>
                     {label}
                   </text>
                 )}
-                {isLeaf && w > 50 && h > 26 && (
-                  <text
-                    x={n.x0 + 4}
-                    y={n.y0 + 22}
-                    fill={theme.dim}
-                    fontSize={9}
-                    fontFamily="'Geist Mono', monospace"
-                  >
+                {isLeaf && w > 64 && h > 32 && (
+                  <text className="is-size" x={n.x0 + 4} y={n.y0 + 27}>
                     {formatBytes(d.bytes)}
                   </text>
                 )}
@@ -387,9 +344,15 @@ export function BlockTreemap({
   );
 }
 
-function truncate(s: string, maxChars: number): string {
-  if (maxChars < 2) return '';
-  return s.length > maxChars ? s.slice(0, maxChars - 1) + '…' : s;
+/** The width of one 11px Geist Mono character, which the labels use (vx-label-sm). */
+const CHAR_WIDTH = 6.6;
+/** The fewest characters a cut label keeps: a shorter stub ("[25…") says nothing. */
+const MIN_CUT = 8;
+
+/** The name if it fits, else the name cut with an ellipsis, else nothing. */
+function fitLabel(s: string, maxChars: number): string {
+  if (s.length <= maxChars) return s;
+  return maxChars >= MIN_CUT ? `${s.slice(0, maxChars - 1)}…` : '';
 }
 
 function TileTooltip({
@@ -407,46 +370,20 @@ function TileTooltip({
     () => nodePhysicalStats(node, segmentMap, fileSize),
     [node, segmentMap, fileSize],
   );
-  const dtypeCat = getDtypeCategory(node.dtype);
-  const dtypeColor = DTYPE_COLORS[dtypeCat];
   return (
-    <div
-      className="fixed z-[1000] pointer-events-none max-w-[240px] rounded-lg border border-vortex-grey-light/60 dark:border-white/[0.1] bg-vortex-white dark:bg-[#252528] shadow-lg p-2 text-xs"
-      style={{ left: x + 12, top: y - 10 }}
-    >
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="font-medium text-vortex-fg-light dark:text-vortex-fg">
-          {getNodeDisplayName(node)}
-        </span>
-        <span
-          className="rounded px-1.5 py-0.5 text-[9px]"
-          style={{ color: dtypeColor, backgroundColor: `${dtypeColor}20` }}
-        >
-          {dtypeCat}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-vortex-grey-dark">
-        <span>rows</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {stats.rowCount.toLocaleString()}
-        </span>
-        <span>encoding</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>
-          {shortEncoding(node.encoding)}
-        </span>
-        <span>data</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatBytes(stats.dataBytes)}
-        </span>
-        <span>% of file</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatPercent(stats.fractionOfFile)}
-        </span>
-        <span>density</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatBytesPerRow(stats.bytesPerRow)}
-        </span>
-      </div>
+    <div className="x-tip" style={{ left: x + 12, top: y - 10 }}>
+      <p className={`vx-mono x-tip-head x-dtype ${dtypeClass(node.dtype)}`}>
+        {getNodeDisplayName(node)}
+      </p>
+      <Facts
+        items={[
+          ['Rows', stats.rowCount.toLocaleString('en-US')],
+          ['Encoding', shortEncoding(node.encoding), node.encoding],
+          ['Data', formatBytes(stats.dataBytes)],
+          ['Share of file', formatPercent(stats.fractionOfFile)],
+          ['Per row', formatBytesPerRow(stats.bytesPerRow)],
+        ]}
+      />
     </div>
   );
 }

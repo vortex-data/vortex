@@ -156,24 +156,38 @@ public final class SparkFilterToVortexExpression {
         if (column.isEmpty()) {
             return Optional.empty();
         }
-        List<Expression> comparisons = new ArrayList<>();
+        DataType dataType = column.get().dataType();
+        Expression field = column.get().expression();
+
+        List<Expression> elements = new ArrayList<>(in.values().length);
+        boolean holdsNull = false;
         for (Object value : in.values()) {
             if (value == null) {
+                holdsNull = true;
                 continue;
             }
-            Optional<Expression> literal = literal(value, column.get().dataType());
+            Optional<Expression> literal = literal(value, dataType);
             if (literal.isEmpty()) {
                 return Optional.empty();
             }
-            comparisons.add(Expression.binary(BinaryOp.EQ, column.get().expression(), literal.get()));
+            elements.add(literal.get());
         }
-        if (comparisons.isEmpty()) {
-            return Optional.of(Expression.literal(false));
+
+        if (elements.size() == 1 && !holdsNull) {
+            return Optional.of(Expression.binary(BinaryOp.EQ, field, elements.get(0)));
         }
-        if (comparisons.size() == 1) {
-            return Optional.of(comparisons.get(0));
+
+        // A null element keeps SQL's three-valued IN, so a non-match beneath NOT stays null rather than true. The
+        // native set answers a list of any length in one pass, where an OR of equalities grows with the list.
+        Optional<Expression> elementType = literal(null, dataType);
+        if (elementType.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.of(Expression.or(comparisons.toArray(new Expression[0])));
+        if (holdsNull) {
+            elements.add(elementType.get());
+        }
+        return Optional.of(Expression.in(
+                field, Expression.literalList(elementType.get(), holdsNull, elements.toArray(new Expression[0]))));
     }
 
     private static Optional<Expression> stringMatch(

@@ -25,7 +25,11 @@ import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 
 import dev.vortex.spark.VortexOptions
 import dev.vortex.spark.io.{VortexFile, VortexIo}
-import dev.vortex.spark.read.{VortexFooterReader, VortexPartitionReader}
+import dev.vortex.spark.read.{
+  VortexFooterReader,
+  VortexPartitionReader,
+  VortexScan
+}
 import dev.vortex.spark.write.{SparkToArrowSchema, VortexOutputWriterFactory}
 
 /** V1 fallback used for catalog tables and when Vortex is listed in
@@ -64,7 +68,7 @@ final class VortexFileFormat
       sparkSession: SparkSession,
       options: Map[String, String],
       path: Path
-  ): Boolean = false
+  ): Boolean = VortexScan.isSplitable(VortexOptions.of(options.asJava), path)
 
   override def supportBatch(
       sparkSession: SparkSession,
@@ -101,7 +105,8 @@ final class VortexFileFormat
       hadoopConf: Configuration
   ): PartitionedFile => Iterator[InternalRow] = {
     val optionMap = VortexOptions.of(options.asJava)
-    val io = VortexIo.create(optionMap, hadoopConf)
+    // Broadcast once, as Spark's own file formats do, rather than shipped with every task.
+    val io = VortexIo.broadcast(optionMap, hadoopConf, spark.sparkContext)
     val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     skippingNonVortexFiles { (file: PartitionedFile) =>
       val reader = new VortexPartitionReader(
@@ -173,7 +178,8 @@ final class VortexFileFormat
     }
 
     val optionMap = VortexOptions.of(options.asJava)
-    val io = VortexIo.create(optionMap, hadoopConf)
+    // Broadcast once, as Spark's own file formats do, rather than shipped with every task.
+    val io = VortexIo.broadcast(optionMap, hadoopConf, spark.sparkContext)
     val caseSensitive = spark.sessionState.conf.caseSensitiveAnalysis
     skippingNonVortexFiles { (file: PartitionedFile) =>
       val reader = new VortexPartitionReader(

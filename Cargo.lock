@@ -11611,6 +11611,8 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "rstest",
  "vortex-array",
@@ -12259,6 +12261,7 @@ name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "rand 0.10.3",
@@ -12440,6 +12443,8 @@ dependencies = [
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rstest",
