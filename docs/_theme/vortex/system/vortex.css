@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus --reads ../vortex.css,../layout.html
-   sha256 846d2551362875e88eaf2d028c6ace40beea5bc016906ff06654f95eb0f0ce44 */
+   sha256 a7fe16d56c1e334cfc98bb199ac04e2ff8cc1b0c61af3e26e8fd4784da04e2b2 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -46,21 +46,21 @@
    role="main", which Sphinx search reads for its snippets. */
 .vx-docs-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--page-pad); }
 .vx-docs-nav, .vx-docs-toc { grid-row: 1; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
-.vx-docs-page { grid-column: 2; grid-row: 1; min-width: 0; padding: var(--space-24) var(--space-48) var(--space-64); background: var(--surface); border-inline: 1px solid var(--line); }
-.vx-docs-main { font-size: 1.0625rem; line-height: 1.7; text-wrap: pretty; }
-.vx-docs-toc { grid-column: 3; padding: var(--space-32) 0 var(--space-32) var(--space-24); }
+.vx-docs-page { grid-column: 2; grid-row: 1; min-width: 0; padding: var(--space-32) var(--space-32) var(--space-48); background: var(--surface); border-inline: 1px solid var(--line); }
+.vx-docs-main { font-size: 1rem; line-height: 1.6; text-wrap: pretty; }
+.vx-docs-toc { grid-column: 3; padding: var(--space-16) 0 var(--space-32) var(--space-24); }
 
 /* DocsNav: the toctree. Top-level pages are the mono group labels; the current page is a raised fill. */
-.vx-docs-nav { padding: var(--space-16) var(--space-12) var(--space-32) 0; font-size: 0.875rem; line-height: 1.3; }
+.vx-docs-nav { padding: var(--space-8) var(--space-12) var(--space-32) 0; font-size: 0.875rem; line-height: 1.3; }
 .vx-docs-nav ul, .vx-docs-toc ul { list-style: none; margin: 0; padding: 0; }
 .vx-docs-nav li { position: relative; }
 .vx-docs-nav ul ul { padding-left: var(--space-12); }
-.vx-docs-nav .toctree-l1 { margin-top: var(--space-8); }
-.vx-docs-nav a { display: flex; align-items: center; min-height: var(--control-md); padding: var(--space-4) var(--space-32) var(--space-4) var(--space-8); border-radius: var(--radius-control); font: 400 0.8125rem/1.3 var(--font-mono); color: var(--ink-body); text-decoration: none; transition: background-color var(--vx-motion), color var(--vx-motion); }
+.vx-docs-nav .toctree-l1 { margin-top: var(--space-4); }
+.vx-docs-nav a { display: flex; align-items: center; min-height: var(--control-sm); padding: 2px var(--space-32) 2px var(--space-8); border-radius: var(--radius-control); font: 400 0.8125rem/1.3 var(--font-mono); color: var(--ink-body); text-decoration: none; transition: background-color var(--vx-motion), color var(--vx-motion); }
 .vx-docs-nav a:hover, .vx-docs-nav summary:hover { background: var(--wash); color: var(--ink); }
 .vx-docs-nav a:active { background: var(--edge); }
 .vx-docs-nav a[aria-current="page"] { background: var(--raised); color: var(--ink); font-weight: 500; }
-.vx-docs-nav summary { position: absolute; top: 0; right: 0; width: var(--control-md); height: var(--control-md); border-radius: var(--radius-control); color: var(--ink-muted); }
+.vx-docs-nav summary { position: absolute; top: 0; right: 0; width: var(--control-sm); height: var(--control-sm); border-radius: var(--radius-control); color: var(--ink-muted); }
 .vx-docs-nav summary::after,
 .vx-docs-fold > summary::after { content: ""; position: absolute; inset: var(--space-8); background: currentColor; mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z'/></svg>") center / contain no-repeat; transition: rotate var(--vx-motion); }
 .vx-docs-nav details[open] > summary::after,
@@ -70,7 +70,7 @@
 .vx-docs-toc p { margin: 0 0 var(--space-12); }
 .vx-docs-toc ul ul { padding-left: var(--space-12); }
 .vx-docs-toc nav > ul { border-left: 1px solid var(--line); }
-.vx-docs-toc a, .vx-docs-fold a { display: block; margin-left: -1px; padding: var(--space-4) 0 var(--space-4) var(--space-16); font: 400 0.8125rem/1.4 var(--font-mono); color: var(--ink-muted); text-decoration: none; overflow-wrap: anywhere; transition: color var(--vx-motion); }
+.vx-docs-toc a, .vx-docs-fold a { display: block; margin-left: -1px; padding: 3px 0 3px var(--space-16); font: 400 0.8125rem/1.4 var(--font-mono); color: var(--ink-muted); text-decoration: none; overflow-wrap: anywhere; transition: color var(--vx-motion); }
 .vx-docs-toc a:hover, .vx-docs-fold a:hover { color: var(--ink); }
 /* The same contents, folded above the page on screens too narrow for the rail. */
 .vx-docs-fold { display: none; margin: 0 0 var(--space-24); border: 1px solid var(--line); border-radius: var(--radius-card); }
@@ -80,13 +80,13 @@
 .vx-docs-fold ul ul { margin: 0; padding-left: var(--space-12); }
 
 /* Previous and next, and the edit link. The docs draw no breadcrumb: the sidebar shows the path. */
-.vx-docs-pager { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); margin-top: var(--space-64); }
+.vx-docs-pager { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); margin-top: var(--space-48); }
 .vx-docs-pager a { padding: var(--space-12) var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-card); font: 500 0.875rem/1.4 var(--font-mono); color: var(--ink); text-decoration: none; transition: background-color var(--vx-motion); }
 .vx-docs-pager a:hover { background: var(--wash); }
 .vx-docs-pager a:active { background: var(--edge); }
 .vx-docs-pager .vx-docs-label { display: block; margin-bottom: var(--space-4); }
 .vx-docs-pager .is-next { grid-column: 2; text-align: right; }
-.vx-docs-edit { margin: var(--space-48) 0 0; font-size: 0.875rem; }
+.vx-docs-edit { margin: var(--space-32) 0 0; font-size: 0.875rem; }
 .vx-docs-edit a { color: var(--ink-muted); transition: color var(--vx-motion); }
 .vx-docs-edit a:hover { color: var(--ink); }
 
@@ -100,16 +100,16 @@
 .vx-docs-footer p a { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent); text-underline-offset: 3px; }
 
 /* The reading column. :where() keeps the flow margins below any element's own. */
-.vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-20); }
+.vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-16); }
 .vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple)) { max-width: var(--measure); }
 .vx-docs-main li + li { margin-top: var(--space-4); }
 .vx-docs-main li::marker { color: var(--ink-muted); }
 /* A post's mono heading ladder, one level up: a docs page's h1 is a post's h2. */
 .vx-docs-main :is(h1, h2, h3, h4) { scroll-margin-top: var(--space-16); color: var(--ink); text-wrap: balance; }
 .vx-docs-main h1 { margin: 0 0 var(--space-24); font: 500 1.75rem/1.15 var(--font-mono); letter-spacing: -0.02em; }
-.vx-docs-main h2 { margin: var(--space-48) 0 var(--space-12); font: 600 1.375rem/1.2 var(--font-mono); letter-spacing: -0.02em; }
-.vx-docs-main h3 { margin: var(--space-32) 0 var(--space-8); font: 600 1.125rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
-.vx-docs-main h4 { margin: var(--space-24) 0 var(--space-8); font: 600 1rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
+.vx-docs-main h2 { margin: var(--space-32) 0 var(--space-8); font: 600 1.375rem/1.2 var(--font-mono); letter-spacing: -0.02em; }
+.vx-docs-main h3 { margin: var(--space-24) 0 var(--space-8); font: 600 1.125rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
+.vx-docs-main h4 { margin: var(--space-16) 0 var(--space-4); font: 600 1rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
 .vx-docs-main strong { font-weight: 600; color: var(--ink); }
 /* Prose links are Blue at rest, as the old docs theme's were: a reference page is mostly links, and the reader scans for them. */
 .vx-docs-main a { color: var(--accent-ink); text-decoration: underline 1px color-mix(in srgb, var(--accent-ink) 40%, transparent); text-underline-offset: 3px; transition: color var(--vx-motion), text-decoration-color var(--vx-motion); }
@@ -135,7 +135,7 @@
 
 /* CodeBlock: Pygments' classes on the four syntax tokens, under a label from highlight-<lang>. */
 .vx-docs-main div[class*="highlight-"] > .highlight { background: var(--raised); border-radius: var(--radius-card); overflow: hidden; }
-.vx-docs-main :where(div[class*="highlight-"]) > .highlight::before { content: "Text"; display: block; padding: var(--space-8) var(--space-16); border-bottom: 1px solid var(--edge); line-height: 20px; }
+.vx-docs-main :where(div[class*="highlight-"]) > .highlight::before { content: "Text"; display: block; padding: var(--space-4) var(--space-16); border-bottom: 1px solid var(--edge); line-height: 20px; }
 .vx-docs-main :is(.highlight-python, .highlight-pycon) > .highlight::before { content: "Python"; }
 .vx-docs-main :is(.highlight-bash, .highlight-sh, .highlight-shell, .highlight-console) > .highlight::before { content: "Shell"; }
 .vx-docs-main .highlight-rust > .highlight::before { content: "Rust"; }
@@ -149,7 +149,7 @@
 .vx-docs-main .highlight-xml > .highlight::before { content: "XML"; }
 .vx-docs-main .highlight-cmake > .highlight::before { content: "CMake"; }
 .vx-docs-main .highlight-protobuf > .highlight::before { content: "Protobuf"; }
-.vx-docs-main .highlight pre { margin: 0; padding: var(--space-16); overflow-x: auto; font: 400 0.8125rem/1.6 var(--font-mono); color: var(--syntax-plain); tab-size: 4; }
+.vx-docs-main .highlight pre { margin: 0; padding: var(--space-12) var(--space-16); overflow-x: auto; font: 400 0.8125rem/1.5 var(--font-mono); color: var(--syntax-plain); tab-size: 4; }
 .vx-docs-main .highlight :is(.k, .kn, .kd, .kr, .kp, .ow, .nt) { color: var(--syntax-keyword); }
 .vx-docs-main .highlight :is(.nf, .fm, .nb, .bp, .nd) { color: var(--syntax-function); }
 .vx-docs-main .highlight :is(.nc, .ne, .nn, .kt) { color: var(--syntax-type); }
@@ -169,8 +169,8 @@
 
 /* Tables: the tables section's heads and hairline rows. */
 .vx-docs-main table.docutils { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
-.vx-docs-main table.docutils th { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.6875rem/1.3 var(--font-mono); color: var(--ink-muted); }
-.vx-docs-main table.docutils td { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.vx-docs-main table.docutils th { padding: calc(var(--space-12) / 2) var(--space-12) calc(var(--space-12) / 2) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.6875rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main table.docutils td { padding: calc(var(--space-12) / 2) var(--space-12) calc(var(--space-12) / 2) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 /* An API summary table keeps each name whole above 760px. Inline code may break anywhere, and the
    table's auto layout used that to squeeze the first column. A phone keeps the wrap, so nothing scrolls. */
 @media (min-width: 761px) {
@@ -230,7 +230,7 @@
   .vx-docs-toggle:checked ~ .vx-docs-layout .vx-docs-nav { display: block; }
   .vx-docs-search { display: none; }
   .vx-docs-menu, .vx-docs-links .is-narrow { display: grid; }
-  .vx-docs-page { padding: var(--space-24) var(--page-pad) var(--space-48); border: 0; }
+  .vx-docs-page { padding: var(--space-24) var(--page-pad) var(--space-32); border: 0; }
   .vx-docs-main dl.field-list { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .vx-docs-main table.genindextable, .vx-docs-main table.genindextable :is(tbody, tr, td) { display: block; }
 }
