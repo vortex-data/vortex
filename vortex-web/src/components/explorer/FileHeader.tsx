@@ -33,6 +33,21 @@ export function FileHeader({ onClose, view, onViewChange }: FileHeaderProps) {
         </h1>
       }
       tools={<Switch label="View" value={view} options={VIEWS} onChange={onViewChange} />}
+      // Below 640px the switch leaves the row, so the Menu's panel holds its twin.
+      menu={VIEWS.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          className="vx-label vx-nav-link vx-header-menu-spill"
+          aria-pressed={view === o.value}
+          onClick={(e) => {
+            onViewChange(o.value);
+            e.currentTarget.closest('details')?.removeAttribute('open');
+          }}
+        >
+          {o.label} view
+        </button>
+      ))}
       end={
         <button
           type="button"

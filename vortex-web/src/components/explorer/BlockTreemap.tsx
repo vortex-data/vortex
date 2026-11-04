@@ -261,7 +261,12 @@ export function BlockTreemap({
   );
 
   return (
-    <div ref={boxRef} className="x-treemap">
+    // The drill root draws no block of its own, so when it is the selected node the map's frame
+    // takes the ring.
+    <div
+      ref={boxRef}
+      className={`x-treemap${selectedNodeId === drillNode.id && tree.children?.length ? ' is-selected' : ''}`}
+    >
       {/* Zoom-out control, shown when drilled into a child layout. */}
       {drillParent && (
         <button

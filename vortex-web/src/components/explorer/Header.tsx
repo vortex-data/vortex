@@ -33,10 +33,13 @@ interface HeaderProps {
   tools?: ReactNode;
   /** Buttons after the theme switch, such as Close. */
   end?: ReactNode;
+  /** The tools' twin rows in the Menu's panel (vx-header-menu-spill), shown below 640px, where
+   *  the tools leave the row. */
+  menu?: ReactNode;
 }
 
 /** The design system's header, as on the other Vortex sites: wordmark, links, and theme. */
-export function Header({ file, tools, end }: HeaderProps) {
+export function Header({ file, tools, end, menu }: HeaderProps) {
   return (
     <header className={`vx-header is-solid ${tools ? 'has-tools' : 'has-nav'}`}>
       <div className="vx-header-start">
@@ -74,6 +77,7 @@ export function Header({ file, tools, end }: HeaderProps) {
           </summary>
           <nav className="vx-header-menu-panel" aria-label="Primary">
             <Links />
+            {menu}
           </nav>
         </details>
       </div>

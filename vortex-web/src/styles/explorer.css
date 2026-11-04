@@ -507,6 +507,14 @@
   stroke: var(--accent);
   stroke-width: 2;
 }
+/* The selected node is the drill root, which draws no block: the frame takes the ring. */
+.x-treemap.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+}
 .x-treemap text {
   font: 400 11px var(--font-mono);
   fill: var(--ink);
@@ -655,8 +663,9 @@
 .x-axis-ticks > span:first-child {
   translate: 0 0;
 }
+/* The file's size ends the axis, set in from the card's edge. */
 .x-axis-ticks > span:last-child {
-  translate: -100% 0;
+  translate: calc(-100% - var(--space-8)) 0;
 }
 .x-ruler {
   position: absolute;
@@ -788,8 +797,13 @@
     margin-left: 0;
   }
 }
+/* Below 640px the view switch leaves the row, and its twin rows in the Menu's panel take over. The
+   current view reads as the current page does. */
 @media (max-width: 640px) {
   .x-app .vx-header-tools {
     display: none;
   }
+}
+.vx-header-menu-panel .vx-nav-link[aria-pressed='true'] {
+  color: var(--ink);
 }

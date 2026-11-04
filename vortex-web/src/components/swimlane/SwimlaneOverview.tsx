@@ -87,9 +87,17 @@ export function SwimlaneOverview() {
     [hoverNode],
   );
 
+  // Ticks on a round step (1, 2, or 5 times a power of ten) near a fifth of the file, then the
+  // file's size at the end. A round tick too close to the end gives way to the size.
   const axisTicks = useMemo(() => {
     if (totalBytes <= 0) return [];
-    return Array.from({ length: 6 }, (_, i) => Math.round((i * totalBytes) / 5));
+    const raw = totalBytes / 5;
+    const power = 10 ** Math.floor(Math.log10(raw));
+    const m = raw / power;
+    const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * power;
+    const ticks: number[] = [];
+    for (let t = 0; t <= totalBytes * 0.85; t += step) ticks.push(t);
+    return [...ticks, totalBytes];
   }, [totalBytes]);
 
   return (

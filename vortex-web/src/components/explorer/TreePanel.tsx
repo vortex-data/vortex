@@ -177,7 +177,8 @@ export function TreePanel() {
       const go = (i: number) => {
         const target = visibleRows[Math.max(0, Math.min(visibleRows.length - 1, i))];
         if (!target) return;
-        if (target.displayKind !== 'hiddenIndicator') selectNode(target.node.id);
+        // A group row ("···") and the hidden-rows line are not nodes of the file: focus them only.
+        if (target.displayKind === 'normal') selectNode(target.node.id);
         focusNode(target.node.id);
       };
       const parent = row.displayKind !== 'hiddenIndicator' && hasExpandableChildren(row.node);
@@ -251,7 +252,11 @@ export function TreePanel() {
               mode={mode}
               tabIndex={row.node.id === focusId ? 0 : -1}
               onToggle={() => toggleExpanded(row.node.id)}
-              onSelect={() => handleNodeClick(row.node.id)}
+              onSelect={() =>
+                row.displayKind === 'group'
+                  ? toggleExpanded(row.node.id)
+                  : handleNodeClick(row.node.id)
+              }
               onHover={hoverNode}
               {...(sizes.has(row.node.id) ? { size: sizes.get(row.node.id)! } : {})}
             />

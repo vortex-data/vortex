@@ -26,9 +26,17 @@ export function MainArea({ view }: { view: MainView }) {
   const startHeight = useRef(0);
   const mainRef = useRef<HTMLDivElement>(null);
 
+  // The view and the preview share the room the other rows leave (the handle, and below 1100px
+  // the summary), so the preview grows only until the view is down to its minimum.
   const clamp = useCallback((h: number) => {
-    const total = mainRef.current?.clientHeight ?? 600;
-    return Math.round(Math.min(total - MIN_PANEL_HEIGHT, Math.max(MIN_PANEL_HEIGHT, h)));
+    const view = mainRef.current?.firstElementChild;
+    const preview = mainRef.current?.lastElementChild;
+    const shared =
+      view && preview
+        ? view.getBoundingClientRect().height + preview.getBoundingClientRect().height
+        : 600;
+    const max = Math.max(MIN_PANEL_HEIGHT, shared - MIN_PANEL_HEIGHT);
+    return Math.round(Math.min(max, Math.max(MIN_PANEL_HEIGHT, h)));
   }, []);
 
   const onPointerDown = useCallback(
