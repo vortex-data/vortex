@@ -9,8 +9,8 @@
 //! [`RowClaim`] over its scope's rows: the claim is taken when the work is spawned, narrowed to
 //! the work's [`remaining_rows`], and released when the work retires or is cancelled.
 //!
-//! Anything decoded for those rows, such as arrays, dictionary values, or buffers, can be
-//! [`pin`](Liveness::pin)ned to the rows it serves. The pin holds the value until no claim covers
+//! Anything decoded for those rows, such as arrays, dictionary values, or buffers, can be pinned
+//! to the rows it serves with [`Liveness::pin`]. The pin holds the value until no claim covers
 //! any of its rows, and then drops it. A cache that wants to find such a value again keeps a weak
 //! reference to it: the pin is the only strong reference that keeps it alive.
 //!
