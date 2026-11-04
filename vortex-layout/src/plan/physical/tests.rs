@@ -649,12 +649,9 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     );
     let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
 
+    // The empty projection over the empty row domain is the identity, so only the domain remains.
     let optimized = optimize(plan, &SESSION)?;
-    let projection = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
-    let child = projection.child_plan()?;
-    let empty_struct = child
+    let empty_struct = optimized
         .as_opt::<Pack>()
         .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
 

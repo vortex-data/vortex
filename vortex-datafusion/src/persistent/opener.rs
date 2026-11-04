@@ -137,9 +137,6 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
-    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
-    /// partition only as far as the engine has not.
-    pub partitions: usize,
 }
 
 impl FileOpener for VortexOpener {
@@ -178,7 +175,6 @@ impl FileOpener for VortexOpener {
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
-        let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -444,6 +440,11 @@ impl FileOpener for VortexOpener {
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter);
+                // How many partitions split the file, assuming they cut it evenly.
+                let readers = byte_range.as_ref().map_or(1, |bytes| {
+                    let len = (bytes.end - bytes.start).max(1);
+                    usize::try_from(file.object_meta.size.div_ceil(len)).unwrap_or(usize::MAX)
+                });
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -459,14 +460,16 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
+                // Unless set, chunks run beside each other only as far as the cores outnumber the
+                // partitions reading this file: a file split a partition per core is read in each
+                // scan's own run, a file read whole by one partition on every core.
+                let concurrency = scan_concurrency.filter(|&c| c > 0).unwrap_or_else(|| {
                     get_available_parallelism()
                         .unwrap_or(1)
-                        .div_ceil(partitions)
+                        .div_ceil(readers)
                         .max(1)
                 });
+                builder = builder.with_concurrency(concurrency);
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
@@ -1147,7 +1150,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1557,7 +1559,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1649,7 +1650,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1832,7 +1832,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1897,7 +1896,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -2113,7 +2111,6 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
-            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,

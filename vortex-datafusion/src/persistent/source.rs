@@ -49,6 +49,31 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
+/// The fewest rows a filtered V2 scan partition reads when the engine splits files. Each
+/// partition proves zone maps, plans its filter and compiles its plans once, so a partition much
+/// smaller than a few output windows spends more on that than on reading rows. An unfiltered scan
+/// keeps the engine's partitions: every row it reads flows into the operators above it, which
+/// run a task per partition.
+const V2_MIN_ROWS_PER_PARTITION: usize = 256 * 1024;
+
+/// Caps `target_partitions` so no V2 partition reads fewer than [`V2_MIN_ROWS_PER_PARTITION`]
+/// rows, when the files' row counts are known.
+fn v2_target_partitions(target_partitions: usize, config: &FileScanConfig) -> usize {
+    let rows = config
+        .file_groups
+        .iter()
+        .flat_map(|group| group.iter())
+        .map(|file| {
+            file.statistics
+                .as_ref()
+                .and_then(|statistics| statistics.num_rows.get_value().copied())
+        })
+        .sum::<Option<usize>>();
+    rows.map_or(target_partitions, |rows| {
+        target_partitions.min(rows.div_ceil(V2_MIN_ROWS_PER_PARTITION).max(1))
+    })
+}
+
 /// File scan implementation for reading one or more `.vortex` files.
 ///
 /// `VortexSource` is the lower-level read component underneath
@@ -378,7 +403,6 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
-            partitions: base_config.file_groups.len(),
         };
 
         Ok(opener)
@@ -468,6 +492,11 @@ impl FileSource for VortexSource {
         if config.file_compression_type.is_compressed() {
             return Ok(None);
         }
+        let target_partitions = if self.options.scan_v2 && self.vortex_predicate.is_some() {
+            v2_target_partitions(target_partitions, config)
+        } else {
+            target_partitions
+        };
         let Some(file_groups) = FileGroupPartitioner::new()
             .with_target_partitions(target_partitions)
             .with_repartition_file_min_size(repartition_file_min_size)

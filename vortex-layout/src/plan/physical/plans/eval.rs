@@ -33,6 +33,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plans::pack::is_identity_expression;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -150,17 +151,20 @@ fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> V
     Ok(())
 }
 
-/// Removes an [`Eval`] whose expression is the identity expression.
+/// Removes an [`Eval`] whose expression is the identity: the root, or a non-nullable struct
+/// rebuilt from every field of the root in order, as pushing a projection into a
+/// [`PackPlan`] leaves.
 #[derive(Debug)]
 pub(crate) struct EvalIdentityRule;
 
 impl PlanReduceRule<Eval> for EvalIdentityRule {
     fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
-        if plan.expression().is_root() {
-            Ok(Some(plan.child_plan()?))
-        } else {
-            Ok(None)
+        let expression = plan.expression();
+        if !expression.is_root() && !expression.dtype().is_struct() {
+            return Ok(None);
         }
+        let child = plan.child_plan()?;
+        Ok(is_identity_expression(expression, child.dtype())?.then_some(child))
     }
 }
 
