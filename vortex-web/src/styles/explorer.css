@@ -475,9 +475,10 @@
 }
 
 /* ------------------------------------------------------------------ the treemap
-   Each block takes its dtype's colour, faint for a container and stronger for a leaf. The selected
-   block takes the accent ring (Blue marks a selection), and a hovered one an ink stroke. The SVG
-   reads its colours from the tokens, so it follows the theme. */
+   A leaf takes its dtype's fill (--vx-dt-fill: solid in Dark, a tint with a hued edge in Light),
+   and a container is only an outline round its leaves. The selected block takes the accent ring
+   (Blue marks a selection), and a hovered one an ink stroke. The SVG reads its colours from the
+   tokens, so it follows the theme. */
 .x-treemap {
   position: relative;
   width: 100%;
@@ -490,14 +491,13 @@
   user-select: none;
 }
 .x-treemap rect {
-  fill: var(--vx-dt, var(--chart-muted));
-  fill-opacity: 0.08;
+  fill: none;
   stroke: var(--edge);
   stroke-width: 1;
 }
 .x-treemap .is-leaf rect {
-  fill-opacity: 0.24;
-  stroke-width: 0.5;
+  fill: var(--vx-dt-fill, var(--raised));
+  stroke: var(--vx-dt-edge, var(--surface));
 }
 .x-treemap .is-hovered rect {
   stroke: var(--ink);
@@ -522,8 +522,15 @@
 .x-treemap .is-container text {
   font-weight: 600;
 }
+.x-treemap .is-leaf text {
+  fill: var(--vx-dt-ink, var(--ink));
+}
 .x-treemap text.is-size {
   fill: var(--ink-body);
+}
+.x-treemap .is-leaf text.is-size {
+  fill: var(--vx-dt-ink, var(--ink));
+  fill-opacity: 0.85;
 }
 .x-treemap-up {
   position: absolute;
@@ -617,15 +624,15 @@
   position: relative;
   min-width: 0;
 }
-/* A segment: a block in its dtype's colour. A run of segments in one column sits in a frame,
-   which takes the accent when the column is selected. */
+/* A segment: a thin mark, so it takes its dtype's full hue in both themes (the treemap's tint is
+   for areas). A run of segments in one column sits in a frame, which takes the accent when the
+   column is selected. */
 .x-seg {
   position: absolute;
   top: 6px;
   bottom: 6px;
   min-width: 3px;
   background: var(--vx-dt, var(--chart-muted));
-  opacity: 0.72;
 }
 .x-run {
   all: unset;

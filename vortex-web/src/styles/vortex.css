@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 c9a43ff965a827864254c152c5ef9090c6bc41b0a8c81310fbc44c3f5ac8064c */
+   sha256 7e11e4d29f206c97378af86a27749f3bff7d2e8435f7094998cc4b474bbbe2b6 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -18,6 +18,37 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+/* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
+   vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
+   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
+   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
+   or the browser's: around the whole page, it marks nothing a reader can use. */
+.vx-skip-link {
+  position: fixed;
+  top: var(--space-8);
+  left: var(--space-8);
+  z-index: 1200;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 500;
+  text-decoration: none;
+}
+.vx-skip-link:not(:focus) {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+main[tabindex="-1"]:focus {
+  outline: none;
 }
 .vx-card {
   background: var(--surface);
@@ -243,9 +274,11 @@
   [data-theme="system"] .vx-header-mark.is-light { display: block; }
 }
 .vx-header-label { margin: 0; padding-left: var(--space-12); border-left: 1px solid var(--edge); line-height: 16px; }
-.vx-header-nav { display: flex; gap: var(--space-24); margin-left: auto; }
+/* The links follow the wordmark and the end group takes the slack, so the links stay put when the
+   end group's width changes (the blog's ThemeSwitch). */
+.vx-header-nav { display: flex; gap: var(--space-24); }
 .vx-header-end { display: flex; align-items: center; gap: var(--space-16); margin-left: auto; }
-.vx-header-nav + .vx-header-end { margin-left: 0; }
+.vx-header-nav + .vx-header-end { margin-left: auto; }
 @media (max-width: 760px) {
   .vx-btn-count { display: none; }
 }
@@ -646,7 +679,7 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
 /* A selected segment carries an accent ring, and the others step back. */
 .vx-filemap { display: grid; gap: var(--space-8); }
 .vx-filemap-bar { display: flex; height: 34px; border: 1px solid var(--edge); border-radius: var(--radius-control); overflow: hidden; }
-.vx-filemap-bar > button { all: unset; box-sizing: border-box; display: block; height: 100%; border-right: 1px solid var(--surface); background: var(--vx-dt, var(--chart-muted)); cursor: pointer; transition: opacity var(--vx-motion); }
+.vx-filemap-bar > button { all: unset; box-sizing: border-box; display: block; height: 100%; border-right: 1px solid var(--surface); background: var(--vx-dt-fill); box-shadow: inset 0 0 0 1px var(--vx-dt-edge); cursor: pointer; transition: opacity var(--vx-motion); }
 .vx-filemap-bar > button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
 .vx-filemap-bar:has(> [aria-pressed="true"]) > button:not([aria-pressed="true"]) { opacity: 0.4; }
 .vx-filemap-axis { display: flex; justify-content: space-between; }
@@ -665,6 +698,15 @@ html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(
 .vx-dt-list { --vx-dt: var(--chart-muted); }
 .vx-dt-struct { --vx-dt: var(--chart-muted); }
 .vx-dt-other { --vx-dt: var(--chart-muted); }
+/* A filled block of a dtype: solid in Dark, with the surface as the gap between blocks; a tint in
+   Light, with an edge in the full hue. A label on it takes --vx-dt-ink: chart-fill-ink on a hue, ink
+   on a muted family's grey. */
+.vx-dt-int, .vx-dt-float, .vx-dt-utf8, .vx-dt-bool, .vx-dt-datetime, .vx-dt-list, .vx-dt-struct, .vx-dt-other {
+  --vx-dt-fill: color-mix(in oklab, var(--vx-dt) var(--chart-fill-mix), var(--surface));
+  --vx-dt-edge: color-mix(in oklab, var(--vx-dt) var(--chart-edge-mix), var(--surface));
+  --vx-dt-ink: var(--chart-fill-ink);
+}
+.vx-dt-list, .vx-dt-struct, .vx-dt-other { --vx-dt-ink: var(--ink); }
 
 /* Pane: a card that holds one view of an app, with a head of controls, a body that scrolls, and an
    optional foot. The card draws the frame; the pane lays it out. */
