@@ -71,6 +71,21 @@ pub(crate) fn is_nan_free(stats_set: &StatsSet, dtype: &DType) -> bool {
         || stats_set.get_as::<u64>(Stat::NaNCount, &PType::U64.into()) == VortexPrecision::Exact(0)
 }
 
+/// Fall back to `approx_distinct_count`, an upper bound on the distinct non-null values, when
+/// `distinct_count` is unknown.
+pub(crate) fn or_approx_distinct_count(
+    distinct_count: Precision<usize>,
+    approx_distinct_count: VortexPrecision<Scalar>,
+) -> Precision<usize> {
+    if distinct_count != Precision::Absent {
+        return distinct_count;
+    }
+    approx_distinct_count
+        .into_inner()
+        .and_then(|count| count.as_primitive().as_::<usize>())
+        .map_or(Precision::Absent, Precision::Inexact)
+}
+
 /// Infer a singleton from exact bounds, excluding nulls and, for floats, NaNs.
 pub(crate) fn constant_distinct_count(
     stats_set: &StatsSet,

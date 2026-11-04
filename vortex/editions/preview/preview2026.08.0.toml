@@ -15,6 +15,7 @@ arrays = []
 layouts = []
 dtypes = []
 aggregates = [
+    "vortex.approx_distinct_count",
     "vortex.uncompressed_size_in_bytes",
 ]
 
@@ -25,5 +26,6 @@ arrays = []
 layouts = []
 dtypes = []
 aggregates = [
+    "vortex.approx_distinct_count",
     "vortex.uncompressed_size_in_bytes",
 ]
