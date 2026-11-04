@@ -133,6 +133,8 @@ pub(super) struct FilterPlanner {
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
+    /// Whether a conjunct has filtered the chunk's rows.
+    evaluated: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
 }
@@ -165,6 +167,7 @@ impl FilterPlanner {
             active: None,
             pieces: Vec::new(),
             announced: false,
+            evaluated: false,
             next_hint: u32::MAX,
         }
     }
@@ -198,6 +201,15 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
 }
 
+impl Drop for FilterPlanner {
+    fn drop(&mut self) {
+        // A conjunct still evaluating did not report, so another evaluation may measure it.
+        if let Some((index, _)) = &self.active {
+            self.filter.expression.abandon_evaluation(*index);
+        }
+    }
+}
+
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
         if let Some((_, adaptor)) = &mut self.active {
@@ -223,11 +235,24 @@ impl Planner for FilterPlanner {
         };
         if !self.announced {
             self.announced = true;
+            // Conjuncts the chunk skips are decided before any read, so their segments are not
+            // fetched.
+            let input_rows = selected.mask.true_count();
+            for index in 0..self.filter.predicates.len() {
+                if !self.filter.expression.should_evaluate(index, input_rows) {
+                    self.remaining.set(index, false);
+                }
+            }
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter
+                    .predicates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| self.remaining[*index])
+                    .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -283,9 +308,13 @@ impl Planner for FilterPlanner {
                 conjunct = *index,
                 "v2 filter conjunct evaluated"
             );
-            self.filter
-                .expression
-                .report_selectivity(*index, selected.mask.true_count() as f64 / input as f64);
+            self.filter.expression.report_evaluation(
+                *index,
+                input,
+                selected.mask.true_count(),
+                !self.evaluated,
+            );
+            self.evaluated = true;
             self.active = None;
             self.pieces.clear();
         }
@@ -293,16 +322,25 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
+        while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
-            let scan = Scan::try_new(
+            if !self.filter.expression.begin_evaluation(index) {
+                continue;
+            }
+            let scan = match Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].clone(),
                 vec![Split {
                     rows: selected.scope.rows.clone(),
                     mask: selected.mask.clone(),
                 }],
-            )?
+            ) {
+                Ok(scan) => scan,
+                Err(err) => {
+                    self.filter.expression.abandon_evaluation(index);
+                    return Err(err);
+                }
+            }
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
             self.active = Some((
