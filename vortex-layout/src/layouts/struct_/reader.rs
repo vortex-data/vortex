@@ -487,28 +487,26 @@ impl LayoutReader for StructReader {
             return Ok(());
         }
 
-        // Validity boundaries must stay hard even when they overlap a soft data-field boundary.
-        let validity_boundaries = if let Some(validity_ref) = self.validity()? {
-            let mut validity_splits = splits.new_like(16);
-            validity_ref.register_splits(field_mask, split_range, &mut validity_splits)?;
-            validity_splits.into_sorted_deduped()
-        } else {
-            Vec::new()
-        };
-        splits.extend_ascending(validity_boundaries.iter().copied());
-
-        // Each field's sorted boundaries and soft marks, kept apart so the boundaries only some
-        // fields have can be marked soft. A field with no boundaries in the range, or matching
-        // the previous one, adds nothing.
+        // Each child's sorted boundaries and soft marks, validity included, kept apart so the
+        // boundaries only some children have can be marked soft. A child with no boundaries in the
+        // range, or matching the previous one, adds nothing.
         let mut fields: Vec<(Vec<u64>, Vec<u64>)> = Vec::new();
-        self.layout.matching_fields(field_mask, |mask, idx| {
-            let mut field = splits.new_like(16);
-            self.field_reader_by_index(idx)?
-                .register_splits(&[mask], split_range, &mut field)?;
+        let mut add = |field: RowSplits| {
             let field = field.into_sorted_deduped_with_soft();
             if !field.0.is_empty() && fields.last() != Some(&field) {
                 fields.push(field);
             }
+        };
+        if let Some(validity_ref) = self.validity()? {
+            let mut validity = splits.new_like(16);
+            validity_ref.register_splits(field_mask, split_range, &mut validity)?;
+            add(validity);
+        }
+        self.layout.matching_fields(field_mask, |mask, idx| {
+            let mut field = splits.new_like(16);
+            self.field_reader_by_index(idx)?
+                .register_splits(&[mask], split_range, &mut field)?;
+            add(field);
             Ok(())
         })?;
 
@@ -532,7 +530,7 @@ impl LayoutReader for StructReader {
         }
         soft_marks.sort_unstable();
         soft_marks.dedup();
-        splits.mark_soft(sorted_difference(&soft_marks, &validity_boundaries));
+        splits.mark_soft(soft_marks);
 
         // In the case of an empty struct, we need to register the end split. Pushed last so it
         // extends the final field's ascending run rather than starting a run of its own.
@@ -927,8 +925,9 @@ mod tests {
 
     #[rstest]
     #[case::non_nullable(false, vec![0, 3000, 6000, 9000, 12000])]
-    #[case::nullable(true, vec![0, 2000, 3000, 4000, 6000, 8000, 9000, 10000, 12000])]
-    fn scan_merges_soft_boundaries_and_keeps_validity_boundaries(
+    // Validity chunks every 2,000 rows, so only 6,000 is every child's boundary.
+    #[case::nullable(true, vec![0, 6000, 12000])]
+    fn scan_merges_soft_boundaries_including_validity_boundaries(
         #[case] nullable: bool,
         #[case] expected: Vec<u64>,
     ) -> VortexResult<()> {
