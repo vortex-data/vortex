@@ -705,7 +705,7 @@ impl<'a, T> CudaViewMut<'a, T> {
     ///
     /// Panics if `bounds` is out of range.
     pub fn slice_mut(&mut self, bounds: impl RangeBounds<usize>) -> CudaViewMut<'_, T> {
-        // A copy of this view, borrowed mutably for as long as the result.
+        // The return lifetime keeps `self` mutably borrowed while the copied view lives.
         CudaViewMut { ..*self }.into_slice_mut(bounds)
     }
 
