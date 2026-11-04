@@ -78,17 +78,6 @@
     {{ vortex_globaltoc }}
   </nav>
   <div class="vx-docs-page">
-    {%- if parents or pagename != root_doc %}
-    <nav class="vx-docs-crumbs" aria-label="{{ _('Breadcrumb') }}">
-      <ol>
-        <li><a href="{{ pathto(root_doc)|e }}">{{ _('Docs') }}</a></li>
-        {%- for p in parents %}
-        <li><a href="{{ p.link|e }}">{{ p.title }}</a></li>
-        {%- endfor %}
-        <li aria-current="page">{{ title|striptags|e }}</li>
-      </ol>
-    </nav>
-    {%- endif %}
     {%- if display_toc %}
     <details class="vx-docs-fold">
       <summary>{{ _('On this page') }}</summary>
