@@ -381,4 +381,49 @@ mod tests {
         assert_eq!(values_mask, Mask::from_iter(expected_retained));
         Ok(())
     }
+
+    /// Ranks must count the same rows per run as counting each run's range, for runs of 1-3
+    /// rows over masks that start inside a byte and end inside or at the end of a word.
+    #[rstest]
+    #[case(0, 128)]
+    #[case(3, 128)]
+    #[case(5, 200)]
+    #[case(61, 64)]
+    #[case(7, 1)]
+    fn short_runs_count_each_runs_selected_rows(
+        #[case] mask_offset: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let bits = BitBuffer::from_iter((0..mask_offset + len).map(|i| i % 3 != 0 || i % 7 == 0));
+        let mask = bits.slice(mask_offset..mask_offset + len);
+        // Runs of 1, 2 and 3 rows.
+        let mut run_ends = Vec::new();
+        let mut end = 0u32;
+        let mut run_len = 1;
+        while (end as usize) < len {
+            end = (end + run_len).min(u32::try_from(len)?);
+            run_ends.push(end);
+            run_len = run_len % 3 + 1;
+        }
+
+        let ctx = SESSION.create_execution_ctx();
+        let (filtered_ends, values_mask) =
+            filter_run_end_primitive(&run_ends, 0, len as u64, &mask, ctx.allocator())?;
+
+        let mut expected_ends = Vec::new();
+        let mut expected_values = Vec::new();
+        let (mut start, mut selected) = (0, 0u32);
+        for &end in &run_ends {
+            let in_run = mask.count_range(start, end as usize);
+            selected += u32::try_from(in_run)?;
+            expected_values.push(in_run > 0);
+            if in_run > 0 {
+                expected_ends.push(selected);
+            }
+            start = end as usize;
+        }
+        assert_eq!(filtered_ends.as_slice::<u32>(), expected_ends.as_slice());
+        assert_eq!(values_mask, Mask::from_iter(expected_values));
+        Ok(())
+    }
 }
