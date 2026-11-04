@@ -60,12 +60,12 @@ jobs:
             --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"
 
-      # On a push, the `refresh-site` job of develop-bench.yml revalidates the benchmarks website
-      # once, after all benchmark results are ingested. A manual run has no such job, so it
-      # revalidates here.
-      - name: Revalidate and warm the benchmarks website
-        if: github.event_name == 'workflow_dispatch' && vars.GH_BENCH_INGEST_ROLE_ARN != ''
-        env:
-          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
-          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
-        run: python3 scripts/refresh-bench-site.py
+  # Tell the benchmarks website that the new commit exists. develop-bench.yml refreshes again
+  # after its benchmark results are ingested, but it does not wait for this workflow, so a push
+  # whose benchmark ingests all fail could otherwise leave this commit hidden by the cache.
+  refresh-site:
+    needs: commit-metadata
+    if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+    uses: ./.github/workflows/refresh-bench-site.yml
+    secrets:
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}

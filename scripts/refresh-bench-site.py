@@ -18,8 +18,9 @@ The request shape is the contract in `bench/CONTRACT.md` of the vortex-data/vort
 repository: `POST {BENCH_SITE_BASE_URL}/api/revalidate` with
 `Authorization: Bearer $BENCH_REVALIDATE_TOKEN`.
 
-The script does nothing when either environment variable is unset. A failed revalidate exits
-non-zero. A failed warm request only prints a warning.
+The script does nothing when either environment variable is unset. A revalidate that fails with
+a transport error, HTTP 429 or HTTP 5xx is tried again a few times; a revalidate that still fails
+exits non-zero. A failed warm request only prints a warning.
 """
 
 from __future__ import annotations
@@ -28,7 +29,10 @@ import argparse
 import json
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -77,18 +81,43 @@ def _warm_default_windows(base: str, timeout: float) -> None:
         pool.map(lambda s: warm(f"{base}/api/group/{s}?n=100"), slugs)
 
 
-def refresh_site_cache(base_url: str, token: str, timeout: float) -> bool:
+# Waits between revalidate attempts. The run sends only this one revalidate, so a short outage
+# or redeploy of the website must not leave the run's results behind the old cache.
+_RETRY_DELAYS_S = (5, 15, 45)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for a transport error, HTTP 429 or HTTP 5xx. Other HTTP errors, such as 401 for a
+    wrong token, do not change when the request is sent again."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    return isinstance(exc, OSError)
+
+
+def refresh_site_cache(
+    base_url: str,
+    token: str,
+    timeout: float,
+    *,
+    delays: tuple[float, ...] = _RETRY_DELAYS_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
     """Revalidate the site's Data Cache tag, then warm the default windows.
 
     Returns False when the revalidate fails. The warm pass is then skipped: warming a cache
     that was not marked stale only keeps the old data.
     """
     base = base_url.rstrip("/")
-    try:
-        _http("POST", f"{base}/api/revalidate", token, timeout)
-    except Exception as exc:  # noqa: BLE001 -- reported through the exit code.
-        print(f"error: cache revalidate failed: {exc}", file=sys.stderr)
-        return False
+    for attempt in range(len(delays) + 1):
+        try:
+            _http("POST", f"{base}/api/revalidate", token, timeout)
+            break
+        except Exception as exc:  # noqa: BLE001 -- reported through the exit code.
+            if attempt == len(delays) or not _is_transient(exc):
+                print(f"error: cache revalidate failed: {exc}", file=sys.stderr)
+                return False
+            print(f"warning: cache revalidate failed ({exc}); retrying in {delays[attempt]:g}s", file=sys.stderr)
+            sleep(delays[attempt])
     _warm_default_windows(base, timeout)
     return True
 
