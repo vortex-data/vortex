@@ -26,7 +26,6 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -397,7 +396,7 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
             ),
         };
 
-        Scalar::try_new(array.dtype().clone(), Some(ScalarValue::Decimal(value)))
+        Scalar::try_decimal(value, array.decimal_dtype(), array.dtype().nullability())
     }
 }
 

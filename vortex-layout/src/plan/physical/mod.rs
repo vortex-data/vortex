@@ -5,14 +5,12 @@
 //!
 //! A plan is a tree of physical operators over a row domain. Operator identity and
 //! operator-specific state do not depend on the source layout kind, so rewrites can reason about a
-//! plan's shape alone. The common child container can initialize individual slots lazily.
+//! plan's shape alone. Children live in fixed-position slots, each of which can be built lazily.
 //!
 //! [`operator`] defines the execution contracts, `operators` implements the concrete sources
 //! and stages, and [`pipeline`] compiles and runs them.
 
-mod children;
 mod display;
-mod lower;
 pub mod operator;
 pub(crate) mod operators;
 mod optimize;
@@ -20,16 +18,15 @@ pub mod optimizer;
 pub mod pipeline;
 mod plans;
 pub(crate) mod selection;
+mod slots;
 mod typed;
 mod vtable;
 
-pub use children::PlanChildren;
 pub use display::PlanIndentedFormatter;
 pub use display::PlanSummaryExtractor;
 pub use display::PlanTreeContext;
 pub use display::PlanTreeDisplay;
 pub use display::PlanTreeExtractor;
-pub use lower::lower;
 pub use optimize::optimize;
 pub use plans::Concat;
 pub use plans::ConcatData;
@@ -65,30 +62,15 @@ pub use plans::ZonedData;
 pub use plans::ZonedPlan;
 pub use plans::plan_row_idx_expression;
 pub use plans::row_idx_dtype;
+pub use slots::LazyPlanRef;
+pub use slots::PlanSlots;
 pub use typed::DynPlan;
 pub use typed::Plan;
 pub(crate) use typed::PlanByPtr;
 pub use typed::PlanParts;
 pub use typed::PlanRef;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 pub use vtable::PlanId;
 pub use vtable::PlanVTable;
-
-/// Returns an error when `children` does not have exactly `expected` entries.
-pub(crate) fn check_child_count(
-    name: &str,
-    children: &PlanChildren,
-    expected: usize,
-) -> VortexResult<()> {
-    if children.len() != expected {
-        vortex_bail!(
-            "{name} expects {expected} children but got {}",
-            children.len()
-        );
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests;

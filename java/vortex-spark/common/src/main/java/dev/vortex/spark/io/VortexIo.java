@@ -9,6 +9,10 @@ import java.io.Serializable;
 import java.util.Locale;
 import java.util.Objects;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.spark.SparkContext;
+import org.apache.spark.broadcast.Broadcast;
+import scala.reflect.ClassTag;
+import scala.reflect.ClassTag$;
 
 /**
  * The Hadoop configuration this Spark job reaches storage with, and the read settings that go with it.
@@ -17,7 +21,7 @@ import org.apache.hadoop.conf.Configuration;
  * providers as Spark's file index and commit protocol. Reads open a {@link HadoopReadable}; writes go through
  * {@link HadoopWritable} on the task path Spark's commit protocol assigns.
  *
- * <p>Built on the driver and shipped to executors, so the configuration travels with it.
+ * <p>Built on the driver and shipped to executors, so the configuration travels with it, or is broadcast to them.
  */
 public final class VortexIo implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -30,23 +34,42 @@ public final class VortexIo implements Serializable {
 
     private static final int DEFAULT_READ_CONCURRENCY = 0;
 
+    /** The configuration this instance carries itself, or null when it reads {@link #broadcastConf}. */
     private final SerializableHadoopConf conf;
+
+    /** The configuration broadcast to every executor once, or null when this instance carries {@link #conf}. */
+    private final Broadcast<SerializableHadoopConf> broadcastConf;
+
     private final int readConcurrency;
 
     /** Captures {@code hadoopConf} and the read settings found in the format options. */
     public static VortexIo create(VortexOptions options, Configuration hadoopConf) {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(hadoopConf, "hadoopConf");
-        return new VortexIo(new SerializableHadoopConf(hadoopConf), parseReadConcurrency(options));
+        return new VortexIo(new SerializableHadoopConf(hadoopConf), null, parseReadConcurrency(options));
+    }
+
+    /**
+     * Like {@link #create}, but broadcasts {@code hadoopConf} through {@code context}. Each task that deserializes the
+     * result then shares the executor's copy, instead of reading the whole configuration back from its own bytes.
+     */
+    public static VortexIo broadcast(VortexOptions options, Configuration hadoopConf, SparkContext context) {
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(hadoopConf, "hadoopConf");
+        ClassTag<SerializableHadoopConf> tag = ClassTag$.MODULE$.apply(SerializableHadoopConf.class);
+        return new VortexIo(
+                null, context.broadcast(new SerializableHadoopConf(hadoopConf), tag), parseReadConcurrency(options));
     }
 
     /** Hadoop I/O over a default configuration, for callers that have no Spark session to draw one from. */
     public static VortexIo defaults() {
-        return new VortexIo(new SerializableHadoopConf(new Configuration()), DEFAULT_READ_CONCURRENCY);
+        return new VortexIo(new SerializableHadoopConf(new Configuration()), null, DEFAULT_READ_CONCURRENCY);
     }
 
-    private VortexIo(SerializableHadoopConf conf, int readConcurrency) {
+    private VortexIo(
+            SerializableHadoopConf conf, Broadcast<SerializableHadoopConf> broadcastConf, int readConcurrency) {
         this.conf = conf;
+        this.broadcastConf = broadcastConf;
         this.readConcurrency = readConcurrency;
     }
 
@@ -60,7 +83,7 @@ public final class VortexIo implements Serializable {
     }
 
     public Configuration hadoopConf() {
-        return conf.value();
+        return conf != null ? conf.value() : broadcastConf.value().value();
     }
 
     /** Bound on concurrent read upcalls per file; zero keeps the native default. */

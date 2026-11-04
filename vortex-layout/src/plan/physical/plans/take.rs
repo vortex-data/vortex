@@ -22,13 +22,12 @@ use vortex_session::registry::CachedId;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::Share;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
@@ -38,7 +37,7 @@ use crate::plan::physical::pipeline::Compiler;
 const CODES: usize = 0;
 const VALUES: usize = 1;
 
-/// Indexes `values` by `codes`, with children ordered as `[codes, values]`.
+/// Indexes `values` by `codes`, with slots `[codes, values]`.
 #[derive(Clone, Debug)]
 pub struct Take;
 
@@ -46,22 +45,22 @@ pub struct Take;
 pub type TakePlan = Plan<Take>;
 
 impl TakePlan {
-    /// Creates a take from potentially unresolved children without validation.
+    /// Creates a take from potentially unbuilt slots without validation.
     ///
     /// # Safety
     ///
-    /// `children` must be `[codes, values]`; `codes` must have `row_count` rows; and `dtype` must
-    /// be the values dtype unioned with the codes nullability.
-    pub(crate) unsafe fn from_children_unchecked(
+    /// `slots` must be `[codes, values]`, both present; `codes` must have `row_count` rows; and
+    /// `dtype` must be the values dtype unioned with the codes nullability.
+    pub(crate) unsafe fn from_slots_unchecked(
         dtype: DType,
         row_count: u64,
-        children: PlanChildren,
+        slots: PlanSlots,
     ) -> Self {
         PlanParts {
             vtable: Take,
             dtype,
             row_count,
-            children,
+            slots,
             data: (),
         }
         .into_typed()
@@ -79,7 +78,7 @@ impl TakePlan {
             vtable: Take,
             dtype,
             row_count,
-            children: vec![codes, values].into(),
+            slots: [codes, values].into(),
             data: (),
         }
         .into_typed()
@@ -87,12 +86,12 @@ impl TakePlan {
 
     /// Returns the plan producing indices.
     pub fn codes(&self) -> VortexResult<PlanRef> {
-        self.child_required(CODES)
+        self.slot_required(CODES)
     }
 
     /// Returns the plan producing the values being indexed.
     pub fn values(&self) -> VortexResult<PlanRef> {
-        self.child_required(VALUES)
+        self.slot_required(VALUES)
     }
 }
 
@@ -109,18 +108,14 @@ impl PlanVTable for Take {
         Some(EmptyMetadata)
     }
 
-    fn with_children(
+    fn with_slots(
         plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("Take", children, 2)?;
-        let codes = children
-            .get(CODES)?
-            .ok_or_else(|| vortex_error::vortex_err!("Take codes child is absent"))?;
-        let values = children
-            .get(VALUES)?
-            .ok_or_else(|| vortex_error::vortex_err!("Take values child is absent"))?;
+        slots.check_len("Take", 2)?;
+        let codes = slots.required(CODES)?;
+        let values = slots.required(VALUES)?;
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
@@ -130,11 +125,11 @@ impl PlanVTable for Take {
         Ok(())
     }
 
-    fn child_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
+    fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
         match index {
             CODES => Cow::Borrowed("codes"),
             VALUES => Cow::Borrowed("values"),
-            _ => Cow::Owned(format!("child[{index}]")),
+            _ => Cow::Owned(format!("slot[{index}]")),
         }
     }
 

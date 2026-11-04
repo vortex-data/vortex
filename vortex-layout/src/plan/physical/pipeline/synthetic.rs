@@ -27,10 +27,10 @@ use vortex_session::registry::CachedId;
 use super::Chain;
 use super::Compiler;
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::Input;
@@ -79,7 +79,7 @@ impl SyntheticPlan {
             vtable: Synthetic,
             dtype,
             row_count,
-            children: children.into(),
+            slots: children.into(),
             data: SyntheticData {
                 builder: Arc::new(builder),
             },
@@ -101,9 +101,9 @@ impl PlanVTable for Synthetic {
         None
     }
 
-    fn with_children(
+    fn with_slots(
         _plan: &Plan<Self>,
-        _children: &PlanChildren,
+        _slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
         Ok(())

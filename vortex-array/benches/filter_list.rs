@@ -18,6 +18,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -88,6 +89,8 @@ fn selection_mask(setup: MaskSetup) -> Mask {
 }
 
 fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (array.clone(), mask.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mask, mut ctx)| {

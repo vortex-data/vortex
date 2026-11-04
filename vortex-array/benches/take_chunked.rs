@@ -24,6 +24,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -354,6 +355,8 @@ fn take_indices(case: Case) -> ArrayRef {
 fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);
     let indices = take_indices(case);
+    mark_optimized(&values, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
 
     bencher
         .counter(ItemsCount::new(case.indices))
