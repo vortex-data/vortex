@@ -48,6 +48,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
+use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -402,12 +403,17 @@ impl ArrayRef {
     }
 
     /// Writes the array into the canonical builder.
+    ///
+    /// The array is optimized first, so a lazy array appends through the encoding it reduces to:
+    /// a slice of a constant appends as a constant, not as a canonical copy of the slice.
     pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.0.data.append_to_builder(self, builder, ctx)
+        let array = self.optimize_ctx(ctx)?;
+
+        array.0.data.append_to_builder(&array, builder, ctx)
     }
 
     /// Returns the statistics of the array.
