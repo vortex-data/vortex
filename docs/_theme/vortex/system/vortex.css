@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus
-   sha256 0e6ede3265aee5a70243738eb02f424b641d6690683dd2a7936ba9f4a2a42ff8 */
+   sha256 c6e97b5038a386b50c12801120cfe0c01a961eca524360642aa0d2c20463f35f */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -244,4 +244,4 @@
    segments inside a clipped container draw it inside their edge. */
 :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
 .vx-docs-toggle:focus-visible ~ .vx-docs-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }
