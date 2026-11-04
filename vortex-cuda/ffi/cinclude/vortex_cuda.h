@@ -104,7 +104,8 @@ void vx_cuda_release_file_mappings(void);
  * Returns an owned handle with reusable CUDA state, or null and an optional `vx_error` on failure.
  * Unless the host configured runtime worker threads with `vx_runtime_set_worker_threads`, starts
  * one per available core but one (at least one), so I/O and decode run alongside the consuming
- * thread.
+ * thread. These workers drive the shared runtime for all FFI sessions in the process,
+ * including CPU sessions.
  *
  * Hosts managing their own thread budget should call `vx_runtime_set_worker_threads`
  * before creating a CUDA session; passing zero keeps execution host-thread-driven.
