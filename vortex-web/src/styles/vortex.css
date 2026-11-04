@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 160003a65db4f83a3c75e1a0507cfa296d41d2d6dca1c84fec31f3e17e96dded */
+   sha256 c9a43ff965a827864254c152c5ef9090c6bc41b0a8c81310fbc44c3f5ac8064c */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -42,8 +42,9 @@
 .vx-num {
   font-variant-numeric: tabular-nums;
 }
+/* In prose, the link rule styles an author's links. A system link (a vx- class) has its own rule. */
 .vx-link,
-.vx-prose a {
+.vx-prose a:not([class*="vx-"]) {
   color: var(--ink);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -52,7 +53,7 @@
   transition: color var(--vx-motion), text-decoration-color var(--vx-motion);
 }
 .vx-link:hover,
-.vx-prose a:hover {
+.vx-prose a:not([class*="vx-"]):hover {
   color: var(--accent-ink);
   text-decoration-color: currentColor;
 }
@@ -84,30 +85,17 @@
   align-items: center;
   gap: var(--space-4);
 }
-.vx-kbd {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 var(--space-4);
-  font: 400 11px/1 var(--font-mono);
-  color: var(--ink-muted);
-  background: var(--ground);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-}
-@media (max-width: 640px) {
-  :root {
-    --page-pad: var(--space-16);
-  }
-}
 
 /* Headings take ink, so a page never has to say so. It sits in base, which every site
    copies. :where() keeps it at no specificity, so any component that colours its own headings wins. */
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5, .vx-stat) { color: var(--ink); }
 
-/* The one control transition (Motion.md): colour, border and fade changes on hover and press. */
-:root { --vx-motion: 150ms ease-out; }
+
+/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer's DetailStrip
+   both draw it, so it sits in base, which every site copies. */
+.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
+.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
+.vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ site */
 /* Page: the frame and the bands a page is built from. .vx-page holds the header, a main and the
@@ -258,31 +246,8 @@
 .vx-header-nav { display: flex; gap: var(--space-24); margin-left: auto; }
 .vx-header-end { display: flex; align-items: center; gap: var(--space-16); margin-left: auto; }
 .vx-header-nav + .vx-header-end { margin-left: 0; }
-.vx-search {
-  appearance: none;
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  max-width: 360px;
-  height: var(--control-md);
-  margin: 0 auto;
-  padding: 0 var(--space-4) 0 var(--space-12);
-  background: var(--raised);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-control);
-  font: 400 14px/1 var(--font-sans);
-  color: var(--ink-muted);
-  cursor: pointer;
-  transition: border-color var(--vx-motion);
-}
-.vx-search:hover { border-color: var(--ink); }
-.vx-search svg { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
-.vx-search-keys { display: flex; gap: var(--space-4); margin-left: auto; }
 @media (max-width: 760px) {
   .vx-btn-count { display: none; }
-  .vx-search { flex: 0 0 auto; width: var(--control-md); justify-content: center; margin: 0 0 0 auto; padding: 0; }
-  .vx-search-text, .vx-search-keys { display: none; }
 }
 /* The menu: on a narrow screen the site's links go behind a Menu button at the end of the row, a
    <details>, so it opens without scripts. Its panel is a popover under the button, on the ground with
@@ -382,6 +347,9 @@
    its own controls (.vx-header-tools) and the end group. The site's links are always behind the
    Menu button, so the controls have the room. The label can be the page's h1, so it takes no margin. */
 .vx-header.has-tools { position: sticky; top: 0; z-index: 1000; }
+/* The sticky header must not cover what takes focus or what a link scrolls to (WCAG 2.4.11).
+   The header is 64px tall. */
+html:has(.vx-header.has-tools) { scroll-padding-top: calc(var(--space-64) + var(--space-8)); }
 /* No divider beside the label: it reads as part of the wordmark. */
 .vx-header.has-tools .vx-header-label { border-left: 0; padding-left: 0; }
 .vx-header.has-tools .vx-header-nav { display: none; }
@@ -439,9 +407,9 @@
 /* The foot: the key, then a note for each panel with a range, one per line. */
 .vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
 .vx-results-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.vx-results-table th,
 /* The cells do not wrap, so a table wider than its frame scrolls inside it, not off the page. */
 .vx-results-wrap { overflow-x: auto; }
+.vx-results-table th,
 .vx-results-table td { padding: var(--space-4) 0 var(--space-4) var(--space-16); text-align: right; white-space: nowrap; font-weight: 400; }
 .vx-results-table th:first-child { padding-left: 0; text-align: left; }
 .vx-results-table thead th { padding-bottom: var(--space-8); color: var(--ink-muted); }
@@ -620,7 +588,7 @@
 .vx-table.is-data tr.is-spacer td { height: auto; padding: 0; border: 0; }
 
 /* ------------------------------------------------------------------ app: Explorer */
-/* Chips filter a view. A pressed chip is a selected item: an accent-soft wash and an accent rule. */
+/* Chips filter a view. A pressed chip is a selected item: an accent-soft wash and an accent-ink border, which holds 3:1. */
 .vx-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
 .vx-chip {
   appearance: none;
@@ -638,7 +606,7 @@
   transition: border-color var(--vx-motion), color var(--vx-motion), background-color var(--vx-motion);
 }
 .vx-chip:hover { border-color: var(--ink); color: var(--ink); }
-.vx-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.vx-chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--ink); }
 /* After the pressed rule, so a press shows on a chip that is already on. */
 .vx-chip:active { background: var(--edge); }
 .vx-chip.is-all { font-weight: 500; }
@@ -742,7 +710,9 @@
 .vx-status-item.is-error::before { background: var(--status-error); }
 
 /* ------------------------------------------------------------------ focus
-   One rule for every focusable element, last so that it wins over the resets above. Rows and
+   One rule for every focusable element, last so that it wins over the resets above. The docs'
+   phone menu is a hidden checkbox, so its label shows the checkbox's ring. Rows and
    segments inside a clipped container draw it inside their edge. */
-:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-:is(.vx-docs-nav a, .vx-toc a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button):focus-visible { outline-offset: -2px; }
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.vx-docs-toggle:focus-visible ~ .vx-docs-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-filemap-bar > button, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }

@@ -90,10 +90,10 @@ export function DetailPanel() {
   const tip = breadcrumb[breadcrumb.length - 1];
 
   return (
-    <section className="vx-card vx-pane x-view" aria-label="Detail">
+    <section className="vx-card vx-pane x-view" aria-label="Selected node">
       <div className="x-view-head">
         {tabs.length > 0 && (
-          <div className="vx-tabs-list" role="tablist" aria-label="Detail" onKeyDown={onTabKey}>
+          <div className="vx-tabs-list" role="tablist" aria-label="Views" onKeyDown={onTabKey}>
             {tabs.map((tab) => (
               <button
                 type="button"

@@ -75,9 +75,12 @@ export function BuffersPane({ node }: BuffersPaneProps) {
         {selectedBuffer === null && <p className="vx-label">Select a buffer to see its bytes.</p>}
         {loading && <p className="vx-label">Reading the buffer…</p>}
         {error && (
-          <p className="vx-label x-error" role="alert">
-            Could not read the buffer: {error}
-          </p>
+          <div role="alert">
+            <p className="vx-small x-error">The buffer did not load. Select it again.</p>
+            <p className="vx-label-sm">
+              Reason · <span className="vx-ref">{error}</span>
+            </p>
+          </div>
         )}
         {bufferData && <HexView data={bufferData} />}
       </div>

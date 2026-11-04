@@ -142,7 +142,7 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
                   The file did not open. Open a .vortex or .vtx file.
                 </p>
                 <p className="vx-label-sm">
-                  Reason: <span className="vx-ref">{error}</span>
+                  Reason · <span className="vx-ref">{error}</span>
                 </p>
               </div>
             )}

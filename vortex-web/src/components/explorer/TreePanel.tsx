@@ -225,7 +225,10 @@ export function TreePanel() {
   );
 
   return (
-    <section className="vx-card vx-pane x-tree-pane" aria-label="Layout tree">
+    <section
+      className="vx-card vx-pane x-tree-pane"
+      aria-label={mode === 'schema' ? 'Schema' : 'Layout'}
+    >
       <div className="vx-pane-head">
         <Switch label="Tree view" value={mode} options={MODES} onChange={setMode} />
         <TreeSearch onSearch={setSearchQuery} />

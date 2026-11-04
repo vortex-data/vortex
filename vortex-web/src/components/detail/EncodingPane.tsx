@@ -57,9 +57,12 @@ export function EncodingPane({ node }: EncodingPaneProps) {
 
   if (error) {
     return (
-      <p className="vx-label x-pad x-error" role="alert">
-        Could not read the encoding tree: {error}
-      </p>
+      <div className="x-pad" role="alert">
+        <p className="vx-small x-error">The encoding tree did not load. Select the node again.</p>
+        <p className="vx-label-sm">
+          Reason · <span className="vx-ref">{error}</span>
+        </p>
+      </div>
     );
   }
 
