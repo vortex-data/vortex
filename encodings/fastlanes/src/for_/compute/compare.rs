@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -10,6 +9,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -68,7 +68,7 @@ fn compare_constant<T>(
     operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
 where
-    T: NativePType + PrimInt + WrappingSub,
+    T: IntegerPType + WrappingSub,
     T: TryFrom<PValue, Error = VortexError>,
     PValue: From<T>,
 {
@@ -125,7 +125,7 @@ fn compare_signed_encoded<T>(
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef>
 where
-    T: NativePType + PrimInt + Into<PValue>,
+    T: IntegerPType + Into<PValue>,
 {
     let below = matches!(operator, CompareOperator::Lt | CompareOperator::Lte);
     let (lower, upper, options, negate) = if distance >= T::zero() {

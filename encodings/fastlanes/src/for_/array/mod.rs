@@ -40,8 +40,8 @@ pub struct FoRSlots {
 /// where `offset` is the position of the first element within the first chunk. Both use wrapping
 /// arithmetic.
 ///
-/// Each reference must be at most every valid value that decodes against it, so the encoded values
-/// are exact unsigned distances.
+/// Each reference must be less than or equal to all valid values that decode against it. Thus,
+/// each encoded value is the exact unsigned distance from its reference to the decoded value.
 #[derive(Clone, Debug)]
 pub struct FoRData {
     pub(super) offset: u16,
