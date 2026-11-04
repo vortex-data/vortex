@@ -1,6 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Filtering run-end encoded arrays.
+//!
+//! Small or sparse selections use direct take. Otherwise, filtering updates the run ends and
+//! removes runs that contain no selected rows, preserving the run-end encoding.
+//!
+//! A run's new end is the number of selected rows before its original end, called the mask's
+//! _rank_. A run disappears when this count does not increase:
+//!
+//! ```text
+//! Input rows:       A A A | B B | C C C
+//! Input ends:           3     5       8
+//! Selection mask:   1 0 1 | 0 0 | 1 0 1
+//! Rank at each end:     2     2       4
+//!
+//! Output ends:      [2, 4]
+//! Output values:    [A, C]
+//! Output rows:      A A C C
+//! ```
+//!
+//! A [`BitRankDirectory`] stores each 64-bit mask word alongside the number of selected rows in
+//! preceding words. A rank query combines that stored count with a population count of the
+//! relevant bits within one word. This avoids setting up a separate range count for every run,
+//! which is especially useful for short runs.
+//!
+//! Each query still needs a population count, so the instructions used for counting matter.
+//! [`fearless_simd`] selects a version of the loop compiled for the current CPU's features.
+//! On supported x86 CPUs, this enables POPCNT, which counts the set bits in a word with one
+//! instruction. The rank queries themselves operate on scalar words rather than vectors.
+
 use std::cmp::min;
 
 use fearless_simd::Level;
@@ -9,6 +38,7 @@ use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitRankDirectory;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -165,7 +195,7 @@ fn run_end_ranks_simd<S: Simd, R: NativePType + AsPrimitive<u64>>(
 where
     u64: AsPrimitive<R>,
 {
-    let rank = RankDirectory::new(mask);
+    let rank = BitRankDirectory::new(mask);
     let mut filtered_run_ends = BufferMut::<R>::with_capacity_in(run_ends.len(), allocator.clone());
     let filtered_run_ends_out = filtered_run_ends.spare_capacity_mut();
     let mut retained_run_count = 0;
@@ -175,8 +205,10 @@ where
         // SAFETY: `collect_bool` calls this closure with `run_idx < run_ends.len()`.
         let run_end = unsafe { *run_ends.get_unchecked(run_idx) };
 
+        let position: usize = min(run_end.as_() - offset, length).as_();
+
         // SAFETY: the clamp keeps the position at most `length`, which is the mask length.
-        let run_rank = unsafe { rank.rank_unchecked(min(run_end.as_() - offset, length)) };
+        let run_rank: u64 = unsafe { rank.rank_unchecked(position) }.as_();
 
         // SAFETY: `retained_run_count <= run_idx`, and the spare capacity holds `run_ends.len()`
         // elements. The rank is at most `length`, which fits in `R` because the source run ends
@@ -194,69 +226,6 @@ where
     unsafe { filtered_run_ends.set_len(retained_run_count) };
 
     (filtered_run_ends, retained_runs)
-}
-
-/// Constant-time rank queries over a bitmap.
-///
-/// Each entry pairs a 64-bit word of the bitmap with the number of set bits in all preceding
-/// words, so a rank is one load and one popcount instead of a range count per query.
-struct RankDirectory {
-    /// `(word, set bits before word)` over the bitmap's aligned words, followed by one zero word so
-    /// `rank(len)` is in bounds.
-    entries: Vec<(u64, u64)>,
-    /// Bit position of logical bit 0 within the first word. The padding bits are zero.
-    lead_padding: u64,
-}
-
-impl RankDirectory {
-    #[expect(
-        clippy::inline_always,
-        reason = "must inline into the SIMD-level body to use its POPCNT"
-    )]
-    #[inline(always)]
-    fn new(bits: &BitBuffer) -> Self {
-        let chunks = bits.unaligned_chunks();
-        let mut entries = Vec::with_capacity(chunks.chunks().len() + 3);
-        let mut preceding = 0u64;
-        let mut push = |word: u64| {
-            entries.push((word, preceding));
-            preceding += u64::from(word.count_ones());
-        };
-
-        chunks.prefix().into_iter().for_each(&mut push);
-        chunks.chunks().iter().copied().for_each(&mut push);
-        chunks.suffix().into_iter().for_each(&mut push);
-        push(0);
-
-        Self {
-            entries,
-            lead_padding: chunks.lead_padding() as u64,
-        }
-    }
-
-    /// Returns the number of set bits before position `n`.
-    ///
-    /// # Safety
-    ///
-    /// `n` must be at most the length of the bitmap that built this directory.
-    #[expect(
-        clippy::inline_always,
-        reason = "must inline into the SIMD-level body to use its POPCNT"
-    )]
-    #[inline(always)]
-    unsafe fn rank_unchecked(&self, n: u64) -> u64 {
-        let position = n + self.lead_padding;
-        let entry_idx = (position / 64) as usize;
-        debug_assert!(
-            entry_idx < self.entries.len(),
-            "rank position {n} out of bounds"
-        );
-
-        // SAFETY: the entries cover every word through `lead_padding + len`, plus one zero word, so
-        // the caller's `n <= len` keeps `entry_idx` in bounds.
-        let (word, preceding) = unsafe { *self.entries.get_unchecked(entry_idx) };
-        preceding + u64::from((word & ((1u64 << (position % 64)) - 1)).count_ones())
-    }
 }
 
 #[cfg(test)]
