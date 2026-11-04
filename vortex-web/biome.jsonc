@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": {
