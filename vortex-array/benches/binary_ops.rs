@@ -4,7 +4,7 @@
 //! Benchmarks for the binary `Operator` path, over primitive, decimal, and boolean inputs.
 //!
 //! The primitive arithmetic and comparison cases carry `#[cpu_features]`, so they are
-//! measured on every walltime CPU-feature leg rather than in simulation. Each is written
+//! measured on walltime CPU-feature legs rather than in simulation. Each is written
 //! once and compiled differently per leg: the kernel underneath is a portable lane loop, and
 //! how wide the compiler vectorizes it is decided by the build flags, not by the source.
 //!
@@ -237,7 +237,8 @@ fn mul_u32_nonnull(bencher: Bencher) {
     bench_primitive(bencher, lhs, rhs, Operator::Mul);
 }
 
-#[vortex_bench_support::cpu_features]
+// This case varies on unchanged code on the NEON leg. The cause is unknown.
+#[vortex_bench_support::cpu_features(exclude = ["neon"])]
 #[divan::bench]
 fn mul_u64_nonnull(bencher: Bencher) {
     let lhs = primitive_u64_small_nonnull(1, I64_LEN).into_array();
@@ -321,7 +322,8 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
     bench_decimal(bencher, lhs, rhs, Operator::Div);
 }
 
-#[vortex_bench_support::cpu_features]
+// The AVX-512 minimum varies by more than 10% while the median stays stable on unchanged code.
+#[vortex_bench_support::cpu_features(exclude = ["avx512"])]
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();

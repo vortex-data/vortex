@@ -503,7 +503,7 @@ fn timestamp_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortex
         micros_to_unit(micros, unit)?
     };
 
-    let ext = Timestamp::new_with_tz(unit, tz, Nullability::NonNullable);
+    let ext = Timestamp::try_new_with_tz(unit, tz, Nullability::NonNullable)?;
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
         Some(ScalarValue::from(storage)),

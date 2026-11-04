@@ -91,6 +91,7 @@ use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -172,13 +173,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_052 } else { 69_988 }
+    if cfg!(feature = "zstd") { 70_060 } else { 69_996 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_136
+        55_144
     )
 )]
 #[tokio::test]
@@ -1587,6 +1588,64 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     Ok(())
 }
 
+/// Both the nested and the legacy file statistics record the uncompressed size only when the
+/// enabled editions include it, or when editions are disabled.
+#[rstest]
+#[case::core(false, false, false)]
+#[case::preview(true, false, true)]
+#[case::editions_disabled(false, true, true)]
+#[tokio::test]
+async fn uncompressed_size_follows_editions(
+    #[case] preview: bool,
+    #[case] disable_editions: bool,
+    #[case] recorded: bool,
+) -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    if preview {
+        session.enable_edition(PREVIEW_2026_08_0)?;
+    }
+
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["c"].into(), vec![c], 3, Validity::NonNullable)?.into_array();
+    let options = session.write_options().include_nested_statistics();
+    let options = if disable_editions {
+        options.disable_editions()
+    } else {
+        options
+    };
+    let mut buf = ByteBufferMut::empty();
+    let summary = options.write(&mut buf, array.to_array_stream()).await?;
+
+    let three_i32 = recorded.then_some(12u64);
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    assert_eq!(
+        stat_value(c_stats, Stat::UncompressedSizeInBytes),
+        three_i32.map_or(Precision::Absent, |size| Precision::exact(
+            ScalarValue::from(size)
+        ))
+    );
+
+    let bytes = stats.write_flatbuffer_bytes()?;
+    let fb =
+        flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
+    let field_stats = fb.field_stats().vortex_expect("field_stats is written");
+    assert_eq!(field_stats.get(0).uncompressed_size_in_bytes(), three_i32);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn nested_statistics_are_excluded_by_default() -> VortexResult<()> {
     let inner = StructArray::try_new(
@@ -2689,10 +2748,8 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 }
 
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
+async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
+    let ts_array = buffer![1000i64].into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     let mut buf = ByteBufferMut::empty();
@@ -2701,7 +2758,6 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2709,70 +2765,18 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
-            Scalar::from(1704153600i64),
+            Scalar::from(1i64),
         )),
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
-///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
-#[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
-
-    // Write file with MILLISECONDS timestamps using this compressor.
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_compressor(compressor)
-        .build();
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("timestamp filter units must match the file dtype when binding");
     assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())

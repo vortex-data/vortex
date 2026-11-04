@@ -26,7 +26,7 @@ mod tests {
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
             DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
-            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased()),
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased()),
         )]
         source_dtype: DType,
         #[values(
@@ -34,7 +34,7 @@ mod tests {
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
             DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erased()),
-            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased()),
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullability::Nullable).erased()),
         )]
         target_dtype: DType,
     ) {

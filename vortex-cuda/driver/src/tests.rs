@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::CudaContext;
@@ -8,18 +9,53 @@ use crate::CudaStream;
 use crate::DevicePtr;
 use crate::DevicePtrMut;
 use crate::DriverError;
+use crate::HostSlice;
+use crate::SyncOnDrop;
 use crate::sys;
 
-/// A context and two streams, or `None` without a CUDA device.
+/// A context and two streams, or `None` without a CUDA driver or device.
+///
+/// Any other failure fails the test, rather than passing it without running it.
 fn streams() -> Option<(Arc<CudaContext>, Arc<CudaStream>, Arc<CudaStream>)> {
-    // SAFETY: Only probes for the driver library.
-    if !unsafe { sys::is_culib_present() } {
+    if !driver_available(sys::driver_load_error()) {
         return None;
     }
-    let context = CudaContext::new(0).ok()?;
-    let first = context.new_stream().ok()?;
-    let second = context.new_stream().ok()?;
+    let context = match CudaContext::new(0) {
+        Ok(context) => context,
+        Err(DriverError(sys::CUresult::CUDA_ERROR_NO_DEVICE)) => return None,
+        Err(error) => panic!("CUDA initialization failed: {error}"),
+    };
+    let first = context.new_stream().expect("stream");
+    let second = context.new_stream().expect("stream");
     Some((context, first, second))
+}
+
+fn driver_available(error: Option<&sys::DriverLoadError>) -> bool {
+    match error {
+        None => true,
+        Some(sys::DriverLoadError::LibraryUnavailable) => false,
+        Some(error) => panic!("CUDA driver loading failed: {error}"),
+    }
+}
+
+#[test]
+fn missing_driver_skips_tests() {
+    assert!(!driver_available(Some(
+        &sys::DriverLoadError::LibraryUnavailable
+    )));
+}
+
+#[test]
+fn loaded_driver_runs_tests() {
+    assert!(driver_available(None));
+}
+
+#[test]
+#[should_panic(expected = "CUDA driver loading failed: cuMemAllocAsync: undefined symbol")]
+fn missing_driver_symbol_fails_tests() {
+    driver_available(Some(&sys::DriverLoadError::MissingSymbol(
+        "cuMemAllocAsync: undefined symbol".to_owned(),
+    )));
 }
 
 #[test]
@@ -91,5 +127,149 @@ fn events_are_pooled() -> Result<(), DriverError> {
     }
     // One write event and one read event, reused for every buffer.
     assert!(context.pooled_events() <= 2);
+    context.check_err()
+}
+
+/// The first recorded error is kept until checked, as later ones are likely its consequences.
+#[test]
+fn first_recorded_error_is_kept() -> Result<(), DriverError> {
+    let Some((context, ..)) = streams() else {
+        return Ok(());
+    };
+    let first = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
+    let second = DriverError(sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY);
+    context.record_err::<()>(Err(first));
+    context.record_err::<()>(Err(second));
+    assert_eq!(context.check_err(), Err(first));
+    context.check_err()
+}
+
+/// Memory of one context cannot be accessed from another context's stream.
+#[test]
+fn rejects_access_from_another_context() -> Result<(), DriverError> {
+    let Some((context, owner, _)) = streams() else {
+        return Ok(());
+    };
+    let other = CudaContext::new_non_primary(0, 0)?;
+    let stream = other.new_stream()?;
+    let device = owner.clone_htod(&[1u32; 16])?;
+    let access = std::panic::catch_unwind(AssertUnwindSafe(|| drop(device.device_ptr(&stream))));
+    assert!(access.is_err());
+    drop(device);
+    context.check_err()
+}
+
+/// Reports fewer elements than the slice it copies.
+struct ShortHostSlice([u32; 4]);
+
+impl HostSlice<u32> for ShortHostSlice {
+    fn len(&self) -> usize {
+        1
+    }
+
+    unsafe fn stream_synced_slice<'a>(
+        &'a self,
+        _stream: &'a CudaStream,
+    ) -> (&'a [u32], SyncOnDrop<'a>) {
+        (&self.0, SyncOnDrop::none())
+    }
+
+    unsafe fn stream_synced_mut_slice<'a>(
+        &'a mut self,
+        _stream: &'a CudaStream,
+    ) -> (&'a mut [u32], SyncOnDrop<'a>) {
+        (&mut self.0, SyncOnDrop::none())
+    }
+}
+
+/// Host copies are bounded by the slices they copy, not by the reported lengths.
+#[test]
+fn host_copies_check_copied_slices() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let mut host = ShortHostSlice([7; 4]);
+    let mut device = stream.alloc_zeros::<u32>(1)?;
+    let upload =
+        std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_htod(&host, &mut device)));
+    assert!(upload.is_err());
+    let download =
+        std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_dtoh(&device, &mut host)));
+    assert!(download.is_ok());
+    assert_eq!(host.0, [0, 7, 7, 7]);
+    context.check_err()
+}
+
+/// Reinterpreting memory as more elements than fit fails, even if their size overflows.
+#[test]
+fn transmute_rejects_overflowing_lengths() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let device = stream.alloc_zeros::<u8>(16)?;
+    // SAFETY: Zeroed bytes are valid `u32`s, and allocations are aligned for them.
+    unsafe {
+        assert!(device.transmute::<u32>(4).is_some());
+        assert!(device.transmute::<u32>(5).is_none());
+        assert!(device.transmute::<u32>(usize::MAX / 2 + 1).is_none());
+    }
+    context.check_err()
+}
+
+/// Empty allocations succeed with either allocator and support every access.
+#[test]
+fn empty_allocations() -> Result<(), DriverError> {
+    let Some((context, owner, other)) = streams() else {
+        return Ok(());
+    };
+    let device = owner.clone_htod(&Vec::<u32>::new())?;
+    let mut copy = other.alloc_zeros::<u32>(0)?;
+    other.memcpy_dtod(&device, &mut copy)?;
+    assert!(owner.clone_dtoh(&copy)?.is_empty());
+    drop(device);
+    drop(copy);
+    context.check_err()
+}
+
+#[test]
+fn borrowed_host_slice_binds_context() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    // SAFETY: Clearing the calling thread's current context does not destroy it.
+    unsafe { sys::cuCtxSetCurrent(std::ptr::null_mut()) }.result()?;
+
+    let host = [1u8; 16];
+    // SAFETY: No work uses the slice; the guard is dropped below.
+    let (_, guard) = unsafe { host.stream_synced_slice(&stream) };
+    let mut current = std::ptr::null_mut();
+    // SAFETY: The driver writes the calling thread's current context.
+    unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
+    assert_eq!(current, context.cu_ctx());
+    drop(guard);
+    context.check_err()
+}
+
+/// A copy from a borrowed page-locked slice no longer reads it once the copy returns, so the
+/// slice can be reused right away.
+#[test]
+fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let len = 1 << 20;
+    // SAFETY: The context is current after `streams`, and the memory is freed below.
+    let pointer = unsafe { crate::result::malloc_host(len, 0) }?;
+    // SAFETY: The allocation holds `len` bytes, initialized below.
+    let host = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<u8>(), len) };
+    host.fill(1);
+    let mut device = stream.alloc_zeros::<u8>(len)?;
+    stream.memcpy_htod(&*host, &mut device)?;
+    host.fill(2);
+    assert!(stream.clone_dtoh(&device)?.iter().all(|byte| *byte == 1));
+    stream.memcpy_dtoh(&device, host)?;
+    assert!(host.iter().all(|byte| *byte == 1));
+    // SAFETY: The copies accessing the memory completed.
+    unsafe { crate::result::free_host(pointer) }?;
     context.check_err()
 }

@@ -5,7 +5,7 @@ name: Vortex Docs Preview
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, labeled, unlabeled, edited]
+    types: [opened, reopened, synchronize, labeled, unlabeled, edited, ready_for_review]
 
 permissions: { }
 
@@ -13,7 +13,7 @@ jobs:
   changes:
     name: Check preview eligibility
     if: >-
-      github.repository == 'vortex-data/vortex' &&
+      github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && github.event.action != 'edited') ||
        github.event.label.name == 'action/preview-docs' ||

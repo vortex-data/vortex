@@ -91,9 +91,10 @@ impl ColumnStatisticsAggregate {
         let max = exact(Max.bind(NumericalAggregateOpts::skip_nans()));
 
         // DuckDB's string length is u32
-        #[allow(clippy::cast_possible_truncation)]
-        let max_string_length = exact(UncompressedSizeInBytes.bind(EmptyOptions))
-            .map(|value| value.as_primitive().as_u64().vortex_expect("not a u64") as u32);
+        let max_string_length =
+            exact(UncompressedSizeInBytes.bind(EmptyOptions)).and_then(|value| {
+                u32::try_from(value.as_primitive().as_u64().vortex_expect("not a u64")).ok()
+            });
 
         let has_null = exact(NullCount.bind(EmptyOptions))
             .is_none_or(|count| count.as_primitive().as_u64().vortex_expect("not a u64") > 0);

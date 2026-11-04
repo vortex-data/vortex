@@ -59,4 +59,5 @@ jobs:
             scripts/post-ingest.py empty.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
             --region "${AWS_REGION}"

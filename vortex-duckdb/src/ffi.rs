@@ -262,6 +262,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };
+    stats_out.row_count = file.reader().row_count();
     stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max_string_length = stats.max_string_length;

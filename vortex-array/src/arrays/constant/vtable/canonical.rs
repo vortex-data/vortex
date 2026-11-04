@@ -308,7 +308,11 @@ fn constant_canonical_list_array(
     // SAFETY: All views point to the same range [0, list.len()) in the elements array.
     // The elements array contains `len` copies of the same value, offsets are all 0,
     // and sizes are all equal to the list length. The validity matches the scalar's nullability.
-    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+    // Empty and null lists have no overlapping elements: every view is [0, 0).
+    unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity)
+            .with_zero_copy_to_list(list.is_empty())
+    }
 }
 
 /// The elements of a list scalar as an array, one row per element; empty for a null list.
@@ -633,6 +637,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx)?;
+        assert!(!canonical_const.is_zero_copy_to_list());
         let list_array =
             canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
         assert_arrays_eq!(
@@ -663,6 +668,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        assert!(canonical_const.is_zero_copy_to_list());
         assert_eq!(canonical_const.dtype(), list_scalar.dtype());
         assert_eq!(canonical_const.len(), 2);
         for index in 0..2 {
@@ -697,6 +703,7 @@ mod tests {
         ));
         let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
+        assert!(canonical_const.is_zero_copy_to_list());
         assert_eq!(canonical_const.dtype(), list_scalar.dtype());
         assert_eq!(canonical_const.len(), 2);
         for index in 0..2 {

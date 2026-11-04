@@ -194,14 +194,15 @@ def test_filter_with_nested_null_dtype(tmp_path: Path) -> None:
 
 def test_duckdb(ds: vx.dataset.VortexDataset) -> None:
     _ = ds  # DuckDB resolves the dataset from the SQL query below.
+    conn = duckdb.default_connection()
 
-    tbl = duckdb.execute("select * from ds where string >= '950000' and float < 975.0").arrow().read_all()
+    tbl = conn.sql("select * from ds where string >= '950000' and float < 975.0").to_arrow_table()
     assert len(tbl) == 6176
     assert tbl.schema == pa.schema(
         [("index", pa.int64()), ("string", pa.utf8()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
-    tbl = duckdb.execute("select * from ds").arrow().read_all()
+    tbl = conn.sql("select * from ds").to_arrow_table()
     assert len(tbl) == 1_000_000
     assert tbl.schema == pa.schema(
         [("index", pa.int64()), ("string", pa.utf8()), ("bool", pa.bool_()), ("float", pa.float64())]
@@ -209,7 +210,7 @@ def test_duckdb(ds: vx.dataset.VortexDataset) -> None:
     assert tbl.take([0]).to_pylist()[0] == record(0)
     assert tbl.take([950_000]).to_pylist()[0] == record(950_000)
 
-    tbl = duckdb.execute("select string as hi_mom, float as yolo from ds").arrow().read_all()
+    tbl = conn.sql("select string as hi_mom, float as yolo from ds").to_arrow_table()
     assert len(tbl) == 1_000_000
     assert tbl.schema == pa.schema([("hi_mom", pa.utf8()), ("yolo", pa.float64())])
 

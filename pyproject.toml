@@ -28,7 +28,12 @@ dev = [
 
 [tool.uv]
 managed = true
-required-version = ">=0.8.0"
+# 0.11.8 is the first release that keeps a relative exclude-newer stable in uv.lock.
+required-version = ">=0.11.8"
+# Skip releases younger than 7 days, the same wait as Renovate's minimumReleaseAge. Renovate cannot
+# apply its wait to uv lock refreshes, so uv applies it. To take an urgent fix sooner, add
+# `exclude-newer-package = { <package> = false }` and remove it once that release is 7 days old.
+exclude-newer = "7 days"
 
 [tool.uv.workspace]
 members = ["bench-orchestrator", "vortex-python", "docs"]

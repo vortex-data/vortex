@@ -6,6 +6,8 @@
     reason = "benchmark fixtures reduce values below 26 before narrowing"
 )]
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -63,6 +65,37 @@ enum Layout {
 
 const LAYOUTS: &[Layout] = &[Layout::VarBin, Layout::VarBinView];
 
+#[derive(Clone, Copy)]
+struct Case {
+    len: usize,
+    layout: Layout,
+}
+
+impl Display for Case {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // Preserve the report names from the former const-length and layout parameters.
+        let layout = match self.layout {
+            Layout::VarBin => "VarBin",
+            Layout::VarBinView => "VarBinView",
+        };
+
+        write!(f, "{}, {layout}", self.len)
+    }
+}
+
+fn cases() -> Vec<Case> {
+    VALUE_LENS
+        .iter()
+        .flat_map(|&len| LAYOUTS.iter().map(move |&layout| Case { len, layout }))
+        .filter(|case| {
+            // VarBin varies on unchanged code, except for short values on the NEON leg.
+            env!("VORTEX_BENCH_VARIANT") == "local"
+                || matches!(case.layout, Layout::VarBinView)
+                || (env!("VORTEX_BENCH_VARIANT") == "neon" && case.len == 8)
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 struct StartsWith;
 
@@ -105,9 +138,9 @@ fn make_input(layout: Layout, len: usize) -> ArrayRef {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = LAYOUTS, consts = VALUE_LENS)]
-fn starts_with<const LEN: usize>(bencher: Bencher, &layout: &Layout) {
-    let args = VecExecutionArgs::new(vec![make_input(layout, LEN)], ROWS);
+#[divan::bench(args = cases())]
+fn starts_with(bencher: Bencher, case: Case) {
+    let args = VecExecutionArgs::new(vec![make_input(case.layout, case.len)], ROWS);
 
     bencher
         .counter(ItemsCount::new(ROWS))

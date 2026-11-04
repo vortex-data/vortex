@@ -92,6 +92,21 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 }
 
 
+# Benchmarks whose Vortex scans still run on the V1 scan. The orchestrator runs every other
+# benchmark on the planner-driven V2 scan, overriding the benchmark binaries' V1 default.
+BENCHMARK_SCAN_V1: frozenset[Benchmark] = frozenset(
+    {
+        Benchmark.POLARSIGNALS,
+        Benchmark.STATPOPGEN,
+    }
+)
+
+
+def uses_scan_v2(benchmark: Benchmark) -> bool:
+    """Return whether `benchmark` runs its Vortex scans on the V2 scan."""
+    return benchmark not in BENCHMARK_SCAN_V1
+
+
 def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:
     """Return the engines `benchmark` supports, defaulting to every engine when unrestricted."""
     return BENCHMARK_ENGINES.get(benchmark, frozenset(Engine))

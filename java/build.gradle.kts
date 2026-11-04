@@ -8,7 +8,29 @@ plugins {
     id("com.palantir.git-version") version "5.0.0"
     id("com.palantir.java-format") version "2.93.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
-    id("com.vanniktech.maven.publish") version "0.36.0" apply false
+}
+
+spotless {
+    java {
+        target(fileTree("vortex-spark/common") { include("**/*.java") })
+        palantirJavaFormat().formatJavadoc(true)
+        licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
+        removeUnusedImports()
+        forbidWildcardImports()
+        importOrder("")
+        trimTrailingWhitespace()
+        leadingTabsToSpaces(4)
+        targetExclude("**/generated/**")
+        targetExcludeIfContentContains("// spotless:disabled")
+    }
+    scala {
+        target(fileTree("vortex-spark/common") { include("**/*.scala") })
+        scalafmt("3.9.10")
+        licenseHeaderFile(
+            "${rootProject.projectDir}/.spotless/java-license-header.txt",
+            "package ",
+        )
+    }
 }
 
 subprojects {
@@ -39,6 +61,10 @@ allprojects {
 
         spotless {
             java {
+                if (project.name.startsWith("vortex-spark-")) {
+                    // Shared sources are formatted by the root project, where they are inside the project directory.
+                    target(project.fileTree("src") { include("**/*.java") })
+                }
                 palantirJavaFormat().formatJavadoc(true)
                 licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
                 removeUnusedImports()
@@ -54,6 +80,8 @@ allprojects {
         tasks.withType<JavaCompile> {
             options.errorprone.disable("UnusedVariable")
             options.errorprone.disableWarningsInGeneratedCode = true
+            // JMH generates non-final subclasses of every benchmark, which ErrorProne's Nopen check rejects.
+            options.errorprone.enabled.set(name != "compileBenchmarkJava")
             options.release = 17
             options.compilerArgs.add("-Werror")
 
@@ -70,6 +98,9 @@ allprojects {
         }
 
         tasks["check"].dependsOn("spotlessCheck")
+        if (project.name == "vortex-spark-4.0_2.13") {
+            tasks["check"].dependsOn(rootProject.tasks.named("spotlessCheck"))
+        }
     }
 
     spotless {
@@ -78,10 +109,16 @@ allprojects {
         }
     }
 
-    if (project.name == "vortex-spark_2.12") {
-        // vortex-spark_2.12 and vortex-spark_2.13 share a projectDir; format from the 2.13 variant only.
+    if (project.name.startsWith("vortex-spark-") && project.name != "vortex-spark-4.0_2.13") {
+        // Spark variants share sources. Format them from the root project only.
         tasks.register("format") { enabled = false }
     } else {
-        tasks.register("format").get().dependsOn("spotlessApply")
+        tasks.register("format").get().dependsOn(
+            if (project.name == "vortex-spark-4.0_2.13") {
+                rootProject.tasks.named("spotlessApply")
+            } else {
+                tasks.named("spotlessApply")
+            },
+        )
     }
 }

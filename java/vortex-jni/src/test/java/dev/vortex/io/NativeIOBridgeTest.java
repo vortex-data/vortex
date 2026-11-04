@@ -14,6 +14,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
@@ -247,6 +248,25 @@ public final class NativeIOBridgeTest {
         try (FileChannelReadable readable = new FileChannelReadable(path)) {
             Map<String, byte[]> metadata = NativeFiles.readMetadata(session, readable);
             assertArrayEquals(value, metadata.get("iceberg.schema"));
+        }
+    }
+
+    @Test
+    public void testStatisticsThroughBridge() throws IOException {
+        Path path = tempDir.resolve("bridge_statistics.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+
+        writePeopleFile(session, allocator, path);
+
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            List<VortexColumnStatistics> statistics = NativeFiles.readStatistics(session, readable);
+            assertEquals(2, statistics.size());
+            assertEquals(3L, statistics.get(0).valueCount());
+            assertEquals("Alice", statistics.get(0).lowerBound().orElseThrow());
+            assertEquals("Carol", statistics.get(0).upperBound().orElseThrow());
+            assertEquals(25, statistics.get(1).lowerBound().orElseThrow());
+            assertEquals(40, statistics.get(1).upperBound().orElseThrow());
         }
     }
 

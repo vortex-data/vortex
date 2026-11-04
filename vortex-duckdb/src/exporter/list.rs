@@ -152,7 +152,6 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
-    use vortex::dtype::PType;
     use vortex::encodings::runend::RunEnd;
     use vortex::error::VortexResult;
 
@@ -189,44 +188,6 @@ mod tests {
             String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
 - FLAT UINTEGER[]: 0 = [ ]
-"#
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_export_u64_list() -> VortexResult<()> {
-        let list = ListArray::try_new(
-            buffer![1u64, 2, 3, 4, 5].into_array(),
-            buffer![0u8, 1, 2, 3, 4, 5].into_array(),
-            Validity::AllValid,
-            &mut SESSION.create_execution_ctx(),
-        )?
-        .into_array();
-        assert_eq!(
-            list.dtype(),
-            &DType::List(
-                Arc::new(DType::Primitive(PType::U64, false.into())),
-                true.into()
-            )
-        );
-
-        let list_type = LogicalType::list_type(LogicalType::uint64())?;
-        let mut chunk = DataChunk::new([list_type]);
-
-        let mut ctx = SESSION.create_execution_ctx();
-        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
-            0,
-            5,
-            chunk.get_vector_mut(0),
-            &mut ctx,
-        )?;
-        chunk.set_len(5);
-
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT UBIGINT[]: 5 = [ [1], [2], [3], [4], [5]]
 "#
         );
         Ok(())

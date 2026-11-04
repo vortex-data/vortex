@@ -31,22 +31,35 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, usize)] = &[
-    // length, unique_values
-    // Lengths sized to keep CodSpeed simulation under 1ms per benchmark.
-    (1_000, 2),
-    (1_000, 4),
-    (1_000, 8),
-    (1_000, 32),
-    (1_000, 512),
-    (2_000, 2),
-    (2_000, 4),
-    (2_000, 8),
-    (2_000, 32),
-    (2_000, 512),
-];
+// Lengths sized to keep CodSpeed simulation under 1ms per benchmark.
+const BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[
+        // length, unique_values
+        (2_000, 2),
+        (2_000, 32),
+        (2_000, 512),
+    ]
+} else {
+    &[
+        // length, unique_values
+        (1_000, 2),
+        (1_000, 4),
+        (1_000, 8),
+        (1_000, 32),
+        (1_000, 512),
+        (2_000, 2),
+        (2_000, 4),
+        (2_000, 8),
+        (2_000, 32),
+        (2_000, 512),
+    ]
+};
 
-const DECODE_BENCH_ARGS: &[(usize, usize)] = &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)];
+const DECODE_BENCH_ARGS: &[(usize, usize)] = if cfg!(codspeed) {
+    &[(2_000, 2), (2_000, 512)]
+} else {
+    &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()

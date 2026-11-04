@@ -29,19 +29,29 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, usize, f64)] = &[
-    // chunk_len, chunk_count, fraction_patched
-    (10000, 1, 0.10),
-    (10000, 1, 0.01),
-    (10000, 1, 0.00),
-    (10000, 10, 0.10),
-    (10000, 10, 0.01),
-    (10000, 10, 0.00),
-    (10000, 100, 0.10),
-    (10000, 100, 0.01),
-    (10000, 100, 0.00),
-    (1000, 1000, 0.00),
-];
+const BENCH_ARGS: &[(usize, usize, f64)] = if cfg!(codspeed) {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+        (1000, 1000, 0.00),
+    ]
+} else {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 1, 0.01),
+        (10000, 1, 0.00),
+        (10000, 10, 0.10),
+        (10000, 10, 0.01),
+        (10000, 10, 0.00),
+        (10000, 100, 0.10),
+        (10000, 100, 0.01),
+        (10000, 100, 0.00),
+        (1000, 1000, 0.00),
+    ]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -122,15 +132,24 @@ fn canonical_into_non_nullable(
         });
 }
 
-const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
-    // chunk_len, chunk_count, fraction_patched
-    (10000, 1, 0.10),
-    (10000, 1, 0.00),
-    (10000, 10, 0.10),
-    (10000, 10, 0.00),
-    (10000, 100, 0.10),
-    (10000, 100, 0.00),
-];
+const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = if cfg!(codspeed) {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+    ]
+} else {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 1, 0.00),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+        (10000, 100, 0.10),
+        (10000, 100, 0.00),
+    ]
+};
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn into_canonical_nullable(
