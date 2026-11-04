@@ -136,8 +136,9 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with all array session
 /// variables plus a default [`CudaSession`], for use in CUDA tests and benchmarks.
 ///
-/// Each call returns an independent session with its own CUDA context and stream pool, matching
-/// the per-test isolation that lazily-initialized sessions previously provided.
+/// Each call returns an independent session with its own kernel registry and stream pool.
+/// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
+/// context-level state must supply their own context through [`CudaSession::with_context`].
 ///
 /// # Panics
 ///

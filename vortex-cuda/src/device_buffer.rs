@@ -550,7 +550,7 @@ mod tests {
     async fn copy_to_host_waits_for_write_on_another_stream() -> VortexResult<()> {
         let context = CudaContext::new(0)
             .map_err(|err| vortex_err!("failed to create CUDA context: {err}"))?;
-        let cuda_session = CudaSession::with_stream_pool_capacity(context, 2);
+        let cuda_session = CudaSession::with_context(context).with_stream_pool_capacity(2);
         let session = VortexSession::empty().with_some(cuda_session);
         let allocation_ctx = CudaSession::create_execution_ctx(&session)?;
         let mut launch_ctx = CudaSession::create_execution_ctx(&session)?;
