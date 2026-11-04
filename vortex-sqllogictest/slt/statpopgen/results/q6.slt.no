@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# DataFusion sums the boolean lists as floats, while DuckDB sums them as
+# integers, so the genotype counts have different types.
+onlyif datafusion
+query TIT?RRR rowsort
+SELECT "CHROM", "POS", "REF", "ALT",
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 0)) as N_HOM_REF,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 1)) as N_HET,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 2)) as N_HOM_ALT
+  FROM statpopgen;
+----
+7000 values hashing to d941f4d1b095d3c410d07d02668bc59b
+
+onlyif duckdb
+query TIT?III rowsort
+SELECT "CHROM", "POS", "REF", "ALT",
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 0)) as N_HOM_REF,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 1)) as N_HET,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 2)) as N_HOM_ALT
+  FROM statpopgen;
+----
+7000 values hashing to d941f4d1b095d3c410d07d02668bc59b

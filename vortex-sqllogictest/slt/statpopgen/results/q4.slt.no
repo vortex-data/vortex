@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TIT?R rowsort
+SELECT "CHROM", "POS", "REF", "ALT", CAST(LIST_SUM("GT") AS DOUBLE) / (2 * LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL))) AS alternate_allele_frequency FROM statpopgen;
+----
+5000 values hashing to 71aaa9897b05ca64c4f984f6e9cf1e7b

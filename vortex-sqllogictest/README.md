@@ -2,10 +2,10 @@
 
 This crate tests correctness of our DuckDB and DataFusion integrations. It runs
 [.slt](https://github.com/risinglightdb/sqllogictest-rs) tests with our queries
-as well as 0.1 scale of TPC-H, TPC-DS, and 1 shard of partitioned ClickBench.
-For last three query sets, tests also verify each query's `EXPLAIN` result.
-DataFusion `EXPLAIN` results are also verified for StatPopGen (the first 1,000
-variants) and the Join Order Benchmark (a 1% proportional sample of IMDB).
+as well as 0.1 scale of TPC-H, TPC-DS, 1 shard of partitioned ClickBench,
+the first 1,000 variants of StatPopGen, and a 1% proportional sample of the
+Join Order Benchmark (JOB) IMDB tables. For these query sets, tests also verify
+each query's `EXPLAIN` result.
 
 ## Running tests
 

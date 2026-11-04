@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# DataFusion's LIST_SUM returns a float, while DuckDB's returns an integer,
+# so the per-position allele counts have different types.
+onlyif datafusion
+query TIR rowsort
+  SELECT "CHROM", "POS", SUM(LIST_SUM("GT")) AS N_ALTS
+    FROM statpopgen
+GROUP BY "CHROM", "POS";
+----
+2673 values hashing to beee1e1989645aa7d2188e9baead7e83
+
+onlyif duckdb
+query TII rowsort
+  SELECT "CHROM", "POS", SUM(LIST_SUM("GT")) AS N_ALTS
+    FROM statpopgen
+GROUP BY "CHROM", "POS";
+----
+2673 values hashing to beee1e1989645aa7d2188e9baead7e83

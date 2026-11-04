@@ -12,5 +12,14 @@ statement ok
 SET datafusion.sql_parser.dialect = 'duckdb';
 
 include ./create.slt.no
+
+# Most queries return the genotype lists of every variant, so results larger
+# than this many values are compared by hash.
+hash-threshold 100
+
+include ../results/*.slt.no
+
+hash-threshold 0
+
 include ./plans/*.slt.no
 include ./drop.slt.no
