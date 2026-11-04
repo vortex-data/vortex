@@ -32,17 +32,15 @@ impl DecimalByteParts {
     ///
     /// # Errors
     ///
-    /// Returns an error if the decimal cannot be split.
+    /// Returns an error if the decimal cannot be split, or if its storage is wider than the
+    /// canonical width of its dtype and splits into more lower parts than the dtype allows (see
+    /// [`super::DecimalBytePartsData::validate`]).
     pub fn encode(
         decimal: &DecimalArray,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<DecimalBytePartsArray> {
         let parts = split_decimal(decimal, exec_ctx)?;
-        // SAFETY: splitting produces a signed MSP and zero, one, or three non-nullable u64 lower
-        // parts, all with the decimal's length and in most-significant-first order. This also
-        // holds for the constant parts used for empty and all-null inputs. The decimal dtype is
-        // preserved.
-        Ok(unsafe { Self::new_unchecked(parts.msp, parts.lower_parts, decimal.decimal_dtype()) })
+        Self::try_new_with_lower_parts(parts.msp, parts.lower_parts, decimal.decimal_dtype())
     }
 }
 
@@ -254,6 +252,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::DecimalByteParts;
     use super::split_decimal;
     use crate::decimal_byte_parts::LOWER_PART_DTYPE;
     use crate::decimal_byte_parts::MAX_LOWER_PARTS;
@@ -311,5 +310,24 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    /// Storage wider than the canonical width splits into more lower parts than the dtype allows.
+    #[rstest]
+    #[case::wider_i128_storage(DecimalArray::new(
+        buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
+    ))]
+    #[case::wider_i256_storage(DecimalArray::new(
+        buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+        DecimalDType::new(2, 0), Validity::NonNullable,
+    ))]
+    fn test_encode_rejects_lower_parts_past_canonical_width(#[case] decimal: DecimalArray) {
+        let result = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx());
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|err| err.to_string().contains("allows at most 0 lower parts")),
+            "expected the lower-part bound to reject the parts, got {result:?}"
+        );
     }
 }

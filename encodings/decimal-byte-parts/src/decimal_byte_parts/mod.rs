@@ -12,8 +12,10 @@
 //! ```
 //!
 //! This is exactly the two's complement bit pattern of the decimal value cut on 64-bit
-//! boundaries.
-//! Each part may use a narrower integer dtype when its values fit; the word boundaries stay fixed.
+//! boundaries. [`DecimalBytePartsData`] owns the rules for the part dtypes and count, and
+//! [`assemble_decimal`] owns the rules that pick the decoded form.
+//!
+//! [`assemble_decimal`]: assemble::assemble_decimal
 
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -59,5 +61,5 @@ const MAX_LOWER_PARTS: usize = MAX_I256_LOWER_PARTS;
 /// Number of bits stored in each lower part.
 const LOWER_PART_BITS: usize = 64;
 
-/// Dtype of the lower parts produced by splitting, before any narrowing.
+/// The dtype of every lower part.
 const LOWER_PART_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
