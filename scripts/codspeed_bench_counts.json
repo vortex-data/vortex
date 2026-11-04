@@ -105,7 +105,7 @@
   },
   "vortex-decimal-byte-parts": {
     "dbp_assemble": 0,
-    "dbp_compute": 28,
+    "dbp_compute": 32,
     "dbp_split": 0
   },
   "vortex-elias-fano": {
