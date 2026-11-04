@@ -14,7 +14,6 @@ import dev.vortex.io.NativeReadable;
 import dev.vortex.relocated.org.apache.arrow.memory.BufferAllocator;
 import dev.vortex.relocated.org.apache.arrow.vector.VectorSchemaRoot;
 import dev.vortex.relocated.org.apache.arrow.vector.ipc.ArrowReader;
-import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
@@ -22,16 +21,12 @@ import dev.vortex.spark.io.VortexFile;
 import dev.vortex.spark.io.VortexIo;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.sources.Filter;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
@@ -87,10 +82,12 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
                     readDataSchema, fileColumns, caseSensitive, file.toPath().toString());
             options.projection(projection.expression());
             shape = projection.shape();
+            ReadTypes.check(
+                    readDataSchema, fileColumns, caseSensitive, file.toPath().toString());
             // Filters are converted against this file's own columns. Spark evaluates every data filter above the
-            // scan anyway, so one that reads a column this file lacks is dropped rather than pushed.
-            buildFilterExpression(pushedFilters, restrictTo(dataSchema, fileColumns))
-                    .ifPresent(options::filter);
+            // scan anyway, so one that reads a column this file lacks, or compares one it stores in another type, is
+            // dropped rather than pushed.
+            buildFilterExpression(pushedFilters, dataSchema, fileColumns).ifPresent(options::filter);
             scan = dataSource.scan(options.build());
         } catch (RuntimeException e) {
             closeReadableAfterFailure(e);
@@ -98,39 +95,17 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
         }
     }
 
-    private static StructType restrictTo(StructType schema, List<Field> fileColumns) {
-        // Native filters use physical field names, at every level. Filters on other paths stay with Spark.
-        Map<String, Field> byName = new HashMap<>();
-        for (Field column : fileColumns) {
-            byName.putIfAbsent(column.getName(), column);
+    private static Optional<Expression> buildFilterExpression(
+            Filter[] filters, StructType dataSchema, List<Field> fileFields) {
+        if (filters == null || filters.length == 0) {
+            return Optional.empty();
         }
-
-        List<StructField> present = new ArrayList<>(schema.length());
-        for (StructField field : schema.fields()) {
-            Field column = byName.get(field.name());
-            if (column == null) {
-                continue;
-            }
-
-            if (field.dataType() instanceof StructType struct && column.getType() instanceof ArrowType.Struct) {
-                present.add(new StructField(
-                        field.name(), restrictTo(struct, column.getChildren()), field.nullable(), field.metadata()));
-            } else {
-                present.add(field);
-            }
-        }
-
-        return new StructType(present.toArray(new StructField[0]));
-    }
-
-    private static Optional<Expression> buildFilterExpression(Filter[] filters, StructType dataSchema) {
+        StructType filterable = ReadTypes.filterable(dataSchema, fileFields, filters);
         Expression combined = null;
-        if (filters != null) {
-            for (Filter filter : filters) {
-                Optional<Expression> converted = SparkFilterToVortexExpression.convert(filter, dataSchema);
-                if (converted.isPresent()) {
-                    combined = combined == null ? converted.get() : Expression.and(combined, converted.get());
-                }
+        for (Filter filter : filters) {
+            Optional<Expression> converted = SparkFilterToVortexExpression.convert(filter, filterable);
+            if (converted.isPresent()) {
+                combined = combined == null ? converted.get() : Expression.and(combined, converted.get());
             }
         }
         return Optional.ofNullable(combined);
