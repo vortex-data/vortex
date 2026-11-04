@@ -238,8 +238,6 @@ jobs:
           RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
           RDS_BENCH_DB_NAME: ${{ vars.RDS_BENCH_DB_NAME }}
           AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
-          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
-          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
         run: |
           set -Eeuo pipefail
           curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
@@ -266,3 +264,25 @@ jobs:
     with:
       mode: "develop"
       matrix_preset: "develop"
+
+  # Tell the benchmarks website that new results exist, once per push, after every benchmark job
+  # of the push has ingested its results. One revalidate per push, rather than one per job, keeps
+  # the website from flushing and refilling its cache dozens of times an hour while benchmarks
+  # run. `always()` runs it even when a benchmark job failed, so the results that other jobs
+  # ingested still appear. The script does nothing when the URL or the token is not set.
+  refresh-site:
+    needs: [bench, sql]
+    if: ${{ always() && vars.BENCH_SITE_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          sparse-checkout: scripts
+      - name: Revalidate and warm the benchmarks website
+        env:
+          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+        run: python3 scripts/refresh-bench-site.py
