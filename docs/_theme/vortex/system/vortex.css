@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections docs,focus --reads ../vortex.css,../layout.html
-   sha256 5d736a53f20516436d214b33f5c9cd717ac1e3d960a70ec168ac484b6b98a9a4 */
+   sha256 9afee9f5a7ff9b136b9e5c1a95f269f223be547f6939e8ae24360f4e6b12ce13 */
 
 /* ------------------------------------------------------------------ docs
    docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
@@ -19,7 +19,6 @@
    menu shows. */
 .vx-docs-toggle { display: none; position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .vx-docs-label,
-.vx-docs-crumbs,
 .vx-docs-toc p,
 .vx-docs-fold > summary,
 .vx-docs-nav .toctree-l1 > a,
@@ -43,7 +42,7 @@
 .vx-docs-menu, .vx-docs-links .is-narrow { place-items: center; width: var(--control-md); height: var(--control-md); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink-body); cursor: pointer; }
 
 /* The frame: a 260px nav, the page column on surface, and a 220px "On this page" rail. The page
-   column holds the breadcrumb, the folded contents, main, and the links under it. Only main is
+   column holds the folded contents, main, and the links under it. Only main is
    role="main", which Sphinx search reads for its snippets. */
 .vx-docs-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--page-pad); }
 .vx-docs-nav, .vx-docs-toc { grid-row: 1; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
@@ -53,7 +52,7 @@
 
 /* DocsNav: the toctree. Top-level pages are the mono group labels; the current page is a raised fill. */
 .vx-docs-nav { padding: var(--space-16) var(--space-12) var(--space-32) 0; font-size: 0.875rem; line-height: 1.3; }
-.vx-docs-nav ul, .vx-docs-toc ul, .vx-docs-crumbs ol { list-style: none; margin: 0; padding: 0; }
+.vx-docs-nav ul, .vx-docs-toc ul { list-style: none; margin: 0; padding: 0; }
 .vx-docs-nav li { position: relative; }
 .vx-docs-nav ul ul { padding-left: var(--space-12); }
 .vx-docs-nav .toctree-l1 { margin-top: var(--space-8); }
@@ -80,11 +79,7 @@
 .vx-docs-fold ul { list-style: none; margin: 0 var(--space-12) var(--space-12); padding: 0; }
 .vx-docs-fold ul ul { margin: 0; padding-left: var(--space-12); }
 
-/* Breadcrumb, previous and next, and the edit link. */
-.vx-docs-crumbs ol { display: flex; flex-wrap: wrap; gap: var(--space-8); margin: 0 0 var(--space-16); }
-.vx-docs-crumbs li + li::before { content: "/" / ""; margin-right: var(--space-8); }
-.vx-docs-crumbs a { color: inherit; text-decoration: none; }
-.vx-docs-crumbs a:hover { color: var(--ink); }
+/* Previous and next, and the edit link. The docs draw no breadcrumb: the sidebar shows the path. */
 .vx-docs-pager { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); margin-top: var(--space-64); }
 .vx-docs-pager a { padding: var(--space-12) var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-card); font: 500 0.875rem/1.4 var(--font-mono); color: var(--ink); text-decoration: none; transition: background-color var(--vx-motion); }
 .vx-docs-pager a:hover { background: var(--wash); }
