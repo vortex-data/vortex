@@ -445,7 +445,13 @@ impl FileOpener for VortexOpener {
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter)
-                    .with_strategy(Arc::new(AdaptiveScanStrategy::default()));
+                    .with_strategy(match std::env::var("VX_SCAN_STRATEGY").as_deref() {
+                        Ok("eager") => Arc::new(vortex::layout::scan::v2::EagerScanStrategy),
+                        Ok("filter-first") => {
+                            Arc::new(vortex::layout::scan::v2::FilterFirstStrategy)
+                        }
+                        _ => Arc::new(AdaptiveScanStrategy::default()),
+                    });
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());

@@ -121,6 +121,28 @@ impl ScanStrategy for AdaptiveScanStrategy {
             return Ok(context.project());
         }
         let estimate = context.estimate()?;
+        let decision = match estimate.filter_selectivity {
+            None => "filter_first:unknown_selectivity",
+            Some(s) if s < self.min_selectivity => "filter_first:low_selectivity",
+            Some(_)
+                if estimate
+                    .filter_bytes
+                    .saturating_add(estimate.projection_extra_bytes)
+                    > self.max_prefetch_bytes =>
+            {
+                "filter_first:over_budget"
+            }
+            Some(_) => "prefetch_projection",
+        };
+        tracing::debug!(
+            target: "vx_strategy",
+            decision,
+            selectivity = ?estimate.filter_selectivity,
+            filter_bytes = estimate.filter_bytes,
+            projection_extra_bytes = estimate.projection_extra_bytes,
+            rows = context.selection().true_count(),
+            "adaptive"
+        );
         if estimate
             .filter_selectivity
             .is_some_and(|selectivity| selectivity >= self.min_selectivity)
