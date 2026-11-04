@@ -9,6 +9,11 @@
 <head>
   <meta charset="{{ encoding }}" />
   {{- metatags }}
+  {#- Docutils writes the viewport tag for a page built from a source file. The
+      search page and the indexes have no source file, so the theme writes it. #}
+  {%- if 'name="viewport"' not in metatags %}
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  {%- endif %}
   {%- block htmltitle %}
   <title>{{ title|striptags|e }}{{ titlesuffix }}</title>
   {%- endblock %}
