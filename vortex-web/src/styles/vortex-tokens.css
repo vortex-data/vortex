@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 a837268db37ce246591addb34264a88e9290b620a84c894fdf8b4b191280b76f */
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
+   sha256 8dc23dccb215c58c2ff3a26443eb2e86ca16e776835bcce4661ec2d9eef81240 */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -44,7 +44,7 @@
   --warn-ink: var(--orange);
   --syntax-plain: var(--grey-300);
   --syntax-keyword: var(--blue-soft);
-  --syntax-function: #c9a8f5;
+  --syntax-function: #f4df9a;
   --syntax-type: #6fcfd6;
   --syntax-string: #f2a0c2;
   --syntax-comment: var(--grey-450);
@@ -172,7 +172,6 @@
   --radius-card: 6px;
   --radius-full: 999px;
   --page-max: 1440px;
-  --content-max: 1344px;
   --measure: 54ch;
   --page-pad: 48px;
   --gutter: 24px;
@@ -195,9 +194,7 @@
 .vx-h3 { font-family: var(--font-display); font-size: 28px; line-height: 1.15; font-weight: 500; letter-spacing: -0.02em; }
 .vx-h4 { font-family: var(--font-display); font-size: 22px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
 .vx-h5 { font-family: var(--font-display); font-size: 18px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; }
-.vx-stat { font-family: var(--font-display); font-size: 30px; line-height: 1; font-weight: 500; letter-spacing: -0.02em; }
 .vx-reading { font-family: var(--font-sans); font-size: 17px; line-height: 1.7; font-weight: 400; letter-spacing: 0; }
-.vx-lede { font-family: var(--font-sans); font-size: 18px; line-height: 1.5; font-weight: 300; letter-spacing: -0.005em; }
 .vx-body { font-family: var(--font-sans); font-size: 16px; line-height: 1.6; font-weight: 400; letter-spacing: 0; }
 .vx-small { font-family: var(--font-sans); font-size: 14px; line-height: 1.5; font-weight: 400; letter-spacing: 0; }
 .vx-caption { font-family: var(--font-sans); font-size: 12.5px; line-height: 1.4; font-weight: 400; letter-spacing: 0; }

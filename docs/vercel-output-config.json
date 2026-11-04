@@ -4,7 +4,7 @@
     {
       "src": "^/(.*)$",
       "headers": {
-        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self' https://docs.vortex.dev; base-uri 'none'; frame-ancestors 'none'",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "Cross-Origin-Opener-Policy": "same-origin"
@@ -20,7 +20,7 @@
         }
       ],
       "headers": {
-        "Content-Security-Policy": "default-src 'none'; script-src 'self' https://vercel.live; style-src 'self' 'unsafe-inline' https://vercel.live; style-src-attr 'unsafe-inline'; img-src 'self' data: https://vercel.live https://vercel.com blob:; connect-src 'self' https://vercel.live wss://ws-us3.pusher.com; font-src https://vercel.live https://assets.vercel.com; frame-src https://vercel.live; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        "Content-Security-Policy": "default-src 'none'; script-src 'self' https://vercel.live; style-src 'self' 'unsafe-inline' https://vercel.live; style-src-attr 'unsafe-inline'; img-src 'self' data: https://vercel.live https://vercel.com blob:; connect-src 'self' https://vercel.live wss://ws-us3.pusher.com; font-src 'self' https://vercel.live https://assets.vercel.com; frame-src https://vercel.live; form-action 'self' https://docs.vortex.dev; base-uri 'none'; frame-ancestors 'none'"
       },
       "continue": true
     },
@@ -43,6 +43,97 @@
         "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://vercel.live; style-src 'self' 'unsafe-inline' https://vercel.live; img-src 'self' data: https://vercel.live https://vercel.com blob:; font-src 'self' https://vercel.live https://assets.vercel.com; connect-src 'self' https://vercel.live wss://ws-us3.pusher.com; frame-src 'self' https://vercel.live; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
       },
       "continue": true
+    },
+    {
+      "src": "^/explorer(?:/.*)?$",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; form-action 'self' https://docs.vortex.dev; base-uri 'none'; frame-ancestors 'none'"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/(.*)$",
+      "has": [
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; form-action 'self' https://docs.vortex.dev; base-uri 'none'; frame-ancestors 'none'"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/explorer(?:/.*)?$",
+      "missing": [
+        {
+          "type": "host",
+          "value": "docs.vortex.dev"
+        },
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://vercel.live; style-src 'self' https://fonts.googleapis.com 'unsafe-inline' https://vercel.live; font-src 'self' https://fonts.gstatic.com https://vercel.live https://assets.vercel.com; img-src 'self' data: blob: https://vercel.live https://vercel.com; connect-src 'self' https: https://vercel.live wss://ws-us3.pusher.com; worker-src 'self'; object-src 'none'; frame-src https://vercel.live; form-action 'self' https://docs.vortex.dev; base-uri 'none'; frame-ancestors 'none'"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/explorer/assets/(.*)$",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/explorer(?:/.*)?$",
+      "has": [
+        {
+          "type": "host",
+          "value": "docs.vortex.dev"
+        }
+      ],
+      "status": 308,
+      "headers": {
+        "Location": "https://explore.vortex.dev/"
+      }
+    },
+    {
+      "src": "^/explorer/?$",
+      "has": [
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "status": 308,
+      "headers": {
+        "Location": "/"
+      }
+    },
+    {
+      "src": "^/$",
+      "has": [
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "dest": "/explorer/index.html"
+    },
+    {
+      "src": "^/(?!explorer(?:/|$)|_static/).*$",
+      "has": [
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "dest": "/404.html",
+      "status": 404
     }
   ]
 }

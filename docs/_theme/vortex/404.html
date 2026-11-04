@@ -1,0 +1,30 @@
+{#- The one 404 every surface serves (the design system's Status, DECISIONS 36), under the shared
+    header and footer: vortex.dev's 404, word for word, so the surfaces read as one site. The code,
+    what it means, and the ways back, with the turning mark over a DotField
+    (_static/vortex-status-mark.js). It is the monorepo's one 404: the deploy serves it with a 404
+    status for any address that matches no file, on the docs and on explore.vortex.dev. So the build
+    makes its assets root-relative (vortex_theme.py), and its links to the docs are absolute. #}
+{%- extends "layout.html" %}
+{%- set title = _("Page not found") %}
+{%- set display_toc = False %}
+{%- block scripts %}
+{{ super() }}
+  <script type="module" src="{{ pathto('_static/vortex-status-mark.js', 1) }}"></script>
+{%- endblock %}
+{%- block frame %}
+<main id="main" class="vx-docs-status">
+  <div class="vx-status has-mark has-dot-field">
+    <div class="vx-dot-field" aria-hidden="true"></div>
+    <div class="vx-status-text">
+      <h1 class="vx-status-code">404</h1>
+      <p class="vx-status-sentence">{{ _("Page not found.") }}</p>
+      <div class="vx-btn-row">
+        <a class="vx-btn vx-btn-primary" href="https://vortex.dev">{{ _("Go to the homepage") }}</a>
+        <a class="vx-btn vx-btn-secondary" href="https://docs.vortex.dev">{{ _("Read the docs") }}</a>
+        <a class="vx-btn vx-btn-secondary" href="https://vortex.dev/blog">{{ _("Read the blog") }}</a>
+      </div>
+    </div>
+    <div class="vx-status-mark"><div data-ascii-mark aria-hidden="true"><img class="vx-ascii-mark-still" src="{{ pathto('_static/vortex_symbol_dark_theme.svg', 1) }}" alt="" width="500" height="500" /></div></div>
+  </div>
+</main>
+{%- endblock %}
