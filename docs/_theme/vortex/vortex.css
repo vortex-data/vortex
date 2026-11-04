@@ -59,13 +59,17 @@ figure.versioning-diagram { margin-inline: 0; }
 figure.versioning-diagram img { border-radius: var(--radius-card); }
 
 /* The 404 (404.html): the shared Status between the header and the footer. The page is a flex
-   column, so the status takes the height that is left. The static symbol stands in for the mark,
-   white in Dark and inverted in Light. */
+   column, so the status takes the height that is left. The mark's cell is vortex.dev's: the
+   turning mark (vortex-status-mark.js), and, where it cannot draw, the static symbol, white in
+   Dark and inverted in Light. With scripts (the theme bootstrap set data-theme-choice), the cell
+   stays empty until the mark reports that it cannot draw. */
 body.page-404 { display: flex; flex-direction: column; min-height: 100dvh; }
 .vx-docs-status { flex: 1 0 auto; display: flex; flex-direction: column; }
-.vx-docs-status-symbol { width: min(60%, 320px); height: auto; opacity: 0.85; }
-.vx-docs-status .vx-status-mark { display: grid; place-items: center; }
-[data-theme="light"] .vx-docs-status-symbol { filter: invert(1); }
+.vx-ascii-mark-still { position: absolute; inset: 0; margin: auto; width: 40%; height: auto; opacity: 0.85; }
+:root[data-theme-choice] .vx-ascii-mark-still { visibility: hidden; }
+:root[data-theme-choice] [data-mark-mode="static"] > .vx-ascii-mark-still,
+:root[data-theme-choice] [data-mark-mode="error"] > .vx-ascii-mark-still { visibility: visible; }
+[data-theme="light"] .vx-ascii-mark-still { filter: invert(1); }
 @media (prefers-color-scheme: light) {
-  [data-theme="system"] .vx-docs-status-symbol { filter: invert(1); }
+  [data-theme="system"] .vx-ascii-mark-still { filter: invert(1); }
 }

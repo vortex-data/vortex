@@ -9,7 +9,7 @@
 /* ------------------------------------------------------------------ the frame
    With a file open, one screen: the header, the work area, and the status line. The panes scroll,
    the page does not. A tool wants its room for data, so the page's side gutter steps down from
-   48px to 24px, and to the token's 16px on a phone. The start page and the 404 (is-page) are pages
+   48px to 24px, and to the token's 16px on a phone. The start page (is-page) is a page
    like the site's: the system's gutter, the shared footer, and the page scrolls. */
 .x-app {
   display: flex;
@@ -778,30 +778,4 @@
 }
 .vx-header-menu-panel .vx-nav-link[aria-pressed='true'] {
   color: var(--ink);
-}
-
-/* ------------------------------------------------------------------ the 404
-   The Status card, as on the other surfaces. The mark's cell shows the static symbol, which is
-   white, so Light inverts it. */
-.x-not-found {
-  flex: 1 0 auto;
-  display: flex;
-  flex-direction: column;
-}
-.x-not-found .vx-status-mark {
-  display: grid;
-  place-items: center;
-}
-.x-not-found-symbol {
-  width: min(60%, 320px);
-  height: auto;
-  opacity: 0.85;
-}
-[data-theme='light'] .x-not-found-symbol {
-  filter: invert(1);
-}
-@media (prefers-color-scheme: light) {
-  [data-theme='system'] .x-not-found-symbol {
-    filter: invert(1);
-  }
 }

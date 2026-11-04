@@ -29,6 +29,14 @@ precedence = "override"
 SPDX-FileCopyrightText = "The Linux Foundation"
 SPDX-License-Identifier = "LicenseRef-Third-Party"
 
+# three.js, which the docs serve for the 404's mark, because their CSP allows scripts from their
+# own origin only. A copy of three@0.170.0's build/three.module.min.js.
+[[annotations]]
+path = "docs/_static/vortex-mark/three.module.min.js"
+precedence = "override"
+SPDX-FileCopyrightText = "2010-2024 Three.js Authors"
+SPDX-License-Identifier = "MIT"
+
 # BtrBlocks diagram is licensed under CC-BY-4.0.
 [[annotations]]
 path = "vortex-btrblocks/decision-tree.*"
