@@ -296,8 +296,8 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression
   cases on a GPU runner.
 - **SQL** -- `action/bench-sql` runs the `pr` preset, a quick core subset of the SQL benchmarks
-  that excludes `vortex-compact`, Clickbench Sorted, Appian, JOB, statpopgen, FineWeb on S3,
-  TPC-H SF=10 on S3, and Vortex queries.
+  that includes TPC-DS SF=10 on NVMe and excludes `vortex-compact`, Clickbench Sorted, Appian,
+  JOB, statpopgen, FineWeb on S3, TPC-H SF=10 on S3, and Vortex queries.
 - **SQL Extended** -- `action/bench-sql-extended` runs the `pr-full` preset: every regular SQL
   benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
