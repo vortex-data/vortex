@@ -19,13 +19,14 @@ impl OperationsVTable<Decimal> for Decimal {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
-            Scalar::decimal(
+        // Stored values can fall outside the precision, see `DecimalData::new_unchecked`.
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            Scalar::try_decimal(
                 DecimalValue::from(array.buffer::<D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
             )
-        }))
+        })
     }
 }
 
@@ -33,7 +34,9 @@ impl OperationsVTable<Decimal> for Decimal {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -101,5 +104,47 @@ mod tests {
                 Nullability::NonNullable
             )
         );
+    }
+
+    #[rstest]
+    #[case::positive(100i8)]
+    #[case::negative(-100i8)]
+    fn test_scalar_at_value_outside_precision_errors(#[case] value: i8) -> VortexResult<()> {
+        // `DecimalArray::new` does not check that the values fit the precision.
+        let array = DecimalArray::new(
+            buffer![value],
+            DecimalDType::new(2, 0),
+            Validity::NonNullable,
+        );
+
+        let err = array
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("does not fit in precision"),
+            "unexpected error: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_ignores_value_outside_precision_in_null_slot() -> VortexResult<()> {
+        let array = DecimalArray::new(
+            buffer![5i8, 100i8],
+            DecimalDType::new(2, 0),
+            Validity::from_iter([true, false]),
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+
+        assert_eq!(
+            array.execute_scalar(0, &mut ctx)?,
+            Scalar::decimal(
+                DecimalValue::I8(5),
+                DecimalDType::new(2, 0),
+                Nullability::Nullable
+            )
+        );
+        assert!(array.execute_scalar(1, &mut ctx)?.is_null());
+        Ok(())
     }
 }

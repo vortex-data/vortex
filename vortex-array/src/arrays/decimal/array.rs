@@ -251,15 +251,15 @@ impl DecimalData {
     ///
     /// * `buffer` is a typed buffer containing the decimal values.
     /// * `decimal_dtype` specifies the decimal precision and scale.
-    /// * `validity` holds the null values.
+    ///
+    /// Values are not checked against the precision of `decimal_dtype`, either here, in
+    /// [`DecimalArray::try_new`], or when an array is read from a file. Code that turns stored values
+    /// into scalars must use a fallible path such as
+    /// [`Scalar::try_decimal`](crate::scalar::Scalar::try_decimal).
     ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
-    ///
-    /// - All non-null values in `buffer` must be representable within the specified precision.
-    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
-    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    /// `buffer` is a typed [`Buffer<T>`], so there are no further requirements on the caller.
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -276,13 +276,15 @@ impl DecimalData {
 
     /// Create a new array with decimal values backed by the given buffer handle.
     ///
+    /// As with [`DecimalArray::new_unchecked`], values are not checked against the precision of
+    /// `decimal_dtype`.
+    ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
+    /// - The length of `values` must be a multiple of the byte width of `values_type`.
+    /// - `values` must be aligned to the native type of `values_type`.
     ///
-    /// - All non-null values in `values` must be representable within the specified precision.
-    /// - For example, with precision=5 and scale=2, all values must be in range [-999.99, 999.99].
-    /// - If `validity` is [`Validity::Array`], its length must exactly equal `buffer.len()`.
+    /// Breaking either rule does not cause undefined behavior, but [`DecimalData::buffer`] panics.
     pub unsafe fn new_unchecked_handle(
         values: BufferHandle,
         values_type: DecimalType,
@@ -325,7 +327,6 @@ impl DecimalData {
     /// The caller must ensure:
     /// - The `byte_buffer` contains valid data for the specified `values_type`
     /// - The buffer length is compatible with the `values_type` (i.e., divisible by the type size)
-    /// - All non-null values are representable within the specified precision
     /// - If `validity` is [`Validity::Array`], its length must equal the number of elements
     pub unsafe fn new_unchecked_from_byte_buffer(
         byte_buffer: ByteBuffer,
