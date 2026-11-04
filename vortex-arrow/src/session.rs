@@ -191,6 +191,11 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 /// field, with the dictionary field's metadata, and the values array. The session then wraps the
 /// plugin's result in a [`DictArray`] with the dictionary's codes.
 ///
+/// Arrow stores dictionary values as a bare [`DataType`], so their extension metadata lives on
+/// the outer [`Field`]. Peeling the dictionary lets the importer see the value type described by
+/// that metadata. [`DataType::RunEndEncoded`] has a separate values field that can carry its own
+/// extension metadata, so its values use the normal nested-field import path.
+///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
 /// use the methods on [`ArrowSession`].
 pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
