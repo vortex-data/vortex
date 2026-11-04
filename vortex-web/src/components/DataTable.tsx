@@ -3,10 +3,15 @@
 
 import { useMemo, useRef, useState } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
+  columnSizingFeature,
+  createSortedRowModel,
   flexRender,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_datetime,
+  sortFn_text,
+  tableFeatures,
+  useTable,
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
@@ -284,6 +289,17 @@ function formatCell(value: unknown): string {
 
 // --- Main component ---
 
+// Sorting by column header, and column widths. 'auto' sorting picks one of the
+// registered sort functions from the column's values, and falls back to basic.
+const features = tableFeatures({
+  rowSortingFeature,
+  columnSizingFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns: { alphanumeric: sortFn_alphanumeric, datetime: sortFn_datetime, text: sortFn_text },
+});
+
+type Row = Record<string, unknown>;
+
 export type CellRenderer = (value: unknown, row: Record<string, unknown>) => React.ReactNode;
 
 export interface DataTableProps {
@@ -318,7 +334,7 @@ export function DataTable({
     return stats;
   }, [columns, rows]);
 
-  const columnDefs = useMemo<ColumnDef<Record<string, unknown>>[]>(
+  const columnDefs = useMemo<ColumnDef<typeof features, Row>[]>(
     () => [
       {
         id: '__row_num',
@@ -330,7 +346,7 @@ export function DataTable({
         ),
       },
       ...columns.map(
-        (col): ColumnDef<Record<string, unknown>> => ({
+        (col): ColumnDef<typeof features, Row> => ({
           accessorKey: col,
           header: () => (
             <ColumnHeader name={col} stats={columnStats[col]!} approximate={approximate} />
@@ -346,20 +362,19 @@ export function DataTable({
             }
             return formatCell(val);
           },
-          sortingFn: 'auto',
+          sortFn: 'auto',
         }),
       ),
     ],
     [approximate, cellRenderers, columns, columnStats],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data: rows,
     columns: columnDefs,
     state: { sorting },
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   const { rows: tableRows } = table.getRowModel();
@@ -421,7 +436,7 @@ export function DataTable({
                 onMouseEnter={() => onRowHover?.(virtualRow.index)}
                 onMouseLeave={() => onRowHover?.(null)}
               >
-                {row.getVisibleCells().map((cell) => (
+                {row.getAllCells().map((cell) => (
                   <td
                     key={cell.id}
                     className="px-2 text-vortex-fg-light dark:text-vortex-fg/80 truncate max-w-[300px] border-r border-vortex-grey-light/30 dark:border-white/[0.06] last:border-r-0"
