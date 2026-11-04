@@ -71,6 +71,16 @@ pub trait Planner: IoConsumer + Send {
 
     /// Advances CPU work. Only called when [`state`](Self::state) is `NeedsCompute`.
     fn compute(&mut self) -> VortexResult<PlannerOutput>;
+
+    /// The rows of its scope this planner, or a child it has yet to emit, may still touch.
+    ///
+    /// After every [`compute`](Self::compute), a run that tracks
+    /// [`Liveness`](super::driver::Liveness) narrows the planner's claim to these rows, releasing
+    /// values pinned only to rows it has handed to children or proven it does not need. It may
+    /// only shrink. `None`, the default, keeps the planner's current claim until it retires.
+    fn remaining_rows(&self) -> Option<Range<u64>> {
+        None
+    }
 }
 
 impl fmt::Debug for PlannerOutput {
