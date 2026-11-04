@@ -807,9 +807,7 @@ fn try_from_compare_in(
             let Some(value) = try_from_expression_inner(c, ctx)? else {
                 return Ok(None);
             };
-            Ok(value
-                .as_opt::<Literal>()
-                .map(|literal| literal.scalar().clone()))
+            Ok(value.as_opt::<Literal>().cloned())
         })
         .collect::<VortexResult<Option<Vec<_>>>>()?
     else {

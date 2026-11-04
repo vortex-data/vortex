@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -64,7 +63,7 @@ fn test_heterogenous_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
-            assert_scalars_eq!(
+            assert_eq!(
                 masked
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -96,7 +95,7 @@ pub(super) fn test_empty_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // All elements should be preserved
     for i in 0..len {
-        assert_scalars_eq!(
+        assert_eq!(
             masked
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -158,7 +157,7 @@ fn test_alternating_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
-            assert_scalars_eq!(
+            assert_eq!(
                 masked
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -199,7 +198,7 @@ fn test_sparse_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         if masked_out {
             assert!(actual.is_null(), "masked index {i} should be null");
         } else {
-            assert_scalars_eq!(
+            assert_eq!(
                 actual,
                 array
                     .execute_scalar(i, ctx)
@@ -235,7 +234,7 @@ fn test_single_element_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     );
 
     for i in 1..len {
-        assert_scalars_eq!(
+        assert_eq!(
             masked
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -279,7 +278,7 @@ fn test_double_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
-            assert_scalars_eq!(
+            assert_eq!(
                 double_masked
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -326,7 +325,7 @@ fn test_nullable_mask_input(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     .vortex_expect("is_valid should succeed in conformance test")
             );
         } else {
-            assert_scalars_eq!(
+            assert_eq!(
                 masked
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),

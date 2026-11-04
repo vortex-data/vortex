@@ -26,7 +26,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarKey;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
@@ -83,7 +82,7 @@ impl PreparedSetData {
     ///
     /// Fails when `list` is not a list, or is null.
     pub fn try_new(list: Scalar) -> VortexResult<Self> {
-        Self::try_from_literal(Literal.bind(ScalarKey::new(list)))
+        Self::try_from_literal(Literal.bind(list))
     }
 
     /// Prepares the non-null list that the [`Literal`] `literal` holds as a set, sharing the
@@ -284,7 +283,7 @@ impl Display for PreparedSetData {
 
 impl PartialEq for PreparedSetData {
     fn eq(&self, other: &Self) -> bool {
-        self.list().eq_nulls_equal(other.list())
+        self.list() == other.list()
     }
 }
 

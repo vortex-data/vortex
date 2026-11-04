@@ -20,7 +20,6 @@ use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::Lambda;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarKey;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -105,16 +104,16 @@ pub fn is_root(expr: &Expression) -> bool {
 /// let number = lit(34i32);
 ///
 /// let scalar = number.as_::<Literal>();
-/// assert_eq!(scalar.scalar(), &Scalar::primitive(34i32, Nullability::NonNullable));
+/// assert_eq!(scalar, &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(ScalarKey::new(value.into()), [])
+    Literal.new_expr(value.into(), [])
 }
 
 /// Creates a bound literal expression.
 pub fn bound_lit(value: impl Into<Scalar>) -> BoundExpression {
     Literal
-        .try_new_bound_expr(ScalarKey::new(value.into()), [])
+        .try_new_bound_expr(value.into(), [])
         .vortex_expect("literal expressions are always well-typed")
 }
 
@@ -1269,13 +1268,10 @@ pub fn in_list_of(
     // the lookup more costly, so equal elements are removed. One null keeps the SQL semantics.
     if elements
         .windows(2)
-        .all(|pair| pair[0].cmp_nulls_first(&pair[1]).is_some())
+        .all(|pair| pair[0].partial_cmp(&pair[1]).is_some())
     {
-        elements.sort_by(|a, b| {
-            a.cmp_nulls_first(b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        elements.dedup_by(|a, b| a.eq_nulls_equal(b));
+        elements.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
     Ok(in_list(needle, lit(list)))

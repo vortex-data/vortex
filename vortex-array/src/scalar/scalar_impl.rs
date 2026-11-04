@@ -190,11 +190,8 @@ impl Scalar {
     // Other methods.
 
     /// Check if two scalars are equal, ignoring nullability of the [`DType`].
-    ///
-    /// Two nulls of the same dtype are equal. This is the same check as
-    /// [`Scalar::eq_nulls_equal`].
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
-        self.eq_nulls_equal(other)
+        self.dtype.eq_ignore_nullability(&other.dtype) && self.value == other.value
     }
 
     /// Returns the parts of the [`Scalar`].
@@ -356,64 +353,9 @@ impl Scalar {
     }
 }
 
-impl Scalar {
-    /// Returns whether `self` and `other` are the same value, treating two nulls as equal.
-    ///
-    /// Unlike [`PartialEq`], which follows comparison semantics and is `false` when either side is
-    /// null, this is an identity check: it holds for two nulls of the same dtype. Dtypes are
-    /// compared ignoring nullability. Use it to test that a computation produced a specific
-    /// scalar, including a null one.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use vortex_array::dtype::DType;
-    /// use vortex_array::dtype::Nullability;
-    /// use vortex_array::dtype::PType;
-    /// use vortex_array::scalar::Scalar;
-    ///
-    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
-    /// assert!(null != null);
-    /// assert!(null.eq_nulls_equal(&null));
-    /// ```
-    pub fn eq_nulls_equal(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(&other.dtype) && self.value == other.value
-    }
-
-    /// Orders `self` and `other`, placing a null before every non-null value.
-    ///
-    /// Unlike [`PartialOrd`], which follows comparison semantics and returns `None` when either
-    /// side is null, this is the sort order used by sorted arrays and search: two nulls are equal
-    /// and a null is less than any value. Returns `None` if the dtypes differ (ignoring
-    /// nullability) or the values have no ordering, such as variants.
-    ///
-    /// `a.cmp_nulls_first(&b) == Some(Ordering::Equal)` exactly when `a.eq_nulls_equal(&b)`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::cmp::Ordering;
-    /// use vortex_array::dtype::DType;
-    /// use vortex_array::dtype::Nullability;
-    /// use vortex_array::dtype::PType;
-    /// use vortex_array::scalar::Scalar;
-    ///
-    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
-    /// let value = Scalar::primitive(0i32, Nullability::Nullable);
-    /// assert_eq!(null.partial_cmp(&value), None);
-    /// assert_eq!(null.cmp_nulls_first(&value), Some(Ordering::Less));
-    /// ```
-    pub fn cmp_nulls_first(&self, other: &Self) -> Option<Ordering> {
-        if !self.dtype().eq_ignore_nullability(other.dtype()) {
-            return None;
-        }
-
-        partial_cmp_scalar_values(self.dtype(), self.value(), other.value())
-    }
-}
-
-/// Hashes ignore nullability and are consistent with both [`PartialEq`] and
-/// [`Scalar::eq_nulls_equal`]: scalars that are equal under either have equal hashes.
+/// We implement `Hash` manually to be consistent with `PartialEq`. Since we ignore nullability in
+/// equality comparisons, we must also ignore it when hashing to maintain the invariant that equal
+/// values have equal hashes.
 impl Hash for Scalar {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash_ignore_nullability(state);
@@ -421,32 +363,29 @@ impl Hash for Scalar {
     }
 }
 
-/// Equality with the semantics of the array `Eq` comparison.
+/// We implement `PartialEq` manually because we want to ignore nullability when comparing scalars.
+/// Two scalars with the same value but different nullability should be considered equal.
 ///
-/// Two scalars are equal when their dtypes match ignoring nullability, neither is null, and their
-/// values are equal. A comparison with a top-level null is `false`, as for `NaN` in IEEE 754, so
-/// this relation is not reflexive and [`Scalar`] does not implement [`Eq`]. Nulls nested inside
-/// a struct, list, or map are equal to each other, as in array comparisons.
-///
-/// Use [`Scalar::eq_nulls_equal`] when two nulls should be equal.
+/// Note that this has **different** behavior than the [`PartialOrd`] implementation since the
+/// [`PartialOrd`] returns `None` if the types are different, whereas this `PartialEq`
+/// implementation simply returns `false`.
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
-        !self.is_null() && !other.is_null() && self.eq_nulls_equal(other)
+        self.dtype.eq_ignore_nullability(&other.dtype) && self.value == other.value
     }
 }
 
 impl PartialOrd for Scalar {
-    /// Orders two scalars with the semantics of the array comparison operators.
+    /// Compares two scalar values for ordering.
     ///
     /// # Returns
-    /// - `None` if either scalar is null, if the scalars have different data types (ignoring
-    ///   nullability), or if their values have no ordering
-    /// - `Some(Ordering)` otherwise
+    /// - `Some(Ordering)` if both scalars have the same data type (ignoring nullability)
+    /// - `None` if the scalars have different data types
     ///
-    /// Nested values order element by element (structs field by field, lists then by length),
-    /// with a nested null before every nested non-null value. Floats use a total ordering.
-    ///
-    /// Use [`Scalar::cmp_nulls_first`] to order top-level nulls first.
+    /// # Ordering Rules
+    /// When types match, the ordering follows these rules:
+    /// - Null values are considered less than all non-null values
+    /// - Non-null values are compared according to their natural ordering
     ///
     /// # Examples
     ///
@@ -467,17 +406,17 @@ impl PartialOrd for Scalar {
     /// let str_scalar = Scalar::utf8("hello", Nullability::NonNullable);
     /// assert_eq!(int_scalar.partial_cmp(&str_scalar), None);
     ///
-    /// // A null compares with nothing
+    /// // Nulls are less than non-nulls
     /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
     /// let value = Scalar::primitive(0i32, Nullability::Nullable);
-    /// assert_eq!(null.partial_cmp(&value), None);
+    /// assert_eq!(null.partial_cmp(&value), Some(Ordering::Less));
     /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.is_null() || other.is_null() {
+        if !self.dtype().eq_ignore_nullability(other.dtype()) {
             return None;
         }
 
-        self.cmp_nulls_first(other)
+        partial_cmp_scalar_values(self.dtype(), self.value(), other.value())
     }
 }
 
@@ -535,7 +474,7 @@ fn partial_cmp_non_null_scalar_values(
 }
 
 /// Compare tuple values according to the list, fixed-size list, or struct dtype layout.
-pub(super) fn partial_cmp_tuple_values(
+fn partial_cmp_tuple_values(
     dtype: &DType,
     lhs: &[Option<ScalarValue>],
     rhs: &[Option<ScalarValue>],
@@ -661,14 +600,11 @@ mod tests {
     }
 
     #[test]
-    fn null_map_is_unordered_but_sorts_first() -> VortexResult<()> {
+    fn null_map_orders_before_every_non_null_map() -> VortexResult<()> {
         let null = Scalar::null(map_dtype(Nullability::Nullable)?);
-        let empty = map_scalar(vec![])?;
 
-        assert_eq!(null.partial_cmp(&empty), None);
-        assert_eq!(null.partial_cmp(&null), None);
-        assert_eq!(null.cmp_nulls_first(&empty), Some(Ordering::Less));
-        assert_eq!(null.cmp_nulls_first(&null), Some(Ordering::Equal));
+        assert_eq!(null.partial_cmp(&map_scalar(vec![])?), Some(Ordering::Less));
+        assert_eq!(null.partial_cmp(&null), Some(Ordering::Equal));
 
         Ok(())
     }

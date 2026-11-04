@@ -22,12 +22,7 @@ use crate::scalar::UnionValue;
 ///
 /// This enum represents the possible non-null values that can be stored in a scalar. When the
 /// scalar is null, the value is represented as `None` in the `Option<ScalarValue>` field.
-///
-/// Equality is structural: nested nulls are equal to each other, and a [`Variant`] value compares
-/// its wrapped scalar with [`Scalar::eq_nulls_equal`].
-///
-/// [`Variant`]: ScalarValue::Variant
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScalarValue {
     /// A boolean value.
     Bool(bool),
@@ -48,24 +43,6 @@ pub enum ScalarValue {
     /// A row-specific scalar wrapped by `DType::Variant`.
     Variant(Box<Scalar>),
 }
-
-impl PartialEq for ScalarValue {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Bool(lhs), Self::Bool(rhs)) => lhs == rhs,
-            (Self::Primitive(lhs), Self::Primitive(rhs)) => lhs == rhs,
-            (Self::Decimal(lhs), Self::Decimal(rhs)) => lhs == rhs,
-            (Self::Utf8(lhs), Self::Utf8(rhs)) => lhs == rhs,
-            (Self::Binary(lhs), Self::Binary(rhs)) => lhs == rhs,
-            (Self::Tuple(lhs), Self::Tuple(rhs)) => lhs == rhs,
-            (Self::Union(lhs), Self::Union(rhs)) => lhs == rhs,
-            (Self::Variant(lhs), Self::Variant(rhs)) => lhs.eq_nulls_equal(rhs),
-            _ => false,
-        }
-    }
-}
-
-impl Eq for ScalarValue {}
 
 impl ScalarValue {
     /// Returns the zero / identity value for the given [`DType`].

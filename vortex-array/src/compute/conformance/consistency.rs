@@ -26,7 +26,6 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -110,7 +109,7 @@ fn test_filter_take_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let taken_val = taken
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             filtered_val, taken_val,
             "Filter and take produced different values at index {i}. \
              Filtered value: {filtered_val:?}, Taken value: {taken_val:?}"
@@ -192,7 +191,7 @@ fn test_double_mask_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let direct_val = directly_masked
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             double_val, direct_val,
             "Sequential masking and combined masking produced different values at index {i}. \
              Sequential masking value: {double_val:?}, Combined masking value: {direct_val:?}\n\
@@ -246,7 +245,7 @@ fn test_filter_identity(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let filtered_val = filtered
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             filtered_val, original_val,
             "Filtering with all-true mask should preserve all values. \
              Value at index {i} changed from {original_val:?} to {filtered_val:?}"
@@ -312,7 +311,7 @@ fn test_slice_filter_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let sliced_val = sliced
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             filtered_val, sliced_val,
             "Filter with contiguous mask and slice produced different values at index {i}. \
              Filtered value: {filtered_val:?}, Sliced value: {sliced_val:?}"
@@ -375,7 +374,7 @@ fn test_take_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let sliced_val = sliced
             .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             taken_val, sliced_val,
             "Take with sequential indices and slice produced different values at index {i}. \
              Taken value: {taken_val:?}, Sliced value: {sliced_val:?}"
@@ -405,7 +404,7 @@ fn test_filter_preserves_order(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Verify the filtered array contains the right elements in order
     assert_eq!(filtered.len(), 3.min(len));
     if len >= 4 {
-        assert_scalars_eq!(
+        assert_eq!(
             filtered
                 .execute_scalar(0, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -413,7 +412,7 @@ fn test_filter_preserves_order(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 .execute_scalar(0, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
-        assert_scalars_eq!(
+        assert_eq!(
             filtered
                 .execute_scalar(1, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -421,7 +420,7 @@ fn test_filter_preserves_order(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 .execute_scalar(2, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
-        assert_scalars_eq!(
+        assert_eq!(
             filtered
                 .execute_scalar(2, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -469,7 +468,7 @@ fn test_mask_filter_null_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     assert_eq!(filtered.len(), direct_filtered.len());
     for i in 0..filtered.len() {
-        assert_scalars_eq!(
+        assert_eq!(
             filtered
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -577,7 +576,7 @@ fn test_nullable_indices_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let actual_0 = taken
         .execute_scalar(0, ctx)
         .vortex_expect("scalar_at should succeed in conformance test");
-    assert_scalars_eq!(
+    assert_eq!(
         actual_0, expected_0,
         "Take with nullable indices: element at position 0 should be from array index 0. \
          Expected: {expected_0:?}, Actual: {actual_0:?}"
@@ -600,7 +599,7 @@ fn test_nullable_indices_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let actual_2 = taken
         .execute_scalar(2, ctx)
         .vortex_expect("scalar_at should succeed in conformance test");
-    assert_scalars_eq!(
+    assert_eq!(
         actual_2, expected_2,
         "Take with nullable indices: element at position 2 should be from array index 2. \
          Expected: {expected_2:?}, Actual: {actual_2:?}"
@@ -639,7 +638,7 @@ fn test_large_array_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Results should match
     assert_eq!(taken.len(), filtered.len());
     for i in 0..taken.len() {
-        assert_scalars_eq!(
+        assert_eq!(
             taken
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -851,7 +850,7 @@ fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     let slice_sum = sum(&sliced, ctx).vortex_expect("slice sum should succeed");
     let canonical_sum = sum(&canonical_sliced, ctx).vortex_expect("canonical sum should succeed");
-    assert_scalars_eq!(
+    assert_eq!(
         slice_sum, canonical_sum,
         "sum on sliced array should match canonical"
     );
@@ -1156,7 +1155,7 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             // AllNonDistinct does not support unions, including nested union children.
             // Both inputs have already executed their batch and child operations.
             for i in 0..actual.len() {
-                assert_scalars_eq!(
+                assert_eq!(
                     actual
                         .execute_scalar(i, ctx)
                         .vortex_expect("cast scalar_at should succeed"),
@@ -1166,7 +1165,7 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     "cast value differs from canonical reference at index {i}"
                 );
                 if let Some(sliced_cast) = &slice_then_cast {
-                    assert_scalars_eq!(
+                    assert_eq!(
                         actual
                             .execute_scalar(i, ctx)
                             .vortex_expect("cast scalar_at should succeed"),
@@ -1196,7 +1195,7 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                     let actual = actual
                         .execute_scalar(i, ctx)
                         .vortex_expect("scalar_at should succeed");
-                    assert_scalars_eq!(actual, expected, "cast value differs at index {i}");
+                    assert_eq!(actual, expected, "cast value differs at index {i}");
                 }
             }
         }
@@ -1241,7 +1240,7 @@ fn test_repeated_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let actual = probe
             .execute_scalar(i, ctx)
             .vortex_expect("repeated probe read should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             actual, expected[i],
             "Repeated probe and one-off read disagree at index {i}. \
              Probe value: {actual:?}, one-off value: {:?}",
@@ -1389,7 +1388,7 @@ fn check_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         let actual = repeated
             .execute_scalar(i, ctx)
             .vortex_expect("retained probe should succeed in conformance test");
-        assert_scalars_eq!(
+        assert_eq!(
             actual, expected,
             "Retained and one-off probes disagree at index {i}"
         );

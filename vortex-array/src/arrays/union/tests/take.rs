@@ -26,7 +26,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
-use crate::assert_scalars_eq;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -48,7 +47,7 @@ fn assert_rows(array: &UnionArray, expected: Vec<Scalar>) -> VortexResult<()> {
 
     assert_eq!(array.len(), expected.len());
     for (index, expected) in expected.into_iter().enumerate() {
-        assert_scalars_eq!(array.execute_scalar(index, &mut ctx)?, expected);
+        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected);
     }
 
     Ok(())

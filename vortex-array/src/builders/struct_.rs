@@ -250,7 +250,6 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -311,11 +310,11 @@ mod tests {
             struct_.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::struct_(dtype.clone(), vec![1i32.into(), 2i32.into()])
         );
-        assert_scalars_eq!(
+        assert_eq!(
             struct_.execute_scalar(1, &mut ctx).unwrap(),
             Scalar::null(dtype.clone())
         );
-        assert_scalars_eq!(
+        assert_eq!(
             struct_.execute_scalar(2, &mut ctx).unwrap(),
             Scalar::null(dtype)
         );

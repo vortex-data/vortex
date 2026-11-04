@@ -137,7 +137,6 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
-    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -332,7 +331,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        assert_scalars_eq!(
+        assert_eq!(
             sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())
                 .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))

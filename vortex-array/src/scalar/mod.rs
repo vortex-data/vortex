@@ -21,7 +21,6 @@ mod constructor;
 mod convert;
 mod display;
 mod downcast;
-mod key;
 mod proto;
 mod scalar_impl;
 mod scalar_value;
@@ -29,7 +28,6 @@ mod truncation;
 mod typed_view;
 mod validate;
 
-pub use key::ScalarKey;
 pub use scalar_value::*;
 pub use truncation::*;
 pub use typed_view::*;
@@ -40,7 +38,7 @@ use crate::dtype::DType;
 ///
 /// Scalars represent a single value with an associated [`DType`]. The value can be null, in which
 /// case the [`value`][Scalar::value] method returns `None`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq)]
 pub struct Scalar {
     /// The type of the scalar.
     dtype: DType,

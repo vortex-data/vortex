@@ -41,20 +41,21 @@ impl Display for BinaryScalar<'_> {
 
 impl PartialEq for BinaryScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype)
-            && self.value.is_some()
-            && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
 
-/// Orders two values, or returns `None` if either is null or the dtypes differ, matching
-/// [`Scalar`](crate::scalar::Scalar) comparison semantics.
+impl Eq for BinaryScalar<'_> {}
+
 impl PartialOrd for BinaryScalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        Some(self.value.as_ref()?.cmp(other.value.as_ref()?))
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for BinaryScalar<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.value.cmp(&other.value)
     }
 }
 

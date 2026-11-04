@@ -46,11 +46,11 @@ impl Display for MapScalar<'_> {
 
 impl PartialEq for MapScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype)
-            && self.entries.is_some()
-            && self.entries == other.entries
+        self.dtype.eq_ignore_nullability(other.dtype) && self.entries == other.entries
     }
 }
+
+impl Eq for MapScalar<'_> {}
 
 impl Hash for MapScalar<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -211,7 +211,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar::ScalarKey;
 
     fn dtype() -> VortexResult<DType> {
         DType::map(
@@ -248,12 +247,12 @@ mod tests {
                 &DType::Primitive(PType::I32, Nullability::NonNullable)
             );
         }
-        let values = map.values().map(ScalarKey::new).collect::<Vec<_>>();
+        let values = map.values().collect::<Vec<_>>();
         assert_eq!(
             values,
             [
-                ScalarKey::new(Scalar::from(Some("one"))),
-                ScalarKey::new(Scalar::null(DType::Utf8(Nullability::Nullable)))
+                Scalar::from(Some("one")),
+                Scalar::null(DType::Utf8(Nullability::Nullable))
             ]
         );
         for value in &values {
@@ -401,8 +400,8 @@ mod tests {
         assert_eq!(nullable_hash.finish(), nonnullable_hash.finish());
 
         let mut set = HashSet::new();
-        set.insert(ScalarKey::new(nullable_scalar.clone()));
-        assert!(set.contains(&ScalarKey::new(nonnullable_scalar.clone())));
+        set.insert(nullable_map);
+        assert!(set.contains(&nonnullable_map));
 
         Ok(())
     }

@@ -25,7 +25,6 @@ mod tests {
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::assert_scalars_eq;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct Apples;
@@ -214,7 +213,7 @@ mod tests {
                 Scalar::primitive(expected, Nullability::NonNullable).cast(&target)?
             );
         }
-        assert_scalars_eq!(
+        assert_eq!(
             Scalar::null(DType::Bool(Nullability::Nullable)).cast(&target)?,
             Scalar::null(target)
         );

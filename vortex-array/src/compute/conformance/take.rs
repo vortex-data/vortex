@@ -4,7 +4,6 @@
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 
-use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
@@ -68,7 +67,7 @@ pub(super) fn test_take_all(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // The aggregate comparator does not support every dtype in this suite, including unions.
     for i in 0..len {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -99,7 +98,7 @@ fn test_take_selective(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify the taken elements
     for (result_idx, &original_idx) in indices.iter().enumerate() {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(original_idx as usize, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -122,7 +121,7 @@ fn test_take_first_and_last(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         .into_array();
 
     assert_eq!(result.len(), 2);
-    assert_scalars_eq!(
+    assert_eq!(
         array
             .execute_scalar(0, ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
@@ -130,7 +129,7 @@ fn test_take_first_and_last(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             .execute_scalar(0, ctx)
             .vortex_expect("scalar_at should succeed in conformance test")
     );
-    assert_scalars_eq!(
+    assert_eq!(
         array
             .execute_scalar(len - 1, ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
@@ -178,7 +177,7 @@ fn test_take_with_nullable_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 let actual = result
                     .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test");
-                assert_scalars_eq!(expected, actual);
+                assert_eq!(expected, actual);
             }
             None => {
                 assert!(
@@ -212,7 +211,7 @@ pub(super) fn test_take_repeated_indices(array: &ArrayRef, ctx: &mut ExecutionCt
         .execute_scalar(0, ctx)
         .vortex_expect("scalar_at should succeed in conformance test");
     for i in 0..3 {
-        assert_scalars_eq!(
+        assert_eq!(
             result
                 .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -247,7 +246,7 @@ fn test_take_reverse(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify elements are in reverse order
     for i in 0..len {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(len - 1 - i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -272,7 +271,7 @@ fn test_take_single_middle(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         .into_array();
 
     assert_eq!(result.len(), 1);
-    assert_scalars_eq!(
+    assert_eq!(
         array
             .execute_scalar(middle_idx, ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
@@ -307,7 +306,7 @@ fn test_take_random_unsorted(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify elements match
     for (i, &idx) in indices.iter().enumerate() {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(idx as usize, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -337,7 +336,7 @@ fn test_take_contiguous_range(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify elements
     for i in 0..(end - start) {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(start + i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -377,7 +376,7 @@ fn test_take_mixed_repeated(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Verify elements
     for (i, &idx) in indices.iter().enumerate() {
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(idx as usize, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
@@ -413,7 +412,7 @@ fn test_take_large_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Spot check a few elements
     for i in (0..num_indices).step_by(1000) {
         let expected_idx = indices[i] as usize;
-        assert_scalars_eq!(
+        assert_eq!(
             array
                 .execute_scalar(expected_idx, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),

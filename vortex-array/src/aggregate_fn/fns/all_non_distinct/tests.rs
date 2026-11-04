@@ -43,7 +43,7 @@ fn scalar_baseline(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vortex
     for i in 0..a.len() {
         let sa = a.execute_scalar(i, ctx)?;
         let sb = b.execute_scalar(i, ctx)?;
-        if !sa.eq_nulls_equal(&sb) {
+        if sa != sb {
             return Ok(false);
         }
     }

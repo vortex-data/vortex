@@ -28,8 +28,6 @@ mod tests {
     use crate::scalar::PrimitiveScalar;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar::ScalarKey;
-    use crate::assert_scalars_eq;
 
     fn union_variants(
         int_nullability: Nullability,
@@ -517,18 +515,18 @@ mod tests {
         let mut set = HashSet::new();
 
         // Add various scalar types
-        set.insert(ScalarKey::new(Scalar::null(DType::Null)));
-        set.insert(ScalarKey::new(Scalar::bool(true, Nullability::NonNullable)));
-        set.insert(ScalarKey::new(Scalar::primitive(42i32, Nullability::NonNullable)));
-        set.insert(ScalarKey::new(Scalar::utf8("test", Nullability::NonNullable)));
+        set.insert(Scalar::null(DType::Null));
+        set.insert(Scalar::bool(true, Nullability::NonNullable));
+        set.insert(Scalar::primitive(42i32, Nullability::NonNullable));
+        set.insert(Scalar::utf8("test", Nullability::NonNullable));
 
         // Test that duplicates are not added
         assert_eq!(set.len(), 4);
-        set.insert(ScalarKey::new(Scalar::primitive(42i32, Nullability::NonNullable)));
+        set.insert(Scalar::primitive(42i32, Nullability::NonNullable));
         assert_eq!(set.len(), 4); // Should still be 4
 
         // Distinct values remain distinct set entries even if their hashes collide.
-        set.insert(ScalarKey::new(Scalar::primitive(43i32, Nullability::NonNullable)));
+        set.insert(Scalar::primitive(43i32, Nullability::NonNullable));
         assert_eq!(set.len(), 5);
     }
 
@@ -573,7 +571,7 @@ mod tests {
         let lhs_null = Scalar::null(DType::Union(lhs_variants, Nullability::Nullable));
         let rhs_null = Scalar::null(DType::Union(rhs_variants, Nullability::Nullable));
 
-        assert_scalars_eq!(lhs_null, rhs_null);
+        assert_eq!(lhs_null, rhs_null);
 
         Ok(())
     }

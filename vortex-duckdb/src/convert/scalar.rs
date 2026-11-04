@@ -511,7 +511,6 @@ mod tests {
     use vortex::extension::datetime::TimeUnit;
     use vortex::extension::datetime::Timestamp;
     use vortex::extension::datetime::TimestampOptions;
-    use vortex::array::assert_scalars_eq;
     use vortex::scalar::Scalar;
     use vortex::scalar::ScalarValue;
     use vortex_spatial::extension::SpatialMetadata;
@@ -531,7 +530,7 @@ mod tests {
         ] {
             let restored: Scalar = value.try_to_duckdb_scalar().unwrap().try_into().unwrap();
             assert_eq!(restored.dtype(), &value.dtype().as_nullable());
-            assert_scalars_eq!(restored, value);
+            assert_eq!(restored, value);
         }
     }
 
@@ -587,7 +586,7 @@ mod tests {
         );
 
         let restored = Scalar::try_from(duckdb_value)?;
-        assert_scalars_eq!(restored, value);
+        assert_eq!(restored, value);
         Ok(())
     }
 
@@ -621,7 +620,7 @@ mod tests {
                 roundtrip_scalar.dtype(),
                 &original_scalar.dtype().as_nullable()
             );
-            assert_scalars_eq!(original_scalar, roundtrip_scalar);
+            assert_eq!(original_scalar, roundtrip_scalar);
         }
     }
 
@@ -681,7 +680,7 @@ mod tests {
         let roundtrip: Scalar = duckdb_value.try_into().unwrap();
 
         assert_eq!(roundtrip.dtype(), original.dtype());
-        assert_scalars_eq!(original, roundtrip);
+        assert_eq!(original, roundtrip);
     }
 
     #[test]
@@ -907,7 +906,7 @@ mod tests {
         assert_eq!(value.to_string(), "[1, NULL, 3]");
 
         let restored: Scalar = value.try_into().unwrap();
-        assert_scalars_eq!(restored, list);
+        assert_eq!(restored, list);
     }
 
     #[test]
@@ -915,7 +914,7 @@ mod tests {
         let list = Scalar::list_empty(Arc::new(nullable_i32()), Nullability::NonNullable);
 
         let restored: Scalar = list.try_to_duckdb_scalar().unwrap().try_into().unwrap();
-        assert_scalars_eq!(restored, list);
+        assert_eq!(restored, list);
     }
 
     #[test]
@@ -935,7 +934,7 @@ mod tests {
         );
 
         let restored: Scalar = value.try_into().unwrap();
-        assert_scalars_eq!(restored, scalar);
+        assert_eq!(restored, scalar);
     }
 
     #[test]
@@ -954,7 +953,7 @@ mod tests {
         );
 
         let restored: Scalar = list.try_to_duckdb_scalar().unwrap().try_into().unwrap();
-        assert_scalars_eq!(restored, list);
+        assert_eq!(restored, list);
     }
 
     #[test]

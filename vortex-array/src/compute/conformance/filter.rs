@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::assert_scalars_eq;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -101,7 +100,7 @@ fn test_selective_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         assert_eq!(filtered.len(), expected_indices.len(), "{name}");
         assert_eq!(filtered.dtype(), array.dtype(), "{name}");
         for (output_idx, input_idx) in expected_indices.into_iter().enumerate() {
-            assert_scalars_eq!(
+            assert_eq!(
                 filtered
                     .execute_scalar(output_idx, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
@@ -132,7 +131,7 @@ fn test_single_element_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         .0
         .into_array();
     assert_eq!(filtered.len(), 1);
-    assert_scalars_eq!(
+    assert_eq!(
         filtered
             .execute_scalar(0, ctx)
             .vortex_expect("scalar_at should succeed in conformance test"),
@@ -154,7 +153,7 @@ fn test_single_element_filter(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             .0
             .into_array();
         assert_eq!(filtered.len(), 1);
-        assert_scalars_eq!(
+        assert_eq!(
             filtered
                 .execute_scalar(0, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),

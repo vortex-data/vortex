@@ -131,7 +131,6 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
-    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -207,7 +206,7 @@ mod tests {
             .into_array()
             .apply(&ext_storage(root()))?;
 
-        assert_scalars_eq!(result.as_::<Constant>().scalar(), &storage);
+        assert_eq!(result.as_::<Constant>().scalar(), &storage);
         assert_eq!(result.len(), len);
         Ok(())
     }

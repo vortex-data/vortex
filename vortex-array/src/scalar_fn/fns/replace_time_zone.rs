@@ -488,7 +488,7 @@ mod tests {
             .as_opt::<Literal>()
             .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
         assert_eq!(
-            scalar.scalar(),
+            scalar,
             &Scalar::extension_ref(
                 timestamp(target),
                 Scalar::primitive(

@@ -39,20 +39,19 @@ impl Display for Utf8Scalar<'_> {
 
 impl PartialEq for Utf8Scalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype)
-            && self.value.is_some()
-            && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
 
-/// Orders two values, or returns `None` if either is null or the dtypes differ, matching
-/// [`Scalar`](crate::scalar::Scalar) comparison semantics.
 impl PartialOrd for Utf8Scalar<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        Some(self.value.as_ref()?.cmp(other.value.as_ref()?))
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Utf8Scalar<'_> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.value.cmp(&other.value)
     }
 }
 
@@ -397,9 +396,8 @@ mod tests {
         let null = null_scalar.as_utf8();
         let non_null = non_null_scalar.as_utf8();
 
-        // A null is unordered with every value, including another null.
-        assert_eq!(null.partial_cmp(&non_null), None);
-        assert_eq!(non_null.partial_cmp(&null), None);
-        assert_eq!(null.partial_cmp(&null), None);
+        // Null < Some("test")
+        assert!(null < non_null);
+        assert!(non_null > null);
     }
 }

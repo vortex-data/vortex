@@ -35,7 +35,6 @@ use crate::scalar::Scalar;
 #[cfg(not(codspeed))]
 use crate::test_harness::trace::trace_op;
 use crate::validity::Validity;
-use crate::assert_scalars_eq;
 
 /// Compare registered dispatch and the direct kernel with a decoded primitive reference.
 #[track_caller]
@@ -64,7 +63,7 @@ fn check_sum(array: ArrayRef, options: NumericalAggregateOpts) -> VortexResult<(
             if expected.as_primitive().is_nan() {
                 assert!(actual.as_primitive().is_nan());
             } else {
-                assert_scalars_eq!(actual, expected);
+                assert_eq!(actual, expected);
             }
         }
     }

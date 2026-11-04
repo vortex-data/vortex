@@ -65,7 +65,6 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -120,7 +119,7 @@ mod tests {
                 Some(value) => Scalar::bool(*value, Nullability::Nullable),
                 None => Scalar::null(DType::Bool(Nullability::Nullable)),
             };
-            assert_scalars_eq!(
+            assert_eq!(
                 result
                     .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
@@ -160,7 +159,7 @@ mod tests {
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
-            assert_scalars_eq!(
+            assert_eq!(
                 result
                     .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
@@ -191,7 +190,7 @@ mod tests {
                     Some(value) => Scalar::bool(value, Nullability::Nullable),
                     None => Scalar::null(DType::Bool(Nullability::Nullable)),
                 };
-                assert_scalars_eq!(
+                assert_eq!(
                     result
                         .execute_scalar(i, &mut SESSION.create_execution_ctx())
                         .unwrap(),

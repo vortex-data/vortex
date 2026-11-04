@@ -22,7 +22,6 @@ mod assertions;
 
 #[cfg(any(test, feature = "_test-harness"))]
 pub use assertions::assert_arrays_eq_impl;
-pub use assertions::assert_scalars_eq_impl;
 
 #[cfg(test)]
 mod validation_tests;

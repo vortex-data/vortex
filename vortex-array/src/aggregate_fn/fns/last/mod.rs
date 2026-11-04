@@ -184,7 +184,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::assert_scalars_eq;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -210,7 +209,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullable);
-        assert_scalars_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
+        assert_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
     }
 
@@ -219,7 +218,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Last, EmptyOptions, dtype)?;
         let result = acc.finish()?;
-        assert_scalars_eq!(result, Scalar::null(DType::Primitive(PType::I32, Nullable)));
+        assert_eq!(result, Scalar::null(DType::Primitive(PType::I32, Nullable)));
         Ok(())
     }
 
@@ -236,7 +235,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullable);
         let array = ConstantArray::new(Scalar::null(dtype.clone()), 10).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        assert_scalars_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
+        assert_eq!(last(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
     }
 
@@ -286,7 +285,7 @@ mod tests {
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
         assert_eq!(acc.finish()?, Scalar::primitive(20i32, Nullable));
-        assert_scalars_eq!(
+        assert_eq!(
             acc.final_scalar()?,
             Scalar::null(DType::Primitive(PType::I32, Nullable))
         );

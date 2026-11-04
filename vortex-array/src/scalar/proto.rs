@@ -538,7 +538,6 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::assert_scalars_eq;
 
     fn session() -> VortexSession {
         VortexSession::empty()
@@ -547,7 +546,7 @@ mod tests {
     fn round_trip(scalar: Scalar) {
         let decoded = Scalar::from_proto(&pb::Scalar::from(&scalar), &session()).unwrap();
         assert_eq!(decoded.dtype(), scalar.dtype());
-        assert_scalars_eq!(decoded, scalar);
+        assert_eq!(decoded, scalar);
     }
 
     #[test]
@@ -738,7 +737,7 @@ mod tests {
         let variant_null_pb = pb::Scalar::from(&variant_null);
 
         assert_ne!(scalar_null_pb, variant_null_pb);
-        assert_scalars_eq!(
+        assert_eq!(
             Scalar::from_proto(&scalar_null_pb, &session()).unwrap(),
             scalar_null,
         );

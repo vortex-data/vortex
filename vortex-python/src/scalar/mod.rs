@@ -72,18 +72,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     hash,
     from_py_object
 )]
-#[derive(Clone, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyScalar(Scalar);
-
-/// Python equality is an identity check, so that a scalar equals itself (including a null one)
-/// and can be used as a `dict` key or `set` member consistently with its hash.
-impl PartialEq for PyScalar {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq_nulls_equal(&other.0)
-    }
-}
-
-impl Eq for PyScalar {}
 
 /// A marker trait indicating a PyO3 class is a subclass of a Vortex `Scalar`.
 pub trait ScalarSubclass: PyClass<BaseType = PyScalar> {

@@ -47,7 +47,6 @@ use crate::expr::stats::StatsProvider;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::assert_scalars_eq;
 
 /// Decimal aggregates paired with whether the [`Widen`] kernel must return a partial.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {
@@ -214,8 +213,8 @@ fn test_decimal_sum_running_overflow(#[values(1, -1)] sign: i8) -> VortexResult<
         actual.accumulate(&widen, &mut ctx)?;
         expected.accumulate(&canonical, &mut ctx)?;
 
-        assert_scalars_eq!(actual.partial_scalar()?, expected.partial_scalar()?);
-        assert_scalars_eq!(actual.partial_scalar()?, result);
+        assert_eq!(actual.partial_scalar()?, expected.partial_scalar()?);
+        assert_eq!(actual.partial_scalar()?, result);
     }
 
     Ok(())
@@ -253,7 +252,7 @@ fn test_decimal_sum_at_precision_bound(
         0 => Scalar::decimal(DecimalValue::I64(bound), sum_dtype, Nullable),
         _ => Scalar::null(DType::Decimal(sum_dtype, Nullable)),
     };
-    assert_scalars_eq!(actual.finish()?, result);
+    assert_eq!(actual.finish()?, result);
 
     Ok(())
 }

@@ -61,11 +61,11 @@ impl Display for PrimitiveScalar<'_> {
 
 impl PartialEq for PrimitiveScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype)
-            && self.pvalue.is_some()
-            && self.pvalue == other.pvalue
+        self.dtype.eq_ignore_nullability(other.dtype) && self.pvalue == other.pvalue
     }
 }
+
+impl Eq for PrimitiveScalar<'_> {}
 
 /// Ord is not implemented since it's undefined for different PTypes
 impl PartialOrd for PrimitiveScalar<'_> {
@@ -73,7 +73,7 @@ impl PartialOrd for PrimitiveScalar<'_> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.pvalue?.partial_cmp(&other.pvalue?)
+        self.pvalue.partial_cmp(&other.pvalue)
     }
 }
 

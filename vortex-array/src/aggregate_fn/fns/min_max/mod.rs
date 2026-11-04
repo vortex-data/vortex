@@ -207,7 +207,7 @@ pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
 }
 
 /// The minimum and maximum non-null values of an array.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinMaxResult {
     pub min: Scalar,
     pub max: Scalar,
