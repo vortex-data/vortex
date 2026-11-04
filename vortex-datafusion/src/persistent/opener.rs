@@ -508,7 +508,11 @@ impl FileOpener for VortexOpener {
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter);
+                    .with_some_filter(native_filter)
+                    // Dynamic filters are pushed down inexactly: the TopK or join that produces
+                    // one applies it again, so the scan may stop evaluating one that rejects
+                    // almost nothing.
+                    .with_skip_unselective_dynamic(true);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());

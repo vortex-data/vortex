@@ -1011,6 +1011,115 @@ async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
     Ok(())
 }
 
+/// Runs a scan of the `strings` column of `TABLE_CHUNKS` table chunks, filtered on `ints > bound`
+/// with a dynamic comparison when there is a bound, over `counted`. Returns the rows it kept and
+/// the segment requests it made.
+async fn strings_scan(
+    session: &VortexSession,
+    counted: &Arc<CountingSegmentSource>,
+    layout: &LayoutRef,
+    file: ScanFile,
+    filter: Option<&Expression>,
+    skip_unselective_dynamic: bool,
+) -> VortexResult<(Arc<PreparedScan>, usize, usize)> {
+    let projection = get_item("strings", root()).bind(layout.dtype())?;
+    let scan = Arc::new(
+        ScanBuilder::new(session.clone(), file)
+            .with_projection(projection)
+            .with_some_filter(filter.map(|f| f.bind(layout.dtype())).transpose()?)
+            .with_skip_unselective_dynamic(skip_unselective_dynamic)
+            .prepare()?,
+    );
+    let before = counted.requests();
+    let rows = run_rows(&scan, scan.rows().clone())
+        .await?
+        .iter()
+        .map(|array| array.len())
+        .sum();
+    Ok((scan, rows, counted.requests() - before))
+}
+
+/// A dynamic conjunct that keeps every row on enough chunks is switched off: later scans neither
+/// prune its zones nor read its column, so they read what an unfiltered scan reads. A new dynamic
+/// value switches it back on. Without the opt-in it keeps being evaluated.
+#[rstest]
+#[case::opted_in(true)]
+#[case::default(false)]
+#[tokio::test]
+async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
+    #[case] skip: bool,
+) -> VortexResult<()> {
+    // Five filtered chunks per scan.
+    const TABLE_CHUNKS: usize = 600;
+    let session = new_session().with_tokio();
+    let (segments, layout) = write_chunks(&session, zoned_table().as_ref(), TABLE_CHUNKS).await?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let file = || -> VortexResult<ScanFile> {
+        let mut file = scan_file(&segments, &layout)?;
+        file.cache = Some(ScanCache::with_retained_bytes(0));
+        Ok(file)
+    };
+    let shared = file()?;
+
+    let (_, all, unfiltered_reads) =
+        strings_scan(&session, &counted, &layout, file()?, None, skip).await?;
+    assert_eq!(all, TABLE_CHUNKS * CHUNK_ROWS);
+
+    let bound = Arc::new(AtomicI32::new(-1));
+    let ints = get_item("ints", root());
+    let filter = {
+        let bound = Arc::clone(&bound);
+        dynamic(
+            CompareOperator::Gt,
+            move || Some(bound.load(Ordering::Relaxed).into()),
+            ints.return_dtype(layout.dtype())?,
+            true,
+            ints,
+        )
+    };
+
+    // The first scan evaluates the conjunct on every chunk, which keeps every row.
+    let (scan, rows, first_reads) = strings_scan(
+        &session,
+        &counted,
+        &layout,
+        shared.clone(),
+        Some(&filter),
+        skip,
+    )
+    .await?;
+    assert_eq!(rows, all);
+    assert!(first_reads > unfiltered_reads);
+    let plans = scan.filter().expect("the scan has a filter");
+    assert_eq!(plans.is_switched_off(0), skip);
+
+    let (_, rows, reads) = strings_scan(
+        &session,
+        &counted,
+        &layout,
+        shared.clone(),
+        Some(&filter),
+        skip,
+    )
+    .await?;
+    assert_eq!(rows, all);
+    if skip {
+        assert_eq!(reads, unfiltered_reads);
+    } else {
+        assert!(reads > unfiltered_reads);
+    }
+
+    // A tightened bound is a new dynamic value, so the conjunct is evaluated again.
+    bound.store(2_999, Ordering::Relaxed);
+    let (scan, rows, _) =
+        strings_scan(&session, &counted, &layout, shared, Some(&filter), skip).await?;
+    assert_eq!(rows, all - 3_000);
+    let plans = scan.filter().expect("the scan has a filter");
+    assert!(!plans.is_switched_off(0));
+    Ok(())
+}
+
 /// Scans of one file that share a cache share their filter plans, so the pruning plans run once:
 /// the second scan with the same filter re-reads the data it needs but never the zone maps. Each
 /// scan binds its own filter and projection, as each partition of an engine does.
