@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 8fdc9588f34d1c7627c8cc3982e36d51a7349003279bc93dc3bb72467c81f59b */
+   sha256 dbc7af41ba8de3e8c22cfbf9d82485f4dd352e23b1d379d17d530a971edfc906 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -280,7 +280,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 @media (prefers-color-scheme: light) {
   [data-theme="system"] .vx-footer-mark { filter: invert(1); }
 }
-.vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 72ch; margin: 0; text-wrap: balance; }
+/* 96ch: on a wide screen the line and the credit fit two balanced lines. */
+.vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
 .vx-footer-credit { white-space: nowrap; }
 .vx-footer-nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin-left: auto; }
 @media (max-width: 640px) { .vx-footer-nav { margin-left: 0; } }
