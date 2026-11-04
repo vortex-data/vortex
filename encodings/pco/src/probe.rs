@@ -11,14 +11,15 @@ use pco::match_number_enum;
 use pco::wrapped::FileDecompressor;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -56,14 +57,8 @@ pub(crate) fn scalar_at(
     state: Option<&mut PcoProbeState>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
-    let Some(state) = state else {
-        let validity = array.unsliced_validity();
-        return array
-            ._slice(index, index + 1)
-            .decompress(&validity, ctx)?
-            .into_array()
-            .execute_scalar(0, ctx);
-    };
+    let mut temporary = PcoProbeState::default();
+    let state = state.unwrap_or(&mut temporary);
     let mask = match &mut state.validity {
         Some(mask) => mask,
         slot @ None => slot.insert(
@@ -126,7 +121,10 @@ pub(crate) fn scalar_at(
             let decoded = match_number_enum!(
                 number_type_from_ptype(array.dtype().as_ptype()),
                 NumberType<T> => {
-                    decode_page::<T>(array, page.chunk, page.values.len(), array.pages[page_index].as_slice(), ctx)?
+                    PrimitiveArray::new(
+                        Buffer::<T>::from_byte_buffer(probe_page::<T>(array, page.chunk, page_index, page.values.len(), ctx)?),
+                        Validity::NonNullable,
+                    )
                 }
             );
             slot.insert(decoded)
@@ -140,13 +138,21 @@ pub(crate) fn scalar_at(
     }))
 }
 
-fn decode_page<T: Number + NativePType>(
+fn probe_page<T: Number + NativePType>(
     array: ArrayView<'_, Pco>,
     chunk: usize,
+    page: usize,
     n_values: usize,
-    buffer: &[u8],
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<ByteBuffer> {
+    let pages = array
+        .probe_pages
+        .get_or_init(|| (0..array.pages.len()).map(|_| Default::default()).collect());
+    let slot = &pages[page];
+    if let Some(values) = slot.get() {
+        return Ok(values.clone());
+    }
+    let buffer = array.pages[page].as_slice();
     let (file, _) =
         FileDecompressor::new(array.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
     let (mut chunk, _) = file
@@ -160,7 +166,20 @@ fn decode_page<T: Number + NativePType>(
     // exactly that count, so `read` writes every element before anything observes it.
     unsafe { values.set_len(n_values) };
     decoder.read(&mut values).map_err(vortex_err_from_pco)?;
-    Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
+    tracing::debug!(
+        target: "vortex_pco::decode",
+        kind = "probe",
+        ptype = %array.dtype().as_ptype(),
+        page = buffer.as_ptr() as usize,
+        values = n_values,
+        requested = 1,
+        "Decoded PCO page"
+    );
+    // Decode outside the cell so errors are retriable. Concurrent first probes may do
+    // duplicate work, but publish only one immutable buffer and hold no decode lock.
+    Ok(slot
+        .get_or_init(|| values.freeze().into_byte_buffer())
+        .clone())
 }
 
 #[cfg(test)]

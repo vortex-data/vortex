@@ -5,6 +5,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 
 use std::collections::VecDeque;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use rstest::rstest;
@@ -12,6 +13,9 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
@@ -25,8 +29,10 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::checked_add;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
+use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
@@ -48,6 +54,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::layouts::zoned::ZonedLayout;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Filter;
@@ -55,7 +62,9 @@ use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
+use crate::plan::physical::SharePlan;
 use crate::plan::physical::Take;
+use crate::plan::physical::TakePlan;
 use crate::plan::physical::lower;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::InletSet;
@@ -624,20 +633,66 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
 /// whole. Later scans sharing its value cache reuse the values and read only the codes; a scan
 /// with a cache of its own reads them again.
 #[rstest]
-#[case::values(false)]
-#[case::predicate(true)]
+#[case::values(false, false)]
+#[case::predicate(true, false)]
+#[case::zoned_predicate(true, true)]
 fn take_waits_for_whole_values_and_keeps_them(
     #[case] predicate: bool,
+    #[case] zoned: bool,
+    #[values(false, true)] nullable_values: bool,
+    #[values(false, true)] nullable_codes: bool,
     #[values(3, 1536)] values_len: usize,
 ) -> VortexResult<()> {
     let mut store = Store::default();
     let values =
-        VarBinViewArray::from_iter_str((0..values_len).map(|row| ["a", "b", "c"][row % 3]))
-            .into_array();
-    let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
-    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+        if nullable_values || nullable_codes {
+            // Stored dictionary values carry the output dtype, including nullability from codes.
+            VarBinViewArray::from_iter_nullable_str((0..values_len).map(|row| {
+                (!(nullable_values && row % 3 == 1)).then_some(["a", "b", "c"][row % 3])
+            }))
+            .into_array()
+        } else {
+            VarBinViewArray::from_iter_str((0..values_len).map(|row| ["a", "b", "c"][row % 3]))
+                .into_array()
+        };
+    let codes = if nullable_codes {
+        PrimitiveArray::from_option_iter((0..ROWS).map(|v| (v % 5 != 0).then_some((v % 3) as u8)))
+            .into_array()
+    } else {
+        PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array()
+    };
+    let mut layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    if zoned {
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let zones = StructArray::from_fields(&[(
+            max.to_string().as_str(),
+            VarBinViewArray::from_iter([Some("c")], values.dtype().as_nullable()).into_array(),
+        )])?
+        .into_array();
+        layout = ZonedLayout::try_new(
+            layout,
+            store.flat(&zones)?,
+            NonZeroUsize::new(ROWS as usize).ok_or_else(|| vortex_err!("zone length is zero"))?,
+            vec![max].into(),
+        )?
+        .into_layout();
+    }
+
     let mut plan = lower(&layout)?;
-    let expected = if predicate {
+    let expected = if nullable_values || nullable_codes {
+        let strings = (0..ROWS).map(|row| {
+            if (nullable_values && row % 3 == 1) || (nullable_codes && row % 5 == 0) {
+                None
+            } else {
+                Some(["a", "b", "c"][(row % 3) as usize])
+            }
+        });
+        if predicate {
+            BoolArray::from_iter(strings.map(|value| value.map(|value| value > "a"))).into_array()
+        } else {
+            VarBinViewArray::from_iter_nullable_str(strings).into_array()
+        }
+    } else if predicate {
         BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array()
     } else {
         VarBinViewArray::from_iter_str((0..ROWS).map(|row| ["a", "b", "c"][(row % 3) as usize]))
@@ -701,6 +756,139 @@ fn take_waits_for_whole_values_and_keeps_them(
         "a new cache reads the values again"
     );
     assert_view(&expected, &rows, &mask, fresh.arrays)
+}
+
+#[rstest]
+#[case::null_code(0..1)]
+#[case::null_value(1..2)]
+#[case::selected_value(2..3)]
+#[case::whole_dictionary(0..3)]
+fn dictionary_predicate_shares_values_with_projection(
+    #[case] rows: Range<u64>,
+    #[values(false, true)] chunked_values: bool,
+    #[values(false, true)] optimize_projection: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some("cat")]).into_array();
+    let codes = PrimitiveArray::from_option_iter([None, Some(1_u8), Some(2)]).into_array();
+    let values_layout = if chunked_values {
+        store.chunked(&values, &[1, 2])?
+    } else {
+        store.flat(&values)?
+    };
+    let layout = DictLayout::new(values_layout, store.flat(&codes)?).into_layout();
+    let projection = lower(&layout)?;
+    let expression = like(root(), lit("c%"))
+        .bind(projection.dtype())?
+        .optimize_recursive()?;
+    let predicate = optimize(
+        EvalPlan::try_new(expression, projection.clone())?.into_plan(),
+        &SESSION,
+    )?;
+    let projection = if optimize_projection {
+        optimize(projection, &SESSION)?
+    } else {
+        projection
+    };
+    let mask = Mask::new_true(usize::try_from(rows.end - rows.start)?);
+    let cache = ValueCache::default();
+    let filtered = run_with_values(
+        &store,
+        &predicate,
+        rows.clone(),
+        mask.clone(),
+        cache.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&filtered.events), if chunked_values { 3 } else { 2 });
+    assert_view(
+        &BoolArray::from_iter([None, None, Some(true)]).into_array(),
+        &rows,
+        &mask,
+        filtered.arrays,
+    )?;
+    let projected = run_with_values(
+        &store,
+        &projection,
+        rows.clone(),
+        mask.clone(),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(
+        reads(&projected.events),
+        1,
+        "the projection reuses the dictionary values"
+    );
+    assert_view(
+        &VarBinViewArray::from_iter_nullable_str([None, None, Some("cat")]).into_array(),
+        &rows,
+        &mask,
+        projected.arrays,
+    )
+}
+
+#[test]
+fn replacing_shared_child_does_not_reuse_cached_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter([1_i32, 2, 3]).into_array();
+    let replacement = PrimitiveArray::from_iter([10_i32, 20, 30]).into_array();
+    let shared = optimize(
+        SharePlan::new(lower(&store.chunked(&values, &[1, 2])?)?).into_plan(),
+        &SESSION,
+    )?;
+    let cache = ValueCache::default();
+    let mask = Mask::new_true(3);
+    let original = run_with_values(
+        &store,
+        &shared,
+        0..3,
+        mask.clone(),
+        cache.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&original.events), 2);
+    assert_view(&values, &(0..3), &mask, original.arrays)?;
+
+    let changed = shared.with_children(vec![lower(&store.flat(&replacement)?)?])?;
+    let output = run_with_values(
+        &store,
+        &changed,
+        0..3,
+        mask.clone(),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&output.events), 1);
+    assert_view(&replacement, &(0..3), &mask, output.arrays)
+}
+
+#[test]
+fn selective_take_preserves_errors_from_fallible_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter([0_i32, i32::MAX]).into_array();
+    let codes = PrimitiveArray::from_iter([0_u8]).into_array();
+    let expression = gt(checked_add(root(), lit(1_i32)), lit(0_i32)).bind(values.dtype())?;
+    let values = EvalPlan::try_new(expression, lower(&store.flat(&values)?)?)?.into_plan();
+    let plan = TakePlan::new(lower(&store.flat(&codes)?)?, values).into_plan();
+    let output = run(
+        &store,
+        &plan,
+        0..1,
+        Mask::new_true(1),
+        delivery(Delivery::Fifo),
+    )?;
+    let error = ChunkedArray::try_new(output.arrays, plan.dtype().clone())?
+        .into_array()
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .err()
+        .ok_or_else(|| vortex_err!("the values expression must overflow on i32::MAX"))?;
+    assert!(
+        error.to_string().to_ascii_lowercase().contains("overflow"),
+        "{error}"
+    );
+    Ok(())
 }
 
 #[rstest]
@@ -796,6 +984,111 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
     )?;
     assert_eq!(segments_read(&run.events), [0, 0, 1, 1]);
     assert_view(&expected, &rows, &mask, run.arrays)
+}
+
+#[rstest]
+fn whole_segments_are_reused_across_selected_scans(
+    #[values(false, true)] sparse: bool,
+    #[values(false, true)] reuse_whole: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.chunked(&expected, &[7, 13])?)?;
+    let cache = SegmentCache::new(0..ROWS, reuse_whole);
+    for rows in [0..10, 10..20] {
+        let lease = cache.lease(rows.clone());
+        let mask = if sparse {
+            Sel::EveryOther.mask(10)
+        } else {
+            Mask::new_true(10)
+        };
+        let bound = selected(plan.clone(), rows.clone(), mask.clone());
+        let scan = Scan::try_new(
+            SESSION.clone(),
+            bound,
+            vec![Split {
+                rows: rows.clone(),
+                mask: Mask::new_true(10),
+            }],
+        )?
+        .with_segment_cache(Some(cache.clone()));
+        let result = drive(&store, scan, delivery(Delivery::Lifo))?;
+        assert_eq!(
+            segments_read(&result.events),
+            if rows.start == 0 { vec![0, 1] } else { vec![] }
+        );
+        assert_view(&expected, &rows, &mask, result.arrays)?;
+        drop(lease);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_private_sparse_reconstruction_cannot_answer_a_later_whole_read() -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&expected)?)?;
+    let mut private = Store::default();
+    private.flat(&PrimitiveArray::from_iter([0i32; ROWS as usize]).into_array())?;
+    let cache = SegmentCache::new(0..ROWS, true);
+    let mut first = Scan::try_new(
+        SESSION.clone(),
+        plan.clone(),
+        vec![Split {
+            rows: 0..1,
+            mask: Mask::new_true(1),
+        }],
+    )?
+    .with_segment_cache(Some(cache.clone()));
+    let Turn::Read(read) = first.step()? else {
+        return Err(vortex_err!("the first reader must request its segment"));
+    };
+    first.deliver_partial(read.id, private.read(SegmentId::from(0)))?;
+    let result = drive(&store, first, delivery(Delivery::Fifo))?;
+    assert_view(&expected, &(0..1), &Mask::new_true(1), result.arrays)?;
+    let later = Scan::try_new(
+        SESSION.clone(),
+        plan,
+        vec![Split {
+            rows: 19..20,
+            mask: Mask::new_true(1),
+        }],
+    )?
+    .with_segment_cache(Some(cache));
+    let result = drive(&store, later, delivery(Delivery::Fifo))?;
+    assert_eq!(segments_read(&result.events), [0]);
+    assert_view(&expected, &(19..20), &Mask::new_true(1), result.arrays)
+}
+
+#[rstest]
+fn whole_segment_reads_only_retain_arrays_for_repeated_passes(
+    #[values(false, true)] reuse_whole: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&expected)?)?;
+    let cache = SegmentCache::new(0..ROWS, reuse_whole);
+    let _lease = cache.lease(0..ROWS);
+    for pass in 0..2 {
+        let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split::all(0..ROWS)])?
+            .with_segment_cache(Some(cache.clone()));
+        let result = drive(&store, scan, delivery(Delivery::Fifo))?;
+        assert_eq!(
+            segments_read(&result.events),
+            if pass == 0 || !reuse_whole {
+                vec![0]
+            } else {
+                vec![]
+            }
+        );
+        assert_view(
+            &expected,
+            &(0..ROWS),
+            &Mask::new_true(ROWS as usize),
+            result.arrays,
+        )?;
+    }
+    Ok(())
 }
 
 #[rstest]

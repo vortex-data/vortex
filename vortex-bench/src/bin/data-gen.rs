@@ -6,6 +6,7 @@
 //! This binary generates benchmark data for all formats needed, consolidating
 //! data generation that was previously duplicated across datafusion-bench and duckdb-bench.
 
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -47,6 +48,10 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
+    /// Convert existing local Parquet files without generating base data.
+    #[arg(long, requires = "formats")]
+    convert_only: bool,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -64,8 +69,14 @@ async fn main() -> anyhow::Result<()> {
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
-    // Generate base Parquet data - this is the source for all other formats
-    benchmark.generate_base_data().await?;
+    if args.convert_only {
+        anyhow::ensure!(
+            benchmark.data_url().scheme() == "file",
+            "--convert-only requires a local data directory"
+        );
+    } else {
+        benchmark.generate_base_data().await?;
+    }
 
     // Convert to other formats as needed (only for local file URLs)
     if benchmark.data_url().scheme() == "file" {
@@ -73,6 +84,17 @@ async fn main() -> anyhow::Result<()> {
             .data_url()
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
+
+        if args.convert_only {
+            let inputs = fs::read_dir(base_path.join(Format::Parquet.name()))?
+                .collect::<std::io::Result<Vec<_>>>()?;
+            anyhow::ensure!(
+                inputs
+                    .iter()
+                    .any(|input| input.path().extension().is_some_and(|ext| ext == "parquet")),
+                "--convert-only requires existing Parquet files"
+            );
+        }
 
         if args
             .formats
@@ -109,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
 /// Generate a DuckDB database from Parquet files using the DuckDB CLI.
 fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Result<()> {
     let duckdb_dir = base_path.join(Format::OnDiskDuckDB.name());
-    std::fs::create_dir_all(&duckdb_dir)?;
+    fs::create_dir_all(&duckdb_dir)?;
 
     let db_path = duckdb_dir.join("duckdb.db");
 

@@ -48,6 +48,8 @@ use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
+use crate::reader::VortexScanIoFactory;
+use crate::reader::scan_io_factory;
 use crate::scan_v2::FileScan;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
@@ -126,6 +128,8 @@ pub struct OpenFileReader {
 
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
+    url: Url,
+    io_factory: Option<Arc<dyn VortexScanIoFactory>>,
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
@@ -137,13 +141,16 @@ pub struct FileScanState {
 
 impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
-        let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
+        let url = parse_uri_or_path(&path)?;
+        let (fs, fs_path) = resolve_filesystem(&url)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
+                url,
+                io_factory: scan_io_factory(),
                 reader: file.layout_reader()?,
                 scan_file,
                 v2: OnceLock::new(),
@@ -233,7 +240,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .filter
             .as_ref()
             .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
+        let scan = FileScan::try_new(v2_builder(state, global)?, &splits, dynamic)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -261,17 +268,23 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 }
 
 /// The V2 scan of the file's rows that the scan's row range and selection keep.
-fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
+fn v2_builder(state: &FileScanState, global: &GlobalState) -> VortexResult<V2ScanBuilder> {
     let filter = &global.filter;
     let row_count = state.reader.row_count();
     let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
         range.start.min(row_count)..range.end.min(row_count)
     });
-    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
+    let mut builder = V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
-        .with_row_range(rows)
+        .with_row_range(rows);
+    if let Some(factory) = &state.io_factory
+        && let Some(io) = factory.create_io_service(&state.url)?
+    {
+        builder = builder.with_io_service(io);
+    }
+    Ok(builder)
 }
 
 /// What a thread's split yields next.

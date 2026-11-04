@@ -24,12 +24,17 @@ test = false
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 mimalloc = { workspace = true }
+serde_json = { workspace = true }
 similar = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
 vortex = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-duckdb = { workspace = true }
 
 [lints]
 workspace = true
+
+[features]
+io-uring = ["vortex-bench/io-uring"]

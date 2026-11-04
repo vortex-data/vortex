@@ -17,8 +17,10 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+mod cache;
 mod source;
 
+pub use cache::ScopedIoCache;
 pub use source::ReadAtIoSource;
 
 /// Consumer-chosen label for one request, unique within the issuing object.
@@ -127,6 +129,13 @@ pub trait IoSource: Send + Sync {
     /// Registers a whole batch before any of its reads become eligible for dispatch.
     /// Registration does not perform IO and never blocks.
     fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()>;
+
+    /// Takes an available completion without advancing queued IO. Drivers can consume resident
+    /// reads immediately while leaving cache misses eligible for batching. The default declines
+    /// this optimization; normal polling still delivers every completion.
+    fn take_ready(&self) -> VortexResult<Option<Completion>> {
+        Ok(None)
+    }
 
     /// Advances eligible IO without blocking and returns a required completion if ready.
     /// Optional successes stay in the source; any read failure fails the run.

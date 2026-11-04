@@ -346,7 +346,7 @@ impl PlanVTable for Zoned {
             let Some(data) = plan.data_plan()? else {
                 vortex_bail!("Zoned plan has no data child");
             };
-            return compiler.compile(&data, rows, mask);
+            return compiler.compile_rows(&data, rows, mask);
         }
         if mask.all_false() {
             return Ok(None);

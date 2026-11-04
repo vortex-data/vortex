@@ -43,6 +43,8 @@ use crate::vortex_queries::VortexBenchmark;
 pub mod appian;
 pub mod benchmark;
 pub mod clickbench;
+#[cfg(target_os = "linux")]
+pub mod cold_cache;
 pub mod compress;
 pub mod conversions;
 pub mod datasets;
@@ -62,6 +64,8 @@ pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod uring;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
@@ -228,6 +232,7 @@ pub const ALLOWED_FORMATS: &[Format] = &[
     Format::ArrowIpc,
     Format::Parquet,
     Format::OnDiskVortex,
+    Format::VortexCompact,
     Format::Lance,
     Format::LitData,
 ];

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod memory;
 pub mod metrics;
 pub mod tracer;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod uring;
 
 use std::sync::Arc;
 
@@ -21,6 +25,8 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -28,9 +34,7 @@ use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
 
 #[expect(clippy::expect_used)]
-pub fn get_session_context() -> SessionContext {
-    let mut rt_builder = RuntimeEnvBuilder::new();
-
+pub fn get_session_context(mut rt_builder: RuntimeEnvBuilder) -> SessionContext {
     rt_builder = rt_builder.with_cache_manager(CacheManagerConfig::default());
 
     let rt = rt_builder
@@ -105,7 +109,13 @@ pub fn format_to_df_format(format: Format, scan_v2: bool) -> anyhow::Result<Arc<
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
-            Arc::new(VortexFormat::new_with_options(SESSION.clone(), options))
+            let format = VortexFormat::new_with_options(SESSION.clone(), options);
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            let format = match uring::factory(scan_v2)? {
+                Some(factory) => format.with_vortex_reader_factory(factory),
+                None => format,
+            };
+            Arc::new(format)
         }
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance | Format::LitData => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
@@ -118,6 +128,36 @@ fn vortex_table_options() -> VortexTableOptions {
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.scan_v2 = std::env::var("VORTEX_SCAN_V2").is_ok_and(|value| value == "1");
+    opts.scan_v2_share_plans =
+        std::env::var("VORTEX_SCAN_V2_SHARE_PLANS").map_or(true, |value| value == "1");
+    opts.scan_v2_io_cache_bytes = std::env::var("VORTEX_SCAN_V2_IO_CACHE_BYTES")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(VortexError::external)
+                .vortex_expect("VORTEX_SCAN_V2_IO_CACHE_BYTES must be an integer")
+        })
+        .unwrap_or(0);
+    opts.scan_v2_chunk_rows = std::env::var("VORTEX_SCAN_V2_CHUNK_ROWS")
+        .ok()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(VortexError::external)
+                .vortex_expect("VORTEX_SCAN_V2_CHUNK_ROWS must be an integer")
+        });
+    opts.scan_v2_consumer_mapping =
+        std::env::var("VORTEX_SCAN_V2_CONSUMER_MAPPING").as_deref() == Ok("1");
+    opts.scan_v2_consumer_mapping_fixed_width_only =
+        std::env::var("VORTEX_SCAN_V2_CONSUMER_MAPPING_FIXED_WIDTH_ONLY").as_deref() == Ok("1");
+    opts.scan_concurrency = std::env::var("VORTEX_SCAN_CONCURRENCY").ok().map(|value| {
+        value
+            .parse()
+            .map_err(VortexError::external)
+            .vortex_expect("VORTEX_SCAN_CONCURRENCY must be an integer")
+    });
 
     opts
 }

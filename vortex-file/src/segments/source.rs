@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::future::Future;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -362,6 +363,10 @@ impl FileSegmentSource {
 }
 
 impl SegmentSource for FileSegmentSource {
+    fn supports_ranges(&self) -> bool {
+        true
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
@@ -372,6 +377,30 @@ impl SegmentSource for FileSegmentSource {
             }
         };
 
+        self.request_spec(spec, true)
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<usize>) -> SegmentFuture {
+        let Some(spec) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {id}"))).boxed();
+        };
+        if range.start > range.end || range.end > spec.length as usize {
+            return future::ready(Err(vortex_err!("Segment range out of bounds"))).boxed();
+        }
+        self.request_spec(
+            SegmentSpec {
+                offset: spec.offset + range.start as u64,
+                length: u32::try_from(range.end - range.start)
+                    .vortex_expect("Range length is bounded by the segment length"),
+                alignment: Alignment::none(),
+            },
+            false,
+        )
+    }
+}
+
+impl FileSegmentSource {
+    fn request_spec(&self, spec: SegmentSpec, allow_gaps: bool) -> SegmentFuture {
         let SegmentSpec {
             offset,
             length,
@@ -385,6 +414,7 @@ impl SegmentSource for FileSegmentSource {
             offset,
             length: length as usize,
             alignment,
+            allow_gaps,
             callback: send,
         });
 
@@ -581,6 +611,7 @@ mod tests {
             offset,
             length,
             alignment: Alignment::none(),
+            allow_gaps: true,
             callback,
         })
     }
