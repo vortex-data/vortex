@@ -20,7 +20,6 @@ use std::cmp::Ordering;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -241,34 +240,35 @@ fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<A
 
 /// Compares scalars with matching dtypes, ignoring nullability.
 ///
-/// Returns null if either operand is null, and an error if the operand dtypes differ.
+/// Uses SQL semantics, like the array compare kernels: returns null if either operand is null
+/// (see [`Scalar::sql_eq`] and [`Scalar::sql_cmp`]), and an error if the operand dtypes differ
+/// or the values have no ordering.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
     validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
 
-    if lhs.is_null() | rhs.is_null() {
-        return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));
-    }
-
-    let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-
-    // Some values, such as variants, have no scalar ordering even when their dtypes match.
-    let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
-        vortex_err!(
+    // Some values, such as variants, have no scalar ordering even when their dtypes match, and
+    // the array kernels reject them for every operator.
+    if !lhs.is_null() && !rhs.is_null() && lhs.partial_cmp(rhs).is_none() {
+        vortex_bail!(
             "Scalar comparison requires comparable values, got {} and {}",
             lhs.dtype(),
             rhs.dtype()
-        )
-    })?;
+        );
+    }
 
     let result = match operator {
-        CompareOperator::Eq => ordering.is_eq(),
-        CompareOperator::NotEq => ordering.is_ne(),
-        CompareOperator::Gt => ordering.is_gt(),
-        CompareOperator::Gte => ordering.is_ge(),
-        CompareOperator::Lt => ordering.is_lt(),
-        CompareOperator::Lte => ordering.is_le(),
+        CompareOperator::Eq => lhs.sql_eq(rhs),
+        CompareOperator::NotEq => lhs.sql_ne(rhs),
+        CompareOperator::Gt => lhs.sql_cmp(rhs).map(Ordering::is_gt),
+        CompareOperator::Gte => lhs.sql_cmp(rhs).map(Ordering::is_ge),
+        CompareOperator::Lt => lhs.sql_cmp(rhs).map(Ordering::is_lt),
+        CompareOperator::Lte => lhs.sql_cmp(rhs).map(Ordering::is_le),
     };
 
+    let Some(result) = result else {
+        return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));
+    };
+    let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
     Ok(Scalar::bool(result, nullability))
 }
 

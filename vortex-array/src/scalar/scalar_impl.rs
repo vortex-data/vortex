@@ -353,6 +353,77 @@ impl Scalar {
     }
 }
 
+impl Scalar {
+    /// Compares two scalars for equality with SQL semantics.
+    ///
+    /// Returns `None` if either scalar is null, matching the array `Eq` comparison, whose result is
+    /// null for a null operand. Otherwise returns `Some(self == other)`.
+    ///
+    /// [`PartialEq`] instead treats two nulls as equal and a null as different from every value,
+    /// which suits identity checks, hashing, and tests.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::dtype::DType;
+    /// use vortex_array::dtype::Nullability;
+    /// use vortex_array::dtype::PType;
+    /// use vortex_array::scalar::Scalar;
+    ///
+    /// let one = Scalar::primitive(1i32, Nullability::Nullable);
+    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    ///
+    /// assert_eq!(one.sql_eq(&one), Some(true));
+    /// assert_eq!(null.sql_eq(&null), None);
+    /// assert!(null == null);
+    /// ```
+    pub fn sql_eq(&self, other: &Self) -> Option<bool> {
+        if self.is_null() || other.is_null() {
+            return None;
+        }
+        Some(self == other)
+    }
+
+    /// Compares two scalars for inequality with SQL semantics.
+    ///
+    /// Returns `None` if either scalar is null, otherwise `Some(self != other)`. See
+    /// [`Scalar::sql_eq`].
+    pub fn sql_ne(&self, other: &Self) -> Option<bool> {
+        self.sql_eq(other).map(|eq| !eq)
+    }
+
+    /// Orders two scalars with SQL semantics.
+    ///
+    /// Returns `None` if either scalar is null, matching the array ordering comparisons, whose
+    /// result is null for a null operand. Otherwise returns `self.partial_cmp(other)`, which is
+    /// also `None` when the dtypes differ or the values have no ordering.
+    ///
+    /// [`PartialOrd`] instead orders a null before every value, which is the order of sorted
+    /// arrays. Nulls nested inside a struct, list, or map order first under both.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::cmp::Ordering;
+    /// use vortex_array::dtype::DType;
+    /// use vortex_array::dtype::Nullability;
+    /// use vortex_array::dtype::PType;
+    /// use vortex_array::scalar::Scalar;
+    ///
+    /// let one = Scalar::primitive(1i32, Nullability::Nullable);
+    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    ///
+    /// assert_eq!(null.sql_cmp(&one), None);
+    /// assert_eq!(null.partial_cmp(&one), Some(Ordering::Less));
+    /// ```
+    pub fn sql_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.is_null() || other.is_null() {
+            return None;
+        }
+        self.partial_cmp(other)
+    }
+}
+
 /// We implement `Hash` manually to be consistent with `PartialEq`. Since we ignore nullability in
 /// equality comparisons, we must also ignore it when hashing to maintain the invariant that equal
 /// values have equal hashes.
@@ -365,6 +436,9 @@ impl Hash for Scalar {
 
 /// We implement `PartialEq` manually because we want to ignore nullability when comparing scalars.
 /// Two scalars with the same value but different nullability should be considered equal.
+///
+/// Two nulls of the same dtype are equal. Use [`Scalar::sql_eq`] for the comparison semantics of
+/// the array `Eq` operator, under which a null equals nothing.
 ///
 /// Note that this has **different** behavior than the [`PartialOrd`] implementation since the
 /// [`PartialOrd`] returns `None` if the types are different, whereas this `PartialEq`
@@ -386,6 +460,9 @@ impl PartialOrd for Scalar {
     /// When types match, the ordering follows these rules:
     /// - Null values are considered less than all non-null values
     /// - Non-null values are compared according to their natural ordering
+    ///
+    /// This is the order of sorted arrays. Use [`Scalar::sql_cmp`] for the comparison semantics
+    /// of the array ordering operators, under which a null is unordered.
     ///
     /// # Examples
     ///

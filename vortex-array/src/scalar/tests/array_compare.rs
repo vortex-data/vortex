@@ -9,13 +9,14 @@
 //!   [`PartialOrd`] implement it for scalars, and the row comparator
 //!   ([`build_row_comparator`]) implements it for arrays. Nulls order before every non-null
 //!   value and are equal to each other, at every nesting depth.
-//! - **SQL comparison**, used by the compare operators. [`scalar_cmp`] implements it for scalars,
-//!   and the compare kernels implement it for arrays. A top-level null on either side makes the
-//!   result null; otherwise the result follows the total ordering, so nested nulls still order
-//!   first.
+//! - **SQL comparison**, used by the compare operators. [`Scalar::sql_eq`], [`Scalar::sql_ne`],
+//!   and [`Scalar::sql_cmp`] implement it for scalars, [`scalar_cmp`] evaluates operators with
+//!   them, and the compare kernels implement it for arrays. A top-level null on either side makes
+//!   the result null; otherwise the result follows the total ordering, so nested nulls still
+//!   order first.
 //!
-//! For every pair of representative values of a dtype, this module checks both forms of both
-//! semantics against [`Scalar`]'s [`PartialEq`] and [`PartialOrd`]. Compare kernels run on
+//! For every pair of representative values of a dtype, this module checks the array form of each
+//! semantics against its scalar form. Compare kernels run on
 //! array-array operands and on array-constant operands in both positions, since constants take
 //! separate kernel paths.
 
@@ -75,25 +76,31 @@ fn scalar_ordering(lhs: &Scalar, rhs: &Scalar) -> Ordering {
     ordering
 }
 
-/// The SQL result of `lhs op rhs`, derived from [`Scalar`]'s [`PartialEq`] and [`PartialOrd`].
+/// The SQL result of `lhs op rhs`, from [`Scalar::sql_eq`], [`Scalar::sql_ne`], and
+/// [`Scalar::sql_cmp`].
 ///
-/// `Eq` and `NotEq` use `==` and `!=` directly, so they also check [`PartialEq`] against the
-/// kernels independently of [`PartialOrd`].
+/// `Eq` and `NotEq` use the equality methods directly, so they check SQL equality against the
+/// kernels independently of SQL ordering.
 fn expected_from_scalars(lhs: &Scalar, rhs: &Scalar, op: CompareOperator) -> Option<bool> {
-    // `Scalar` orders a null first, but SQL comparison propagates top-level nulls.
-    if lhs.is_null() || rhs.is_null() {
-        return None;
+    let ordering = lhs.sql_cmp(rhs);
+    assert_eq!(
+        lhs.sql_eq(rhs),
+        ordering.map(Ordering::is_eq),
+        "sql_eq and sql_cmp disagree for {lhs} and {rhs}"
+    );
+    if !lhs.is_null() && !rhs.is_null() {
+        // Both semantics agree on non-null values.
+        assert_eq!(ordering, Some(scalar_ordering(lhs, rhs)));
     }
 
-    let ordering = scalar_ordering(lhs, rhs);
-    Some(match op {
-        CompareOperator::Eq => lhs == rhs,
-        CompareOperator::NotEq => lhs != rhs,
-        CompareOperator::Lt => ordering.is_lt(),
-        CompareOperator::Lte => ordering.is_le(),
-        CompareOperator::Gt => ordering.is_gt(),
-        CompareOperator::Gte => ordering.is_ge(),
-    })
+    match op {
+        CompareOperator::Eq => lhs.sql_eq(rhs),
+        CompareOperator::NotEq => lhs.sql_ne(rhs),
+        CompareOperator::Lt => ordering.map(Ordering::is_lt),
+        CompareOperator::Lte => ordering.map(Ordering::is_le),
+        CompareOperator::Gt => ordering.map(Ordering::is_gt),
+        CompareOperator::Gte => ordering.map(Ordering::is_ge),
+    }
 }
 
 /// Build a canonical array holding `values` in order.
@@ -519,6 +526,9 @@ fn top_level_nulls(
 
     assert_eq!(lhs.partial_cmp(&rhs), Some(ordering));
     assert_eq!(lhs == rhs, ordering.is_eq());
+    assert_eq!(lhs.sql_eq(&rhs), None);
+    assert_eq!(lhs.sql_ne(&rhs), None);
+    assert_eq!(lhs.sql_cmp(&rhs), None);
     for op in OPERATORS {
         assert!(scalar_cmp(&lhs, &rhs, op)?.is_null());
     }
