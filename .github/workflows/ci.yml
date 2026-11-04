@@ -105,6 +105,7 @@ jobs:
             --with tabulate --with xxhash \
             pytest scripts/tests/test_measurement_id.py \
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
+              scripts/tests/test_refresh_bench_site.py \
               scripts/tests/test_codspeed_shards.py
 
   python-test:

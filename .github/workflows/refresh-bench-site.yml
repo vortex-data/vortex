@@ -1,0 +1,29 @@
+# Tells the benchmarks website that new results exist, then warms its default pages. Callers run
+# it once per run, after their benchmark ingests finish, instead of once per benchmark job. This
+# keeps the website from flushing and refilling its cache dozens of times an hour while
+# benchmarks run. The script does nothing when the URL or the token is not set.
+
+name: Refresh benchmarks website
+
+on:
+  workflow_call:
+    secrets:
+      BENCH_REVALIDATE_TOKEN:
+        required: false
+
+jobs:
+  refresh:
+    if: vars.BENCH_SITE_BASE_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          sparse-checkout: scripts
+      - name: Revalidate and warm the benchmarks website
+        env:
+          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+        run: python3 scripts/refresh-bench-site.py
