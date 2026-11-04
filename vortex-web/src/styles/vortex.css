@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 7e11e4d29f206c97378af86a27749f3bff7d2e8435f7094998cc4b474bbbe2b6 */
+   sha256 b4802f5118685e56475939eed3023f73d2de0096e7da25b39e2126b3e1c9180b */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -122,7 +122,7 @@ main[tabindex="-1"]:focus {
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5, .vx-stat) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer's DetailStrip
+/* An encoding chain: mono steps on raised, joined by arrows. A post and DetailStrip
    both draw it, so it sits in base, which every site copies. */
 .vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
 .vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }

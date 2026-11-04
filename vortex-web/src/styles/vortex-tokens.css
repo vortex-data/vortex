@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,site,tables,app,focus --base
-   sha256 1d9da822b802ae4ebf3eb67e88d5c41cb930a89f0409f1d0afe7ec24f38c866d */
+   sha256 ead448bcfe1e46430e0ad3c6ff39993eeac5e20ad4e34c4f0e6fcb8e72f2d9eb */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -170,6 +170,7 @@
   --radius-full: 999px;
   --page-max: 1440px;
   --content-max: 1344px;
+  --measure: 54ch;
   --page-pad: 48px;
   --gutter: 24px;
   --control-md: 32px;
