@@ -13,15 +13,20 @@
 //!   rewrites the root node.
 //! - [`ArrayOptimizer::optimize_ctx`] also consults the session's active
 //!   [`kernels::ArrayKernels`] registry before static parent-reduce rules, so this is the entry
-//!   point used by execution. It optimizes the root after the descendants below it that were
-//!   never optimized.
+//!   point used by execution. It optimizes the root, then the descendants below it that were
+//!   never optimized, then the root again if a child changed.
 //! - [`ArrayOptimizer::optimize_recursive`] is the same as [`ArrayOptimizer::optimize_ctx`].
 //!
-//! With a session, optimizing a node first optimizes its children that were never optimized,
-//! bottom up: a parent rule or kernel keyed on a child's encoding sees that encoding rather than a
-//! lazy wrapper around it, such as a slice of an FSST array under a `LIKE`. Children already
-//! optimized are left without visiting their subtrees. Whenever a rule rewrites a node, the nodes
-//! the rule built are optimized the same way.
+//! With a session, the optimizer works top down. It first tries the rules of a node on its children
+//! as they are, so a rule that drops or replaces a child does not optimize that child first. Then
+//! it optimizes the children that were never optimized, and if any child changed, it tries the
+//! rules of the node again. Thus a parent rule or kernel keyed on a child's encoding still sees
+//! that encoding rather than a lazy wrapper around it, such as a slice of an FSST array under a
+//! `LIKE`. Children already optimized are left without visiting their subtrees.
+//!
+//! Whenever a rule rewrites a node, the nodes the rule built are optimized bottom up before the
+//! next pass on the node. Otherwise two rules that are inverses of each other, such as
+//! `slice(get_item(s))` and `get_item(slice(s))`, could rewrite the node back and forth.
 //!
 //! Each array records whether the optimizer has taken it to its fixpoint. A new array starts
 //! unoptimized, and optimizing with a session marks the arrays it returns, so optimizing an array
@@ -237,16 +242,26 @@ impl<'a> Optimizer<'a> {
         Ok(optimized)
     }
 
-    /// Optimizes `array` after the descendants below it that were never optimized, and marks the
-    /// result.
+    /// Optimizes the root of `array` top down: first the root, then the descendants below it that
+    /// were never optimized, then the root again while its children change. Marks the result.
     fn optimize(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
         if array.optimized_state().is_optimized() {
             return Ok(array);
         }
 
-        // Parent rules match on their children's encodings, so optimize the children first.
-        let current_array = self.optimize_new_nodes(array.clone())?;
-        let optimized = self.optimize_root(current_array)?;
+        // The rules of the root get the first try, on children that can still be lazy, so a rule
+        // that drops or replaces a child does not pay to optimize that child's subtree first.
+        let mut optimized = self.optimize_root(array.clone())?;
+
+        for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
+            let with_children = self.optimize_new_nodes(optimized.clone())?;
+            if ArrayRef::ptr_eq(&with_children, &optimized) {
+                break;
+            }
+
+            // A child changed its encoding, so a parent rule keyed on that encoding can apply now.
+            optimized = self.optimize_root(with_children)?;
+        }
 
         // A rewrite keeps the logical values, so every statistic of the input stays valid. Lazy
         // constructors such as `slice` put the statistics they carry over on the lazy node.

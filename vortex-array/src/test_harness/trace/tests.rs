@@ -530,16 +530,16 @@ fn trace_execution_stack_parent_kernel_attempts(
         &mut ctx
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.test.stack-child(i32, len=3) session=true
-      loop input=vortex.test.stack-child(i32, len=3)
-        reduce none array=vortex.test.stack-child(i32, len=3)
-        reduce_parent none array=vortex.test.stack-child(i32, len=3)
-      done output=vortex.test.stack-child(i32, len=3) changed=false
     optimize root=vortex.test.stack-parent(i32, len=3) session=true
       loop input=vortex.test.stack-parent(i32, len=3)
         reduce none array=vortex.test.stack-parent(i32, len=3)
         reduce_parent none array=vortex.test.stack-parent(i32, len=3)
       done output=vortex.test.stack-parent(i32, len=3) changed=false
+    optimize root=vortex.test.stack-child(i32, len=3) session=true
+      loop input=vortex.test.stack-child(i32, len=3)
+        reduce none array=vortex.test.stack-child(i32, len=3)
+        reduce_parent none array=vortex.test.stack-child(i32, len=3)
+      done output=vortex.test.stack-child(i32, len=3) changed=false
     execute_until target=AnyCanonical root=vortex.test.stack-parent(i32, len=3)
       iter 0 current=vortex.test.stack-parent(i32, len=3) builder_active=false
         done_check target=false canonical=false
