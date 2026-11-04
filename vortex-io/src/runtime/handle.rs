@@ -236,7 +236,7 @@ impl<T> Task<T> {
     /// This lets a caller distinguish a task panic (which it may re-raise via
     /// [`std::panic::resume_unwind`]) from the runtime dropping the task before it completed — for
     /// example a runtime shutting down while work is in flight — which is benign. The [`Future`]
-    /// implementation, by contrast, re-raises a panic and itself panics on abort.
+    /// implementation, by contrast, re-raises a panic and stays pending forever on abort.
     pub fn poll_join(&mut self, cx: &mut Context<'_>) -> Poll<JoinOutcome<T>> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(Ok(output)) => Poll::Ready(JoinOutcome::Completed(output)),
@@ -252,21 +252,18 @@ impl<T> Task<T> {
 impl<T> Future for Task<T> {
     type Output = T;
 
-    #[expect(clippy::panic)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.get_mut().poll_join(cx)) {
             JoinOutcome::Completed(output) => Poll::Ready(output),
             // The task panicked: re-raise the original panic on the joining side, preserving its
             // message and payload rather than collapsing it into a generic error.
             JoinOutcome::Panicked(panic) => std::panic::resume_unwind(panic),
-            JoinOutcome::Aborted => {
-                // The runtime dropped the task's future before it completed. If the caller aborted
-                // this task by dropping it, they wouldn't be able to poll it anymore, so we
-                // consider a closed channel a runtime programming error and panic.
-
-                // NOTE(ngates): we don't use vortex_panic to avoid printing a useless backtrace.
-                panic!("Runtime dropped task without completing it")
-            }
+            // The runtime dropped the task's future before it completed. A caller that aborted the
+            // task by dropping this handle can no longer poll it, so this is the runtime shutting
+            // down: it drops idle tasks while a task that awaits one of them may still be inside a
+            // poll. That awaiting task is being torn down too, so stay pending rather than panic.
+            // Callers that must observe the abort use `Task::poll_join`.
+            JoinOutcome::Aborted => Poll::Pending,
         }
     }
 }
@@ -306,6 +303,25 @@ mod tests {
             task.poll_join(&mut cx),
             Poll::Ready(JoinOutcome::Aborted)
         ));
+    }
+
+    // Polling a task whose future the runtime dropped (for example during shutdown) through the
+    // `Future` impl must not panic: the awaiting task is being torn down too.
+    #[test]
+    fn future_poll_does_not_panic_when_channel_closed_without_value() {
+        let (send, recv) = oneshot::channel::<TaskOutput<()>>();
+        // Simulate the runtime dropping the task's future before it sent a result.
+        drop(send);
+
+        let mut task = Task::<()> {
+            recv,
+            abort_handle: None,
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let polled = std::panic::catch_unwind(AssertUnwindSafe(|| task.poll_unpin(&mut cx)));
+        assert!(matches!(polled, Ok(Poll::Pending)));
     }
 
     // A completed task reports its value through `poll_join` rather than re-raising or panicking.

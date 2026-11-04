@@ -6,16 +6,23 @@
 
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::task::Poll;
+use std::time::Instant;
 
 use futures::FutureExt;
 use futures::channel::oneshot;
+use rstest::rstest;
 use tempfile::NamedTempFile;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 
 use crate::VortexReadAt;
+use crate::runtime::Handle;
+use crate::runtime::JoinOutcome;
 use crate::runtime::Task;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
@@ -323,4 +330,164 @@ fn test_nested_spawns() {
     let result =
         block_on(|h| h.spawn_nested(|h| async move { h.spawn(async move { 42 }).await + 10 }));
     assert_eq!(result, 52);
+}
+
+// ============================================================================
+// Test joining a task while the runtime shuts down
+// ============================================================================
+
+/// Sets its flag when dropped, so a test can observe the runtime dropping a spawned future.
+struct SetOnDrop(Arc<AtomicBool>);
+
+impl Drop for SetOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+type SpawnPending = fn(&Handle, SetOnDrop) -> Task<()>;
+
+fn spawn_pending(handle: &Handle, guard: SetOnDrop) -> Task<()> {
+    handle.spawn(async move {
+        let _guard = guard;
+        futures::future::pending::<()>().await
+    })
+}
+
+fn spawn_io_pending(handle: &Handle, guard: SetOnDrop) -> Task<()> {
+    handle.spawn_io(async move {
+        let _guard = guard;
+        futures::future::pending::<()>().await
+    })
+}
+
+fn spawn_nested_pending(handle: &Handle, guard: SetOnDrop) -> Task<()> {
+    handle.spawn_nested(|_| async move {
+        let _guard = guard;
+        futures::future::pending::<()>().await
+    })
+}
+
+/// How a detached task saw its [`Task`] once the runtime had dropped the task's future.
+enum ShutdownJoin {
+    /// Polling the task through its `Future` impl panicked with this message.
+    Panicked(String),
+    /// Polling the task through its `Future` impl returned without panicking.
+    Polled(Poll<()>),
+    /// `Task::poll_join` reported this outcome.
+    Joined(JoinOutcome<()>),
+}
+
+/// Spawns `spawn_task` from a detached Tokio task (like a DataFusion stream task), then drops the
+/// runtime while that detached task is still inside a single poll. Once another worker has dropped
+/// the spawned task's future, the detached task joins its [`Task`] and reports what it saw.
+fn join_during_runtime_shutdown(
+    worker_threads: usize,
+    spawn_task: SpawnPending,
+    use_poll_join: bool,
+) -> ShutdownJoin {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .build()
+        .expect("build Tokio runtime");
+    let dropped = Arc::new(AtomicBool::new(false));
+    let (outcome_tx, outcome_rx) = mpsc::channel();
+
+    rt.block_on({
+        let dropped = Arc::clone(&dropped);
+        async move {
+            let (started_tx, started_rx) = oneshot::channel();
+            drop(tokio::spawn(async move {
+                let mut task =
+                    spawn_task(&TokioRuntime::current(), SetOnDrop(Arc::clone(&dropped)));
+                started_tx
+                    .send(())
+                    .expect("test is waiting for the task to start");
+                // Stay inside this poll until shutdown drops the spawned future, so the runtime
+                // cannot drop this task first.
+                let deadline = Instant::now() + std::time::Duration::from_secs(10);
+                while !dropped.load(Ordering::SeqCst) {
+                    assert!(
+                        Instant::now() < deadline,
+                        "runtime shutdown never dropped the spawned task"
+                    );
+                    std::hint::spin_loop();
+                }
+                // The guard drops just before the task's result sender, so spin until the result
+                // channel reports the task's future gone.
+                let joined = loop {
+                    let polled =
+                        futures::future::poll_fn(|cx| Poll::Ready(task.poll_join(cx))).await;
+                    if let Poll::Ready(outcome) = polled {
+                        break outcome;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "the dropped task's result channel never closed"
+                    );
+                    std::hint::spin_loop();
+                };
+                let outcome = if use_poll_join {
+                    ShutdownJoin::Joined(joined)
+                } else {
+                    // A closed channel keeps reporting closed, so this poll sees the same teardown.
+                    let polled = AssertUnwindSafe(futures::future::poll_fn(|cx| {
+                        Poll::Ready(task.poll_unpin(cx))
+                    }))
+                    .catch_unwind()
+                    .await;
+                    match polled {
+                        Ok(poll) => ShutdownJoin::Polled(poll),
+                        Err(panic) => ShutdownJoin::Panicked(panic_message(&*panic).to_owned()),
+                    }
+                };
+                drop(outcome_tx.send(outcome));
+            }));
+            started_rx.await.expect("detached task started");
+        }
+    });
+    drop(rt);
+
+    outcome_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("detached task reported its join outcome")
+}
+
+// Awaiting a task whose future the runtime dropped during shutdown is a benign teardown, not a
+// runtime bug: it must not panic the awaiting task.
+#[rstest]
+fn test_task_polled_during_runtime_shutdown_does_not_panic(
+    #[values(2, 4)] worker_threads: usize,
+    #[values(
+        spawn_pending as SpawnPending,
+        spawn_io_pending as SpawnPending,
+        spawn_nested_pending as SpawnPending
+    )]
+    spawn_task: SpawnPending,
+) {
+    match join_during_runtime_shutdown(worker_threads, spawn_task, false) {
+        ShutdownJoin::Panicked(message) => {
+            panic!("awaiting a task during runtime shutdown panicked: {message}")
+        }
+        ShutdownJoin::Polled(poll) => assert!(poll.is_pending()),
+        ShutdownJoin::Joined(_) => unreachable!("joined through the Future impl"),
+    }
+}
+
+// `Task::poll_join` reports the same teardown as `Aborted`.
+#[rstest]
+fn test_task_poll_join_during_runtime_shutdown_reports_aborted(
+    #[values(2, 4)] worker_threads: usize,
+    #[values(
+        spawn_pending as SpawnPending,
+        spawn_io_pending as SpawnPending,
+        spawn_nested_pending as SpawnPending
+    )]
+    spawn_task: SpawnPending,
+) {
+    assert!(matches!(
+        join_during_runtime_shutdown(worker_threads, spawn_task, true),
+        ShutdownJoin::Joined(JoinOutcome::Aborted)
+    ));
 }
