@@ -104,8 +104,9 @@ def _toc(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any],
 
 
 # The 404 page is served at whatever address missed, so its relative links and assets would resolve
-# against that address. Every relative URL in it becomes root-relative.
-_RELATIVE_URL = re.compile(r'((?:href|src)=")(?![a-z][a-z0-9+.-]*:|/|#)')
+# against that address. Every relative URL in it becomes root-relative: links, assets, and the
+# header's search form.
+_RELATIVE_URL = re.compile(r'((?:href|src|action)=")(?![a-z][a-z0-9+.-]*:|/|#)')
 
 
 def _root_relative_404(app: Sphinx, exception: Exception | None) -> None:
