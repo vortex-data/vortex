@@ -29,6 +29,7 @@ pub mod metrics;
 mod opener;
 pub mod reader;
 mod scan_v2;
+mod segment_cache;
 mod sink;
 mod source;
 mod stream;

@@ -57,6 +57,10 @@ use vortex::session::VortexSession;
 use crate::VortexFormatFactory;
 use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
+use crate::persistent::segment_cache::DEFAULT_SEGMENT_CACHE_SIZE_BYTES;
+use crate::persistent::segment_cache::SEGMENT_CACHE_HITS;
+use crate::persistent::segment_cache::SEGMENT_CACHE_MISSES;
+use crate::persistent::segment_cache::SEGMENT_CACHE_STORES;
 
 fn make_session(
     object_store: Arc<dyn ObjectStore>,
@@ -896,5 +900,134 @@ async fn test_ree_dict_predicate_memtable_oracle(
     let actual = actual.collect().await?;
     let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
     assert_eq!(batch_values(&actual), batch_values(&expected));
+    Ok(())
+}
+
+async fn write_cache_test_file(
+    store: &Arc<dyn ObjectStore>,
+    path: &object_store::path::Path,
+    offset: i32,
+) -> anyhow::Result<()> {
+    let row_count = 40_000_i32;
+    let names = ["alpha", "beta", "gamma", "delta"];
+    let table = StructArray::try_new(
+        ["value", "name"].into(),
+        vec![
+            Buffer::from_iter(offset..offset + row_count).into_array(),
+            VarBinArray::from(
+                (0..row_count)
+                    .map(|i| names[usize::try_from(i % 4).expect("index fits usize")])
+                    .collect::<Vec<_>>(),
+            )
+            .into_array(),
+        ],
+        usize::try_from(row_count)?,
+        Validity::NonNullable,
+    )?;
+    let session = VortexSession::default();
+    let mut writer = ObjectStoreWrite::new(Arc::clone(store), path).await?;
+    session
+        .write_options()
+        .write(&mut writer, table.into_array().to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+    Ok(())
+}
+
+/// Runs `sql`, returning the first column's values and the sum of each segment cache counter.
+async fn run_with_cache_metrics(
+    ctx: &SessionContext,
+    sql: &str,
+) -> anyhow::Result<(Vec<i32>, [usize; 3])> {
+    let plan = ctx.sql(sql).await?.create_physical_plan().await?;
+    let batches = datafusion_physical_plan::collect(Arc::clone(&plan), ctx.task_ctx()).await?;
+    let metrics = crate::metrics::VortexMetricsFinder::find_all(plan.as_ref());
+    let count = |name: &str| {
+        metrics
+            .iter()
+            .filter_map(|set| set.sum_by_name(name))
+            .map(|value| value.as_usize())
+            .sum::<usize>()
+    };
+    Ok((
+        batch_values(&batches),
+        [
+            count(SEGMENT_CACHE_HITS),
+            count(SEGMENT_CACHE_MISSES),
+            count(SEGMENT_CACHE_STORES),
+        ],
+    ))
+}
+
+/// V2 scans of a table keep its zone maps and dictionaries across queries, until a file changes.
+#[rstest]
+#[case::enabled(DEFAULT_SEGMENT_CACHE_SIZE_BYTES)]
+#[case::disabled(0)]
+#[tokio::test]
+async fn test_segment_cache_reused_across_queries(#[case] size: usize) -> anyhow::Result<()> {
+    let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    let path = object_store::path::Path::parse("/cached/data.vortex")?;
+    write_cache_test_file(&store, &path, 0).await?;
+
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2: true,
+            segment_cache_size_bytes: size,
+            ..Default::default()
+        }),
+    );
+    let mut state = SessionStateBuilder::new()
+        .with_config(SessionConfig::new().with_target_partitions(2))
+        .with_default_features()
+        .with_table_factory(
+            factory.get_ext().to_uppercase(),
+            Arc::new(DefaultTableFactory::new()),
+        )
+        .with_object_store(&url::Url::try_from("file://")?, Arc::clone(&store));
+    if let Some(file_formats) = state.file_formats() {
+        file_formats.push(factory as _);
+    }
+    let ctx = SessionContext::new_with_state(state.build());
+    ctx.sql("CREATE EXTERNAL TABLE cached STORED AS vortex LOCATION '/cached/'")
+        .await?
+        .collect()
+        .await?;
+
+    let sql = "SELECT value FROM cached WHERE value >= 35000 AND name <> 'beta' ORDER BY value";
+    let expected = |offset: i32| {
+        (35_000..40_000 + offset)
+            .filter(|value| (value - offset) % 4 != 1)
+            .collect::<Vec<_>>()
+    };
+
+    let (cold, [hits, misses, stores]) = run_with_cache_metrics(&ctx, sql).await?;
+    assert_eq!(cold, expected(0));
+    assert_eq!(hits, 0);
+    if size == 0 {
+        assert_eq!((misses, stores), (0, 0));
+    } else {
+        assert!(misses > 0);
+        assert_eq!(stores, misses);
+    }
+
+    let (warm, [hits, misses, _]) = run_with_cache_metrics(&ctx, sql).await?;
+    assert_eq!(warm, expected(0));
+    if size == 0 {
+        assert_eq!((hits, misses), (0, 0));
+    } else {
+        assert!(hits > 0);
+        assert_eq!(misses, 0);
+    }
+
+    // A rewritten file is a new cache entry: its segments are read, not the old file's. The
+    // listing cache would otherwise keep the old file's metadata.
+    write_cache_test_file(&store, &path, 1).await?;
+    if let Some(listing) = ctx.runtime_env().cache_manager.get_list_files_cache() {
+        listing.clear();
+    }
+    let (rewritten, [hits, misses, _]) = run_with_cache_metrics(&ctx, sql).await?;
+    assert_eq!(rewritten, expected(1));
+    assert_eq!(hits, 0);
+    assert_eq!(misses > 0, size > 0);
     Ok(())
 }
