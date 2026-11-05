@@ -11,16 +11,14 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::mask;
-use vortex_array::expr::bound::not;
-use vortex_array::expr::bound::pack;
-use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
+use vortex_array::scalar_fn::fns::select::FieldSelection;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -31,15 +29,13 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::partition::NodeNeeds;
 use crate::partition::PartitionRule;
-use crate::partition::PartitionRuleAdapter;
 use crate::partition::PartitionSession;
 use crate::partition::PartitionedExpression;
 use crate::partition::PartitionedPlan;
-use crate::partition::PartitionedPlanSlot;
 use crate::partition::Partitions;
 use crate::partition::PlanSlot;
+use crate::partition::Slots;
 use crate::partition::positional_name;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
@@ -360,12 +356,12 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         if fields.nfields() == 0 {
             return Ok(None);
         }
-        let partitioned = match Pack.partition(expression, session)? {
-            PartitionedExpression::One(Some(slot), expr) => {
+        let partitioned = match Pack.partition(child.dtype(), expression, session)? {
+            PartitionedExpression::One(slot, expr) => {
                 let field = child.slot_required(slot)?;
                 return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));
             }
-            PartitionedExpression::One(None, expr) => {
+            PartitionedExpression::Any(expr) => {
                 let rewritten = child.with_pruned_fields(Vec::new())?.into_plan();
                 return Ok(Some(EvalPlan::try_new(expr, rewritten)?.into_plan()));
             }
@@ -433,141 +429,103 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
             })
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum PackSlot {
     Field(PlanSlot),
     Validity,
 }
-impl PartitionedPlanSlot for PackSlot {}
 impl From<PackSlot> for PlanSlot {
     fn from(slot: PackSlot) -> Self {
         match slot {
-            PackSlot::Validity => 0,
-            PackSlot::Field(index) => index + 1,
+            PackSlot::Validity => Pack::VALIDITY_SLOT,
+            PackSlot::Field(index) => Pack::FIELDS_OFFSET + index,
         }
     }
 }
 
 impl PartitionedPlan for Pack {
     type Slot = PackSlot;
+    fn slot_dtype(scope: &DType, slot: PackSlot) -> VortexResult<DType> {
+        match slot {
+            PackSlot::Validity => Ok(validity_dtype()),
+            PackSlot::Field(index) => field_dtype(struct_fields(scope)?, index),
+        }
+    }
 }
 
 pub fn register_pack_partition_rules(session: &PartitionSession) {
-    session.register_root_rule(&Pack, const { &PartitionRuleAdapter::new(PackRootRule) });
-    let get_item = const { &PartitionRuleAdapter::new(PackGetItemRule) };
-    session.register_rule(&Pack, GetItem.id(), get_item);
-    let select = const { &PartitionRuleAdapter::new(PackSelectRule) };
-    session.register_rule(&Pack, Select.id(), select);
-    let is_not_null = const { &PartitionRuleAdapter::new(PackNullCheckRule { negated: false }) };
-    session.register_rule(&Pack, IsNotNull.id(), is_not_null);
-    let is_null = const { &PartitionRuleAdapter::new(PackNullCheckRule { negated: true }) };
-    session.register_rule(&Pack, IsNull.id(), is_null);
+    session.register_root_rule(Pack, &RootRule);
+    session.register_rule(Pack, GetItem, &GetItemRule);
+    session.register_rule(Pack, Select, &SelectRule);
+    session.register_rule(Pack, IsNotNull, &IsNotNullRule);
+    session.register_rule(Pack, IsNull, &IsNullRule);
 }
 
 fn struct_fields(scope: &DType) -> VortexResult<&StructFields> {
     scope
         .as_struct_fields_opt()
-        .ok_or_else(|| vortex_err!("Struct partition rules require a struct scope"))
+        .ok_or_else(|| vortex_err!("Not a struct scope"))
 }
 
 fn field_dtype(fields: &StructFields, index: PlanSlot) -> VortexResult<DType> {
     fields
         .field_by_index(index)
-        .ok_or_else(|| vortex_err!("No field {index} in the struct scope"))
+        .ok_or_else(|| vortex_err!("No field {index} in struct scope"))
 }
 
 fn validity_dtype() -> DType {
     DType::Bool(Nullability::NonNullable)
 }
 
-fn parent_of_root_scope(node: &BoundExpression) -> Option<&DType> {
-    node.children()
-        .first()
-        .filter(|child| child.is_root())
-        .map(BoundExpression::dtype)
-}
-
 fn select_fields(
-    scope: &DType,
+    slots: &Slots<'_, Pack>,
     fields: &StructFields,
     names: FieldNames,
     indices: Vec<PlanSlot>,
-) -> VortexResult<NodeNeeds<PackSlot>> {
+) -> VortexResult<Expression> {
     vortex_ensure!(fields.nfields() > 0);
-
-    let validity = scope
-        .is_nullable()
-        .then(|| (PackSlot::Validity, validity_dtype()));
-    let field_slots = indices
-        .iter()
-        .map(|&index| Ok((PackSlot::Field(index), field_dtype(fields, index)?)))
-        .collect::<VortexResult<Vec<_>>>()?;
-    let needs = NodeNeeds::new(validity.into_iter().chain(field_slots));
-
     let elements = names
         .iter()
+        .cloned()
         .zip(indices)
-        .map(|(name, index)| Ok((name.clone(), needs.get(PackSlot::Field(index))?)))
-        .collect::<VortexResult<Vec<_>>>()?;
-    let packed = pack(elements, Nullability::NonNullable);
-    let combiner = if scope.is_nullable() {
-        mask(packed, needs.get(PackSlot::Validity)?)
-    } else {
-        packed
-    };
-    Ok(needs.with_combiner(combiner))
+        .map(|(name, index)| (name, slots.read(PackSlot::Field(index))));
+    let packed = unbound::pack(elements, Nullability::NonNullable);
+    if !slots.scope().is_nullable() {
+        return Ok(packed);
+    }
+    Ok(unbound::mask(packed, slots.read(PackSlot::Validity)))
 }
 
-/// pack(...) -> select(... + optional validity)
-struct PackRootRule;
-impl PartitionRule<Pack> for PackRootRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<PackSlot>>> {
-        let scope = node.dtype();
-        let fields = struct_fields(scope)?;
-        select_fields(
-            scope,
-            fields,
-            fields.names().clone(),
-            (0..fields.nfields()).collect(),
-        )
-        .map(Some)
+/// $ -> pack(...) (non-nullable) or mask(pack(...), validity)
+struct RootRule;
+impl PartitionRule for RootRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let fields = struct_fields(slots.scope())?;
+        let indices = (0..fields.nfields()).collect();
+        select_fields(slots, fields, fields.names().clone(), indices).map(Some)
     }
 }
 
-/// $.x -> $ (non-nullable) or mask($.x, $.validity)
-struct PackGetItemRule;
-impl PartitionRule<Pack> for PackGetItemRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<PackSlot>>> {
-        let Some(scope) = parent_of_root_scope(node) else {
-            return Ok(None);
-        };
-        let field_name = node.as_::<GetItem>();
-        let fields = struct_fields(scope)?;
-        let index = fields
-            .find(field_name)
-            .ok_or_else(|| vortex_err!("Field {field_name} not found"))?;
-        let dtype = field_dtype(fields, index)?;
-        let field = PackSlot::Field(index);
-        if !scope.is_nullable() {
-            return Ok(Some(NodeNeeds::new([(field, dtype)])));
-        }
-
-        let needs = NodeNeeds::new([(PackSlot::Validity, validity_dtype()), (field, dtype)]);
-        let combiner = mask(needs.get(field)?, needs.get(PackSlot::Validity)?);
-        Ok(Some(needs.with_combiner(combiner)))
-    }
-}
-
-/// select(..., $) -> select(... + validity, $)
-struct PackSelectRule;
-impl PartitionRule<Pack> for PackSelectRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<PackSlot>>> {
-        let Some(scope) = parent_of_root_scope(node) else {
-            return Ok(None);
-        };
+/// select(..., $) -> pack(... + optional validity)
+struct SelectRule;
+impl PartitionRule for SelectRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
         let selection = node.as_::<Select>();
-        let fields = struct_fields(scope)?;
-        let names = selection.normalize_to_included_fields(fields.names())?;
+        let fields = struct_fields(slots.scope())?;
+        let names = match selection {
+            FieldSelection::Include(names) => names.clone(),
+            FieldSelection::Exclude(_) => selection.normalize_to_included_fields(fields.names())?,
+        };
         let indices = names
             .iter()
             .map(|name| {
@@ -576,30 +534,64 @@ impl PartitionRule<Pack> for PackSelectRule {
                     .ok_or_else(|| vortex_err!("field {name} not found"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        select_fields(scope, fields, names, indices).map(Some)
+        select_fields(slots, fields, names, indices).map(Some)
     }
 }
 
-struct PackNullCheckRule {
-    negated: bool,
+/// $.x -> $.x (non-nullable) or mask($.x, $.validity)
+struct GetItemRule;
+impl PartitionRule for GetItemRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let field_name = node.as_::<GetItem>();
+        let index = struct_fields(slots.scope())?
+            .find(field_name)
+            .ok_or_else(|| vortex_err!("Field {field_name} not found"))?;
+        let read = slots.read(PackSlot::Field(index));
+        if !slots.scope().is_nullable() {
+            return Ok(Some(read));
+        }
+        Ok(Some(unbound::mask(read, slots.read(PackSlot::Validity))))
+    }
 }
-/// is_null($) / is_not_null($) -> lit() or $.validity
-impl PartitionRule<Pack> for PackNullCheckRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<PackSlot>>> {
-        let Some(scope) = parent_of_root_scope(node) else {
-            return Ok(None);
-        };
-        Ok(Some(if scope.is_nullable() {
-            let needs = NodeNeeds::new([(PackSlot::Validity, validity_dtype())]);
-            if self.negated {
-                let read = needs.get(PackSlot::Validity)?;
-                needs.with_combiner(not(read))
-            } else {
-                needs
-            }
+
+/// is_not_null -> lit(true) (non-nullable) or $.validity
+struct IsNotNullRule;
+impl PartitionRule for IsNotNullRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let expr = if slots.scope().is_nullable() {
+            slots.read(PackSlot::Validity)
         } else {
-            NodeNeeds::new([]).with_combiner(lit(!self.negated))
-        }))
+            unbound::lit(true)
+        };
+        Ok(Some(expr))
+    }
+}
+
+/// is_null-> lit(false) (non-nullable) or !$.validity
+struct IsNullRule;
+impl PartitionRule for IsNullRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let expr = if slots.scope().is_nullable() {
+            unbound::not(slots.read(PackSlot::Validity))
+        } else {
+            unbound::lit(false)
+        };
+        Ok(Some(expr))
     }
 }
 
@@ -608,15 +600,21 @@ mod tests {
     use insta::assert_snapshot;
     use vortex_array::dtype::PType;
     use vortex_array::expr as unbound;
-    use vortex_array::expr::Expression;
     use vortex_array::expr::bound::get_item;
     use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::pack;
 
     use super::*;
     use crate::partition::PartitionedExpression;
     use crate::partition::Partitions;
-    use crate::partition::scope_of;
     use crate::test::SESSION;
+
+    fn scope_of(expr: &BoundExpression) -> Option<&DType> {
+        if expr.is_root() {
+            return Some(expr.dtype());
+        }
+        expr.children().iter().find_map(scope_of)
+    }
 
     fn i32() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -633,11 +631,10 @@ mod tests {
         struct_of(&[("a", i32()), ("b", i32())], Nullability::NonNullable)
     }
 
-    fn fmt_slot(slot: Option<PlanSlot>) -> String {
+    fn fmt_slot(slot: PlanSlot) -> String {
         match slot {
-            None => "none".to_string(),
-            Some(Pack::VALIDITY_SLOT) => "validity".to_string(),
-            Some(slot) => (slot - Pack::FIELDS_OFFSET).to_string(),
+            Pack::VALIDITY_SLOT => "validity".to_string(),
+            slot => (slot - Pack::FIELDS_OFFSET).to_string(),
         }
     }
 
@@ -650,6 +647,7 @@ mod tests {
 
     fn snap(partitioning: PartitionedExpression) -> String {
         match partitioning {
+            PartitionedExpression::Any(expr) => line("mono none", &expr),
             PartitionedExpression::One(slot, expr) => {
                 line(&format!("mono {}", fmt_slot(slot)), &expr)
             }
@@ -660,7 +658,7 @@ mod tests {
                 let mut out = String::new();
                 for partition in &partitions {
                     out.push_str(&line(
-                        &format!("partition {}", fmt_slot(Some(partition.slot))),
+                        &format!("partition {}", fmt_slot(partition.slot)),
                         &partition.expr,
                     ));
                 }
@@ -671,7 +669,7 @@ mod tests {
     }
 
     fn partition(expr: Expression, scope: &DType) -> VortexResult<String> {
-        Ok(snap(Pack.partition(&expr.bind(scope)?, &SESSION)?))
+        Ok(snap(Pack.partition(scope, &expr.bind(scope)?, &SESSION)?))
     }
 
     #[test]
@@ -685,7 +683,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        assert_snapshot!(snap(Pack.partition(&expr, &SESSION)?), @"
+        assert_snapshot!(snap(Pack.partition(&two_field_struct(), &expr, &SESSION)?), @"
         partition 0 scope=i32: $
         partition 1 scope=i32: $
         root scope={0=i32, 1=i32}: pack(v: true, a: $.0, b: $.1)
@@ -698,15 +696,15 @@ mod tests {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
         let expr = unbound::select(["a"], unbound::root());
         assert_snapshot!(partition(expr, &scope)?, @"
-        partition validity scope=bool: $
         partition 0 scope=i32: $
-        root scope={0=bool, 1=i32}: vortex.mask(pack(a: $.1), $.0)
+        partition validity scope=bool: $
+        root scope={0=i32, 1=bool}: vortex.mask(pack(a: $.0), $.1)
         ");
         assert_snapshot!(partition(unbound::root(), &scope)?, @"
-        partition validity scope=bool: $
         partition 0 scope=i32: $
         partition 1 scope=i32: $
-        root scope={0=bool, 1=i32, 2=i32}: vortex.mask(pack(a: $.1, b: $.2), $.0)
+        partition validity scope=bool: $
+        root scope={0=i32, 1=i32, 2=bool}: vortex.mask(pack(a: $.0, b: $.1), $.2)
         ");
         Ok(())
     }
@@ -723,9 +721,9 @@ mod tests {
             ),
         );
         assert_snapshot!(partition(expr, &scope)?, @"
-        partition validity scope=bool: pack(0: $, 1: vortex.not($))
         partition 1 scope={c=i32, d=i32}: $
-        root scope={0={0=bool, 1=bool}, 1={c=i32, d=i32}}: ($.0.1 and (vortex.mask($.1, $.0.0).d > 0i32))
+        partition validity scope=bool: pack(0: $, 1: vortex.not($))
+        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0, $.1.0).d > 0i32))
         ");
         Ok(())
     }
@@ -762,7 +760,7 @@ mod tests {
             [("x", a.clone()), ("y", b), ("z", a)],
             Nullability::NonNullable,
         );
-        assert_snapshot!(snap(Pack.partition(&expr, &SESSION)?), @"
+        assert_snapshot!(snap(Pack.partition(&two_field_struct(), &expr, &SESSION)?), @"
         partition 0 scope=i32: $
         partition 1 scope=i32: $
         root scope={0=i32, 1=i32}: pack(x: $.0, y: $.1, z: $.0)
@@ -782,9 +780,9 @@ mod tests {
         let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
         let expr = unbound::is_not_null(unbound::get_item("a", unbound::root()));
         assert_snapshot!(partition(expr, &scope)?, @"
-        partition validity scope=bool: $
         partition 0 scope=i32: $
-        root scope={0=bool, 1=i32}: $.0
+        partition validity scope=bool: $
+        root scope={0=i32, 1=bool}: $.1
         ");
         Ok(())
     }

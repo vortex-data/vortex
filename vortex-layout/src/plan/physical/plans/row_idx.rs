@@ -10,7 +10,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::expr::Expression;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -18,15 +18,13 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
-use crate::partition::NodeNeeds;
 use crate::partition::PartitionRule;
-use crate::partition::PartitionRuleAdapter;
 use crate::partition::PartitionSession;
 use crate::partition::PartitionedExpression;
 use crate::partition::PartitionedPlan;
-use crate::partition::PartitionedPlanSlot;
 use crate::partition::Partitions;
 use crate::partition::PlanSlot;
+use crate::partition::Slots;
 use crate::partition::positional_name;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
@@ -112,58 +110,58 @@ impl PlanVTable for RowIdx {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum RowIdxSlot {
     Child,
     RowIdx,
 }
-
-impl PartitionedPlanSlot for RowIdxSlot {}
-
 impl From<RowIdxSlot> for PlanSlot {
     fn from(slot: RowIdxSlot) -> Self {
         match slot {
             RowIdxSlot::Child => 0,
-            RowIdxSlot::RowIdx => PlanSlot::MAX,
+            RowIdxSlot::RowIdx => 1,
         }
     }
 }
 
 impl PartitionedPlan for RowIdx {
     type Slot = RowIdxSlot;
-}
-
-pub fn register_row_idx_partition_rules(session: &PartitionSession) {
-    session.register_root_rule(
-        &RowIdx,
-        const { &PartitionRuleAdapter::new(RowIdxRootRule) },
-    );
-    session.register_rule(
-        &RowIdx,
-        RowIdxFn.id(),
-        const { &PartitionRuleAdapter::new(RowIdxFnRule) },
-    );
-}
-
-/// row_idx as $ reads its child
-struct RowIdxRootRule;
-impl PartitionRule<RowIdx> for RowIdxRootRule {
-    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeNeeds<RowIdxSlot>>> {
-        Ok(Some(NodeNeeds::new([(
-            RowIdxSlot::Child,
-            node.dtype().clone(),
-        )])))
+    fn slot_dtype(scope: &DType, slot: RowIdxSlot) -> VortexResult<DType> {
+        Ok(match slot {
+            RowIdxSlot::Child => scope.clone(),
+            RowIdxSlot::RowIdx => row_idx_dtype(),
+        })
     }
 }
 
-/// row_idx as a non-root reads nothing and generates a virtual output slot
+pub fn register_row_idx_partition_rules(session: &PartitionSession) {
+    session.register_root_rule(RowIdx, &RootRule);
+    session.register_rule(RowIdx, RowIdxFn, &RowIdxFnRule);
+}
+
+/// row_idx as $ reads its child
+struct RootRule;
+impl PartitionRule for RootRule {
+    type Plan = RowIdx;
+    fn apply(
+        &self,
+        slots: &Slots<'_, RowIdx>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(slots.read(RowIdxSlot::Child)))
+    }
+}
+
+/// row_idx not as $ reads a virtual output column
 struct RowIdxFnRule;
-impl PartitionRule<RowIdx> for RowIdxFnRule {
-    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeNeeds<RowIdxSlot>>> {
-        Ok(Some(NodeNeeds::new([(
-            RowIdxSlot::RowIdx,
-            row_idx_dtype(),
-        )])))
+impl PartitionRule for RowIdxFnRule {
+    type Plan = RowIdx;
+    fn apply(
+        &self,
+        slots: &Slots<'_, RowIdx>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(slots.read(RowIdxSlot::RowIdx)))
     }
 }
 
@@ -178,23 +176,24 @@ pub fn plan_row_idx_expression(
     session: &VortexSession,
 ) -> VortexResult<PlanRef> {
     let row_count = child.row_count();
-    let partitioned = match RowIdx.partition(&expression, session)? {
+    let partitioned = match RowIdx.partition(child.dtype(), &expression, session)? {
         PartitionedExpression::One(slot, expr) => {
-            let source = match slot {
-                Some(slot) if slot == PlanSlot::from(RowIdxSlot::RowIdx) => {
-                    RowIdxPlan::new(row_count).into_plan()
-                }
-                Some(_) => child,
-                None => PackPlan::try_new(
-                    StructFields::empty(),
-                    Nullability::NonNullable,
-                    row_count,
-                    Vec::new(),
-                    None,
-                )?
-                .into_plan(),
+            let source = if slot == PlanSlot::from(RowIdxSlot::RowIdx) {
+                RowIdxPlan::new(row_count).into_plan()
+            } else {
+                child
             };
             return Ok(EvalPlan::try_new(expr, source)?.into_plan());
+        }
+        PartitionedExpression::Any(expr) => {
+            let source = PackPlan::try_new(
+                StructFields::empty(),
+                Nullability::NonNullable,
+                row_count,
+                Vec::new(),
+                None,
+            )?;
+            return Ok(EvalPlan::try_new(expr, source.into_plan())?.into_plan());
         }
         PartitionedExpression::Many(partitioned) => partitioned,
     };
