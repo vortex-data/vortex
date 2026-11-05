@@ -233,11 +233,15 @@ mod tests {
     }
 
     /// Chunks over the same values export a range across them as one dictionary over those values.
+    ///
+    /// Each chunk has at least as many codes as values. A chunk with fewer codes than values is
+    /// exported as plain values, not as a dictionary.
     #[test]
     fn chunked_exporter_shares_dictionary_across_chunks() -> VortexResult<()> {
         let values = VarBinViewArray::from_iter_str(["x", "y", "z"]).into_array();
-        let chunk0 = DictArray::try_new(buffer![2u8, 0].into_array(), values.clone())?.into_array();
-        let chunk1 = DictArray::try_new(buffer![1u8, 2].into_array(), values)?.into_array();
+        let chunk0 =
+            DictArray::try_new(buffer![2u8, 0, 1].into_array(), values.clone())?.into_array();
+        let chunk1 = DictArray::try_new(buffer![1u8, 2, 0].into_array(), values)?.into_array();
         let dtype = chunk0.dtype().clone();
         let array = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
 
@@ -245,13 +249,13 @@ mod tests {
         let exporter = new_array_exporter(array, &ConversionCache::default(), &mut ctx)?;
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
 
-        exporter.export(1, 3, chunk.get_vector_mut(0), &mut ctx)?;
-        chunk.set_len(3);
+        exporter.export(1, 4, chunk.get_vector_mut(0), &mut ctx)?;
+        chunk.set_len(4);
 
         assert_eq!(
             String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
-- DICTIONARY VARCHAR: 3 = [ x, y, z]
+- DICTIONARY VARCHAR: 4 = [ x, y, y, z]
 "#
         );
         Ok(())
