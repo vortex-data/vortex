@@ -88,8 +88,8 @@ interface HeaderProps {
 /**
  * The design system's Header card, the one header every Vortex surface draws: the wordmark, the
  * links, the Explorer's tools, then the end group: the theme switch, the socials (X, Slack, and the
- * GitHub button), and on a narrow screen the Menu. Below 640px the switch and the socials move to
- * twin rows in the Menu's panel. The wordmark points back to vortex.dev.
+ * GitHub button), and on a narrow screen the Menu. Below 960px X and Slack move to twin rows in the
+ * Menu's panel, and below 640px the switch and GitHub follow them. The wordmark points back to vortex.dev.
  */
 export function Header({ tools, menu }: HeaderProps) {
   return (
@@ -168,7 +168,7 @@ export function Header({ tools, menu }: HeaderProps) {
                 <MarkGithub />
               </a>
               <a
-                className="vx-label vx-nav-link vx-header-menu-spill is-social"
+                className="vx-label vx-nav-link vx-header-menu-spill is-social is-icon"
                 href={SLACK_URL}
                 aria-label="Vortex on Slack"
               >
@@ -176,7 +176,7 @@ export function Header({ tools, menu }: HeaderProps) {
                 <MarkSlack />
               </a>
               <a
-                className="vx-label vx-nav-link vx-header-menu-spill is-social"
+                className="vx-label vx-nav-link vx-header-menu-spill is-social is-icon"
                 href={X_URL}
                 aria-label="Vortex on X"
               >
