@@ -130,9 +130,6 @@ pub trait ExpressionConverter: Send + Sync {
     ///
     /// If any expression is unsupported, evaluate the complete projection in DataFusion
     /// over deduplicated raw inputs. This avoids mixing input names with output aliases.
-    /// It also keeps lambdas left for DataFusion working: their parameters are numbered after
-    /// the projection's input columns, so over computed scan outputs they would read the wrong
-    /// column (#10215).
     fn split_projection(
         &self,
         source_projection: ProjectionExprs,
@@ -806,8 +803,7 @@ fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> 
 }
 
 /// Turns a body converted in a lambda's scope, where `$.x` is the parameter `x`, into a lambda's
-/// body, which reads it as `@x`. A lambda in the body is a function's options, which this leaves
-/// alone.
+/// body, which reads it as `@x`.
 fn read_params(body: Expression) -> Conversion<Expression> {
     body.transform_down(|node| {
         if let Some(name) = node.as_opt::<GetItem>()
