@@ -193,16 +193,19 @@ needs temporary code (decided, D11):
 2. Add `Widen` over decimals (N28). This step holds the child rules of D10, the kernels and casts
    of D15, and the rule that joins a `Widen` over a `Widen`. When `validate_dtypes` opens for
    decimals, the compare kernel and the sum pushdown get decimal code in the same change.
-3. Make DecimalByteParts decoding produce the canonical array of its dtype, with the
-   `TODO(connor)` of D16. Decoding widens a narrower MSP, and it narrows a wider MSP with the copy
-   of D21. Require `u64` lower parts, and reject lower parts that assemble wider than the
-   canonical width (decided, D29). Correct the module doc, which allows narrower parts.
+3. Make DecimalByteParts the decimal over an integer child (decided, D16). The MSP has the
+   logical dtype of the canonical width, capped at `i64`, and a narrower MSP is an integer
+   `Widen`, so decoding needs no scan. Decoding returns the canonical array, with a widening copy
+   only for a narrower MSP. The reader narrows a legacy MSP that is wider than its logical dtype
+   with the copy of D21. Require `u64` lower parts, and reject lower parts that assemble wider
+   than the canonical width (decided, D29). Before this step, sum, min, and max get a kernel on
+   the MSP (LT3).
 4. Make the `vortex.decimal` read plugin convert old nodes (decided, D9 and D21). The plugin scans
    the values, because it cannot use stored statistics.
 5. Make the DecimalByteParts scheme take the canonical array, and delete `narrowed_decimal`
-   (decided, D17). The MSP narrows with the deprecated `encode_values` (decided, D28). The scheme
-   stays after the wire change, for writers whose edition does not permit `vortex.widen`. File
-   contents stay the same. The exception is precision 39 to 76 with
+   (decided, D17). A narrower MSP becomes an integer `Widen`, also next to lower parts (decided,
+   D16). The scheme stays after the wire change, for writers whose edition does not permit
+   `vortex.widen`. v1 file contents stay the same. The exception is precision 39 to 76 with
    values that need more than 64 bits, which becomes a plain `i256` array.
 6. Make `DecimalArray::try_new` accept only the canonical width and check every valid value, with
    `new_unchecked` for kernels (decided, D14). `try_new` takes an `ExecutionCtx` (decided, D30).
@@ -222,14 +225,10 @@ in-memory change (decided, D11). It holds three parts:
   design pass settles which arrays it narrows (decided, D27), its precedence with the
   DecimalByteParts scheme, and its cascade level.
 
-Later, both formats enter `core` together. Two optimizations wait until benchmarks show that they
-are needed. One is the max pass in DecimalByteParts decoding (D16). The other is the pushdown of
-sum, min and max into the MSP for gap columns (D19).
+Later, both formats enter `core` together.
 
-After the in-memory change, decoding a compressed decimal runs at the full width in memory until
-the compressor narrows the decimal type first. This applies to existing files, and to files from
-writers that do not select an edition with `vortex.widen`. The maintainer accepts this, because
-the bar of no compute regression applies to the final state (decided, D19).
+A DecimalByteParts array keeps its narrow MSP in memory, so a compressed decimal runs at the narrow
+width until a consumer needs the canonical array (decided, D16). This holds for existing files too.
 
 ## Order of work
 
@@ -272,9 +271,9 @@ are not reviewed.
 | D3 without `Widen` forces the full width on every column | `Widen` for decimals lands in the in-memory change, before `try_new` rejects other widths |
 | An in-memory `Widen` reaches a writer that cannot write `vortex.widen` | The serializer writes the canonical array (D26). The code documents this as a workaround until `vortex.widen` is in `core` |
 | Moving the narrowing call sites to `encode_values` changes the signedness of internal children in new files | Readers on `develop` accept any integer type there, and the PR checks that the latest release reads its files (D28) |
-| A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their range (D9). DecimalByteParts decoding takes the range of a narrow MSP from `min_max` and returns a `Widen` (D16) |
-| Compute on DecimalByteParts regresses when its decoding stops returning narrow leaves | In the final state, the compressor narrows the decimal type first, so decoding reuses the buffer. Until then, the maintainer accepts the cost (D19). The max pass of D16 can come later, and new benchmarks measure the cost |
-| Gap columns use the next width in memory in the final state | Accepted (D19). Pushdown of sum, min and max into the MSP can come later |
+| A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their range (D9). A DecimalByteParts MSP is an integer, so it needs no precision (D16) |
+| Compute on DecimalByteParts regresses when its decoding stops returning narrow leaves | DecimalByteParts is itself the narrow form, and operations run on its parts (D16). Sum, min, and max get a kernel on the MSP before the new decoding (LT3), and benchmarks measure the cost (D19 and D42) |
+| Gap columns use the next width in memory in the final state | Accepted for a decimal `Widen` (D19). DecimalByteParts has no gap columns, because its MSP is an integer (D16) |
 | The conversion of old `vortex.decimal` nodes scans their buffer, because the plugin cannot use stored statistics | Old narrow nodes are rare, and the speed of this path matters little (D9) |
 | Default writers use `core`, so they write precision 39 to 76 with values above 64 bits as plain `i256` arrays until `vortex.widen` and DecimalByteParts with lower parts enter `core` | Accepted (D17). The wire change puts both into one preview edition. If it ships in the same release as the in-memory change, writers that select that edition never pay the cost (D11) |
 | Arrow import at another width copies the buffer | Accepted (D12 and D13) |

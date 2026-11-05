@@ -35,15 +35,17 @@ canonical decimal encoding.
 - Decided: a reader finds an old narrow `vortex.decimal` node by its stored width. It scans the
   values for their max, and it returns a `Widen` or a copy. Every narrowing copy writes zeros in
   null slots and fails on a value outside the precision.
-- Decided: DecimalByteParts stays the compressed form. Operations run on its parts where they can,
-  and it decodes to the canonical array of its own dtype. One compressor scheme builds it from the
-  canonical array, so file contents stay the same.
+- Decided: DecimalByteParts stays the compressed form, and it is the decimal over an integer child.
+  Its MSP keeps the canonical width, capped at `i64`, and a narrower MSP is an integer `Widen`, so
+  decoding needs no scan. Operations run on its parts where they can, and it decodes to the
+  canonical array of its own dtype. One compressor scheme builds it from the canonical array, so v1
+  file contents stay the same.
 - Decided: `vortex.widen` stays in memory until the maintainer decides to write it. Then it
   enters one preview edition together with DecimalByteParts with lower parts. Only then does a
   decimal `Narrow` scheme narrow the decimal type first. Default writers use `core`, so until both
   formats enter `core`, they write wide decimals with values above 64 bits as plain `i256` arrays.
-- Decided: the bar of no compute regression applies to the final state. Until the compressor
-  narrows the decimal type first, decoding a compressed decimal runs at the full width in memory.
+- Decided: the bar of no compute regression applies to the final state. A DecimalByteParts array
+  keeps its narrow MSP in memory, and sum, min, and max run on the MSP.
 - Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
   implement alone. The integer `Widen` PRs are written from scratch, with a local rewrite as a
   reference. Generic structural encodings always sit above `Widen`. A writer that cannot

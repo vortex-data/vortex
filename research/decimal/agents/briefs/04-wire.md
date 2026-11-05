@@ -468,11 +468,13 @@ Hard dependencies on the NR and CD PRs:
   `vortex-duckdb/src/lib.rs:52` and `vortex-jni/src/session.rs:25` pin `CORE_2026_08_3` and need a
   decision. Default writers stop writing plain `i256` for wide values (D17). Decide then whether
   the serialization workaround of D26 stays for writers that select an older `core` edition.
-- LT2, the range pass in DBP decoding that returns a `Widen` over a narrow MSP (D16), is now part
-  of CD5. The first version of #10905 regressed CodSpeed by up to 11x without it. No wire change.
-- LT3, sum, min and max pushdown into the MSP (D19): kernels under
-  `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/` for gap columns. No wire change.
-  It waits for benchmarks.
+- LT2, the range pass in DBP decoding that returns a `Widen` over a narrow MSP, is dropped. Since
+  2026-11-05, a narrower MSP is an integer `Widen` (D16), so decoding needs no range. No wire
+  change.
+- LT3, sum, min, and max pushdown into the MSP (D19): kernels under
+  `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/`. It is required since 2026-11-05,
+  and it lands before the replacement of CD5. With no lower parts, each aggregate runs on the
+  MSP and relabels its result as a decimal (D16). No wire change.
 
 ## Notes from planning
 

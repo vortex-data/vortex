@@ -41,7 +41,7 @@ Each helper has one owner. Later PRs use it and do not add their own.
 | `check_precision` | CD3 | The zero-copy imports of CD3, `try_new` in CD8b | Public. Fails on a valid value outside the precision. It takes a `Mask`, so it needs no `ExecutionCtx` |
 | `smallest_decimal_dtype` | CD4 | `WidenArray::encode_decimal` and `WidenArray::from_stored_decimal` | Crate-private (D40). From the min and max of the valid values, or no range, and a parent `DecimalDType`, it returns the dtype with the same scale and the smallest precision that holds the range and the scale (D10). Code outside `vortex-array` calls one of the two functions that use it |
 | `WidenArray::encode_decimal` | CD4 | WR3 | A `Widen` over the child at the best precision, or the input when that precision has the canonical width of the input. It always scans the valid values. It shares its core with `from_stored_decimal`, so the child reuses the input buffer when the stored width is the child width, and the child records the exact extrema of the scan |
-| `WidenArray::from_stored_decimal` | CD4 | CD5 decoding, CD6 old nodes | The single owner of the choice between the canonical array and a `Widen` for stored values (D40). It takes `DecimalDataParts` at any stored width and `known_range: Precision<RangeInclusive<i256>>`. It checks the buffer length, the alignment and the validity length first. At the canonical width it returns the canonical array with no copy and no scan, also for a device buffer. Otherwise it copies to the host. `Absent` scans, `Exact` is the exact extrema, and `Inexact` is a bound. The child records the range as `Stat::Min` and `Stat::Max`, exact only for a scan or an `Exact` range |
+| `WidenArray::from_stored_decimal` | CD4 | CD6 old nodes. DecimalByteParts decoding stopped using it on 2026-11-05 (D16) | The single owner of the choice between the canonical array and a `Widen` for stored values (D40). It takes `DecimalDataParts` at any stored width and `known_range: Precision<RangeInclusive<i256>>`. It checks the buffer length, the alignment and the validity length first. At the canonical width it returns the canonical array with no copy and no scan, also for a device buffer. Otherwise it copies to the host. `Absent` scans, `Exact` is the exact extrema, and `Inexact` is a bound. The child records the range as `Stat::Min` and `Stat::Max`, exact only for a scan or an `Exact` range |
 | `WidenArray::encode_values` | WD1 | CD7 (the DecimalByteParts MSP), WD6 | Deprecated (D28). The narrowed child with the same signedness, without a `Widen` |
 
 No decimal twin of `encode_values` exists. A caller that needs the child calls `encode_decimal` and
@@ -163,10 +163,10 @@ Tests: None. Benchmarks only.
 Benchmarks:
 
 - In this PR, every case is new, so CodSpeed shows additions only.
-- After CD5, `decode`, `filter`, `sum` and `min_max` in `dbp_compute.rs` get slower for the cases
-  with a narrow MSP. Decoding then adds a widening copy, which D19 accepts. Compare cases stay the
-  same, because they run on the MSP. `msp_i64_p18_canonical` stays the same. The compressed tree
-  decompress gets slower by one widening copy.
+- LT3 reshapes these benches (D42). `sum` and `min_max` run on the MSP, `filter` stops at the DBP
+  array, and `decode` and `canonicalize` become one `canonicalize`, which pays one widening copy
+  for a narrow MSP. Compare cases stay the same, because they run on the MSP.
+  `msp_i64_p18_canonical` stays the same. How the compressed tree decompress changes is open.
 - After CD7, these in-memory inputs do not change. The golden snapshot and the optional compress
   case cover the scheme.
 - After CD4, `widen_*` in `cast_decimal.rs` stays similar or gets faster, because the execution of
@@ -183,7 +183,9 @@ Acceptance checks:
 - `cargo bench -p vortex --bench common_encoding_tree_throughput`,
   `cargo bench -p vortex-array --bench cast_decimal`, `cargo bench -p vortex-arrow --bench
   to_arrow` and `cargo bench -p vortex-duckdb --bench decimal_export` run.
-- Every new bench input is a canonical decimal leaf, or a DBP array with an MSP that D16 allows.
+- Every new bench input is a canonical decimal leaf, or a DBP array. Under the 2026-11-05 version
+  of D16, a narrower MSP must be an integer `Widen`, so the replacement of CD5 wraps the narrow
+  MSPs of these inputs.
   No new input builds a `DecimalArray` at a non-canonical width, so CD8a does not break them.
 
 Review focus: The new inputs must stay legal through CD8a (canonical leaves and DBP MSPs only). The
@@ -287,7 +289,8 @@ Design notes:
 - Survival through CD3 to CD8a: `build()` builds only canonical arrays, so `check` never builds an
   illegal array. `build_written` uses `DecimalArray::try_new` and returns its error. After CD8a that
   error stops `generate` and the round-trip test, which forces CD8a to delete the overrides. The DBP
-  fixture and the canonical-width fixture need no override, because D16 keeps a narrow MSP legal.
+  fixture and the canonical-width fixture need no override, because the reader wraps a narrow MSP
+  in an integer `Widen` (D16).
 - After CD8a, later releases publish canonical files under the same names. The old forms stay in the
   store under the versions published before CD8a.
 - Fixtures. Each column holds the listed boundary values. Columns in one fixture have equal length.
@@ -1003,6 +1006,12 @@ canonical width wraps it in a `Widen` without decoding is left to the design pas
 
 ### CD5: DecimalByteParts decodes to the canonical array or a decimal `Widen`
 
+Superseded on 2026-11-05. #10905 closed, because DecimalByteParts became the decimal over an
+integer child (D16). The MSP keeps the canonical width, capped at `i64`, and a narrower MSP is an
+integer `Widen`, so decoding needs no scan and never returns a decimal `Widen`. LT3 lands first
+(D19). The brief of the replacement is open. The rest of this section records the design of
+2026-10-29.
+
 This brief replaces the first design of #10905, which widened every narrow MSP with a copy. That
 design regressed CodSpeed by up to 11x on decode, and by 1.3x to 2.6x on min and max, sum and
 filter. Every default-written decimal column whose values are small for its precision has a narrow
@@ -1306,6 +1315,12 @@ Size: medium. One new module, a crate-private helper and one registration change
 Open questions: None. D26 is settled in CD4.
 
 ### CD7: One DecimalByteParts scheme on the canonical array
+
+Superseded on 2026-11-05. #10992 closed with #10905 (D16). Its replacement stores a narrower MSP
+as an integer `Widen`, also next to lower parts (D17). The compressor executes every child to its
+canonical form before it compresses it, so the scheme narrows the MSP, compresses the narrow
+child, and then wraps the result in the `Widen`. The brief of the replacement is open. The rest of
+this section records the design of 2026-10-29.
 
 - Goal: The btrblocks decimal scheme takes the canonical array and chooses the number of lower parts
   from the values. It narrows the MSP as the compressor narrows other internal children.
@@ -1826,7 +1841,7 @@ Open questions: None. `try_new` takes an `ExecutionCtx`, as `VarBinViewArray::tr
   (`vortex-arrow/src/executor/decimal.rs:52-221`), which a caller still reaches with an Arrow type
   narrower than the precision. The MSP checks of DecimalByteParts compare and between
   (`encodings/decimal-byte-parts/src/decimal_byte_parts/compute/compare.rs:111-150`,
-  `between.rs:59-83`), because the MSP is a narrow integer by design (D16).
+  `between.rs:59-83`), because the MSP is an integer by design (D16).
 
 Files (checked at `b70206818f`):
 

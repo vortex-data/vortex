@@ -178,7 +178,9 @@ decision.
 `vortex.widen` is for arrays with a fixed logical dtype (decided, D23). Exactly which arrays the
 compressor wraps is deferred to the design of the compressor scheme (decided, D27). Internal integer
 children keep changing their own dtype, through `encode_values`. Examples are list offsets,
-dictionary codes, run ends and the DecimalByteParts MSP. Whether `List` and `ListView` offsets get a
+dictionary codes, and run ends. The DecimalByteParts MSP is different: it has a fixed logical
+dtype and narrows with an in-memory integer `Widen` (decided, D16), but its plugin writes the
+narrow child, so no `vortex.widen` reaches the wire. Whether `List` and `ListView` offsets get a
 fixed `I64` dtype with `Widen` is an open question on issue
 [#10733](https://github.com/vortex-data/vortex/issues/10733), and the decimal work does not depend
 on it.
@@ -236,8 +238,8 @@ A gap column holds values in that range. In the final state, it uses the next wi
 | `Decimal(18, 2)` | 10,000,000.00 to 21,474,836.47 | `i32` | `i64`, at precision 10 |
 
 Disk size does not change, because integer encodings such as BitPacking store the same bits.
-Exports do not change, because they already widen. Pushdown of sum, min and max into the parts of
-DecimalByteParts can remove this cost for those operations later.
+Exports do not change, because they already widen. DecimalByteParts has no gap columns, because
+its narrow MSP is an integer `Widen` with no precision label (decided, D16).
 
 ### Reading old narrow data
 
@@ -261,7 +263,7 @@ on a valid value outside the precision of the target dtype. Three paths make suc
 
 - An old node that is wider than its canonical width.
 - An old narrow node whose best precision has a smaller width than the stored width.
-- DecimalByteParts decoding with an MSP wider than the canonical width.
+- A legacy DecimalByteParts MSP that is wider than its logical dtype (decided, D16).
 
 The copy reads every value anyway, so the precision check costs nothing extra. For example, an old
 `Decimal(4, 2)` node at `i32` with the unscaled value 20,000 fails, because 20,000 is outside
@@ -280,35 +282,64 @@ D37).
 
 ## DecimalByteParts
 
-DecimalByteParts (DBP) stays the compressed decimal form:
+DecimalByteParts (DBP) stays the compressed decimal form. It is the decimal over an integer
+child, which the canonical leaf is not (decided, D2 and D16):
 
 - Each unscaled value is cut into 64-bit words of its two's complement bits. The most significant
   part (MSP) holds the top word, and up to three lower parts hold the rest. With no lower parts,
   the value is the MSP.
-- The MSP is any signed integer up to 64 bits, with the nullability of the decimal, and it holds
-  the validity (decided, D16). Each lower part is a non-nullable `u64`, with zeros in null rows.
-  Today the constructor accepts a lower part of any unsigned width, and the module doc says that
-  each part can use a narrower dtype. But the split makes only `u64` parts, and the compressor
-  never narrows the dtype of a part. D16 tightens the constructor and the doc. The constructor
-  also rejects lower parts that assemble wider than the canonical width (decided, D29): precision
-  up to 18 allows none, 19 to 38 at most one, and 39 to 76 any count. This breaks no file, because
-  no file has lower parts.
+- The MSP has the logical dtype of the signed integer at the canonical width of the precision,
+  capped at `i64`, with the nullability of the decimal, and it holds the validity (decided, D16).
+  So an array with lower parts has an `i64` MSP. An array above precision 18 with no lower parts
+  also has an `i64` MSP, which assembly sign-extends, because v1 files have that shape. Each lower
+  part is a non-nullable `u64`, with zeros in null rows. The constructor also rejects lower parts
+  that assemble wider than the canonical width (decided, D29): precision up to 18 allows none, 19
+  to 38 at most one, and 39 to 76 any count. This breaks no file, because no file has lower parts.
+- An MSP stored at a narrower width is an integer `Widen` over the narrower child (decided, D16).
+  The canonical width of a precision `p` is the smallest width that holds `10^p - 1`, so the
+  largest value of any narrower signed width is below `10^p - 1`. Every value of a narrower MSP is
+  therefore a valid `Decimal(p)` value, and the MSP needs no scan and no precision label. A decimal
+  `Widen` child needs a precision label, which a narrow buffer gives only after a scan.
+- The integer `Widen` can narrow the MSP next to lower parts, which a decimal `Widen` cannot. For
+  example, `Decimal(38)` values between `2^64` and `2^65` need an `i128` decimal child, but their
+  MSP holds only 1, which fits `i8`.
 - Each part can use any integer encoding. The parts are integers, so they promise only a width,
   never a number of digits.
 - One in-memory array has two wire forms. `vortex.decimal_byte_parts` (v1) has only the MSP.
-  `vortex.decimal_byte_parts.v2` adds lower parts, and no edition permits it yet. The writer picks
-  v1 when there are no lower parts.
+  `vortex.decimal_byte_parts.v2` adds lower parts. Only the `unstable` edition permits it, so it
+  can change with no compatibility cost. The writer picks v1 when there are no lower parts. The
+  plugin writes the child of a `Widen` MSP as the MSP, with the narrow `msp_ptype`, so the wire
+  form does not change. The reader wraps a narrower MSP in a `Widen` without a scan.
+
+Older writers could store an MSP wider than its logical dtype, for example an `i64` MSP for
+`Decimal(4, 2)`. Before 0.91.0, Arrow imports kept the Arrow width, and `narrowed_decimal` counted
+null slots, so narrowing could stop above the canonical width. The compat fixture
+`msp_i64_p4_s2_wide` has this shape. The reader finds such an MSP from the dtypes and
+narrows it with the copy of D21, which scans the values. Only these legacy nodes pay a scan.
 
 Operations run on the parts wherever they can (decided, D16). Today compare, between, filter,
-take, slice, mask and the nullability cast do this. Every other operation decodes DBP first.
+take, slice, mask, the nullability cast, and `is_constant` do this. With no lower parts, sum, min,
+and max run the integer aggregate on the MSP and relabel the result as a decimal (decided, D16).
+These kernels land before the new decoding (LT3). Sum converts the integer sum to the decimal
+result dtype, which is null outside the result precision. When the checked integer sum overflows,
+sum uses the decimal sum on the decoded array instead. A possible later refinement predicts the
+overflow from the dtypes and the batch length, with the bound of `is_exact_sum` in
+`vortex-array/src/arrays/widen/compute/aggregate.rs`, instead of the fallback at run time. Every
+other operation decodes DBP first.
 
-Decoding produces the canonical array of the DBP dtype (decided, D16). Today it reuses the MSP
-buffer at the MSP width. So a `Decimal(18, 2)` array with an `i32` MSP decodes to a decimal array
-with an `i32` buffer. D3 removes that form, so decoding widens a narrower MSP. The MSP rule also
-allows an MSP wider than the canonical width for precision up to 18, for example an `i64` MSP for
-`Decimal(4, 2)`. Decoding narrows such an MSP with the copy of D21. A `TODO(connor)` in the code
-marks a later optimization: find the max of the MSP, and return a `Widen` that reuses its buffer.
-It waits until benchmarks show large regressions.
+Decoding produces the canonical array of the DBP dtype (decided, D16). A narrower MSP costs one
+widening copy, and an MSP at the canonical width costs none. Decoding never returns a decimal
+`Widen`, because DBP is already the narrow form, and it does not use
+`WidenArray::from_stored_decimal`. The design of 2026-10-29 took the range of a narrow MSP from
+`min_max` and returned a decimal `Widen` over its buffer. In CodSpeed that made `decode` 4.7 to
+8.4 times as slow as on `develop` (#10905), and the redesign of 2026-11-05 replaced it.
+
+CUDA has no `Widen` kernel, and its executor has no CPU fallback for device buffers, so a `Widen`
+MSP on the device fails today. [#11284](https://github.com/vortex-data/vortex/issues/11284) adds a
+device `Widen` kernel that sign-extends on the device, for integer and decimal `Widen`s (decided,
+D16). The new decoding depends on it, because every narrow DBP read on the GPU then has a `Widen`
+MSP, and it adds no stopgap of its own. The GPU still rejects a legacy MSP that is wider than its
+logical dtype.
 
 The compressor has one DBP scheme (decided, D17):
 
@@ -316,8 +347,10 @@ The compressor has one DBP scheme (decided, D17):
   integer type that holds the values, and the split then copies its buffer into the MSP. The
   canonical fix makes that narrow array illegal. Instead, the scheme takes the canonical array.
   It uses the value range to choose the number of lower parts, because v1 has none. It also
-  narrows the MSP dtype, as the compressor narrows every internal child. The parts get the same
-  widths as today, so file contents do not change.
+  stores a narrower MSP as an integer `Widen`, also next to lower parts (decided, D16). The
+  compressor executes every child to its canonical form before it compresses it, so the scheme
+  narrows the MSP, compresses the narrow child, and then wraps the result in the `Widen`. The
+  v1 parts get the same widths as today, so v1 file contents do not change.
 - The scheme is not temporary. Writers whose edition does not permit `vortex.widen` need it. These
   include default writers until `vortex.widen` enters `core`, and writers that select an older
   edition.
@@ -325,9 +358,8 @@ The compressor has one DBP scheme (decided, D17):
   (decided, D33). It is a real scheme at first. Its design settles its precedence with the DBP
   scheme, which returns `AlwaysUse`, and the cascade level that it uses. The DBP scheme then
   compresses the child. So the compressor writes a `Widen` of dtype `Decimal(p, s)` over a DBP
-  child of dtype `Decimal(p', s)`. The MSP of that child usually has the canonical width of `p'`, so
-  decoding reuses its buffer. In the gaps, decoding widens it. If the best precision has the
-  canonical width of the column, the compressor writes DBP without `Widen`.
+  child of dtype `Decimal(p', s)`. DBP already narrows its own MSP (decided, D16), so the design
+  of WR3 also settles whether a decimal `Widen` above DBP still helps.
 - For precision 39 to 76 with values that need more than 64 bits, the compressor uses the
   lower-parts form when an edition permits it. Otherwise, it writes a plain `i256` array. Today it
   writes a plain `i128` array, which D3 forbids.
@@ -338,10 +370,10 @@ The `core` family holds the formats of the default writer
 possible, the wire change ships in the same release as the in-memory change, so that writers that
 select the preview edition never pay it (decided, D11).
 
-Until the compressor narrows the decimal type first, decoding a compressed decimal runs at the full
-width in memory. This applies to existing files and to files that are written in that period. The
-maintainer accepts this cost, because the bar of no compute regression applies to the final state
-(decided, D19).
+A compressed decimal keeps its narrow MSP in memory, and only a consumer that needs the canonical
+array pays the widening copy (decided, D16). The bar of no compute regression applies to the
+final state (decided, D19), and the sum, min, and max kernels on the MSP land before the new
+decoding.
 
 The DBP cast rule pushes a nullability cast into the MSP, which holds the validity, and the MSP
 cast fails on a null row. #10798 documents this as a valid form of cast rule, so the rule needs no
@@ -533,7 +565,7 @@ stored width, and it converts the node. Readers handle every existing decimal wi
 | `vortex.decimal` at a narrower width | The result of [Reading old narrow data](#reading-old-narrow-data): a `Widen`, or the canonical array |
 | `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at a low precision | The leaf, after the narrowing copy of D21 with zeros in null slots. A value outside the precision is an error |
 | `vortex.decimal` with an unknown width | An error, not a silent `I8` |
-| DecimalByteParts v1 and v2 | DecimalByteParts, unchanged. Decoding widens a narrower MSP and narrows a wider MSP |
+| DecimalByteParts v1 and v2 | DecimalByteParts, with a narrower MSP wrapped in an integer `Widen` without a scan. A legacy MSP wider than its logical dtype gets the narrowing copy of D21 |
 | `vortex.widen`, after the wire change | A `Widen` over its child |
 
 Writers produce forms that old readers understand. The leaf becomes `vortex.decimal` at the
