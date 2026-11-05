@@ -157,15 +157,18 @@ impl CudaContext {
         Ok(context)
     }
 
-    /// A pool that keeps freed memory reserved for reuse, up to half the device, or the device's
-    /// pool if setup fails.
+    /// A pool that retains freed memory for reuse, falling back to the device's current pool if
+    /// setup fails.
     ///
-    /// The device's default pool returns freed memory to the driver at every synchronization, so
-    /// scans that free and reallocate their batches between synchronizations pay for remapping
-    /// device memory on every batch. At each synchronization this pool releases freed memory beyond
-    /// half the device: the threshold bounds what it keeps idle, not what it can allocate. Each
-    /// wrapper using this default policy owns its pool. Failures fall back to the device's pool
-    /// rather than failing the context.
+    /// CUDA's initial release threshold is zero, allowing unused pool memory to be released at
+    /// synchronization. Retaining it avoids repeated device-memory mapping work between batches.
+    /// This pool uses half the device's memory as its release threshold: a retention target, not a
+    /// hard cap on reserved memory or live allocations. Separately constructed context wrappers each
+    /// own a pool, so this is not a process-wide budget.
+    ///
+    /// CUDA can reclaim unused pool memory for unrelated CUDA allocations in the same process.
+    /// Allocations in other processes do not trigger that reclamation, so retaining memory here can
+    /// reduce what is available to them.
     fn retaining_pool(device: sys::CUdevice) -> sys::CUmemoryPool {
         let mut total = 0;
         // SAFETY: `device` is valid; the driver writes its memory size.
