@@ -233,7 +233,7 @@ mod tests {
         );
         assert!(!foreign.is::<Primitive>());
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = vortex_session::VortexSession::empty().create_execution_ctx();
         let err = foreign
             .execute::<crate::Canonical>(&mut ctx)
             .expect_err("foreign arrays cannot execute");
