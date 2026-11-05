@@ -1330,7 +1330,7 @@ mod tests {
         drop(guard);
 
         // SAFETY: The context is current, and the allocation is freed below.
-        let pointer = unsafe { crate::memory::malloc_host(16, 0) }?;
+        let pointer = unsafe { malloc_host(16, 0) }?;
         // SAFETY: The allocation holds 16 writable bytes, initialized before creating the slice.
         let pinned = unsafe {
             pointer.cast::<u8>().write_bytes(0, 16);
@@ -1340,7 +1340,7 @@ mod tests {
         let waits = matches!(guard.pending, Pending::Wait(waiting) if waiting.id() == stream.id());
         drop(guard);
         // SAFETY: No work or guard accesses the allocation anymore.
-        unsafe { crate::memory::free_host(pointer) }?;
+        unsafe { free_host(pointer) }?;
         assert!(waits);
         context.check_err()
     }
