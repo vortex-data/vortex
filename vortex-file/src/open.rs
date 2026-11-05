@@ -33,8 +33,11 @@ use crate::DeserializeStep;
 use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
+use crate::encryption::CipherResolver;
+use crate::encryption::FileDecryption;
 use crate::footer::Footer;
 use crate::segments::BufferSegmentSource;
+use crate::segments::DecryptingSegmentSource;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
 use crate::segments::RequestMetrics;
@@ -75,6 +78,8 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
     /// Whether to cache file's LayoutReader between scans
     cache_layout_reader: bool,
+    /// Decrypts encrypted files.
+    decryption: Option<FileDecryption>,
 }
 
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
@@ -94,6 +99,7 @@ pub trait OpenOptionsSessionExt:
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
+            decryption: None,
         }
     }
 }
@@ -204,6 +210,17 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Decrypt encrypted files with `decryption`.
+    ///
+    /// Opening a file with an encrypted footer fails without it. Segments are decrypted as they
+    /// are read, after the segment cache, so that the cache only holds ciphertext. Files that
+    /// are not encrypted are rejected, unless allowed by
+    /// [`FileDecryption::with_plaintext_files_allowed`].
+    pub fn with_decryption(mut self, decryption: FileDecryption) -> Self {
+        self.decryption = Some(decryption);
+        self
+    }
+
     /// Configure a custom [`MetricsRegistry`] implementation.
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
@@ -241,7 +258,10 @@ impl VortexOpenOptions {
     /// This uses a `BufferSegmentSource` that resolves segments synchronously
     /// by slicing the buffer directly, bypassing the async I/O pipeline.
     ///
-    /// Segment cache and metrics registry settings are ignored for this path.
+    /// Segment cache and metrics registry settings are ignored for this path. The keys of an
+    /// encrypted footer are retrieved by blocking the calling thread, so with a
+    /// [`KeyRetriever`](crate::encryption::KeyRetriever) that needs the async runtime, use
+    /// [`open_read`](Self::open_read) instead.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer: ByteBuffer = buffer.into();
 
@@ -256,16 +276,21 @@ impl VortexOpenOptions {
         let include_metadata = self.include_metadata;
         let mut opts = self.with_initial_read_size(0);
 
+        let resolver = CipherResolver::new(opts.decryption.clone());
         let footer = match opts.footer.take() {
             Some(footer) => footer,
-            None => block_on(opts.read_footer(&buffer))?.footer,
+            None => block_on(opts.read_footer(&buffer, &resolver))?.footer,
         };
         footer.validate_file_size(buffer.len() as u64)?;
 
-        let segment_source: Arc<dyn SegmentSource> = Arc::new(BufferSegmentSource::new(
-            buffer,
-            footer.segment_specs_with_metadata(),
-        ));
+        let segment_source = DecryptingSegmentSource::wrap(
+            Arc::new(BufferSegmentSource::new(
+                buffer,
+                footer.segment_specs_with_metadata(),
+            )),
+            &footer,
+            &resolver,
+        )?;
         let metadata = if include_metadata {
             block_on(resolve_metadata(&footer, Arc::clone(&segment_source)))?
         } else {
@@ -293,6 +318,8 @@ impl VortexOpenOptions {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
+        // One resolver serves the footer and the segments, so each key is retrieved at most once.
+        let resolver = CipherResolver::new(self.decryption.clone());
         let FooterRead {
             footer,
             initial_segments,
@@ -305,7 +332,44 @@ impl VortexOpenOptions {
                 initial_segments: HashMap::default(),
             }
         } else {
-            self.read_footer(&reader).await?
+            self.read_footer(&reader, &resolver).await?
+        };
+
+        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels.clone());
+
+        // Create a segment source backed by the VortexRead implementation.
+        let file_source: Arc<dyn SegmentSource> =
+            Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+                footer.segment_specs_with_metadata(),
+                reader,
+                self.session.handle(),
+                metrics,
+            )));
+
+        // Segments are decrypted after they leave the cache, so that it only holds ciphertext,
+        // unless the decryption asks for a plaintext cache. Then they are decrypted before,
+        // including the segments covered by the initial read.
+        let cache_plaintext = self
+            .decryption
+            .as_ref()
+            .is_some_and(|decryption| decryption.cache_plaintext);
+        let decrypting = if cache_plaintext {
+            DecryptingSegmentSource::new(Arc::clone(&file_source), &footer, &resolver)?
+        } else {
+            None
+        };
+        let (file_source, initial_segments) = match decrypting {
+            Some(decrypting) => {
+                let mut decrypted = HashMap::with_capacity(initial_segments.len());
+                for (id, buffer) in initial_segments {
+                    if let Some(buffer) = decrypting.decrypt_initial(id, buffer).await {
+                        decrypted.insert(id, buffer);
+                    }
+                }
+                (Arc::new(decrypting) as Arc<dyn SegmentSource>, decrypted)
+            }
+            // Either the cache holds ciphertext, or the file is not encrypted.
+            None => (file_source, initial_segments),
         };
 
         // With a segment cache, also store the segments that the footer read covered, so that a
@@ -327,21 +391,14 @@ impl VortexOpenOptions {
             self.labels.clone(),
         ));
 
-        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
-
-        // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_specs_with_metadata(),
-            reader,
-            self.session.handle(),
-            metrics,
-        )));
-
         // Wrap up the segment source to first resolve segments from the initial read cache.
-        let segment_source: Arc<dyn SegmentSource> = Arc::new(SegmentCacheSourceAdapter::new(
-            segment_cache,
-            segment_source,
-        ));
+        let segment_source: Arc<dyn SegmentSource> =
+            Arc::new(SegmentCacheSourceAdapter::new(segment_cache, file_source));
+        let segment_source = if cache_plaintext {
+            segment_source
+        } else {
+            DecryptingSegmentSource::wrap(segment_source, &footer, &resolver)?
+        };
 
         let metadata = if self.include_metadata {
             resolve_metadata(&footer, Arc::clone(&segment_source)).await?
@@ -357,7 +414,11 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<FooterRead> {
+    async fn read_footer(
+        &self,
+        read: &dyn VortexReadAt,
+        resolver: &Arc<CipherResolver>,
+    ) -> VortexResult<FooterRead> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -380,7 +441,8 @@ impl VortexOpenOptions {
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
-            .with_some_dtype(self.dtype.clone());
+            .with_some_dtype(self.dtype.clone())
+            .with_resolver(Arc::clone(resolver));
 
         let footer = loop {
             match deserializer.deserialize()? {
@@ -393,6 +455,7 @@ impl VortexOpenOptions {
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
+                DeserializeStep::NeedKeys => deserializer.resolve_keys().await,
                 DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
             }
         }?;
@@ -833,7 +896,7 @@ mod tests {
             .await?;
         let footer = session
             .open_options()
-            .read_footer(&ByteBuffer::from(buf))
+            .read_footer(&ByteBuffer::from(buf), &CipherResolver::new(None))
             .await?
             .footer;
 
@@ -842,6 +905,7 @@ mod tests {
             offset: 0,
             length: 1024,
             alignment: Alignment::none(),
+            encryption: 0,
         }]);
         let bad_footer = Footer::new(
             Arc::clone(footer.layout()),
