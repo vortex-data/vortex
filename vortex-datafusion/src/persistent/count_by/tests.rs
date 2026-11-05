@@ -38,6 +38,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::mask::Mask;
 use vortex::session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::CountBy;
 use super::count_chunk;
@@ -337,7 +338,7 @@ async fn top_count_matches_datafusion(
     let totals = rows(&expected, &all)
         .await?
         .into_iter()
-        .collect::<std::collections::HashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
 
     let actual = session(&store, true);
     actual.sql(CREATE_HITS).await?;
