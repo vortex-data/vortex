@@ -62,6 +62,7 @@ use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Dict;
+use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::dict::DictArraySlotsExt;
@@ -365,8 +366,8 @@ pub(crate) fn count_chunk(
         Some(keys) => {
             let (representatives, counts) = group_rows(&keys)?;
             let representatives =
-                PrimitiveArray::new(representatives.freeze(), Validity::NonNullable);
-            (chunk.take(representatives.into_array())?, counts)
+                PrimitiveArray::new(representatives.freeze(), Validity::NonNullable).into_array();
+            (keys.take(&representatives)?, counts)
         }
         None => (chunk, vec![1; rows]),
     };
@@ -382,10 +383,34 @@ pub(crate) fn count_chunk(
         .map_err(|e| vortex_err!("Failed to evaluate the grouping expressions: {e}"))
 }
 
-/// Row keys of a chunk: each row's codes, one per column, packed into `bits` bits.
+/// Row keys of a chunk: each row's codes, one per column, packed into `bits` bits, with the
+/// decoded columns they were read from.
 struct RowKeys {
     keys: Vec<u128>,
     bits: u32,
+    chunk: StructArray,
+    columns: Vec<ColumnCodes>,
+}
+
+impl RowKeys {
+    /// The chunk's rows at `indices`.
+    ///
+    /// Takes them from the codes decoded for the keys, as taking from the chunk itself would
+    /// decode its encoded codes, and any filter over them, a second time.
+    fn take(&self, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+        let fields = self
+            .columns
+            .iter()
+            .map(|column| column.take(indices))
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(StructArray::try_new_with_dtype(
+            fields,
+            self.chunk.dtype().as_struct_fields().clone(),
+            indices.len(),
+            self.chunk.struct_validity().take(indices)?,
+        )?
+        .into_array())
+    }
 }
 
 /// Packs each row's codes, one per column, into one key, or returns `None` if a column has no
@@ -394,6 +419,7 @@ fn row_keys(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Row
     let chunk = chunk.clone().execute::<StructArray>(ctx)?;
     let mut keys = vec![0u128; chunk.len()];
     let mut bits = 0u32;
+    let mut columns = Vec::with_capacity(chunk.iter_unmasked_fields().len());
     for column in chunk.iter_unmasked_fields() {
         let Some(codes) = ColumnCodes::try_new(column, ctx)? else {
             return Ok(None);
@@ -403,14 +429,22 @@ fn row_keys(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Row
             return Ok(None);
         }
         codes.pack_into(&mut keys)?;
+        columns.push(codes);
     }
-    Ok(Some(RowKeys { keys, bits }))
+    Ok(Some(RowKeys {
+        keys,
+        bits,
+        chunk,
+        columns,
+    }))
 }
 
 /// A column's code for each row: a dictionary's codes, or an integer column's values less their
 /// minimum.
 struct ColumnCodes {
     integers: PrimitiveArray,
+    /// A dictionary's values, which its codes index.
+    values: Option<ArrayRef>,
     /// Subtracted from each integer to give its code.
     min: i128,
     /// How many bits the codes take.
@@ -421,10 +455,10 @@ impl ColumnCodes {
     /// Returns `None` for a column that is neither a dictionary nor integers, and for one with
     /// nulls.
     fn try_new(column: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
-        let (integers, dict_len) = match column.as_opt::<Dict>() {
+        let (integers, values) = match column.as_opt::<Dict>() {
             Some(dict) if !dict.codes().dtype().is_nullable() => {
                 let codes = dict.codes().clone().execute::<PrimitiveArray>(ctx)?;
-                (codes, Some(dict.values().len()))
+                (codes, Some(dict.values().clone()))
             }
             Some(_) => return Ok(None),
             None if matches!(column.dtype(), DType::Primitive(ptype, _) if ptype.is_int()) => {
@@ -437,9 +471,9 @@ impl ColumnCodes {
             None => return Ok(None),
         };
 
-        let (min, span) = match dict_len {
+        let (min, span) = match &values {
             // A dictionary's codes index its values.
-            Some(len) => (0, i128::try_from(len.max(1) - 1)?),
+            Some(values) => (0, i128::try_from(values.len().max(1) - 1)?),
             None => match_each_integer_ptype!(integers.ptype(), |P| {
                 let values = integers.as_slice::<P>();
                 let min = values.iter().copied().min().map_or(0, i128::from);
@@ -450,9 +484,19 @@ impl ColumnCodes {
         let width = (u128::BITS - u128::try_from(span)?.leading_zeros()).max(1);
         Ok(Some(Self {
             integers,
+            values,
             min,
             width,
         }))
+    }
+
+    /// The column's rows at `indices`.
+    fn take(&self, indices: &ArrayRef) -> VortexResult<ArrayRef> {
+        let codes = self.integers.clone().into_array().take(indices.clone())?;
+        Ok(match &self.values {
+            Some(values) => DictArray::try_new(codes, values.clone())?.into_array(),
+            None => codes,
+        })
     }
 
     /// Shifts each key left by this column's width and adds the row's code.

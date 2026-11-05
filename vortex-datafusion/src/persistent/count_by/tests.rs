@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::Int16Array;
+use arrow_array::Int32Array;
 use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
 use arrow_array::StringViewArray;
@@ -31,6 +32,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
+use vortex::mask::Mask;
 use vortex::session::VortexSession;
 
 use super::CountBy;
@@ -187,6 +189,63 @@ fn count_chunk_counts_dictionary_codes() -> anyhow::Result<()> {
             Arc::new(StringViewArray::from(vec!["a", "b", "c", "a"])),
             Arc::new(Int16Array::from(vec![1, 1, 1, 2])),
             Arc::new(Int64Array::from(vec![2, 2, 1, 1])),
+        ],
+    )?;
+    assert_eq!(batch, expected);
+    Ok(())
+}
+
+/// Representative rows of a filtered chunk with a nullable dictionary are the filtered rows'
+/// values, though they are taken from the codes decoded for counting.
+#[test]
+fn count_chunk_takes_representatives_of_filtered_rows() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
+
+    let values = VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some("c")]).into_array();
+    let codes = PrimitiveArray::new(buffer![2u16, 0, 1, 0, 2, 1, 0], Validity::NonNullable);
+    let referer = DictArray::try_new(codes.into_array(), values)?.into_array();
+    let width = PrimitiveArray::new(
+        buffer![7i32, 5, 5, 5, 7, 5, 9],
+        Validity::from_iter([true, true, true, true, true, true, true]),
+    );
+    let chunk = StructArray::from_fields(&[("referer", referer), ("width", width.into_array())])?
+        .into_array()
+        .filter(Mask::from_iter([
+            false, true, true, true, true, true, false,
+        ]))?;
+
+    let scan_fields = Fields::from(vec![
+        Field::new("referer", DataType::Utf8View, true),
+        Field::new("width", DataType::Int32, true),
+    ]);
+    let scan_schema = Arc::new(Schema::new(scan_fields.clone()));
+    let count_by = CountBy {
+        schema: Arc::new(Schema::new(vec![
+            Field::new("referer", DataType::Utf8View, true),
+            Field::new("width", DataType::Int32, true),
+            Field::new("count", DataType::Int64, false),
+        ])),
+        group_by: vec![
+            Arc::new(Column::new("referer", 0)),
+            Arc::new(Column::new("width", 1)),
+        ],
+    };
+
+    let batch = count_chunk(
+        chunk,
+        &count_by,
+        &Field::new_struct("", scan_fields, false),
+        &scan_schema,
+        &mut ctx,
+    )?;
+
+    let expected = RecordBatch::try_new(
+        Arc::clone(&count_by.schema),
+        vec![
+            Arc::new(StringViewArray::from(vec![Some("a"), None, Some("c")])),
+            Arc::new(Int32Array::from(vec![5, 5, 7])),
+            Arc::new(Int64Array::from(vec![2, 2, 1])),
         ],
     )?;
     assert_eq!(batch, expected);
