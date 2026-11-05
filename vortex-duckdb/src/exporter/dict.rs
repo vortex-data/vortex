@@ -67,6 +67,25 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = values.addr();
+
+    // A filtered chunk can keep far fewer rows than its dictionary has values. Exporting the whole
+    // dictionary then decodes values no row uses, so take the used values instead, unless an
+    // earlier export of the same values already paid for them.
+    if codes_len < values.len()
+        && !cache.dict_cache.contains_key(&values_key)
+        && !cache.canonical_cache.contains_key(&values_key)
+    {
+        return new_array_exporter(
+            array
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array(),
+            cache,
+            ctx,
+        );
+    }
+
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     if flatten {
@@ -138,7 +157,9 @@ mod tests {
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
@@ -238,6 +259,32 @@ mod tests {
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_dict_exports_only_used_values() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(["a", "b", "c", "d"]).into_array();
+        let arr = DictArray::try_new(buffer![3u8, 1].into_array(), values)?;
+
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let cache = ConversionCache::default();
+        new_exporter(&arr, &cache)?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        chunk.set_len(2);
+
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 2 = [ d, b]
+"#
+        );
+        assert!(cache.dict_cache.is_empty());
 
         Ok(())
     }
