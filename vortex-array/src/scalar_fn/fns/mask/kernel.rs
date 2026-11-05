@@ -118,8 +118,12 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
+        // Read the mask's slot directly: the executor may hand over the parent with the input's
+        // slot detached while it executes that input, which shifts `nth_child` indices.
         let mask_child = parent
-            .nth_child(1)
+            .slots()
+            .get(1)
+            .and_then(Option::as_ref)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
         <V as MaskKernel>::mask(array, mask_child, ctx)
     }

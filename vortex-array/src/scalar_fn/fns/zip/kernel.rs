@@ -103,15 +103,19 @@ fn normalized_zip_inputs(
     let scalar_fn_array = parent
         .as_opt::<ScalarFn>()
         .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-    let mask = scalar_fn_array.get_child(2);
     match child_idx {
-        0 => Ok(Some((scalar_fn_array.get_child(1).clone(), mask.clone()))),
+        0 => Ok(Some((
+            scalar_fn_array.get_child(1).clone(),
+            scalar_fn_array.get_child(2).clone(),
+        ))),
         1 => {
             // Null mask rows select the original if_false branch, so they must
             // become true when that branch is passed to the kernel as if_true.
-            let mask = mask.fill_null(false)?.not()?;
+            let mask = scalar_fn_array.get_child(2).fill_null(false)?.not()?;
             Ok(Some((scalar_fn_array.get_child(0).clone(), mask)))
         }
+        // Leave the mask alone: the executor may hand over the parent with its slot detached
+        // while it executes the mask.
         _ => Ok(None),
     }
 }
