@@ -18,6 +18,7 @@ use criterion::Throughput;
 use mimalloc::MiMalloc;
 use vortex_cuda_driver::CudaContext;
 use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::DriverError;
 use vortex_cuda_driver::HostSlice;
 use vortex_cuda_driver::SyncOnDrop;
 use vortex_cuda_driver::device;
@@ -91,29 +92,33 @@ impl HostSlice<u8> for CudaHostBuffer {
     unsafe fn stream_synced_slice<'a>(
         &'a self,
         _stream: &'a CudaStream,
-    ) -> (&'a [u8], SyncOnDrop<'a>) {
-        (
+    ) -> Result<(&'a [u8], SyncOnDrop<'a>), DriverError> {
+        Ok((
             unsafe { std::slice::from_raw_parts(self.ptr, self.len) },
             SyncOnDrop::none(),
-        )
+        ))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
         _stream: &'a CudaStream,
-    ) -> (&'a mut [u8], SyncOnDrop<'a>) {
-        (
+    ) -> Result<(&'a mut [u8], SyncOnDrop<'a>), DriverError> {
+        Ok((
             unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) },
             SyncOnDrop::none(),
-        )
+        ))
     }
 }
 
 impl Drop for CudaHostBuffer {
     fn drop(&mut self) {
-        self.ctx.record_err(self.ctx.bind_to_thread());
-        self.ctx
-            .record_err(unsafe { memory::free_host(self.ptr.cast()) });
+        if let Err(error) = self.ctx.bind_to_thread() {
+            tracing::error!(%error, "Failed to bind CUDA context; leaking host buffer");
+            return;
+        }
+        if let Err(error) = unsafe { memory::free_host(self.ptr.cast()) } {
+            tracing::error!(%error, "Failed to free CUDA host buffer");
+        }
     }
 }
 

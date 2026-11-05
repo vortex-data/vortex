@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 
 use crate::DriverError;
 use crate::context::CudaContext;
+use crate::error::log_result;
 use crate::event::CudaEvent;
 use crate::sys;
 use crate::sys::CUresult;
@@ -54,10 +55,12 @@ impl Eq for CudaStream {}
 impl Drop for CudaStream {
     fn drop(&mut self) {
         if self.owned {
-            self.context.record_err(self.context.make_current());
+            let _ = log_result("binding context to destroy stream", self.bind());
             // SAFETY: Owned streams are destroyed exactly once; queued work still completes.
-            self.context
-                .record_err(unsafe { sys::cuStreamDestroy_v2(self.stream) }.result());
+            let _ = log_result(
+                "destroying CUDA stream",
+                unsafe { sys::cuStreamDestroy_v2(self.stream) }.result(),
+            );
         }
     }
 }
@@ -121,20 +124,9 @@ impl CudaStream {
         self.context.bind_to_thread()
     }
 
-    /// Like [`bind`](Self::bind), leaving recorded errors in place.
-    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
-        self.context.make_current()
-    }
-
     /// Blocks until all work queued so far completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.context.check_err()?;
-        self.synchronize_in_place()
-    }
-
-    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
-    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
-        self.make_current()?;
+        self.bind()?;
         // SAFETY: The stream is valid for this object's lifetime.
         unsafe { sys::cuStreamSynchronize(self.stream) }.result()
     }
@@ -214,7 +206,7 @@ impl CudaStream {
         if pointer == 0 {
             return Ok(());
         }
-        self.make_current()?;
+        self.bind()?;
         // SAFETY: Callers free an allocation of this context once, after its accesses were
         // ordered before this stream's queued work.
         unsafe {

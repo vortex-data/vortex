@@ -41,6 +41,7 @@ use vortex::error::vortex_err;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
+use vortex_cuda_driver::SyncOnDrop;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -446,21 +447,34 @@ impl MaterializedPlan {
         let stream = ctx.stream().clone();
         let device_buffer_read_records = device_buffer_views
             .iter()
-            .map(|view| view.device_ptr(&stream).1)
-            .collect::<Vec<_>>();
+            .map(|view| {
+                view.device_ptr(&stream)
+                    .map(|(_, record)| record)
+                    .map_err(|e| vortex_err!("dynamic dispatch input pointer: {e}"))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        let (plan_ptr, plan_read_record) = device_plan.device_ptr(&stream);
+        let (plan_ptr, plan_read_record) = device_plan
+            .device_ptr(&stream)
+            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = len as u64;
 
-        ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+        let launch_result = ctx.launch_kernel_config(&cuda_function, config, len, |args| {
             args.arg(&mut output);
             args.arg(&array_len_u64);
             args.arg(&plan_ptr);
-        })?;
+        });
 
-        drop((device_buffer_read_records, plan_read_record));
+        let finish_result = SyncOnDrop::finish_all(
+            device_buffer_read_records
+                .into_iter()
+                .chain([plan_read_record]),
+        )
+        .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
+        launch_result?;
+        finish_result?;
 
-        let output = CudaDeviceBuffer::new(output);
+        let output = CudaDeviceBuffer::new(output)?;
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
             BufferHandle::new_device(output.slice_typed::<T>(0..len)),
             output_ptype,
@@ -706,7 +720,9 @@ mod tests {
                 .clone_htod(plan.as_bytes())
                 .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
         );
-        let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
+        let (plan_ptr, record_plan) = device_plan
+            .device_ptr(cuda_ctx.stream())
+            .map_err(|e| vortex_err!("dynamic dispatch plan pointer: {e}"))?;
         let array_len_u64 = output_len as u64;
 
         cuda_ctx
@@ -728,12 +744,13 @@ mod tests {
             block_dim: (BLOCK_SIZE, 1, 1),
             shared_mem_bytes,
         };
-        unsafe {
-            launch_builder
-                .launch(config)
-                .map_err(|e| vortex_err!("kernel launch: {e}"))?;
-        }
-        drop(record_plan);
+        let launch_result =
+            unsafe { launch_builder.launch(config) }.map_err(|e| vortex_err!("kernel launch: {e}"));
+        let finish_result = record_plan
+            .finish()
+            .map_err(|e| vortex_err!("dynamic dispatch plan tracking: {e}"));
+        launch_result?;
+        finish_result?;
 
         cuda_ctx
             .stream()

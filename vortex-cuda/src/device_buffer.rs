@@ -7,16 +7,19 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
 
 use futures::executor::block_on;
 use futures::future::BoxFuture;
+use tracing::error;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
+use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -27,6 +30,7 @@ use vortex_cuda_driver::CudaView;
 use vortex_cuda_driver::CudaViewMut;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::DriverError;
 use vortex_cuda_driver::sys;
 
 use crate::stream::await_stream_callback;
@@ -113,20 +117,30 @@ impl CudaDeviceBuffer {
     ///
     /// The device buffer itself is type-erased and only works in terms of bytes, similar to the
     /// `BufferHandle` interface that it implements.
-    pub fn new<T: DeviceRepr + Debug + Send + Sync + 'static>(cuda_slice: CudaSlice<T>) -> Self {
+    ///
+    /// Returns an error if accessing or tracking the allocation's device pointer fails.
+    pub fn new<T: DeviceRepr + Debug + Send + Sync + 'static>(
+        cuda_slice: CudaSlice<T>,
+    ) -> VortexResult<Self> {
         let len = cuda_slice.len() * size_of::<T>();
         // Keep the tracked read to order the allocation stream after writes on other streams.
-        // Only the address is stored here, so drop the guard immediately; queued waits remain.
-        let (device_ptr, _) = cuda_slice.device_ptr(cuda_slice.stream());
+        // Only the address is stored here, so finish the guard immediately; queued waits remain.
+        let (device_ptr, record_read) =
+            cuda_slice.device_ptr(cuda_slice.stream()).map_err(|err| {
+                VortexError::external(err).with_context("Failed to access CUDA buffer pointer")
+            })?;
+        record_read.finish().map_err(|err| {
+            VortexError::external(err).with_context("Failed to track CUDA buffer pointer access")
+        })?;
 
-        Self {
+        Ok(Self {
             allocation: Arc::new(cuda_slice),
             offset: 0,
             len,
             device_ptr,
             alignment: Alignment::of::<T>(),
             zeroed_tail_start: None,
-        }
+        })
     }
 
     /// Wraps a CUDA allocation and records that bytes from `zeroed_tail_start` are already zeroed.
@@ -134,7 +148,7 @@ impl CudaDeviceBuffer {
         cuda_slice: CudaSlice<T>,
         zeroed_tail_start: usize,
     ) -> VortexResult<Self> {
-        let mut buffer = Self::new(cuda_slice);
+        let mut buffer = Self::new(cuda_slice)?;
         vortex_ensure!(
             zeroed_tail_start <= buffer.len,
             "zeroed tail start {zeroed_tail_start} exceeds CUDA allocation length {}",
@@ -363,6 +377,50 @@ impl PartialEq for CudaDeviceBuffer {
     }
 }
 
+/// Retains both sides of an enqueued D2H copy until completion, including an unpolled future.
+struct PendingHostCopy {
+    buffers: Option<(ByteBufferMut, Arc<dyn private::DeviceAllocation>)>,
+}
+
+impl PendingHostCopy {
+    async fn finish(
+        mut self,
+        len: usize,
+        tracking_result: Result<(), DriverError>,
+    ) -> VortexResult<ByteBuffer> {
+        let (_, allocation) = self.buffers.as_ref().vortex_expect("copy is pending");
+        await_stream_callback(allocation.stream()).await?;
+
+        let (mut host_buffer, _keep_alive) = self.buffers.take().vortex_expect("copy is pending");
+        tracking_result.map_err(|err| {
+            VortexError::external(err).with_context("Failed to track CUDA copy source read")
+        })?;
+
+        // SAFETY: The successful callback confirms `cuMemcpyDtoHAsync_v2` fully initialized
+        // the buffer. Both allocations have remained alive until this point.
+        unsafe {
+            host_buffer.set_len(len);
+        }
+
+        Ok(host_buffer.freeze().into_byte_buffer())
+    }
+}
+
+impl Drop for PendingHostCopy {
+    fn drop(&mut self) {
+        let Some((host_buffer, allocation)) = self.buffers.take() else {
+            return;
+        };
+        // Callback registration/error and future cancellation cannot prove completion. This
+        // synchronization must run even when access tracking returned an error.
+        if let Err(err) = allocation.stream().synchronize() {
+            error!(error = ?err, "Failed to wait for CUDA host copy; retaining in-flight buffers");
+            // Without confirmed completion neither allocation is safe to free.
+            mem::forget((host_buffer, allocation));
+        }
+    }
+}
+
 impl DeviceBuffer for CudaDeviceBuffer {
     /// Returns the number of bytes in the device buffer.
     fn len(&self) -> usize {
@@ -411,7 +469,9 @@ impl DeviceBuffer for CudaDeviceBuffer {
         let source = self.as_view::<u8>();
         // Use the read guard so this allocation stream waits for writes submitted on any
         // other stream before scheduling the device-to-host copy.
-        let (src_ptr, record_read) = source.device_ptr(stream);
+        let (src_ptr, record_read) = source.device_ptr(stream).map_err(|err| {
+            VortexError::external(err).with_context("Failed to access CUDA copy source")
+        })?;
 
         let mut host_buffer: ByteBufferMut =
             ByteBufferMut::with_capacity_aligned(self.len, alignment);
@@ -434,23 +494,14 @@ impl DeviceBuffer for CudaDeviceBuffer {
             .result()
             .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
         }
-        drop(record_read);
+        let pending_copy = PendingHostCopy {
+            buffers: Some((host_buffer, Arc::clone(&self.allocation))),
+        };
+        // Tracking can fail after the copy was enqueued. Do not return that error until the
+        // callback has completed, while retaining both allocations even on cancellation.
+        let tracking_result = record_read.finish();
 
-        let cuda_slice = Arc::clone(&self.allocation);
-
-        Ok(Box::pin(async move {
-            await_stream_callback(cuda_slice.stream()).await?;
-
-            // Keep device memory alive until copy completes.
-            let _keep_alive = cuda_slice;
-
-            // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
-            unsafe {
-                host_buffer.set_len(len);
-            }
-
-            Ok(host_buffer.freeze().into_byte_buffer())
-        }))
+        Ok(Box::pin(pending_copy.finish(len, tracking_result)))
     }
 
     /// Slices the CUDA device buffer to a subrange.
@@ -514,13 +565,27 @@ impl DeviceBuffer for CudaDeviceBuffer {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+    use std::ffi::c_void;
+    use std::sync::mpsc::Receiver;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::sync::mpsc::Sender;
+    use std::sync::mpsc::channel;
+    use std::task::Context;
+    use std::task::Waker;
+    use std::thread;
+    use std::time::Duration;
+
+    use rstest::rstest;
     use vortex::buffer::Buffer;
     use vortex::dtype::PType;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
     use vortex::session::VortexSession;
     use vortex_cuda_driver::CudaContext;
+    use vortex_cuda_driver::CudaStream;
     use vortex_cuda_driver::PushKernelArg;
+    use vortex_cuda_driver::stream;
 
     use super::*;
     use crate::CudaSession;
@@ -529,7 +594,7 @@ mod tests {
     async fn mutable_view_requires_unique_ownership() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let allocation = ctx.device_alloc::<u32>(4)?;
-        let mut handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(allocation)));
+        let mut handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(allocation)?));
 
         let (next, result) = with_cuda_view_mut::<u32, _>(handle, |view| view.len())?;
         handle = next;
@@ -543,6 +608,122 @@ mod tests {
 
         let (_, result) = with_cuda_view_mut::<u32, _>(handle, |view| view.len())?;
         assert_eq!(result, Some(4));
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn host_copy_completion_returns_tracking_error() -> VortexResult<()> {
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let buffer = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
+        let pending_copy = PendingHostCopy {
+            buffers: Some((
+                ByteBufferMut::with_capacity(0),
+                Arc::clone(&buffer.allocation),
+            )),
+        };
+        // Inject only the tracking result, not a GPU fault. A zero-byte completion still
+        // takes the real callback path before returning the original driver error.
+        let tracking_error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
+        let error = pending_copy
+            .finish(0, Err(tracking_error))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<DriverError>()),
+            Some(&tracking_error)
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("Failed to track CUDA copy source read")
+        );
+        assert_eq!(Arc::strong_count(&buffer.allocation), 1);
+        Ok(())
+    }
+
+    fn block_stream(stream: &CudaStream) -> VortexResult<Sender<()>> {
+        let (release, receiver) = channel::<()>();
+        stream
+            .context()
+            .bind_to_thread()
+            .map_err(VortexError::external)?;
+        unsafe extern "C" fn wait(data: *mut c_void) {
+            // SAFETY: Successful registration transfers sole ownership of the receiver here.
+            let receiver = unsafe { Box::from_raw(data.cast::<Receiver<()>>()) };
+            // Sender drop releases the gate on unwind; the timeout also bounds cleanup if
+            // a CUDA call synchronizes before Rust can unwind.
+            let _ = receiver.recv_timeout(Duration::from_secs(5));
+        }
+        let data = Box::into_raw(Box::new(receiver));
+        // SAFETY: The stream is live, and the callback owns data only on successful registration.
+        unsafe {
+            stream::launch_host_function(stream.cu_stream(), wait, data.cast()).map_err(
+                |error| {
+                    drop(Box::from_raw(data));
+                    VortexError::external(error)
+                },
+            )?;
+        }
+        Ok(release)
+    }
+
+    #[rstest]
+    #[case::unpolled(false)]
+    #[case::pending(true)]
+    #[crate::test]
+    fn host_copy_cancellation_waits_before_releasing_allocation(
+        #[case] poll: bool,
+    ) -> VortexResult<()> {
+        // Keep the gated stream independent of tests synchronizing the primary context.
+        let context = CudaContext::new_non_primary(0, 0).map_err(VortexError::external)?;
+        let session = VortexSession::empty().with_some(CudaSession::with_context(context));
+        let ctx = CudaSession::create_execution_ctx(&session)?;
+        let mut allocation = ctx.device_alloc::<u8>(4096)?;
+        ctx.stream()
+            .memset_zeros(&mut allocation)
+            .map_err(VortexError::external)?;
+        let buffer = CudaDeviceBuffer::new(allocation)?;
+        let allocation = Arc::downgrade(&buffer.allocation);
+        let mut copy = buffer.copy_to_host(Alignment::of::<u8>())?;
+        // Complete the DMA before gating: a broken cancellation path must fail assertions,
+        // not write into freed host memory. The future still owns both allocations.
+        ctx.stream().synchronize().map_err(VortexError::external)?;
+        drop(buffer);
+        assert_eq!(allocation.strong_count(), 1);
+
+        thread::scope(|scope| -> VortexResult<()> {
+            // Release before the future is dropped or the scope joins its worker on unwind.
+            let gate = block_stream(ctx.stream())?;
+            if poll {
+                assert!(
+                    copy.as_mut()
+                        .poll(&mut Context::from_waker(Waker::noop()))
+                        .is_pending()
+                );
+            }
+            let (started, starting) = channel();
+            let (finished, completion) = channel();
+            scope.spawn(move || {
+                started.send(()).unwrap();
+                drop(copy);
+                let _ = finished.send(());
+            });
+            starting.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(
+                completion.recv_timeout(Duration::from_millis(250)),
+                Err(RecvTimeoutError::Timeout),
+                "cancellation returned while stream work was outstanding"
+            );
+            // A CudaSlice destructor could itself wait, so checking drop completion alone
+            // is insufficient: PendingHostCopy must retain the allocation while waiting.
+            assert_eq!(allocation.strong_count(), 1);
+            drop(gate);
+            completion.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        })?;
+        assert!(allocation.upgrade().is_none());
         Ok(())
     }
 

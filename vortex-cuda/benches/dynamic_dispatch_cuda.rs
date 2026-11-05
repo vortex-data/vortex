@@ -119,7 +119,9 @@ fn run_timed<T: DeviceRepr + NativePType>(
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
     let array_len_u64 = array_len as u64;
-    let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
+    let (plan_ptr, record_plan) = device_plan
+        .device_ptr(cuda_ctx.stream())
+        .map_err(|e| vortex_err!("Failed to access device plan: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -142,12 +144,10 @@ fn run_timed<T: DeviceRepr + NativePType>(
         shared_mem_bytes,
     };
 
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
-    }
-    drop(record_plan);
+    let launch = unsafe { launch_builder.launch(config) };
+    let completion = record_plan.finish();
+    launch.map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
+    completion.map_err(|e| vortex_err!("Failed to track device plan access: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();

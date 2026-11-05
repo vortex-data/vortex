@@ -386,33 +386,42 @@ impl MappedFile {
             .map_err(|error| vortex_err!("Failed to bind CUDA context: {error}"))?;
         // The guard records the queued copies as the output's write when this scope ends,
         // including on error, so frees and readers on other streams wait for them.
-        let (base, write) = output.device_ptr_mut(&self.stream);
-        for chunk in (0..length).step_by(FILE_READ_CHUNK_BYTES) {
-            let size = (length - chunk).min(FILE_READ_CHUNK_BYTES);
-            #[cfg(target_os = "linux")]
-            {
-                let _fill = MAPPED_FILL.lock();
-                mapping.advise_range(Advice::PopulateRead, start + chunk, size)?;
+        let (base, write) = output
+            .device_ptr_mut(&self.stream)
+            .map_err(|error| vortex_err!("Failed to get mapped copy output pointer: {error}"))?;
+        let copy_result: VortexResult<()> = (|| {
+            for chunk in (0..length).step_by(FILE_READ_CHUNK_BYTES) {
+                let size = (length - chunk).min(FILE_READ_CHUNK_BYTES);
+                #[cfg(target_os = "linux")]
+                {
+                    let _fill = MAPPED_FILL.lock();
+                    mapping.advise_range(Advice::PopulateRead, start + chunk, size)?;
+                }
+                let source = mapping.as_ptr() as u64 + (start + chunk) as u64;
+                let target = base + (pad + chunk) as u64;
+                let len = size as u64;
+                let blocks = len
+                    .div_ceil(u64::from(MAPPED_COPY_THREADS) * 16)
+                    .clamp(1, MAPPED_COPY_BLOCKS_MAX);
+                let config = LaunchConfig {
+                    grid_dim: (u32::try_from(blocks)?, 1, 1),
+                    block_dim: (MAPPED_COPY_THREADS, 1, 1),
+                    shared_mem_bytes: 0,
+                };
+                let mut launch = self.stream.launch_builder(&self.copy);
+                launch.arg(&source).arg(&target).arg(&len);
+                // SAFETY: The source range is mapped and in bounds, the target covers `pad + length`
+                // bytes, and both share the same offset within 16 bytes, as the kernel requires.
+                unsafe { launch.launch(config) }
+                    .map_err(|error| vortex_err!("Failed to launch mapped copy: {error}"))?;
             }
-            let source = mapping.as_ptr() as u64 + (start + chunk) as u64;
-            let target = base + (pad + chunk) as u64;
-            let len = size as u64;
-            let blocks = len
-                .div_ceil(u64::from(MAPPED_COPY_THREADS) * 16)
-                .clamp(1, MAPPED_COPY_BLOCKS_MAX);
-            let config = LaunchConfig {
-                grid_dim: (u32::try_from(blocks)?, 1, 1),
-                block_dim: (MAPPED_COPY_THREADS, 1, 1),
-                shared_mem_bytes: 0,
-            };
-            let mut launch = self.stream.launch_builder(&self.copy);
-            launch.arg(&source).arg(&target).arg(&len);
-            // SAFETY: The source range is mapped and in bounds, the target covers `pad + length`
-            // bytes, and both share the same offset within 16 bytes, as the kernel requires.
-            unsafe { launch.launch(config) }
-                .map_err(|error| vortex_err!("Failed to launch mapped copy: {error}"))?;
-        }
-        drop(write);
+            Ok(())
+        })();
+        let finish_result = write
+            .finish()
+            .map_err(|error| vortex_err!("Failed to track mapped copy output: {error}"));
+        copy_result?;
+        finish_result?;
         Ok(output)
     }
 }
@@ -537,7 +546,7 @@ impl PooledFileReadAt {
             .spawn_blocking(move || mapped.copy_to_device(range, output))
             .await?;
         Ok(Some(
-            BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)))
+            BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?))
                 .slice(pad..pad + length),
         ))
     }
@@ -619,7 +628,7 @@ impl VortexReadAt for PooledFileReadAt {
             }
             Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
                 output,
-            ))))
+            )?)))
         }
         .boxed()
     }

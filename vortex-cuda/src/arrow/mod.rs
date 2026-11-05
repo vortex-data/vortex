@@ -19,6 +19,7 @@ use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ffi::c_void;
 use std::fmt::Debug;
+use std::mem;
 use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::ptr;
@@ -50,6 +51,7 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
@@ -129,6 +131,25 @@ impl ArrowDeviceArray {
 unsafe impl Send for ArrowArray {}
 unsafe impl Sync for ArrowArray {}
 
+/// Releases exported children if constructing their parent's private data fails.
+struct PendingArrowChildren {
+    children: Vec<ArrowArray>,
+    dictionary: Option<ArrowArray>,
+}
+
+impl Drop for PendingArrowChildren {
+    fn drop(&mut self) {
+        for array in self.children.iter_mut().chain(self.dictionary.iter_mut()) {
+            if let Some(release) = array.release {
+                // SAFETY: The guard uniquely owns these exported arrays until they are
+                // transferred to PrivateData. The callback releases their contents, not
+                // the ArrowArray storage, which remains owned by the guard's containers.
+                unsafe { release(array) };
+            }
+        }
+    }
+}
+
 pub(crate) struct PrivateData {
     /// Hold a reference to the CudaStream so that it stays alive even after CudaExecutionCtx
     /// has been dropped.
@@ -162,6 +183,10 @@ impl PrivateData {
         dictionary: Option<ArrowArray>,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Box<Self>> {
+        let mut pending_children = PendingArrowChildren {
+            children,
+            dictionary,
+        };
         let buffers = buffers.into_boxed_slice();
         let buffer_ptrs: Box<[*const c_void]> = buffers
             .iter()
@@ -176,8 +201,15 @@ impl PrivateData {
                         // Access it through the driver's stream-aware API so this export stream
                         // waits for pending writes before its Arrow sync event is recorded.
                         let view = handle.cuda_view::<u8>()?;
-                        let (device_ptr, record_read) = view.device_ptr(ctx.stream());
-                        drop(record_read);
+                        let (device_ptr, record_read) =
+                            view.device_ptr(ctx.stream()).map_err(|err| {
+                                VortexError::external(err)
+                                    .with_context("Failed to access CUDA Arrow export buffer")
+                            })?;
+                        record_read.finish().map_err(|err| {
+                            VortexError::external(err)
+                                .with_context("Failed to track CUDA Arrow export buffer read")
+                        })?;
                         usize::try_from(device_ptr)
                             .map(|ptr| ptr as *const c_void)
                             .map_err(|_| vortex_err!("CUDA device pointer does not fit in usize"))
@@ -187,17 +219,18 @@ impl PrivateData {
             .collect::<VortexResult<Vec<_>>>()?
             .into_boxed_slice();
 
-        let children = children
-            .into_iter()
-            .map(|array| Box::into_raw(Box::new(array)))
-            .collect::<Box<[_]>>();
-
         let export_event = ctx
             .stream()
             .record_event(None)
             .map_err(|_| vortex_err!("failed to create CUDA export event"))?;
 
-        let dictionary = dictionary
+        let children = mem::take(&mut pending_children.children)
+            .into_iter()
+            .map(|array| Box::into_raw(Box::new(array)))
+            .collect::<Box<[_]>>();
+        let dictionary = pending_children
+            .dictionary
+            .take()
             .map(|array| Box::into_raw(Box::new(array)))
             .unwrap_or(ptr::null_mut());
 
