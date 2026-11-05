@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use rustc_hash::FxHashSet;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
@@ -22,6 +23,9 @@ use vortex_scan::selection::Selection;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::plan::physical::PlanByPtr;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::SegmentScan;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -43,6 +47,74 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// The fewest rows of a chunk sized by [`rows_for_bytes`].
+pub(crate) const MIN_ROWS_PER_CHUNK: usize = ROW_BLOCK_SIZE / 8;
+/// The fewest chunks [`rows_for_bytes`] cuts a scan of rows wider than a row block's bytes
+/// into, so a scan that is one of an engine's partitions keeps several chunks in flight.
+const MIN_CHUNKS_PER_SCAN: u64 = 8;
+
+/// Whether `row_count` rows of `bytes` are so wide that a row block holds more than a chunk's
+/// bytes, so chunks, and the partitions an engine cuts, fall on a grid finer than row blocks.
+pub(crate) fn wide_rows(row_count: u64, bytes: u64) -> bool {
+    row_count > 0
+        && TARGET_BYTES_PER_CHUNK / bytes.div_ceil(row_count).max(1) < ROW_BLOCK_SIZE as u64
+}
+
+/// The rows of a chunk of a scan of `scan_rows` rows that reads `bytes` over a file of
+/// `row_count` rows: whole row blocks of about [`TARGET_BYTES_PER_CHUNK`], at most `max_rows`.
+///
+/// Rows so wide that a row block holds more than the target, such as long lists, are cut finer:
+/// into whole multiples of [`MIN_ROWS_PER_CHUNK`], and into at least [`MIN_CHUNKS_PER_SCAN`]
+/// chunks of the scan.
+pub(crate) fn rows_for_bytes(row_count: u64, scan_rows: u64, bytes: u64, max_rows: usize) -> usize {
+    if row_count == 0 {
+        return max_rows;
+    }
+    let block = ROW_BLOCK_SIZE as u64;
+    let rows = TARGET_BYTES_PER_CHUNK / bytes.div_ceil(row_count).max(1);
+    if rows >= block {
+        return usize::try_from(rows / block * block)
+            .unwrap_or(usize::MAX)
+            .min(max_rows);
+    }
+    let min = MIN_ROWS_PER_CHUNK as u64;
+    let rows = rows.min(scan_rows / MIN_CHUNKS_PER_SCAN);
+    usize::try_from((rows / min * min).max(min))
+        .unwrap_or(usize::MAX)
+        .min(max_rows)
+}
+
+/// The stored bytes of every segment `plans` read, each once.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "plans hash by address, which building their lazy children never changes"
+)]
+pub(crate) fn plan_bytes<'a>(
+    plans: impl Iterator<Item = &'a PlanRef>,
+    locations: &[SegmentLocation],
+) -> VortexResult<u64> {
+    let mut visited = FxHashSet::default();
+    let mut segments = FxHashSet::default();
+    let mut pending: Vec<PlanRef> = plans.cloned().collect();
+    let mut bytes = 0;
+    while let Some(plan) = pending.pop() {
+        if !visited.insert(PlanByPtr(plan.clone())) {
+            continue;
+        }
+        if let Some(scan) = plan.as_opt::<SegmentScan>()
+            && segments.insert(scan.segment_id())
+        {
+            bytes += locations
+                .get(*scan.segment_id() as usize)
+                .map_or(0, |location| u64::from(location.length));
+        }
+        for child in plan.children() {
+            pending.push(child?.clone());
+        }
+    }
+    Ok(bytes)
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.

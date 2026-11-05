@@ -11,10 +11,12 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
+use crate::plan::physical::PlanByPtr;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
@@ -49,6 +51,8 @@ struct Inner {
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
     values: ValueCache,
+    /// The stored bytes a projection, or a filter's conjuncts, read, keyed by their plans.
+    plan_bytes: Mutex<FxHashMap<BytesKey, u64>>,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
 }
@@ -91,6 +95,22 @@ impl ScanCache {
             .entry(ExprKey(projection))
             .or_insert(plan)
             .clone()
+    }
+
+    /// The stored bytes `key`'s plans read, found once per plans: the partitions that prepare a
+    /// scan at once wait for the first to find them, rather than all building the same plans.
+    pub(super) fn plan_bytes(
+        &self,
+        key: BytesKey,
+        find: impl FnOnce() -> VortexResult<u64>,
+    ) -> VortexResult<u64> {
+        let mut found = self.0.plan_bytes.lock();
+        if let Some(&bytes) = found.get(&key) {
+            return Ok(bytes);
+        }
+        let bytes = find()?;
+        found.insert(key, bytes);
+        Ok(bytes)
     }
 
     /// The segment byte-range index an earlier scan kept.
@@ -139,6 +159,20 @@ impl ScanCache {
     /// A handle that finds this cache while a scan holds it, without keeping it alive itself.
     pub fn downgrade(&self) -> WeakScanCache {
         WeakScanCache(Arc::downgrade(&self.0))
+    }
+}
+
+/// The plans whose stored bytes a [`ScanCache`] keeps.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(super) enum BytesKey {
+    Projection(PlanByPtr),
+    /// A filter's plans, by address: the cache keeps them alive, so the address is never reused.
+    Filter(usize),
+}
+
+impl BytesKey {
+    pub(super) fn filter(filter: &Arc<FilterPlans>) -> Self {
+        Self::Filter(Arc::as_ptr(filter) as usize)
     }
 }
 

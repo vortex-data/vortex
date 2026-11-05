@@ -95,6 +95,11 @@ impl FilterPlans {
         })
     }
 
+    /// The plan of each conjunct.
+    pub(crate) fn predicates(&self) -> &[PlanRef] {
+        &self.predicates
+    }
+
     /// The pruning plans, run once over a scan's rows before its chunks are planned.
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()

@@ -43,32 +43,45 @@ use vortex_session::VortexSession;
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
+use crate::plan::physical::PlanByPtr;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
+use crate::scan::execution::MIN_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::plan_bytes;
+use crate::scan::execution::rows_for_bytes;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::execution::wide_rows;
+use crate::scan::v2::cache::BytesKey;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
-/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned.
+/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned. A
+/// file whose rows are so wide that a block holds more than a chunk's bytes is cut on the finer
+/// grid its chunks use, or most of an engine's partitions of a file of few blocks would be empty.
 pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) -> Range<u64> {
+    let grid = if wide_rows(row_count, file_size) {
+        MIN_ROWS_PER_CHUNK
+    } else {
+        ROW_BLOCK_SIZE
+    } as u64;
     let row = |byte: u64| -> u64 {
         if byte >= file_size {
             return row_count;
         }
         let row = u128::from(byte) * u128::from(row_count) / u128::from(file_size);
         let row = u64::try_from(row).vortex_expect("a row of the file fits u64");
-        row / ROW_BLOCK_SIZE as u64 * ROW_BLOCK_SIZE as u64
+        row / grid * grid
     };
     let start = row(bytes.start);
     start..row(bytes.end).max(start)
@@ -202,12 +215,33 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
+        let scan_rows = self
+            .row_range
+            .as_ref()
+            .map_or(row_count, |rows| rows.end - rows.start);
+        // Finding the bytes builds every plan the scan could read, which a scan this short, one
+        // chunk whatever its size, does not need.
+        let rows_by_bytes = |max_rows: usize| -> VortexResult<usize> {
+            if scan_rows <= MIN_ROWS_PER_CHUNK as u64 {
+                return Ok(max_rows);
+            }
+            let projection_key = BytesKey::Projection(PlanByPtr(projection.clone()));
+            let mut bytes = cache.plan_bytes(projection_key, || {
+                plan_bytes(std::iter::once(&projection), &file.locations)
+            })?;
+            if let Some(filter) = &filter {
+                bytes += cache.plan_bytes(BytesKey::filter(filter), || {
+                    plan_bytes(filter.predicates().iter(), &file.locations)
+                })?;
+            }
+            Ok(rows_for_bytes(row_count, scan_rows, bytes, max_rows))
+        };
         let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
+            rows_by_bytes(rows)?
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
-            MAX_ROWS_PER_CHUNK
+            rows_by_bytes(MAX_ROWS_PER_CHUNK)?
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,

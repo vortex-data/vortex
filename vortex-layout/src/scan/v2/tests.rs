@@ -78,8 +78,10 @@ use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
+use crate::scan::execution::MIN_ROWS_PER_CHUNK;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
+use crate::scan::execution::rows_for_bytes;
 use crate::scan::execution::scan_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::CountingSegmentSource;
@@ -1000,6 +1002,54 @@ fn partition_rows_tile_the_file_on_row_blocks() {
         super::partition_row_range(1..2, file_size, row_count),
         0..0,
         "a range inside one block owns no rows"
+    );
+}
+
+/// A file whose rows are wider than a row block's bytes is cut on its chunks' finer grid, so a
+/// file of few blocks still gives every partition rows.
+#[test]
+fn partition_rows_of_wide_rows_tile_a_finer_grid() {
+    let row_count = 100_000u64;
+    let file_size = row_count * 16 * 1024;
+    let parts = 18u64;
+    let rows: Vec<_> = (0..parts)
+        .map(|part| {
+            super::partition_row_range(
+                file_size * part / parts..file_size * (part + 1) / parts,
+                file_size,
+                row_count,
+            )
+        })
+        .collect();
+    assert_eq!(rows[0].start, 0);
+    assert_eq!(rows[rows.len() - 1].end, row_count);
+    for pair in rows.windows(2) {
+        assert_eq!(pair[0].end, pair[1].start);
+        assert_eq!(pair[0].end % MIN_ROWS_PER_CHUNK as u64, 0);
+    }
+    assert!(rows.iter().all(|rows| !rows.is_empty()));
+}
+
+/// Chunks hold about a chunk's bytes in whole row blocks, and rows wider than a block's bytes are
+/// cut finer, into several chunks of the scan.
+#[rstest]
+#[case::narrow(100_000, 100_000, 100, 65_536)]
+#[case::wide(100_000, 5_555, 16 * 1024, 1_024)]
+#[case::scan_cut(100_000, 16_384, 2 * 1024, 2_048)]
+fn chunk_rows_follow_bytes(
+    #[case] row_count: u64,
+    #[case] scan_rows: u64,
+    #[case] bytes_per_row: u64,
+    #[case] expected: usize,
+) {
+    assert_eq!(
+        rows_for_bytes(
+            row_count,
+            scan_rows,
+            row_count * bytes_per_row,
+            MAX_ROWS_PER_CHUNK
+        ),
+        expected
     );
 }
 
