@@ -162,6 +162,17 @@ segment identifies it by its position in `encrypted_statistics` and by its field
 sees neither its data nor its statistics, and a reader without any key still sees the statistics of plaintext fields in
 a file with a plaintext footer.
 
+### Key management
+
+Writers may use envelope encryption, where each file uses fresh random data keys that are wrapped by master keys held
+in a key management service. The `key_metadata` then holds an `EnvelopeKeyMetadata` flatbuffer, with the wrapped key
+material or a reference to key material stored outside of the file. With double wrapping, data keys are wrapped locally
+with a key encryption key, which is itself wrapped by the key management service.
+
+:::{literalinclude} ../../vortex-file/flatbuffers/vortex-file/key_material.fbs
+:start-after: SPDX-FileCopyrightText
+:::
+
 ## Reified File Example
 
 Since Vortex files are largely self-describing, many mainstays of other columnar file formats (e.g., whether or not to
