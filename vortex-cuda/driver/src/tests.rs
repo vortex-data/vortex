@@ -151,7 +151,8 @@ fn frees_follow_reads_on_other_streams() -> Result<(), DriverError> {
         reader.memcpy_dtod(&source, &mut target)?;
         copies.push(target);
     }
-    drop(source);
+    let ((), logs) = capture_logs(|| drop(source));
+    assert!(logs.is_empty(), "source cleanup reported errors: {logs}");
     let reused = owner.clone_htod(&vec![9u8; 32 << 20])?;
     for copy in &copies {
         assert!(reader.clone_dtoh(copy)?.iter().all(|value| *value == 7));
