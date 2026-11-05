@@ -107,8 +107,10 @@ uvx ruff check <changed-python-files>
 uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 ```
 
-Use `uvx` for both Ruff and ty, matching CI. The command above covers both binding packages and the
-CMake and script tests. For a narrower check, pass the affected directory, such as
+Use `uvx` for both Ruff and ty, matching CI. CI pins ty as `TY_VERSION` in
+`.github/workflows/ci.yml` and `.github/workflows/cuda.yaml`. To match CI, run
+`uvx ty@<TY_VERSION> check ...`, and update both workflows when you change the version. The
+command above covers both binding packages and the CMake and script tests. For a narrower check, pass the affected directory, such as
 `uvx ty check vortex-python` or `uvx ty check vortex-ffi/cmake/tests`. Checking the whole binding
 package covers callers affected by stub or annotation changes.
 
