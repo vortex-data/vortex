@@ -141,6 +141,10 @@ fn validity_array(valid: &[bool]) -> Validity {
     vec![Some(-128)],
     DecimalType::I8, DecimalDType::new(10, 0), Some(3), false,
 )]
+#[case::negative_scale(
+    vec![Some(-99), Some(99)],
+    DecimalType::I32, DecimalDType::new(18, -3), Some(2), false,
+)]
 #[case::i128_narrowing_copy(
     vec![Some(-99), Some(99)],
     DecimalType::I128, DecimalDType::new(18, 2), Some(2), false,

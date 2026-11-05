@@ -99,9 +99,8 @@ impl WidenArray {
     /// We reuse buffers at the selected width and convert other widths without rescaling.
     /// A narrowing copy writes zeros in null slots. A reused buffer keeps its null slots.
     ///
-    /// Scanning and conversion use CPU kernels, so noncanonical buffers are brought to the host.
-    /// Their validity **must** already be executable on the host because these kernels need a mask
-    /// to exclude null payloads.
+    /// The scan and the conversion run on the CPU, so noncanonical values and their validity
+    /// **must** be in host memory. This function does not copy device memory to the host.
     ///
     /// Readers and decoders may already know the range. For noncanonical storage, `known_range`
     /// lets us reuse it:
@@ -119,8 +118,8 @@ impl WidenArray {
     /// # Errors
     ///
     /// Rejects malformed buffer layout or validity length. For noncanonical storage, also rejects
-    /// failed host copies, reversed ranges, and range bounds outside the logical precision. A
-    /// narrowing copy rejects valid values outside the selected precision.
+    /// values or validity in device memory, reversed ranges, and range bounds outside the logical
+    /// precision. A narrowing copy rejects valid values outside the selected precision.
     pub fn from_stored_decimal(
         parts: DecimalDataParts,
         known_range: Precision<RangeInclusive<i256>>,
@@ -150,7 +149,12 @@ impl WidenArray {
             return Ok(array.into_array());
         }
 
-        let values = values.try_into_host_sync()?;
+        // The scan below reads host memory, so device memory would panic there.
+        vortex_ensure!(
+            values.is_on_host() && validity.as_array().is_none_or(ArrayRef::is_host),
+            "Decimal storage at a noncanonical width must be in host memory, got device memory"
+        );
+        let values = values.unwrap_host();
         let mask = validity.execute_mask(len, ctx)?;
         match_each_decimal_value_type!(values_type, |T| {
             let values = Buffer::<T>::from_byte_buffer(values);
