@@ -23,7 +23,6 @@ use itertools::Itertools;
 use mimalloc::MiMalloc;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_bench::CompactionStrategy;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::LogFormat;
@@ -65,7 +64,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_enum,
-        default_values_t = vec![Format::ArrowIpc, Format::Parquet, Format::OnDiskVortex, Format::VortexCompact]
+        default_values_t = vec![Format::ArrowIpc, Format::Parquet, Format::OnDiskVortex]
     )]
     formats: Vec<Format>,
     #[arg(short, long, default_value_t = 5)]
@@ -227,8 +226,7 @@ fn get_compressor(format: Format, mode: BenchMode) -> anyhow::Result<Box<dyn Com
 
     Ok(match format {
         Format::ArrowIpc => Box::new(ArrowIpcCompressor),
-        Format::OnDiskVortex => Box::new(VortexCompressor(CompactionStrategy::Default)),
-        Format::VortexCompact => Box::new(VortexCompressor(CompactionStrategy::Compact)),
+        Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
         #[cfg(feature = "lance")]
         Format::Lance => Box::new(LanceCompressor),

@@ -37,7 +37,7 @@ from the 100,000-variant SQL benchmark above.
 ```bash
 cargo build -p compress-bench --profile release_debug --features lance
 target/release_debug/compress-bench --datasets '^statpopgen$' \
-  --formats parquet,vortex,vortex-compact,lance --iterations 5
+  --formats parquet,vortex,lance --iterations 5
 ```
 
 The suite measures encoding time, decoding time, and compressed size. Source VCF download
