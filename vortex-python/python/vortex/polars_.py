@@ -11,11 +11,75 @@ from typing import Any, Literal, cast
 
 import polars as pl
 import pyarrow as pa
+from polars.io.plugins import register_io_source
 
 import vortex.expr as ve
 
 from ._lib import dtype as _dtype
 from ._lib.arrays import Array
+from .arrays import array
+
+
+def lazy_frame(
+    schema: pa.Schema,
+    read: Callable[[list[str] | None, ve.Expr | None, int | None], pa.RecordBatchReader],
+) -> pl.LazyFrame:
+    """A Polars LazyFrame over Vortex data, pushing column selection and predicates into ``read``.
+
+    ``read(columns, predicate, limit)`` returns the batches of ``columns`` whose rows pass
+    ``predicate``. It may stop after ``limit`` rows or read past them: the frame trims the batches
+    to the rows Polars asked for either way.
+    """
+    # Type-checks translated predicates against the schema before scanning.
+    scope = array(schema.empty_table())
+
+    def _io_source(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        _batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
+        # evaluate the residual conjuncts with Polars per batch. Polars will not
+        # re-apply a predicate it handed to the source, so both parts must be applied.
+        vx_predicate: ve.Expr | None = None
+        pl_predicate: pl.Expr | None = None
+        if predicate is not None:
+            vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
+
+        # A row limit only commutes with the residual filter if there is none.
+        limit = n_rows if pl_predicate is None else None
+
+        reader = read(with_columns, vx_predicate, limit)
+
+        remaining = n_rows
+        try:
+            for batch in reader:
+                df = pl.DataFrame(batch)
+                if pl_predicate is not None:
+                    df = df.filter(pl_predicate)
+                if remaining is not None:
+                    df = df.head(remaining)
+                    remaining -= df.height
+                # TODO(ngates): set sortedness on DataFrame based on stats?
+                yield df
+                if remaining == 0:
+                    break
+        except pa.ArrowException as e:
+            # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
+            # re-raises them unchanged. Raise a ComputeError on both.
+            raise pl.exceptions.ComputeError(str(e)) from e
+
+        # Make sure we always yield at least one empty DataFrame
+        yield pl.DataFrame(
+            pa.RecordBatch.from_arrays(
+                [pa.array([], type=field.type) for field in reader.schema],
+                schema=reader.schema,
+            ),
+        )
+
+    # https://github.com/pola-rs/polars/pull/24125
+    return register_io_source(_io_source, schema=schema)  # ty: ignore[invalid-argument-type]
 
 
 def polars_to_vortex(expr: pl.Expr) -> ve.Expr:

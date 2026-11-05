@@ -43,6 +43,7 @@ class VortexFile:
         limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
+        concurrency: int | None = None,
     ) -> ArrayIterator: ...
     def prepare(
         self,
@@ -52,6 +53,7 @@ class VortexFile:
         limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
+        concurrency: int | None = None,
     ) -> RepeatedScan: ...
     def to_arrow(
         self,
@@ -62,8 +64,9 @@ class VortexFile:
         indices: Array | None = None,
         batch_size: int | None = None,
         schema: pa.Schema | None = None,
+        concurrency: int | None = None,
     ) -> pa.RecordBatchReader: ...
-    def to_dataset(self) -> VortexDataset: ...
+    def to_dataset(self, *, concurrency: int | None = None) -> VortexDataset: ...
     def to_polars(self) -> pl.LazyFrame: ...
     def splits(self) -> list[tuple[int, int]]: ...
 

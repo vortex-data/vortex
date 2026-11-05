@@ -88,6 +88,7 @@ from .arrays import (
     _unpickle_array,
     array,
 )
+from .dataset import open_dataset
 from .file import SegmentCache, VortexFile, open, open_readable
 from .scan import RepeatedScan
 
@@ -223,6 +224,8 @@ __all__ = [
     "open",
     "SegmentCache",
     "open_readable",
+    # Dataset
+    "open_dataset",
     # Iterator
     "ArrayIterator",
     # Scan
