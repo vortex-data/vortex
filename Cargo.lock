@@ -12221,6 +12221,7 @@ dependencies = [
  "itertools 0.14.0",
  "mimalloc",
  "moka",
+ "num-traits",
  "object_store 0.13.2",
  "once_cell",
  "parking_lot",

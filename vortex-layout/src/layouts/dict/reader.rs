@@ -15,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -36,6 +37,8 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::DictLayout;
+use super::paged::DictPages;
+use super::paged::PAGE_SIZE;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::RowSplits;
@@ -53,6 +56,10 @@ pub struct DictReader {
     values_len: usize,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
+    /// Cached undecoded dict values array, for paged decoding
+    values_source: OnceLock<SharedArrayFuture>,
+    /// Pages of the dict values decoded so far, when paged decoding is enabled
+    pages: Option<Arc<DictPages>>,
     /// Cache of expression evaluation results on the values array by expression
     values_evals: DashMap<ExactBoundExpr, SharedArrayFuture>,
 
@@ -94,6 +101,9 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
+            values_source: Default::default(),
+            pages: (*PAGE_SIZE > 0 && values_len > *PAGE_SIZE)
+                .then(|| DictPages::new(values_len, *PAGE_SIZE)),
             values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
             values,
             codes,
@@ -144,6 +154,28 @@ impl DictReader {
                 .boxed()
                 .shared()
         })
+    }
+
+    /// The dict values array as stored, shared by all paged projections.
+    fn values_source(&self) -> SharedArrayFuture {
+        let values_len = self.values_len;
+        let root = root()
+            .bind(self.values.dtype())
+            .vortex_expect("root must bind against the dictionary values dtype");
+        self.values_source
+            .get_or_init(move || {
+                self.values
+                    .projection_evaluation(
+                        &(0..values_len as u64),
+                        &root,
+                        MaskFuture::new_true(values_len),
+                    )
+                    .vortex_expect("must construct dict values array evaluation")
+                    .map_err(Arc::new)
+                    .boxed()
+                    .shared()
+            })
+            .clone()
     }
 
     fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
@@ -325,6 +357,28 @@ impl LayoutReader for DictReader {
                 .boxed()
                 .shared()
         } else {
+            if let Some(pages) = &self.pages {
+                let pages = Arc::clone(pages);
+                let source = self.values_source();
+                // Resolved only if the codes hit too many pages to page.
+                let full = self.values_array();
+                let session = self.session.clone();
+                return Ok(async move {
+                    let (source, codes) =
+                        try_join!(source.map_err(VortexError::from), codes_eval)?;
+                    let mut ctx = session.create_execution_ctx();
+                    let codes = codes.execute::<PrimitiveArray>(&mut ctx)?;
+                    let array = match pages.take(&source, &codes, &mut ctx)? {
+                        Some(array) => array,
+                        None => {
+                            let values = full.await?;
+                            DictArray::try_new(codes.into_array(), values)?.into_array()
+                        }
+                    };
+                    array.apply_bound(&expr_outer)
+                }
+                .boxed());
+            }
             self.values_array()
         };
         let all_values_referenced = self.layout.has_all_values_referenced();

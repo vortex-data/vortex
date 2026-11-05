@@ -29,6 +29,7 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 itertools = { workspace = true }
 moka = { workspace = true, features = ["future"] }
+num-traits = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
