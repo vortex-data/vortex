@@ -11,6 +11,7 @@ use crate::DevicePtrMut;
 use crate::DriverError;
 use crate::HostSlice;
 use crate::SyncOnDrop;
+use crate::device;
 use crate::mem_pool;
 use crate::memory;
 use crate::sys;
@@ -361,62 +362,42 @@ fn retaining_pool_keeps_freed_memory() -> Result<(), DriverError> {
 }
 
 #[test]
-fn borrowed_pool_is_isolated_and_not_destroyed_with_context() -> Result<(), DriverError> {
-    let Some(default_stream) = pooled_stream() else {
+fn streams_share_retaining_pool_without_changing_device_pool() -> Result<(), DriverError> {
+    let Some(first) = pooled_stream() else {
         return Ok(());
     };
-    let default_context = default_stream.context();
-    let default_pool = default_context.mem_pool();
-    let host = CudaContext::new(0)?;
-    let host_pool = host.mem_pool();
-    assert!(!host_pool.is_null());
-    assert_ne!(host_pool, default_pool);
-    // SAFETY: `host` owns a pool for device 0 and outlives the borrower and its synchronized frees.
-    let borrowed = unsafe { CudaContext::new_with_mem_pool(0, host_pool) }?;
-    assert_eq!(borrowed.cu_ctx(), default_context.cu_ctx());
-    assert_eq!(borrowed.mem_pool(), host_pool);
-    assert_eq!(default_context.mem_pool(), default_pool);
+    let context = first.context();
+    let pool = context.mem_pool();
+    // SAFETY: The context keeps the device valid.
+    let device_pool = unsafe { device::get_mem_pool(context.cu_device()) }?;
+    assert_ne!(pool, device_pool);
+    let threshold = pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?;
+    let second = context.new_stream()?;
+    assert_eq!(second.context().mem_pool(), pool);
 
-    let stream = borrowed.new_stream()?;
-    let device = stream.alloc_zeros::<u32>(1024)?;
-    stream.synchronize()?;
-    let used = PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT;
-    assert!(pool_attribute(host_pool, used)? > 0);
-    assert_eq!(pool_attribute(default_pool, used)?, 0);
-
-    drop(device);
-    stream.synchronize()?;
-    drop(stream);
-    drop(borrowed);
-    assert_eq!(pool_attribute(host_pool, used)?, 0);
-    assert!(pool_attribute(host_pool, PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT)? > 0);
-
-    let device = default_stream.alloc_zeros::<u32>(1024)?;
-    default_stream.synchronize()?;
-    assert!(pool_attribute(default_pool, used)? > 0);
-    assert_eq!(pool_attribute(host_pool, used)?, 0);
-    drop(device);
-    default_stream.synchronize()
-}
-
-#[test]
-fn null_pool_uses_device_pool_without_changing_other_contexts() -> Result<(), DriverError> {
-    let Some(default_stream) = pooled_stream() else {
-        return Ok(());
-    };
-    let default_pool = default_stream.context().mem_pool();
-    // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
-    let context = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }?;
-    assert!(context.mem_pool().is_null());
-    assert_eq!(default_stream.context().mem_pool(), default_pool);
-
-    let stream = context.new_stream()?;
-    let device = stream.alloc_zeros::<u32>(1024)?;
-    stream.synchronize()?;
+    let a = first.alloc_zeros::<u32>(1024)?;
+    let b = second.alloc_zeros::<u32>(1024)?;
+    first.synchronize()?;
+    second.synchronize()?;
+    assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)? >= 8192);
+    drop(a);
+    drop(b);
+    first.synchronize()?;
+    second.synchronize()?;
     assert_eq!(
-        pool_attribute(default_pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?,
+        pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?,
         0
     );
-    drop(device);
-    stream.synchronize()
+    assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT)? > 0);
+    assert_eq!(context.mem_pool(), pool);
+    // SAFETY: The context still keeps the device valid.
+    assert_eq!(
+        unsafe { device::get_mem_pool(context.cu_device()) }?,
+        device_pool
+    );
+    assert_eq!(
+        pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?,
+        threshold
+    );
+    Ok(())
 }

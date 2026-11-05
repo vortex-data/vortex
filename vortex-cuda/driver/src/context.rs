@@ -14,7 +14,6 @@ use crate::device;
 use crate::error::log_result;
 use crate::event::CudaEvent;
 use crate::mem_pool;
-use crate::mem_pool::MemPool;
 use crate::module::CudaModule;
 use crate::stream::CudaStream;
 use crate::sys;
@@ -29,8 +28,8 @@ pub struct CudaContext {
     context: sys::CUcontext,
     ordinal: usize,
     has_async_alloc: bool,
-    /// Allocation policy is fixed at construction; only an owned pool is destroyed on drop.
-    mem_pool: MemPool,
+    /// Our fixed retaining pool, or null when using the device allocator as a fallback.
+    mem_pool: sys::CUmemoryPool,
     /// Whether the context is the device's primary context, released rather than destroyed.
     primary: bool,
     /// Timing-disabled events returned by finished accesses, reused to avoid creating and
@@ -69,11 +68,11 @@ impl Drop for CudaContext {
                 unsafe { sys::cuEventDestroy_v2(event) }.result(),
             );
         }
-        if let MemPool::Owned(pool) = self.mem_pool {
+        if !self.mem_pool.is_null() {
             // SAFETY: Created by `wrap` and destroyed once; allocations still live are released
             // by the driver once they are freed.
             let _ = log_result("destroying CUDA memory pool", unsafe {
-                mem_pool::destroy(pool)
+                mem_pool::destroy(self.mem_pool)
             });
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
@@ -90,35 +89,15 @@ impl Drop for CudaContext {
 }
 
 impl CudaContext {
-    /// Retains the primary context of the device with `ordinal`.
+    /// Retains the primary context of the device with `ordinal` and creates a retaining pool.
+    ///
+    /// Share the returned `Arc` to share that pool; separate wrappers own separate pools.
     pub fn new(ordinal: usize) -> Result<Arc<Self>, DriverError> {
         let (device, has_async_alloc) = Self::device(ordinal)?;
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the retained context.
         unsafe { sys::cuDevicePrimaryCtxRetain(&raw mut context, device) }.result()?;
-        Self::wrap(device, has_async_alloc, context, ordinal, true, None)
-    }
-
-    /// Retains the primary context with a borrowed pool instead of creating a retaining pool.
-    ///
-    /// The pool choice is fixed for this wrapper and does not affect other wrappers of the same
-    /// primary context. Null selects the device's current pool. Without stream-ordered allocation
-    /// support, allocations use the synchronous allocator as usual.
-    ///
-    /// # Safety
-    ///
-    /// A non-null `pool` must be a device memory pool of the device with `ordinal`. It must outlive
-    /// this wrapper and all resources using it, including exported buffers, and remain valid until
-    /// their queued frees complete. The caller remains responsible for destroying the pool.
-    pub unsafe fn new_with_mem_pool(
-        ordinal: usize,
-        pool: sys::CUmemoryPool,
-    ) -> Result<Arc<Self>, DriverError> {
-        let (device, has_async_alloc) = Self::device(ordinal)?;
-        let mut context = std::ptr::null_mut();
-        // SAFETY: `device` is valid; the driver writes the retained context.
-        unsafe { sys::cuDevicePrimaryCtxRetain(&raw mut context, device) }.result()?;
-        Self::wrap(device, has_async_alloc, context, ordinal, true, Some(pool))
+        Self::wrap(device, has_async_alloc, context, ordinal, true)
     }
 
     /// Creates a context separate from the device's primary context, with `cuCtxCreate` flags.
@@ -127,7 +106,7 @@ impl CudaContext {
         let mut context = std::ptr::null_mut();
         // SAFETY: `device` is valid; the driver writes the created context.
         unsafe { sys::cuCtxCreate_v2(&raw mut context, flags, device) }.result()?;
-        Self::wrap(device, has_async_alloc, context, ordinal, false, None)
+        Self::wrap(device, has_async_alloc, context, ordinal, false)
     }
 
     /// The device with `ordinal`, and whether its allocations can be stream-ordered.
@@ -155,13 +134,11 @@ impl CudaContext {
         context: sys::CUcontext,
         ordinal: usize,
         primary: bool,
-        pool: Option<sys::CUmemoryPool>,
     ) -> Result<Arc<Self>, DriverError> {
-        let mem_pool = match pool {
-            Some(pool) if !pool.is_null() => MemPool::Borrowed(pool),
-            Some(_) => MemPool::Device,
-            None if has_async_alloc => Self::retaining_pool(device),
-            None => MemPool::Device,
+        let mem_pool = if has_async_alloc {
+            Self::retaining_pool(device)
+        } else {
+            std::ptr::null_mut()
         };
         let context = Arc::new(Self {
             device,
@@ -186,18 +163,18 @@ impl CudaContext {
     /// half the device: the threshold bounds what it keeps idle, not what it can allocate. Each
     /// wrapper using this default policy owns its pool. Failures fall back to the device's pool
     /// rather than failing the context.
-    fn retaining_pool(device: sys::CUdevice) -> MemPool {
+    fn retaining_pool(device: sys::CUdevice) -> sys::CUmemoryPool {
         let mut total = 0;
         // SAFETY: `device` is valid; the driver writes its memory size.
         if unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }
             .result()
             .is_err()
         {
-            return MemPool::Device;
+            return std::ptr::null_mut();
         }
         // SAFETY: `device` is valid and supports memory pools.
         let Ok(pool) = (unsafe { mem_pool::create(device) }) else {
-            return MemPool::Device;
+            return std::ptr::null_mut();
         };
         let mut threshold = total as u64 / 2;
         // SAFETY: The release threshold is a u64.
@@ -211,9 +188,9 @@ impl CudaContext {
         if retained.is_err() {
             // SAFETY: Created above and never used.
             let _ = unsafe { mem_pool::destroy(pool) };
-            return MemPool::Device;
+            return std::ptr::null_mut();
         }
-        MemPool::Owned(pool)
+        pool
     }
 
     /// The number of devices.
@@ -246,10 +223,7 @@ impl CudaContext {
     ///
     /// This is a borrowed handle; do not destroy it while this wrapper or its resources use it.
     pub fn mem_pool(&self) -> sys::CUmemoryPool {
-        match self.mem_pool {
-            MemPool::Owned(pool) | MemPool::Borrowed(pool) => pool,
-            MemPool::Device => std::ptr::null_mut(),
-        }
+        self.mem_pool
     }
 
     /// The device's name.

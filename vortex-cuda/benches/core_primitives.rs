@@ -193,25 +193,40 @@ fn benchmark_core_primitives(c: &mut Criterion) {
         BenchmarkId::new("default_pool", BUFFER_SIZE_NAME),
         &BUFFER_SIZE,
         |b, &size| {
-            // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
-            let cuda_ctx = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }
-                .expect("cuda ctx");
+            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
             let stream = cuda_ctx.new_stream().expect("cuda stream");
+            cuda_ctx.bind_to_thread().expect("bind cuda context");
 
-            // Seed the pool so the timed loop measures reuse after free+sync.
-            let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
-            drop(dest);
+            // Use cuMemAllocAsync to exercise the device's current pool, not the context's
+            // owned retaining pool. Seed it so the timed loop measures reuse after free+sync.
+            let mut dest = 0;
+            // SAFETY: The context is current, the stream is live, and dest is a valid output.
+            unsafe { sys::cuMemAllocAsync(&raw mut dest, size, stream.cu_stream()) }
+                .result()
+                .expect("allocate device buffer");
+            // SAFETY: Free the unused allocation once, on the stream that allocated it.
+            unsafe { sys::cuMemFreeAsync(dest, stream.cu_stream()) }
+                .result()
+                .expect("free device buffer");
             stream.synchronize().expect("synchronize stream");
 
             b.iter_custom(|iters| {
+                cuda_ctx.bind_to_thread().expect("bind cuda context");
                 let mut elapsed = Duration::ZERO;
 
                 for _ in 0..iters {
+                    let mut dest = 0;
                     let start = Instant::now();
-                    let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+                    // SAFETY: The context is current, the stream is live, and dest is a valid output.
+                    unsafe { sys::cuMemAllocAsync(&raw mut dest, size, stream.cu_stream()) }
+                        .result()
+                        .expect("allocate device buffer");
                     elapsed += start.elapsed();
 
-                    drop(dest);
+                    // SAFETY: Free the unused allocation once, on the stream that allocated it.
+                    unsafe { sys::cuMemFreeAsync(dest, stream.cu_stream()) }
+                        .result()
+                        .expect("free device buffer");
                     stream.synchronize().expect("synchronize stream");
                 }
 
@@ -221,32 +236,47 @@ fn benchmark_core_primitives(c: &mut Criterion) {
     );
 
     device_alloc_group.bench_with_input(
-        BenchmarkId::new("default_pool_75pct_threshold", BUFFER_SIZE_NAME),
+        BenchmarkId::new("default_pool_50pct_threshold", BUFFER_SIZE_NAME),
         &BUFFER_SIZE,
         |b, &size| {
-            // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
-            let cuda_ctx = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }
-                .expect("cuda ctx");
+            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
             let stream = cuda_ctx.new_stream().expect("cuda stream");
+            cuda_ctx.bind_to_thread().expect("bind cuda context");
 
             let pool = cuda_default_mem_pool();
             let _release_threshold_guard =
                 ThresholdGuard::set(pool, high_device_mem_pool_release_threshold(&cuda_ctx));
 
-            // Seed the pool so the timed loop measures reuse after free+sync.
-            let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
-            drop(dest);
+            // Use cuMemAllocAsync to exercise the device's current pool, not the context's
+            // owned retaining pool. Seed it so the timed loop measures reuse after free+sync.
+            let mut dest = 0;
+            // SAFETY: The context is current, the stream is live, and dest is a valid output.
+            unsafe { sys::cuMemAllocAsync(&raw mut dest, size, stream.cu_stream()) }
+                .result()
+                .expect("allocate device buffer");
+            // SAFETY: Free the unused allocation once, on the stream that allocated it.
+            unsafe { sys::cuMemFreeAsync(dest, stream.cu_stream()) }
+                .result()
+                .expect("free device buffer");
             stream.synchronize().expect("synchronize stream");
 
             b.iter_custom(|iters| {
+                cuda_ctx.bind_to_thread().expect("bind cuda context");
                 let mut elapsed = Duration::ZERO;
 
                 for _ in 0..iters {
+                    let mut dest = 0;
                     let start = Instant::now();
-                    let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+                    // SAFETY: The context is current, the stream is live, and dest is a valid output.
+                    unsafe { sys::cuMemAllocAsync(&raw mut dest, size, stream.cu_stream()) }
+                        .result()
+                        .expect("allocate device buffer");
                     elapsed += start.elapsed();
 
-                    drop(dest);
+                    // SAFETY: Free the unused allocation once, on the stream that allocated it.
+                    unsafe { sys::cuMemFreeAsync(dest, stream.cu_stream()) }
+                        .result()
+                        .expect("free device buffer");
                     stream.synchronize().expect("synchronize stream");
                 }
 

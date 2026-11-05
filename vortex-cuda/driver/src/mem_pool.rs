@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! CUDA memory pool ownership, creation, and attributes.
+//! CUDA memory pool creation, destruction, and attributes.
 
 use std::ffi::c_void;
 use std::mem::MaybeUninit;
 
 use crate::DriverError;
 use crate::sys;
-
-/// Allocation policy fixed at construction; the context destroys only its owned pool.
-pub(crate) enum MemPool {
-    Owned(sys::CUmemoryPool),
-    Borrowed(sys::CUmemoryPool),
-    Device,
-}
 
 /// Creates a pool of pinned device memory on `device`.
 ///
