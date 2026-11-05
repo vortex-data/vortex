@@ -30,17 +30,23 @@ use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::memory::InMemory;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
+use vortex::array::assert_arrays_eq;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
+use vortex::dtype::extension::ExtDType;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
 use vortex::file::OpenOptionsSessionExt;
@@ -54,6 +60,8 @@ use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
+use vortex_tensor::fixed_shape_tensor::FixedShapeTensor;
+use vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata;
 use vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME;
 use vortex_tensor::vector::Vector;
 
@@ -768,6 +776,53 @@ async fn test_scan_vector_column() -> anyhow::Result<()> {
     | [4.0, 5.0, 6.0] |
     +-----------------+
     ");
+
+    Ok(())
+}
+
+/// `FixedShapeTensor` has no Arrow plugin. A `COPY` still keeps its type, because the scan exports
+/// its storage plus Arrow extension metadata, and the write uses that metadata to rebuild the type.
+#[tokio::test]
+async fn test_copy_fixed_shape_tensor_column() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    vortex_tensor::initialize(&session);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new_with_session(session.clone()),
+    ));
+
+    let elements = buffer![
+        1.0f32, 2.0, 3.0, 4.0, //
+        5.0, 6.0, 7.0, 8.0, //
+    ]
+    .into_array();
+    let storage = FixedSizeListArray::try_new(elements, 4, Validity::NonNullable, 2)?.into_array();
+    let metadata = FixedShapeTensorMetadata::new(vec![2, 2]);
+    let ext_dtype = ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?;
+    let tensors = ExtensionArray::try_new(ext_dtype.erased(), storage)?.into_array();
+    let table = StructArray::from_fields(&[("tensor", tensors)])?.into_array();
+
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"src.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    ctx.session
+        .sql("COPY (SELECT * FROM '/src.vortex') TO '/dst.vortex' STORED AS vortex")
+        .await?
+        .collect()
+        .await?;
+
+    let buffer = ctx.store.get(&"dst.vortex".into()).await?.bytes().await?;
+    let copied = session
+        .open_options()
+        .open_buffer(buffer)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(copied, table, &mut session.create_execution_ctx());
 
     Ok(())
 }
