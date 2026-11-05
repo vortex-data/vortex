@@ -30,16 +30,16 @@
 //! $.a > 5 && $.b < 1 over pack(a: ..., b: ..., c: ...) =>
 //! {0: $ > 5, 1: $ < 1} and a combiner $.0 && $.1
 //!
-//! An invariant that must hold in rules is "the combiner expressions
-//! references exactly the slots it has requested to read from the plan".
+//! An invariant that must hold in rules is "combiner expression references
+//! exactly the slots it has requested to read from the plan".
 //!
 //! See register_pack_partition_rules and register_row_idx_partition_rules for
 //! examples.
 
 use std::any::Any;
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
+use std::hash::Hash;
 use std::sync::LazyLock;
 
 use vortex_array::dtype::DType;
@@ -50,7 +50,11 @@ use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::bound::pack;
+use vortex_array::expr::traversal::NodeExt;
+use vortex_array::expr::traversal::Transformed;
+use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnRef;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_error::VortexExpect;
@@ -72,8 +76,8 @@ use crate::plan::physical::register_row_idx_partition_rules;
 /// A PartitionedPlan is a plan which has some logical meaning for its slots
 /// and allows partitioning an Expression over itself.
 pub trait PartitionedPlan: PlanVTable {
-    /// Each plan has physical slots. This is the logical type for its slot
-    /// numbers.
+    /// Each plan has slots which are numbers. This is the logical type for
+    /// these numbers.
     /// For example, Pack has slots 0...n, first one is a validity.
     /// This type for Pack is therefore Slot { Validity, Field(usize) }.
     type Slot: Copy + Into<PlanSlot>;
@@ -168,11 +172,6 @@ impl<'a, Plan: PartitionedPlan> Slots<'a, Plan> {
         self.scope
     }
 
-    /// Slot's type
-    pub fn dtype(&self, slot: Plan::Slot) -> VortexResult<DType> {
-        Plan::slot_dtype(self.scope, slot)
-    }
-
     pub fn read(&self, slot: Plan::Slot) -> Expression {
         let position = slot.into();
         self.reads.borrow_mut().entry(position).or_insert(slot);
@@ -237,57 +236,41 @@ fn partition_impl(
     session: &VortexSession,
 ) -> VortexResult<PartitionedExpression> {
     let rules = session.get::<PartitionSession>();
-    let mut order = linearize(expr, scope, source, &rules)?;
-    let mut parts = Parts::default();
-    let mut results: Vec<Option<Analyzed>> = Vec::with_capacity(order.len());
-    for i in 0..order.len() {
-        let analyzed = match order[i].touches.take() {
-            Some(output) => replaced(&mut parts, output)?,
-            None => analyze(i, &order, &mut results, &mut parts)?,
-        };
-        results.push(Some(analyzed));
-    }
-
-    let root = match results.pop().flatten().vortex_expect("root not traversed") {
-        Analyzed::None(expr) => {
-            return Ok(PartitionedExpression::Any(expr.into_owned()));
-        }
-        Analyzed::One(slot, expr) => {
-            return Ok(PartitionedExpression::One(slot, expr.into_owned()));
-        }
+    let mut partitioner = Partitioner {
+        scope,
+        source,
+        rules: &rules,
+        parts: Ordered::default(),
+        substituted: false,
+    };
+    let root = match partitioner.visit(expr)? {
+        Analyzed::None(expr) => return Ok(PartitionedExpression::Any(expr)),
+        Analyzed::One(slot, expr) => return Ok(PartitionedExpression::One(slot, expr)),
         Analyzed::Many(root) => root,
     };
 
-    let mut partitions = Vec::with_capacity(parts.parts.len());
+    let mut partitions = Vec::with_capacity(partitioner.parts.items.len());
+    let mut dtypes = Vec::with_capacity(partitions.capacity());
     let mut flattened = HashSet::default();
-    for (i, part) in parts.parts.into_iter().enumerate() {
-        let mut exprs = part.exprs.into_iter();
-        let expr = if exprs.len() == 1 {
+    for (i, part) in partitioner.parts.items.into_iter().enumerate() {
+        if part.exprs.items.len() == 1 {
             flattened.insert(positional_name(i));
-            exprs.next().vortex_expect("a single child")
-        } else {
-            let names = exprs
-                .enumerate()
-                .map(|(sub, expr)| (positional_name(sub), expr));
-            pack(names, Nullability::NonNullable)
-        };
+        }
+        let expr = pack_by_position(part.exprs.items);
+        dtypes.push(expr.dtype().clone());
         partitions.push(Partition {
             slot: part.slot,
             expr,
         });
     }
 
-    let dtypes: Vec<DType> = partitions
-        .iter()
-        .map(|partition| partition.expr.dtype().clone())
-        .collect();
     let root = if flattened.is_empty() {
         root
     } else {
-        flatten_refs(&root, &flattened)?
+        flatten_refs(root, &flattened)?
     };
     let mut combiner = root.bind(&positional_scope(dtypes))?;
-    if parts.substituted {
+    if partitioner.substituted {
         combiner = combiner.optimize_recursive()?;
     }
     Ok(PartitionedExpression::Many(Partitions {
@@ -296,132 +279,150 @@ fn partition_impl(
     }))
 }
 
-struct Entry<'a> {
-    node: &'a BoundExpression,
-    size: usize,
-    touches: Option<RuleOutput>,
-}
-
-fn linearize<'a>(
-    expr: &'a BoundExpression,
-    scope: &DType,
-    source: PlanId,
-    rules: &PartitionSession,
-) -> VortexResult<Vec<Entry<'a>>> {
-    let mut order = Vec::new();
-    let mut stack = vec![(expr, 0usize, 0usize)];
-    while let Some((node, size, mark)) = stack.pop() {
-        if size == 0 {
-            if let Some(touches) = apply_rule(rules, scope, source, node)? {
-                order.push(Entry {
-                    node,
-                    size: 1,
-                    touches: Some(touches),
-                });
-                continue;
-            }
-            vortex_ensure!(!node.is_root());
-        }
-        if size < node.children().len() {
-            stack.push((node, size + 1, mark));
-            stack.push((&node.children()[size], 0, order.len()));
-        } else {
-            order.push(Entry {
-                node,
-                size: order.len() - mark + 1,
-                touches: None,
-            });
-        }
+fn pack_by_position(mut exprs: Vec<BoundExpression>) -> BoundExpression {
+    if exprs.len() == 1 {
+        return exprs.pop().vortex_expect("a single child");
     }
-    Ok(order)
+    let names = exprs
+        .into_iter()
+        .enumerate()
+        .map(|(sub, expr)| (positional_name(sub), expr));
+    pack(names, Nullability::NonNullable)
 }
 
-enum Analyzed<'a> {
+enum Analyzed {
     /// References no children
-    None(Cow<'a, BoundExpression>),
+    None(BoundExpression),
     /// References one child
-    One(PlanSlot, Cow<'a, BoundExpression>),
+    One(PlanSlot, BoundExpression),
     /// References many children and is therefore replaced with a new $
     Many(Expression),
 }
 
-fn analyze<'a>(
-    i: usize,
-    order: &[Entry<'a>],
-    results: &mut [Option<Analyzed<'a>>],
-    parts: &mut Parts,
-) -> VortexResult<Analyzed<'a>> {
-    let node = order[i].node;
-    let scalar_fn = node.as_scalar().vortex_expect("not a scalar function");
+#[derive(Clone, Copy)]
+enum Refs {
+    None,
+    One(PlanSlot),
+    Many,
+}
 
-    let mut slot = None;
-    let mut many = false;
-    let mut changed = false;
-    let mut children = Vec::with_capacity(node.children().len());
-    let mut next = i;
-    for _ in 0..node.children().len() {
-        let index = next - 1;
-        next -= order[index].size;
-        let analyzed = results[index].take().vortex_expect("children are analyzed");
-        match &analyzed {
-            Analyzed::None(expr) => changed |= matches!(expr, Cow::Owned(_)),
-            Analyzed::One(child_slot, expr) => {
-                changed |= matches!(expr, Cow::Owned(_));
-                match slot {
-                    None => slot = Some(*child_slot),
-                    Some(current) if current != *child_slot => many = true,
-                    Some(_) => {}
-                }
-            }
-            Analyzed::Many(_) => many = true,
+impl Refs {
+    fn with(self, child: &Analyzed) -> Self {
+        match (self, child) {
+            (Refs::Many, _) | (_, Analyzed::Many(_)) => Refs::Many,
+            (refs, Analyzed::None(_)) => refs,
+            (Refs::None, Analyzed::One(slot, _)) => Refs::One(*slot),
+            (Refs::One(current), Analyzed::One(slot, _)) if current == *slot => self,
+            (Refs::One(_), Analyzed::One(..)) => Refs::Many,
         }
-        children.push(analyzed);
     }
-    children.reverse();
+}
 
-    if many {
+struct Partitioner<'r> {
+    scope: &'r DType,
+    source: PlanId,
+    rules: &'r PartitionSession,
+    parts: Ordered<PlanSlot, Part>,
+    substituted: bool,
+}
+
+struct Part {
+    slot: PlanSlot,
+    exprs: Ordered<BoundExpression, BoundExpression>,
+}
+
+impl Partitioner<'_> {
+    fn visit(&mut self, node: &BoundExpression) -> VortexResult<Analyzed> {
+        if let Some(output) = self.apply_rule(node)? {
+            return self.replaced(output);
+        }
+        let scalar_fn = node
+            .as_scalar()
+            .ok_or_else(|| vortex_err!("$ has no partition rule"))?;
+
+        let mut refs = Refs::None;
+        let mut children = Vec::with_capacity(node.children().len());
+        for child in node.children() {
+            let analyzed = self.visit(child)?;
+            refs = refs.with(&analyzed);
+            children.push(analyzed);
+        }
+        match refs {
+            Refs::None => Ok(Analyzed::None(bound(scalar_fn, children)?)),
+            Refs::One(slot) => Ok(Analyzed::One(slot, bound(scalar_fn, children)?)),
+            Refs::Many => Ok(Analyzed::Many(self.unbound(scalar_fn, children)?)),
+        }
+    }
+
+    fn unbound(
+        &mut self,
+        scalar_fn: &ScalarFnRef,
+        children: Vec<Analyzed>,
+    ) -> VortexResult<Expression> {
         let children = children
             .into_iter()
             .map(|child| match child {
                 Analyzed::None(expr) => to_unbound(&expr),
-                Analyzed::One(slot, expr) => Ok(parts.cut(slot, expr.into_owned())),
+                Analyzed::One(slot, expr) => Ok(self.cut(slot, expr)),
                 Analyzed::Many(expr) => Ok(expr),
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let expr = Expression::try_new(scalar_fn.clone(), children)?;
-        return Ok(Analyzed::Many(expr));
+        Expression::try_new(scalar_fn.clone(), children)
     }
 
-    let expr = if changed {
-        let exprs = children
-            .into_iter()
-            .map(|child| match child {
-                Analyzed::None(expr) | Analyzed::One(_, expr) => Ok(expr.into_owned()),
-                Analyzed::Many(_) => Err(vortex_err!("multiple slot referencing child")),
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        Cow::Owned(BoundExpression::try_new(scalar_fn.clone(), exprs)?)
-    } else {
-        Cow::Borrowed(node)
-    };
-    Ok(match slot {
-        None => Analyzed::None(expr),
-        Some(slot) => Analyzed::One(slot, expr),
-    })
-}
-
-fn replaced<'a>(parts: &mut Parts, output: RuleOutput) -> VortexResult<Analyzed<'a>> {
-    let RuleOutput { expr, reads } = output;
-    if reads.len() > 1 {
-        parts.substituted = true;
-        return Ok(Analyzed::Many(cut_slots(&expr, &reads, parts)?));
-    }
-    match reads.into_iter().next() {
-        None => Ok(Analyzed::None(Cow::Owned(bind_part(&expr, None)?))),
-        Some((slot, dtype)) => {
-            let part = bind_part(&expr, Some(&dtype))?;
-            Ok(Analyzed::One(slot, Cow::Owned(part)))
+    fn apply_rule(&self, node: &BoundExpression) -> VortexResult<Option<RuleOutput>> {
+        if !node.children().iter().all(BoundExpression::is_root) {
+            return Ok(None);
         }
+        let scalar_fn = node.as_scalar().map(|scalar_fn| scalar_fn.id());
+        let rule = self.rules.rule(self.source, scalar_fn);
+        rule.map_or(Ok(None), |rule| rule.run(self.scope, node))
+    }
+
+    fn replaced(&mut self, output: RuleOutput) -> VortexResult<Analyzed> {
+        let RuleOutput { expr, reads } = output;
+        if reads.len() > 1 {
+            self.substituted = true;
+            return Ok(Analyzed::Many(self.cut_slots(expr, &reads)?));
+        }
+        match reads.into_iter().next() {
+            None => Ok(Analyzed::None(bind_part(&expr, None)?)),
+            Some((slot, dtype)) => Ok(Analyzed::One(slot, bind_part(&expr, Some(&dtype))?)),
+        }
+    }
+
+    fn cut_slots(
+        &mut self,
+        expr: Expression,
+        reads: &HashMap<PlanSlot, DType>,
+    ) -> VortexResult<Expression> {
+        let cut = expr.transform_down(|node| {
+            let Some(slot) = slot_of_read(&node)? else {
+                vortex_ensure!(!node.is_root(), "Slots must be read");
+                return Ok(Transformed::no(node));
+            };
+            let dtype = reads
+                .get(&slot)
+                .ok_or_else(|| vortex_err!("Slot {slot} was not read"))?;
+            Ok(replace(
+                self.cut(slot, BoundExpression::new_root(dtype.clone())),
+            ))
+        })?;
+        Ok(cut.into_inner())
+    }
+
+    fn cut(&mut self, slot: PlanSlot, expr: BoundExpression) -> Expression {
+        let part = self.parts.position(slot, || Part {
+            slot,
+            exprs: Ordered::default(),
+        });
+        let sub = self.parts.items[part]
+            .exprs
+            .position(expr.clone(), move || expr);
+        unbound::get_item(
+            positional_name(sub),
+            unbound::get_item(positional_name(part), unbound::root()),
+        )
     }
 }
 
@@ -438,11 +439,23 @@ fn slot_of_read(expr: &Expression) -> VortexResult<Option<PlanSlot>> {
         .map_err(|_| vortex_err!("{name} is not a slot read"))
 }
 
-fn read_dtype(reads: &HashMap<PlanSlot, DType>, slot: PlanSlot) -> VortexResult<DType> {
-    reads
-        .get(&slot)
-        .cloned()
-        .ok_or_else(|| vortex_err!("Slot {slot} was not read"))
+fn bound(scalar_fn: &ScalarFnRef, children: Vec<Analyzed>) -> VortexResult<BoundExpression> {
+    let exprs = children
+        .into_iter()
+        .map(|child| match child {
+            Analyzed::None(expr) | Analyzed::One(_, expr) => Ok(expr),
+            Analyzed::Many(_) => Err(vortex_err!("multiple slot referencing child")),
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    BoundExpression::try_new(scalar_fn.clone(), exprs)
+}
+
+fn replace(value: Expression) -> Transformed<Expression> {
+    Transformed {
+        value,
+        order: TraversalOrder::Skip,
+        changed: true,
+    }
 }
 
 fn bind_part(expr: &Expression, root: Option<&DType>) -> VortexResult<BoundExpression> {
@@ -461,27 +474,6 @@ fn bind_part(expr: &Expression, root: Option<&DType>) -> VortexResult<BoundExpre
     BoundExpression::try_new(scalar_fn.clone(), children)
 }
 
-fn cut_slots(
-    expr: &Expression,
-    reads: &HashMap<PlanSlot, DType>,
-    parts: &mut Parts,
-) -> VortexResult<Expression> {
-    if let Some(slot) = slot_of_read(expr)? {
-        let read = BoundExpression::new_root(read_dtype(reads, slot)?);
-        return Ok(parts.cut(slot, read));
-    }
-    vortex_ensure!(!expr.is_root(), "Slots must be read");
-    if expr.children().is_empty() {
-        return Ok(expr.clone());
-    }
-    let children = expr
-        .children()
-        .iter()
-        .map(|child| cut_slots(child, reads, parts))
-        .collect::<VortexResult<Vec<_>>>()?;
-    expr.clone().with_children(children)
-}
-
 const NAMES_LEN: usize = 100;
 static NAMES: LazyLock<[FieldName; NAMES_LEN]> =
     LazyLock::new(|| std::array::from_fn(|position| FieldName::from(format!("{position}"))));
@@ -490,60 +482,27 @@ pub(crate) fn positional_name(slot: PlanSlot) -> FieldName {
     name.cloned().unwrap_or_else(|| format!("{slot}").into())
 }
 
-fn apply_rule(
-    rules: &PartitionSession,
-    scope: &DType,
-    source: PlanId,
-    node: &BoundExpression,
-) -> VortexResult<Option<RuleOutput>> {
-    let scalar_fn = match node.as_scalar() {
-        Some(_) if !node.children().iter().all(BoundExpression::is_root) => return Ok(None),
-        scalar_fn => scalar_fn.map(|scalar_fn| scalar_fn.id()),
-    };
-    match rules.rule(source, scalar_fn) {
-        Some(rule) => rule.run(scope, node),
-        None => Ok(None),
+struct Ordered<K, V> {
+    index: HashMap<K, usize>,
+    items: Vec<V>,
+}
+
+impl<K, V> Default for Ordered<K, V> {
+    fn default() -> Self {
+        Self {
+            index: HashMap::default(),
+            items: Vec::new(),
+        }
     }
 }
 
-struct PartBuild {
-    slot: PlanSlot,
-    positions: HashMap<BoundExpression, usize>,
-    exprs: Vec<BoundExpression>,
-}
-
-impl PartBuild {
-    fn push_dedup(&mut self, expr: BoundExpression) -> usize {
-        let exprs = &mut self.exprs;
-        *self.positions.entry(expr.clone()).or_insert_with(|| {
-            exprs.push(expr);
-            exprs.len() - 1
+impl<K: Hash + Eq, V> Ordered<K, V> {
+    fn position(&mut self, key: K, value: impl FnOnce() -> V) -> usize {
+        let items = &mut self.items;
+        *self.index.entry(key).or_insert_with(|| {
+            items.push(value());
+            items.len() - 1
         })
-    }
-}
-
-#[derive(Default)]
-struct Parts {
-    index: HashMap<PlanSlot, usize>,
-    parts: Vec<PartBuild>,
-    substituted: bool,
-}
-
-impl Parts {
-    fn cut(&mut self, slot: PlanSlot, expr: BoundExpression) -> Expression {
-        let part = *self.index.entry(slot).or_insert_with(|| {
-            self.parts.push(PartBuild {
-                slot,
-                positions: HashMap::default(),
-                exprs: Vec::new(),
-            });
-            self.parts.len() - 1
-        });
-        let sub = self.parts[part].push_dedup(expr);
-        unbound::get_item(
-            positional_name(sub),
-            unbound::get_item(positional_name(part), unbound::root()),
-        )
     }
 }
 
@@ -561,24 +520,22 @@ fn to_unbound(expr: &BoundExpression) -> VortexResult<Expression> {
 
 /// References produced in cut() have two levels. If reference is used only
 /// once, we can remove one level of indirection here. $.0.x -> $.x
-fn flatten_refs(node: &Expression, flattened: &HashSet<FieldName>) -> VortexResult<Expression> {
-    if let Some(name) = node.as_opt::<GetItem>()
-        && *name == positional_name(0)
-        && let Some(child_name) = node.child(0).as_opt::<GetItem>()
-        && node.child(0).child(0).is_root()
-        && flattened.contains(child_name)
-    {
-        return Ok(node.child(0).clone());
+fn flatten_refs(root: Expression, flattened: &HashSet<FieldName>) -> VortexResult<Expression> {
+    let flat = root.transform_down(|node| match flat_ref(&node, flattened) {
+        Some(inner) => Ok(replace(inner.clone())),
+        None => Ok(Transformed::no(node)),
+    })?;
+    Ok(flat.into_inner())
+}
+
+fn flat_ref<'a>(node: &'a Expression, flattened: &HashSet<FieldName>) -> Option<&'a Expression> {
+    let name = node.as_opt::<GetItem>()?;
+    if *name != positional_name(0) {
+        return None;
     }
-    if node.children().is_empty() {
-        return Ok(node.clone());
-    }
-    let children = node
-        .children()
-        .iter()
-        .map(|child| flatten_refs(child, flattened))
-        .collect::<VortexResult<Vec<_>>>()?;
-    node.clone().with_children(children)
+    let inner = node.child(0);
+    let part = inner.as_opt::<GetItem>()?;
+    (inner.child(0).is_root() && flattened.contains(part)).then_some(inner)
 }
 
 impl Default for PartitionSession {
