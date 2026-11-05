@@ -29,6 +29,21 @@ precedence = "override"
 SPDX-FileCopyrightText = "The Linux Foundation"
 SPDX-License-Identifier = "LicenseRef-Third-Party"
 
+# The Slack mark and the X logo in the shared header, as the design system keeps them (one colour,
+# currentColor). Each belongs to its owner, is not relicensed, and links only to the project's
+# Slack and X account.
+[[annotations]]
+path = ["docs/_theme/vortex/mark-slack.svg", "vortex-web/src/components/MarkSlack.tsx"]
+precedence = "override"
+SPDX-FileCopyrightText = "Slack Technologies, LLC"
+SPDX-License-Identifier = "LicenseRef-Third-Party"
+
+[[annotations]]
+path = ["docs/_theme/vortex/mark-x.svg", "vortex-web/src/components/MarkX.tsx"]
+precedence = "override"
+SPDX-FileCopyrightText = "X Corp."
+SPDX-License-Identifier = "LicenseRef-Third-Party"
+
 # three.js, which the docs serve for the 404's mark, because their CSP allows scripts from their
 # own origin only. A copy of three@0.170.0's build/three.module.min.js.
 [[annotations]]
