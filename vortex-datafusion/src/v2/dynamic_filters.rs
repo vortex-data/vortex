@@ -4,20 +4,26 @@
 //! Converts DataFusion dynamic filters, such as a hash join's build-side keys or a top-K bound,
 //! into Vortex scan predicates that follow the filter's current value.
 //!
-//! Vortex converts each conjunct of the filter's current value, or a widening of it that holds
-//! wherever the conjunct holds. The scan switches the filter off once it stops rejecting rows.
+//! Each dynamic filter becomes two conjuncts. The native conjunct holds what Vortex evaluates
+//! itself, so zone pruning can prove it. The exact conjunct hands what Vortex cannot convert, such
+//! as a hash table lookup, to DataFusion, which evaluates it over the rows that remain. The scan
+//! switches either conjunct off once it stops rejecting rows.
 
 use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::ScalarValue;
+use datafusion_common::internal_datafusion_err;
+use datafusion_common::tree_node::Transformed;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::expressions::BinaryExpr;
 use datafusion_physical_expr::expressions::CaseExpr;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr::utils::collect_columns;
@@ -36,10 +42,13 @@ use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::transform::find_between;
 use vortex::expr::transform::replace;
+use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use vortex::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use super::datafusion_predicate::DataFusionPredicate;
+use super::datafusion_predicate::DataFusionPredicateOptions;
 use crate::convert::ExpressionConverter;
 use crate::convert::exprs::is_infallible;
 
@@ -92,13 +101,24 @@ pub(crate) fn convert_dynamic_filter(
         schema,
         converter,
     };
-    dynamic_expression(
+    let native = dynamic_expression(
         Arc::new(DataFusionDynamicFilter {
-            conjuncts,
+            conjuncts: conjuncts.clone(),
             scope_projection,
         }),
+        inputs.clone(),
+    );
+    let exact = dynamic_expression(
+        Arc::new(ExactDynamicFilter {
+            conjuncts,
+            inputs: columns
+                .iter()
+                .map(|column| column.name().to_string())
+                .collect(),
+        }),
         inputs,
-    )
+    );
+    binary(Operator::And, native, exact)
 }
 
 fn boolean_operator(operator: &DFOperator) -> Option<Operator> {
@@ -110,6 +130,7 @@ fn boolean_operator(operator: &DFOperator) -> Option<Operator> {
 }
 
 /// A dynamic filter, and how to convert the conjuncts of its current value.
+#[derive(Clone)]
 struct DynamicConjuncts {
     expression: Arc<dyn PhysicalExpr>,
     schema: SchemaRef,
@@ -189,7 +210,7 @@ impl DynamicConjuncts {
         }
         // The branches of a join bound the same keys, so the hull of their bounds is about as
         // selective as their union, and Vortex evaluates and prunes one range per key instead of
-        // one per partition.
+        // one per partition. The exact conjunct still tests the CASE on every row.
         if let Some(hull) = bounds_hull(&branches).and_then(|hull| self.convert(&hull)) {
             return Some(hull);
         }
@@ -198,6 +219,11 @@ impl DynamicConjuncts {
             .map(|branch| self.widen(branch))
             .reduce(|left, right| Some(binary(Operator::Or, left?, right?)))
             .flatten()
+    }
+
+    /// Whether Vortex evaluates `conjunct` exactly, so DataFusion does not need to.
+    fn is_native(&self, conjunct: &Arc<dyn PhysicalExpr>) -> bool {
+        self.convert(conjunct).is_some()
     }
 }
 
@@ -371,7 +397,7 @@ impl DataFusionDynamicFilter {
     ///
     /// A join's dynamic filter bounds the probe side's keys and tests them against the build side
     /// with a hash table lookup, which has no Vortex equivalent. Dropping or widening a conjunct
-    /// only widens the filter, and the join enforces the keys exactly.
+    /// only widens the filter, and the exact conjunct and the join enforce the keys exactly.
     fn convert_conjuncts(&self, snapshot: &Arc<dyn PhysicalExpr>) -> Option<Expression> {
         split_conjunction(snapshot)
             .into_iter()
@@ -380,10 +406,97 @@ impl DataFusionDynamicFilter {
     }
 }
 
+/// The exact conjunct of a dynamic filter: the conjuncts of its current value that Vortex does
+/// not convert, which DataFusion evaluates over the scan's rows.
+struct ExactDynamicFilter {
+    conjuncts: DynamicConjuncts,
+    /// The column that each input of the dynamic expression reads, by name.
+    inputs: Vec<String>,
+}
+
+impl fmt::Debug for ExactDynamicFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl fmt::Display for ExactDynamicFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "exact({})", self.conjuncts.expression)
+    }
+}
+
+impl DynamicExpressionSource for ExactDynamicFilter {
+    fn generation(&self) -> u64 {
+        snapshot_generation(&self.conjuncts.expression)
+    }
+
+    fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+        self.conjuncts
+            .snapshot()
+            .and_then(|snapshot| self.residual(&snapshot))
+            .unwrap_or_else(|| lit(true))
+            .bind(scope)
+    }
+}
+
+impl ExactDynamicFilter {
+    /// The conjuncts of `snapshot` that Vortex does not convert, evaluated by DataFusion, or
+    /// `None` when there are none or they read a column that is not an input.
+    fn residual(&self, snapshot: &Arc<dyn PhysicalExpr>) -> Option<Expression> {
+        let residual = split_conjunction(snapshot)
+            .into_iter()
+            .filter(|conjunct| !self.conjuncts.is_native(conjunct))
+            .cloned()
+            .collect::<Vec<_>>();
+        if residual.is_empty() {
+            return None;
+        }
+        let predicate = conjunction(residual);
+
+        // The predicate reads the columns it references from a batch of exactly those columns.
+        let mut names = collect_columns(&predicate)
+            .into_iter()
+            .map(|column| column.name().to_string())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        let mut fields = Vec::with_capacity(names.len());
+        let mut children = Vec::with_capacity(names.len());
+        for name in &names {
+            let input = self.inputs.iter().position(|input| input == name)?;
+            let field = self.conjuncts.schema.field_with_name(name).ok()?;
+            fields.push(field.clone());
+            children.push(get_item(input_field_name(input), root()));
+        }
+        let predicate = predicate
+            .transform_up(|expr| {
+                let Some(column) = expr.downcast_ref::<Column>() else {
+                    return Ok(Transformed::no(expr));
+                };
+                let index = names
+                    .iter()
+                    .position(|name| name == column.name())
+                    .ok_or_else(|| internal_datafusion_err!("{column} was not collected"))?;
+                Ok(Transformed::yes(
+                    Arc::new(Column::new(column.name(), index)) as Arc<dyn PhysicalExpr>,
+                ))
+            })
+            .ok()?
+            .data;
+        Some(
+            DataFusionPredicate
+                .new_expr(DataFusionPredicateOptions::new(predicate, fields), children),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::RecordBatch;
+    use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
@@ -394,6 +507,7 @@ mod tests {
     use datafusion_physical_expr::expressions::BinaryExpr;
     use datafusion_physical_expr::expressions::CaseExpr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::expressions::IsNullExpr;
     use datafusion_physical_expr::expressions::Literal;
     use datafusion_physical_expr::expressions::NoOp;
@@ -401,6 +515,9 @@ mod tests {
     use datafusion_physical_plan::joins::HashExpr;
     use datafusion_physical_plan::joins::SeededRandomState;
     use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::builtins::ArrayBuiltins;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
@@ -408,13 +525,18 @@ mod tests {
     use vortex::expr::Expression;
     use vortex::expr::binary;
     use vortex::expr::root;
+    use vortex::mask::Mask;
     use vortex::scalar_fn::fns::between::Between;
     use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
     use vortex::scalar_fn::fns::operators::Operator;
+    use vortex::session::VortexSession;
+    use vortex_arrow::ArrowSessionExt;
 
     use super::DataFusionDynamicFilter;
     use super::DynamicConjuncts;
+    use super::ExactDynamicFilter;
     use super::boolean_literal;
+    use super::convert_dynamic_filter;
     use crate::convert::exprs::DefaultExpressionConverter;
 
     fn key() -> Arc<dyn PhysicalExpr> {
@@ -512,6 +634,14 @@ mod tests {
         native_filter(Arc::clone(&expression)).convert_conjuncts(&expression)
     }
 
+    fn exact(expression: Arc<dyn PhysicalExpr>) -> Option<Expression> {
+        ExactDynamicFilter {
+            conjuncts: conjuncts(Arc::clone(&expression)),
+            inputs: vec!["key".to_string()],
+        }
+        .residual(&expression)
+    }
+
     #[test]
     fn keeps_bounds_beside_an_unsupported_conjunct() {
         let converted = native(and(at_least(1), Arc::new(NoOp::new())));
@@ -535,6 +665,18 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn leaves_only_unconverted_conjuncts_to_datafusion() {
+        assert_eq!(exact(bounds(1, 5)), None);
+        let residual = exact(and(bounds(1, 5), multiple_of(2))).map(|expr| expr.to_string());
+        assert!(
+            residual
+                .as_ref()
+                .is_some_and(|residual| residual.contains("datafusion(") && residual.contains("%")),
+            "{residual:?}"
+        );
+    }
+
     #[rstest]
     #[case::hull(vec![bounds(1, 5), bounds(10, 20)], df_lit(false), Some(bounds(1, 20)))]
     #[case::rejecting_branch(vec![df_lit(false), bounds(10, 20)], df_lit(false), Some(bounds(10, 20)))]
@@ -554,7 +696,9 @@ mod tests {
             })
             .collect();
         let filter = partitioned(branches, else_expr)?;
-        assert_eq!(native(filter), expected.and_then(native));
+        assert_eq!(native(Arc::clone(&filter)), expected.and_then(native));
+        // The hash routing selects each partition's own test, which only DataFusion evaluates.
+        assert!(exact(filter).is_some());
         Ok(())
     }
 
@@ -566,10 +710,78 @@ mod tests {
             and(bounds(1, 5), Arc::new(NoOp::new())),
         );
         assert_eq!(
-            native(filter),
+            native(Arc::clone(&filter)),
             native(is_null)
                 .zip(native(bounds(1, 5)))
                 .map(|(left, right)| binary(Operator::Or, left, right))
         );
+        assert!(exact(filter).is_some());
+    }
+
+    /// The rows the scan keeps under the converted filter, and the rows DataFusion keeps under
+    /// the filter itself.
+    fn kept_rows(
+        filter: &Arc<dyn PhysicalExpr>,
+        converted: &Expression,
+        batch: &RecordBatch,
+    ) -> anyhow::Result<(Vec<bool>, Vec<bool>)> {
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+        let array = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let bound = converted.bind(array.dtype())?;
+        let mask = array
+            .apply_bound(&bound)?
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
+        let scan = (0..mask.len()).map(|idx| mask.value(idx)).collect();
+        let expected = filter
+            .evaluate(batch)?
+            .into_array(batch.num_rows())?
+            .as_boolean()
+            .iter()
+            .map(|value| value == Some(true))
+            .collect();
+        Ok((scan, expected))
+    }
+
+    #[test]
+    fn evaluates_the_current_filter_exactly() -> anyhow::Result<()> {
+        let batch = RecordBatch::try_new(
+            schema(),
+            vec![Arc::new(arrow_array::Int32Array::from_iter(
+                (0..64).map(|value| (value % 7 != 3).then_some(value)),
+            ))],
+        )?;
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(vec![key()], df_lit(true)));
+        let filter = Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>;
+        let converted = convert_dynamic_filter(
+            Arc::clone(&filter),
+            schema(),
+            Arc::new(DefaultExpressionConverter::default()),
+        );
+        let is_null = Arc::new(IsNullExpr::new(key())) as Arc<dyn PhysicalExpr>;
+        for predicate in [
+            df_lit(true),
+            // A collect-left join: bounds and a membership test.
+            and(bounds(4, 40), multiple_of(3)),
+            // A partitioned join: each partition has its own bounds and membership test.
+            partitioned(
+                vec![
+                    and(bounds(0, 30), multiple_of(2)),
+                    and(bounds(10, 50), multiple_of(5)),
+                    df_lit(false),
+                ],
+                df_lit(false),
+            )?,
+            // A null-aware join keeps the probe side's null keys.
+            or(is_null, and(bounds(8, 60), multiple_of(4))),
+        ] {
+            dynamic.update(Arc::clone(&predicate))?;
+            let (scan, expected) = kept_rows(&filter, &converted, &batch)?;
+            assert_eq!(scan, expected, "{predicate}");
+        }
+        Ok(())
     }
 }

@@ -898,3 +898,112 @@ async fn test_ree_dict_predicate_memtable_oracle(
     assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }
+
+/// The rows each Vortex scan in `plan` returned, after its predicate.
+fn vortex_scan_rows(plan: &Arc<dyn ExecutionPlan>) -> Vec<usize> {
+    let mut rows = Vec::new();
+    if plan
+        .downcast_ref::<DataSourceExec>()
+        .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
+        .is_some_and(|config| config.file_source.is::<VortexSource>())
+    {
+        rows.extend(plan.metrics().and_then(|metrics| metrics.output_rows()));
+    }
+    for child in plan.children() {
+        rows.extend(vortex_scan_rows(child));
+    }
+    rows
+}
+
+/// A hash join's dynamic filter reaches a V2 scan as bounds and a hash table lookup, routed by
+/// hash to each build partition for a partitioned join, and widened by `key IS NULL` for a
+/// null-equal join. The scan returns exactly the probe rows that the join can match.
+#[rstest]
+#[tokio::test]
+async fn test_hash_join_dynamic_filter_filters_scan_rows_exactly(
+    #[values(false, true)] partitioned: bool,
+    #[values(false, true)] null_equal: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2: true,
+            ..Default::default()
+        }),
+    ));
+    let threshold = if partitioned { 0 } else { 1 << 30 };
+    for setting in [
+        "datafusion.execution.target_partitions = 4".to_string(),
+        // Build sides above this many distinct keys test membership with a hash table lookup.
+        "datafusion.optimizer.hash_join_inlist_pushdown_max_distinct_values = 1".to_string(),
+        format!("datafusion.optimizer.hash_join_single_partition_threshold = {threshold}"),
+        format!("datafusion.optimizer.hash_join_single_partition_threshold_rows = {threshold}"),
+    ] {
+        ctx.session
+            .sql(&format!("SET {setting}"))
+            .await?
+            .collect()
+            .await?;
+    }
+
+    // Probe keys span the build keys' bounds, so only the membership test rejects rows.
+    let probe_keys = (0..4096)
+        .map(|key| (key % 11 != 5).then_some(key))
+        .collect::<Vec<_>>();
+    let build_keys = (0..4096)
+        .step_by(97)
+        .map(Some)
+        .chain(null_equal.then_some(None))
+        .collect::<Vec<_>>();
+    let probe = arrow_array::record_batch!(
+        ("k", Int32, probe_keys.clone()),
+        ("v", Int32, (0..4096).collect::<Vec<i32>>())
+    )?;
+    ctx.write_arrow_batch("probe.vortex", &probe).await?;
+    let table = ctx
+        .table_provider("probe", "/probe.vortex", probe.schema().as_ref().clone())
+        .await?;
+    ctx.session.register_table("probe", table)?;
+    let build = arrow_array::record_batch!(("k", Int32, build_keys.clone()))?;
+    ctx.session.register_table(
+        "build",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            build.schema(),
+            vec![vec![build]],
+        )?),
+    )?;
+
+    let condition = if null_equal {
+        "probe.k IS NOT DISTINCT FROM build.k"
+    } else {
+        "probe.k = build.k"
+    };
+    let plan = ctx
+        .session
+        .sql(&format!(
+            "SELECT probe.v FROM build JOIN probe ON {condition}"
+        ))
+        .await?
+        .create_physical_plan()
+        .await?;
+    let batches =
+        datafusion_physical_plan::collect(Arc::clone(&plan), ctx.session.task_ctx()).await?;
+
+    let expected = probe_keys
+        .iter()
+        .filter(|key| match key {
+            Some(key) => build_keys.contains(&Some(*key)),
+            None => null_equal,
+        })
+        .count();
+    assert_eq!(
+        batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+        expected
+    );
+    assert_eq!(
+        vortex_scan_rows(&plan),
+        [expected],
+        "{}",
+        DisplayableExecutionPlan::with_metrics(plan.as_ref()).indent(true)
+    );
+    Ok(())
+}
