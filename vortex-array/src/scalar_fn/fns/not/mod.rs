@@ -20,6 +20,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
+use crate::expr::bound_expression::BoundExpression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -29,6 +30,8 @@ use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::like::Like;
+use crate::scalar_fn::fns::like::LikeOptions;
 
 /// Expression that logically inverts boolean values.
 #[derive(Clone)]
@@ -108,6 +111,29 @@ impl ScalarFnVTable for Not {
         }
     }
 
+    fn simplify(
+        &self,
+        _options: &Self::Options,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let child = expr.child(0);
+
+        // `NOT (x LIKE p)` is `x NOT LIKE p`, null for the same rows. The single `LIKE` keeps the
+        // encoding-aware kernels, which a `NOT` over it would hide.
+        let Some(options) = child.as_opt::<Like>() else {
+            return Ok(None);
+        };
+
+        let options = LikeOptions {
+            negated: !options.negated,
+            ..*options
+        };
+        Ok(Some(BoundExpression::try_new(
+            Like.bind(options),
+            child.children().iter().cloned(),
+        )?))
+    }
+
     fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
@@ -150,9 +176,13 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::expr::col;
     use crate::expr::get_item;
+    use crate::expr::like;
+    use crate::expr::lit;
     use crate::expr::not;
+    use crate::expr::not_like;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::not::BoolArray;
@@ -216,6 +246,25 @@ mod tests {
             BoolArray::from_iter([true, false, true, true, false, false]),
             &mut ctx
         );
+    }
+
+    #[test]
+    fn simplifies_not_like_to_negated_like() -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::new(["s"].into(), vec![DType::Utf8(Nullability::Nullable)]),
+            Nullability::NonNullable,
+        );
+
+        let optimized = not(like(col("s"), lit("%a%"))).bind(&dtype)?.optimize()?;
+        let expected = not_like(col("s"), lit("%a%")).bind(&dtype)?;
+        assert_eq!(optimized.to_string(), expected.to_string());
+
+        let optimized = not(not_like(col("s"), lit("%a%")))
+            .bind(&dtype)?
+            .optimize()?;
+        let expected = like(col("s"), lit("%a%")).bind(&dtype)?;
+        assert_eq!(optimized.to_string(), expected.to_string());
+        Ok(())
     }
 
     #[test]
