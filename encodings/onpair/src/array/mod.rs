@@ -578,7 +578,7 @@ impl VTable for OnPair {
 /// Decodes the code stream straight into `builder`'s byte storage.
 ///
 /// The offsets are the running sum of the uncompressed lengths the array already stores, so the
-/// only work beyond the bulk `try_decode_into` is one prefix sum over them.
+/// only work beyond the bulk `decompress_into` is one prefix sum over them.
 fn append_to_varbin<O: OffsetBuilderPType>(
     array: ArrayView<'_, OnPair>,
     builder: &mut VarBinBuilder<O>,

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
 //! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by handing
-//! the materialised parts to `onpair::try_decode_into`.
+//! the materialised parts to `onpair::decompress_into`.
 //!
 //! [`OnPairArray`]: crate::OnPairArray
 
@@ -123,15 +123,15 @@ impl<'a> OnPairDecodePlan<'a> {
 
     /// Bulk-decodes the whole code stream into `out`, which must hold at least `total_size` bytes.
     ///
-    /// Do not reach for `#[inline(always)]` here. `try_decode_into` is monomorphized for
+    /// Do not reach for `#[inline(always)]` here. `decompress_into` is monomorphized for
     /// `CompactDictionaryView` whichever way this is annotated, and it is far too large to inline
     /// either way — it stays an out-of-line call in both. All `always` buys is dropping this
     /// wrapper's own frame, one `bl`/`ret` per decoded chunk against a whole-column decode, which
     /// `benches/decode.rs::canonicalize_to_varbinview` cannot tell apart from noise.
     #[inline]
     pub(crate) fn decode_into(&self, out: &mut [MaybeUninit<u8>]) -> VortexResult<usize> {
-        let written = match onpair::try_decode_into(self.codes.as_slice(), self.dict, out) {
-            Ok(written) => written,
+        let written = match onpair::decompress_into(self.codes.as_slice(), self.dict, out) {
+            Ok(decompressed) => decompressed.len(),
             Err(_) => {
                 vortex_bail!("OnPair codes decode to more bytes than uncompressed_lengths records")
             }
