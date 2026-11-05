@@ -6,7 +6,6 @@ import { Icon } from '../Icon';
 import { MarkGithub } from '../MarkGithub';
 import { MarkSlack } from '../MarkSlack';
 import { MarkX } from '../MarkX';
-import { ThemePicker } from '../ThemePicker';
 
 const REPO = 'vortex-data/vortex';
 const REPO_URL = `https://github.com/${REPO}`;
@@ -87,9 +86,10 @@ interface HeaderProps {
 
 /**
  * The design system's Header card, the one header every Vortex surface draws: the wordmark, the
- * links, the Explorer's tools, then the end group: the theme switch, the socials (X, Slack, and the
- * GitHub button), and on a narrow screen the Menu. Below 960px X and Slack move to twin rows in the
- * Menu's panel, and below 640px the switch and GitHub follow them. The wordmark points back to vortex.dev.
+ * links, the Explorer's tools, then the end group: the socials (X, Slack, and the GitHub button),
+ * and on a narrow screen the Menu. The theme switch is in the Footer. Below 960px X and Slack move
+ * to twin rows in the Menu's panel, and the GitHub button and the Menu are icon squares; below
+ * 640px GitHub follows. The wordmark points back to vortex.dev.
  */
 export function Header({ tools, menu }: HeaderProps) {
   return (
@@ -118,7 +118,6 @@ export function Header({ tools, menu }: HeaderProps) {
       </nav>
       {tools && <div className="vx-header-tools">{tools}</div>}
       <div className="vx-header-end">
-        <ThemePicker />
         <div className="vx-header-social">
           <a
             className="vx-nav-link vx-header-social-link"
@@ -155,10 +154,6 @@ export function Header({ tools, menu }: HeaderProps) {
           spill={
             <>
               {menu}
-              <div className="vx-header-menu-spill">
-                <span className="vx-label">Theme</span>
-                <ThemePicker />
-              </div>
               <a
                 className="vx-label vx-nav-link vx-header-menu-spill is-social"
                 href={REPO_URL}

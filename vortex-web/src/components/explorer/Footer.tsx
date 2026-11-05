@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { ThemePicker } from '../ThemePicker';
+
 const LINKS = [
   { href: 'https://vortex.dev/charter.pdf', label: 'Charter' },
   { href: 'https://lfprojects.org/policies/code-of-conduct/', label: 'Code of conduct' },
@@ -11,7 +13,8 @@ const LINKS = [
 /**
  * The design system's Footer card, the one footer every Vortex surface draws: The Linux
  * Foundation's logo (the system's CSS inverts it in Light), the line LF Projects requires, the
- * credit, and the project's links.
+ * credit, the project's links, and the theme switch, which the system's CSS moves up to the
+ * mark's line on a phone. The Explorer shows the footer on its start page only.
  */
 export function Footer() {
   return (
@@ -46,6 +49,7 @@ export function Footer() {
           </a>
         ))}
       </nav>
+      <ThemePicker />
     </footer>
   );
 }
