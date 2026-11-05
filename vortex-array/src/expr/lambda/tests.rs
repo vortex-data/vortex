@@ -77,6 +77,11 @@ impl ScalarFnVTable for Apply {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn arity(&self, _options: &ApplyOptions) -> Arity {
         Arity::Exact(1)
     }

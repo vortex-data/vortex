@@ -8,7 +8,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -50,9 +49,15 @@ impl VTable for Union {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
+    #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.union");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.union");
+        ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

@@ -47,6 +47,11 @@ impl<F: RowFn> ScalarFnVTable for F {
         RowFn::id(self)
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        <F as RowFn>::static_id()
+    }
+
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         RowFn::serialize(self, options)
     }

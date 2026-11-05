@@ -265,6 +265,11 @@ impl ScalarFnVTable for SpatialCollect {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, _: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }

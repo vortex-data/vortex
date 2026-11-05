@@ -8,7 +8,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::EmptyArrayData;
@@ -88,9 +87,15 @@ impl VTable for Extension {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.ext");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.ext");
+        ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(

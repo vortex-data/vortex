@@ -168,6 +168,11 @@ impl RowFn for DeferredI64 {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,

@@ -139,6 +139,11 @@ impl ScalarFnVTable for ListContains {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         // The default encodes to no bytes, which is also what every file written before the
         // option existed carries.

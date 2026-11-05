@@ -87,6 +87,11 @@ impl ScalarFnVTable for StatFn {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn arity(&self, _options: &Self::Options) -> Arity {
         Arity::Exact(1)
     }

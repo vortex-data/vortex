@@ -26,6 +26,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
+use vortex_array::is_any_vtable;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,7 +46,7 @@ impl Matcher for ArrowByteExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+        is_any_vtable!(array, VarBin, Chunked, Constant).then_some(array)
     }
 }
 

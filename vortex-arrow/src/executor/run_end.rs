@@ -20,6 +20,7 @@ use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::RunEndArray;
 use vortex_array::arrays::runend::RunEndArrayExt;
 use vortex_array::arrays::runend::RunEndArraySlotsExt;
+use vortex_array::is_any_vtable;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -36,7 +37,7 @@ impl Matcher for ArrowRunEndExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<RunEnd>() || array.is::<Constant>()).then_some(array)
+        is_any_vtable!(array, RunEnd, Constant).then_some(array)
     }
 }
 

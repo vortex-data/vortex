@@ -35,6 +35,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
+use vortex_array::is_any_vtable;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
@@ -143,8 +144,7 @@ impl Matcher for ParquetVariantExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<ParquetVariant>() || array.is::<Constant>() || array.is::<Masked>())
-            .then_some(array)
+        is_any_vtable!(array, ParquetVariant, Constant, Masked).then_some(array)
     }
 }
 

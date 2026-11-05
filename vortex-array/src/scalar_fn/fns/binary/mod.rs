@@ -97,6 +97,11 @@ impl ScalarFnVTable for Binary {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BinaryOpts {
@@ -413,6 +418,7 @@ mod tests {
     use crate::expr::test_harness;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::not::Not;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -737,6 +743,17 @@ mod tests {
         let lhs = ConstantArray::new(7i32, 3).into_array();
         let rhs = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         assert!(Binary::try_new(lhs, rhs, Operator::And).is_err());
+    }
+
+    #[test]
+    fn exact_scalar_fn_rejects_other_functions_by_id() -> VortexResult<()> {
+        let values = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+        let array = values.clone().binary(values, Operator::Add)?;
+        assert_eq!(Binary::static_id(), Some(array.encoding_id()));
+        assert!(array.is::<ExactScalarFn<Binary>>());
+        assert!(!array.is::<ExactScalarFn<Not>>());
+        assert!(array.as_opt::<ExactScalarFn<Not>>().is_none());
+        Ok(())
     }
 
     #[test]

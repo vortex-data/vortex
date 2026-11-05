@@ -211,6 +211,16 @@ impl Matcher for AnyScalarFn {
     }
 }
 
+/// Whether the inline encoding ID alone proves `array` is not a scalar function array of `F`.
+///
+/// A scalar function array's encoding ID is its function's ID, so a [`scalar_fn::ScalarFnVTable::static_id`]
+/// that differs rejects without the virtual calls of a downcast. IDs are not unique per vtable,
+/// so an equal ID is still confirmed by the downcast.
+#[inline]
+fn rejects_by_id<F: scalar_fn::ScalarFnVTable>(array: &ArrayRef) -> bool {
+    F::static_id().is_some_and(|id| array.encoding_id() != id)
+}
+
 /// A matcher that matches a specific scalar function expression.
 #[derive(Debug, Default)]
 pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
@@ -218,7 +228,11 @@ pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
 impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
+    #[inline]
     fn matches(array: &ArrayRef) -> bool {
+        if rejects_by_id::<F>(array) {
+            return false;
+        }
         if let Some(scalar_fn_array) = array.as_opt::<ScalarFn>() {
             scalar_fn_array.data().scalar_fn().is::<F>()
         } else {
@@ -226,7 +240,11 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
         }
     }
 
+    #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        if rejects_by_id::<F>(array) {
+            return None;
+        }
         let scalar_fn_array = array.as_opt::<ScalarFn>()?;
         let scalar_fn_data = scalar_fn_array.data();
         let scalar_fn = scalar_fn_data.scalar_fn().downcast_ref::<F>()?;

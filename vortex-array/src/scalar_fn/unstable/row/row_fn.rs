@@ -63,6 +63,18 @@ pub trait RowFn: 'static + Sized + Clone + Send + Sync {
     /// Returns the ID of the scalar function.
     fn id(&self) -> ScalarFnId;
 
+    /// Returns the ID shared by every instance of this vtable, or `None` if instances report
+    /// different IDs.
+    ///
+    /// [`ExactScalarFn`](crate::arrays::scalar_fn::ExactScalarFn) compares it against a scalar
+    /// function array's inline encoding ID to reject other functions without a virtual call. When
+    /// it is `Some`, it must equal [`id`](Self::id) for every instance. IDs are not unique per
+    /// vtable, so an equal ID still needs a type check.
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        None
+    }
+
     /// Serialize this function's options, or return `None` when the function is not serializable.
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         _ = options;

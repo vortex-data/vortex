@@ -84,6 +84,11 @@ impl RowFn for FilteredBoolean {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -412,6 +417,11 @@ impl RowFn for RepeatValue {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         width: &Self::Options,
@@ -476,6 +486,11 @@ impl RowFn for ValidOnlyIdentity {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -500,6 +515,11 @@ impl RowFn for FilteredIdentity {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -519,6 +539,11 @@ impl RowFn for DenseRetryIncrement {
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.dense_retry_increment");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
     }
 
     fn dispatch<V: RowVisitor>(
@@ -551,6 +576,11 @@ impl RowFn for FilteredRepeat {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         width: &Self::Options,
@@ -581,6 +611,11 @@ impl RowFn for InvalidKernelOutput {
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.invalid_kernel_output");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
     }
 
     fn dispatch<V: RowVisitor>(
@@ -655,6 +690,11 @@ impl RowFn for PackedPositive {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -676,6 +716,11 @@ impl<const MULTIVERSIONED: bool> RowFn for PackedGreaterThan<MULTIVERSIONED> {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -695,6 +740,11 @@ impl<const MULTIVERSIONED: bool> RowFn for DeferredGreaterThan<MULTIVERSIONED> {
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.deferred_greater_than");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
     }
 
     fn dispatch<V: RowVisitor>(
@@ -727,6 +777,11 @@ impl RowFn for ValidOnlyPositive {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -749,6 +804,11 @@ impl RowFn for NullaryTrue {
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.nullary_true");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
     }
 
     fn dispatch<V: RowVisitor>(
@@ -1368,6 +1428,11 @@ impl RowFn for DeclaredSinkOutput {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -1576,6 +1641,11 @@ impl RowFn for MismatchedStorage {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn dispatch<V: RowVisitor>(
         &self,
         _options: &Self::Options,
@@ -1658,6 +1728,11 @@ impl RowFn for ConstantString {
     fn id(&self) -> ScalarFnId {
         static ID: CachedId = CachedId::new("test.constant_string");
         *ID
+    }
+
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
     }
 
     fn dispatch<V: RowVisitor>(

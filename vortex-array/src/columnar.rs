@@ -93,6 +93,14 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
+    /// Canonical and constant encodings own the reserved encoding IDs, so one comparison of the
+    /// inline ID decides.
+    #[inline]
+    fn matches(array: &ArrayRef) -> bool {
+        array.encoding_id().is_columnar()
+    }
+
+    #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         if let Some(constant) = array.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))

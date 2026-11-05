@@ -23,6 +23,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::is_any_vtable;
 use vortex_array::matcher::Matcher;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -39,7 +40,7 @@ impl Matcher for ArrowListExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<List>() || array.is::<ListView>()).then_some(array)
+        is_any_vtable!(array, List, ListView).then_some(array)
     }
 }
 

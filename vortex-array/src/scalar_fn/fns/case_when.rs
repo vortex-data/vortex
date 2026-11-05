@@ -95,6 +95,11 @@ impl ScalarFnVTable for CaseWhen {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         vortex_ensure!(
             options.num_when_then_pairs > 0,
