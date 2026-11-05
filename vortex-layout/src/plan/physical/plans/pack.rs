@@ -32,6 +32,7 @@ use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
@@ -354,8 +355,8 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 .get(&ExactBoundExpr(expression.clone()))
                 .vortex_expect("Bound expression missing free-field annotations")
                 .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
+        let field_access = referenced_field_access(child.dtype(), fields, &referenced_fields)?;
+        let expanded = expand_struct_root(expression.clone(), &field_access, fields)?;
         let partitioned =
             partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
 
@@ -540,16 +541,60 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
     Ok(expression == &expanded_struct_root(input_dtype, fields)?)
 }
 
+/// The `$.name` access of each field of `fields` that `referenced` names, indexed like `fields`.
+///
+/// A wide struct has many fields, and an expression usually reads few of them. Building an access
+/// for every field would allocate and bind one node per field of the schema for every rewritten
+/// expression.
+fn referenced_field_access(
+    root_dtype: &DType,
+    fields: &StructFields,
+    referenced: &HashSet<FieldName>,
+) -> VortexResult<Vec<Option<BoundExpression>>> {
+    let root = BoundExpression::new_root(root_dtype.clone());
+    fields
+        .names()
+        .iter()
+        .map(|name| {
+            referenced
+                .contains(name)
+                .then(|| BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()]))
+                .transpose()
+        })
+        .collect()
+}
+
+/// The access of field `index`, which the expression being expanded must reference.
+fn field_access(
+    field_access: &[Option<BoundExpression>],
+    fields: &StructFields,
+    index: usize,
+) -> VortexResult<BoundExpression> {
+    field_access[index].clone().ok_or_else(|| {
+        vortex_err!(
+            "Field {} is accessed but not referenced while expanding struct root",
+            fields.field_name(index).map_or("?", |name| name.as_ref())
+        )
+    })
+}
+
+/// Rewrites every access of the struct root into accesses of its fields.
+///
+/// `field_access` holds the access of every field the expression references. A bare root
+/// references every field, so it expands into a pack of all of them.
 fn expand_struct_root(
     expression: BoundExpression,
-    expanded_root: &BoundExpression,
+    field_access: &[Option<BoundExpression>],
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
+                let children = (0..fields.nfields())
+                    .map(|index| self::field_access(field_access, fields, index))
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: bound_pack(fields.names().clone(), children)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -571,7 +616,7 @@ fn expand_struct_root(
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
+                    value: self::field_access(field_access, fields, index)?,
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -585,9 +630,9 @@ fn expand_struct_root(
                         let index = fields
                             .find(name)
                             .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
+                        self::field_access(field_access, fields, index)
                     })
-                    .collect();
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
                     value: bound_pack(names, children)?,
                     changed: true,
