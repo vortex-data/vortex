@@ -208,8 +208,26 @@ fn float_statistics_require_no_nans(
     Ok(())
 }
 
+#[rstest]
+#[case::fixed_width(DataType::Int64, Some(4096), Precision::Inexact(800))]
+#[case::fixed_width_without_stats(DataType::Int32, None, Precision::Inexact(400))]
+#[case::variable_width(DataType::Utf8, Some(4096), Precision::Inexact(4096))]
+#[case::variable_width_without_stats(DataType::Utf8View, None, Precision::Absent)]
+fn byte_size_from_width_or_uncompressed_size(
+    #[case] data_type: DataType,
+    #[case] uncompressed_size: Option<u64>,
+    #[case] expected: Precision<usize>,
+) -> VortexResult<()> {
+    let mut stats = StatsSet::default();
+    if let Some(size) = uncompressed_size {
+        stats.set(Stat::UncompressedSizeInBytes, VortexPrecision::exact(size));
+    }
+    assert_eq!(byte_size_to_df(&stats, &data_type, 100), expected);
+    Ok(())
+}
+
 #[test]
-fn uncompressed_size_is_not_reported_as_byte_size() -> VortexResult<()> {
+fn uncompressed_size_is_reported_as_inexact_byte_size() -> VortexResult<()> {
     let stats = StatsSet::of(
         Stat::UncompressedSizeInBytes,
         VortexPrecision::exact(4096u64),
@@ -217,9 +235,23 @@ fn uncompressed_size_is_not_reported_as_byte_size() -> VortexResult<()> {
     let dtype = DType::Utf8(Nullability::NonNullable);
     assert_eq!(
         stats_set_to_df(&stats, &dtype)?.byte_size,
-        Precision::Absent
+        Precision::Inexact(4096)
     );
     Ok(())
+}
+
+#[rstest]
+#[case::all_known(&[Precision::Exact(8), Precision::Inexact(4)], Precision::Inexact(12))]
+#[case::one_unknown(&[Precision::Exact(8), Precision::Absent], Precision::Absent)]
+fn total_byte_size_sums_columns(
+    #[case] sizes: &[Precision<usize>],
+    #[case] expected: Precision<usize>,
+) {
+    let columns = sizes
+        .iter()
+        .map(|size| ColumnStatistics::new_unknown().with_byte_size(*size))
+        .collect::<Vec<_>>();
+    assert_eq!(sum_byte_sizes(&columns), expected);
 }
 
 #[test]

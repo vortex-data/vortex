@@ -22,10 +22,14 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use datafusion_common::Statistics;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_common::stats::Precision;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::StatisticsArgs;
+use datafusion_physical_plan::StatisticsContext;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
@@ -896,5 +900,69 @@ async fn test_ree_dict_predicate_memtable_oracle(
     let actual = actual.collect().await?;
     let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
     assert_eq!(batch_values(&actual), batch_values(&expected));
+    Ok(())
+}
+
+/// Finds the statistics of the only `DataSourceExec` in `plan`.
+fn scan_statistics(plan: &Arc<dyn ExecutionPlan>) -> anyhow::Result<Arc<Statistics>> {
+    if plan.downcast_ref::<DataSourceExec>().is_some() {
+        return Ok(StatisticsContext::new().compute(plan.as_ref(), &StatisticsArgs::new())?);
+    }
+    match plan.children().as_slice() {
+        [child] => scan_statistics(child),
+        _ => anyhow::bail!("expected a single scan"),
+    }
+}
+
+/// Scans report the in-memory size of the columns they read, including variable-width ones.
+#[rstest]
+#[case::fixed_width("id", Some(Precision::Exact(8_000)))]
+#[case::variable_width("s", None)]
+#[case::mixed("id, s", None)]
+#[tokio::test]
+async fn scan_reports_projected_byte_size(
+    #[case] projection: &str,
+    #[case] fixed_width_total: Option<Precision<usize>>,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let batch = arrow_array::record_batch!(
+        ("id", Int64, (0..1_000).collect::<Vec<i64>>()),
+        (
+            "s",
+            Utf8,
+            (0..1_000)
+                .map(|i| format!("value-{i:>20}"))
+                .collect::<Vec<_>>()
+        ),
+        (
+            "unread",
+            Utf8,
+            (0..1_000).map(|i| format!("{i:>100}")).collect::<Vec<_>>()
+        )
+    )?;
+    ctx.write_arrow_batch("sized.vortex", &batch).await?;
+    let table = ctx
+        .table_provider("t", "/sized.vortex", batch.schema().as_ref().clone())
+        .await?;
+    ctx.session.register_table("t", table)?;
+
+    let plan = ctx
+        .session
+        .sql(&format!("SELECT {projection} FROM t"))
+        .await?
+        .create_physical_plan()
+        .await?;
+    let statistics = scan_statistics(&plan)?;
+    let column_sizes = statistics
+        .column_statistics
+        .iter()
+        .map(|column| match column.byte_size {
+            Precision::Inexact(size) if size > 0 => Ok(size),
+            other => Err(anyhow!("expected an inexact byte size, got {other:?}")),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let expected_total =
+        fixed_width_total.unwrap_or_else(|| Precision::Inexact(column_sizes.iter().sum()));
+    assert_eq!(statistics.total_byte_size, expected_total);
     Ok(())
 }
