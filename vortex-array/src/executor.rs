@@ -142,15 +142,17 @@ impl ArrayRef {
     /// loop:
     ///   Step 1: done(current_array)?
     ///     - root activation   -> return current_array
-    ///     - ExecuteSlot frame -> pop, reattach child, resume parent
+    ///     - ExecuteSlot frame -> pop, reattach child, try the child's reduce_parent rules on
+    ///                            the parent, resume parent
     ///
     ///   Step 2: current_builder active?
     ///     - yes -> skip Step 2a / 2b
-    ///     - no  -> try parent kernels
+    ///     - no  -> try parent rules and kernels
     ///
     ///   Step 2a: if stack.top exists:
     ///               parent = stack.top.parent_array
     ///               child = current_array
+    ///               child.reduce_parent(parent with child put back, stack.top.slot_idx)
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
@@ -166,6 +168,10 @@ impl ArrayRef {
     ///                             keep parent as current_array
     ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
+    ///
+    /// The parent-reduce rules in Step 1 and Step 2a see the encodings a child reaches while it
+    /// executes. The optimizer only sees the child alone at that point, and the parent keeps its
+    /// optimized mark when the child is put back.
     ///
     /// Step 2b first checks whether `current_array`'s encoding owns any execute-parent kernel at
     /// all (a marker entry in the same kernel snapshot), so a pure compression encoding does not
@@ -234,16 +240,53 @@ impl ArrayRef {
                         return Ok(current_array);
                     }
                     Some(frame) => {
-                        let _slot_idx = frame.slot_idx;
+                        let slot_idx = frame.slot_idx;
+                        let child = current_array.clone();
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
-                        trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
+                        trace_op!(record_execute_until_pop_frame(slot_idx, &current_array));
+
+                        // The parent keeps its optimized mark when its child is put back, so the
+                        // optimizer would skip it. Its parent-reduce rules may match the encoding
+                        // the child executed to, so try them here.
+                        if current_builder.is_none()
+                            && let Some(rewritten) =
+                                optimizer.reduce_parent(&current_array, &child, slot_idx)?
+                        {
+                            current_array = optimizer.optimize_array(&rewritten)?;
+                        }
                         continue;
                     }
                 }
             }
 
-            // Step 2a: execute_parent against the suspended parent from ExecuteSlot.
+            // Step 2a: reduce_parent, then execute_parent, against the suspended parent from
+            // ExecuteSlot.
             //
+            // Each execution step can expose a child encoding that a parent-reduce rule matches,
+            // such as a cast that pushes into the encoding a decode step produced. The rules get
+            // the parent with the child put back, since they may read any of its slots. Skip when
+            // a builder is active, for the same reason as the execute_parent step below.
+            if current_builder.is_none()
+                && let Some(frame) = stack.last()
+                && let Some(result) = {
+                    // SAFETY: `current_array` is the taken child, executed only by physical
+                    // rewrites, so it keeps the slot's logical dtype and length.
+                    let parent = unsafe {
+                        frame
+                            .parent_array
+                            .with_slot_filled_unchecked(frame.slot_idx, current_array.clone())
+                    };
+                    optimizer.reduce_parent(&parent, &current_array, frame.slot_idx)?
+                }
+            {
+                let frame = stack.pop().vortex_expect("just peeked");
+                let optimized = optimizer.optimize_array(&result)?;
+                trace_op!(record_execute_optimized(&result, &optimized));
+                current_array = optimized;
+                current_builder = frame.parent_builder;
+                continue;
+            }
+
             // When executing a child for ExecuteSlot, try execute_parent against
             // the suspended parent on the stack. This lets kernels like RunEnd's
             // FilterKernel fire before the child is forced to canonical.
@@ -1030,17 +1073,28 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::Canonical;
     use crate::VTable as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::memory::BufferAllocatorRef;
     use crate::memory::MemorySession;
     use crate::memory::MemorySessionExt;
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::optimizer::kernels::KernelSession;
+    use crate::optimizer::kernels::ReduceParentFn;
     use crate::optimizer::kernels::execute_parent_key;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::fns::not::Not;
+    use crate::scalar_fn::fns::operators::Operator;
 
     assert_impl_all!(ExecutionCtx: Send, Sync);
 
@@ -1132,5 +1186,77 @@ mod tests {
         session.get_mut::<MemorySession>().set_allocator(first);
 
         assert!(ctx.allocator().ptr_eq(&second));
+    }
+
+    /// Stands in for a parent-reduce rule: replaces the parent with a constant `true`, which
+    /// differs from what executing it would give.
+    fn replace_with_true(
+        _child: &ArrayRef,
+        parent: &ArrayRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ConstantArray::new(
+                Scalar::bool(true, parent.dtype().nullability()),
+                parent.len(),
+            )
+            .into_array(),
+        ))
+    }
+
+    /// A parent-reduce rule applies to an encoding its child reaches partway through executing,
+    /// before the child matches what the parent asked for.
+    #[test]
+    fn reduce_parent_applies_to_intermediate_child() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        // `not` over a comparison only appears once the zip below picks its lazy branch.
+        for child in [Binary.id(), Cast.id()] {
+            session.kernels().register_reduce_parent(
+                Not.id(),
+                child,
+                &[replace_with_true as ReduceParentFn],
+            );
+        }
+        let mut ctx = session.create_execution_ctx();
+
+        let values = vortex_buffer::buffer![1i32, 2, 3].into_array();
+        let zero = ConstantArray::new(0i32, 3).into_array();
+        // Lazy, and true for every row, so the zip returns its lazy `if_true` branch.
+        let mask = values.binary(zero.clone(), Operator::Gt)?;
+        let if_true = values.binary(zero, Operator::Gt)?;
+        let if_false = BoolArray::from_iter([Some(false), None, Some(false)]).into_array();
+        let array = mask.zip(if_true, if_false)?.not()?;
+
+        let result = array.execute::<Canonical>(&mut ctx)?.into_array();
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), Some(true), Some(true)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// A parent-reduce rule applies to the encoding a child executed to, once it is put back.
+    #[test]
+    fn reduce_parent_applies_to_executed_child() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        // `not` over a bool array only appears once the comparison below executes.
+        session.kernels().register_reduce_parent(
+            Not.id(),
+            Bool.id(),
+            &[replace_with_true as ReduceParentFn],
+        );
+        let mut ctx = session.create_execution_ctx();
+
+        let values = vortex_buffer::buffer![1i32, 2, 3].into_array();
+        let array = values
+            .binary(ConstantArray::new(0i32, 3).into_array(), Operator::Gt)?
+            .not()?;
+
+        let result = array.execute::<Canonical>(&mut ctx)?.into_array();
+
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]), &mut ctx);
+        Ok(())
     }
 }

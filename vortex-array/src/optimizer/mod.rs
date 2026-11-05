@@ -303,16 +303,7 @@ impl<'a> Optimizer<'a> {
                     continue;
                 };
 
-                // Session kernels take precedence over the child's static parent-reduce rules.
-                if let Some(session_kernels) = self.session_kernels
-                    && let Some(new_array) =
-                        try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
-                {
-                    reduced_parent = Some(new_array);
-                    break;
-                }
-
-                if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
+                if let Some(new_array) = self.reduce_parent(&current_array, child, slot_idx)? {
                     reduced_parent = Some(new_array);
                     break;
                 }
@@ -334,6 +325,26 @@ impl<'a> Optimizer<'a> {
         }
 
         vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
+    }
+
+    /// Runs the parent-reduce rules of `child`, the child of `parent` in `slot_idx`, returning the
+    /// rewritten parent if one applies.
+    ///
+    /// Session kernels take precedence over the child's static parent-reduce rules.
+    pub(crate) fn reduce_parent(
+        &self,
+        parent: &ArrayRef,
+        child: &ArrayRef,
+        slot_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(session_kernels) = self.session_kernels
+            && let Some(new_array) =
+                try_session_parent_reduce(session_kernels, parent, child, slot_idx)?
+        {
+            return Ok(Some(new_array));
+        }
+
+        child.reduce_parent(parent, slot_idx)
     }
 
     /// Optimizes the nodes that a rule built below the array it returned, if the optimizer has

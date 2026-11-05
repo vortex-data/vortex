@@ -577,6 +577,26 @@ impl ArrayRef {
         Ok((new_parent, child))
     }
 
+    /// Returns a copy of this suspended parent with `child` in `slot_idx`, leaving `self` as it
+    /// is.
+    ///
+    /// The executor uses this to show parent rules a complete parent while it still holds the
+    /// suspended one, whose slot was taken by [`Self::take_slot_unchecked`].
+    ///
+    /// # Safety
+    /// `child` must have the logical dtype and length of the taken slot.
+    pub(crate) unsafe fn with_slot_filled_unchecked(
+        &self,
+        slot_idx: usize,
+        child: ArrayRef,
+    ) -> ArrayRef {
+        let mut slots: ArraySlots = self.slots().iter().cloned().collect();
+        slots[slot_idx] = Some(child);
+        // SAFETY: every slot is present again and holds its original logical values, so the
+        // parent satisfies its encoding's invariants.
+        unsafe { self.0.data.with_slots_unchecked(self, slots) }
+    }
+
     /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
     /// or replacing the slot in this `ArrayRef`.
     /// This is the mirror of [`Self::take_slot_unchecked`].
