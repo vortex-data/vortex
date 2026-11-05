@@ -49,18 +49,7 @@ impl Matcher for ArrowDictExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
-    }
-}
-
-/// Matches [`ArrowDictExportable`] encodings and chunked arrays, whose chunks may each be one.
-struct ArrowDictExportableOrChunked;
-
-impl Matcher for ArrowDictExportableOrChunked {
-    type Match<'a> = &'a ArrayRef;
-
-    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (ArrowDictExportable::matches(array) || array.is::<Chunked>()).then_some(array)
+        (array.is::<Dict>() || array.is::<Constant>() || array.is::<Chunked>()).then_some(array)
     }
 }
 
@@ -71,7 +60,7 @@ pub(super) fn to_arrow_dictionary(
     exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = array.execute_until::<ArrowDictExportableOrChunked>(ctx)?;
+    let array = array.execute_until::<ArrowDictExportable>(ctx)?;
     let array = match array.try_downcast::<Chunked>() {
         Ok(chunked) => {
             if let Some(dict) = chunked_to_dict(&chunked, codes_type, values_type, exporter, ctx)? {
@@ -81,7 +70,6 @@ pub(super) fn to_arrow_dictionary(
         }
         Err(array) => array,
     };
-    let array = array.execute_until::<ArrowDictExportable>(ctx)?;
 
     let array = match array.try_downcast::<Dict>() {
         Ok(dict) => return dict_to_dict(dict, codes_type, values_type, exporter, ctx),
