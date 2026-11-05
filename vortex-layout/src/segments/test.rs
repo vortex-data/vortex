@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -61,33 +59,38 @@ impl SegmentSink for TestSegments {
     }
 }
 
-/// A [`SegmentSource`] that counts the segments requested from an inner source.
+/// A [`SegmentSource`] that records the segments requested from an inner source.
 ///
-/// Clones share the count.
+/// Clones share the record.
 #[derive(Clone)]
 pub struct CountingSegmentSource {
     inner: Arc<dyn SegmentSource>,
-    requests: Arc<AtomicUsize>,
+    requested: Arc<Mutex<Vec<SegmentId>>>,
 }
 
 impl CountingSegmentSource {
-    /// Wraps `inner`, starting the count at zero.
+    /// Wraps `inner`, with nothing requested yet.
     pub fn new(inner: Arc<dyn SegmentSource>) -> Self {
         Self {
             inner,
-            requests: Arc::new(AtomicUsize::new(0)),
+            requested: Arc::default(),
         }
     }
 
     /// Returns how many segments have been requested so far.
     pub fn requests(&self) -> usize {
-        self.requests.load(Ordering::Relaxed)
+        self.requested.lock().len()
+    }
+
+    /// Returns the segments requested so far, in request order.
+    pub fn requested(&self) -> Vec<SegmentId> {
+        self.requested.lock().clone()
     }
 }
 
 impl SegmentSource for CountingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        self.requests.fetch_add(1, Ordering::Relaxed);
+        self.requested.lock().push(id);
         self.inner.request(id)
     }
 }
