@@ -2451,8 +2451,16 @@ fn subquery_predicate(subquery: Arc<dyn PhysicalExpr>) -> Arc<dyn PhysicalExpr> 
 }
 
 #[rstest]
-#[case::resolved(Some(ScalarValue::Int64(Some(2))), PendingSubquery::Keep, Some(ScalarValue::Int64(Some(2))))]
-#[case::resolved_null(Some(ScalarValue::Int64(None)), PendingSubquery::Keep, Some(ScalarValue::Int64(None)))]
+#[case::resolved(
+    Some(ScalarValue::Int64(Some(2))),
+    PendingSubquery::Keep,
+    Some(ScalarValue::Int64(Some(2)))
+)]
+#[case::resolved_null(
+    Some(ScalarValue::Int64(None)),
+    PendingSubquery::Keep,
+    Some(ScalarValue::Int64(None))
+)]
 #[case::pending_kept(None, PendingSubquery::Keep, None)]
 #[case::pending_placeholder(None, PendingSubquery::Placeholder, Some(ScalarValue::Int64(Some(0))))]
 fn test_substitute_scalar_subqueries(
@@ -2486,8 +2494,111 @@ fn test_substituted_scalar_subquery_matches_datafusion() -> anyhow::Result<()> {
     let predicate = subquery_predicate(scalar_subquery(Some(ScalarValue::Int64(Some(2))))?);
     let substituted = substitute_scalar_subqueries(Arc::clone(&predicate), PendingSubquery::Keep)?;
     assert_eq!(
-        substituted.evaluate(&batch)?.into_array(batch.num_rows())?.as_ref(),
-        predicate.evaluate(&batch)?.into_array(batch.num_rows())?.as_ref(),
+        substituted
+            .evaluate(&batch)?
+            .into_array(batch.num_rows())?
+            .as_ref(),
+        predicate
+            .evaluate(&batch)?
+            .into_array(batch.num_rows())?
+            .as_ref(),
     );
     assert_native_matches(substituted, batch)
+}
+
+fn decimal128(values: Vec<Option<i128>>, precision: u8, scale: i8) -> arrow_array::ArrayRef {
+    Arc::new(
+        arrow_array::Decimal128Array::from(values)
+            .with_precision_and_scale(precision, scale)
+            .expect("valid decimal precision and scale"),
+    )
+}
+
+#[rstest]
+#[case::decimal_scale_up(
+    decimal128(vec![Some(-99_999), Some(99_999), Some(0), None], 7, 2),
+    DataType::Decimal128(9, 4)
+)]
+#[case::decimal_precision_up(
+    decimal128(vec![Some(-99_999), Some(99_999), None], 7, 2),
+    DataType::Decimal128(15, 2)
+)]
+#[case::decimal_to_decimal256(
+    decimal128(vec![Some(-99_999), Some(99_999), None], 7, 2),
+    DataType::Decimal256(40, 3)
+)]
+#[case::i32_to_decimal(
+    Arc::new(Int32Array::from(vec![Some(i32::MIN), Some(i32::MAX), None])),
+    DataType::Decimal128(12, 2)
+)]
+#[case::u64_to_decimal(
+    Arc::new(UInt64Array::from(vec![Some(u64::MAX), Some(0), None])),
+    DataType::Decimal128(20, 0)
+)]
+#[case::i8_to_decimal(
+    Arc::new(Int8Array::from(vec![Some(i8::MIN), Some(i8::MAX), None])),
+    DataType::Decimal128(3, 0)
+)]
+fn test_native_decimal_cast(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            target,
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
+#[case::utf8_to_view(DataType::Utf8, DataType::Utf8View)]
+#[case::utf8_to_large(DataType::Utf8, DataType::LargeUtf8)]
+#[case::view_to_large(DataType::Utf8View, DataType::LargeUtf8)]
+#[case::binary_to_view(DataType::Binary, DataType::BinaryView)]
+fn test_string_encoding_cast_is_dropped(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let values = cast(
+        &StringArray::from(vec![Some("a"), None, Some("long enough to be out of line")]),
+        &source,
+    )?;
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(!contains_cast(&converted), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::decimal_scale_down(DataType::Decimal128(7, 2), DataType::Decimal128(7, 1))]
+#[case::decimal_fewer_integer_digits(DataType::Decimal128(7, 2), DataType::Decimal128(8, 4))]
+#[case::i64_to_small_decimal(DataType::Int64, DataType::Decimal128(18, 0))]
+#[case::i32_to_small_decimal(DataType::Int32, DataType::Decimal128(10, 1))]
+#[case::view_to_utf8(DataType::Utf8View, DataType::Utf8)]
+#[case::large_to_view(DataType::LargeUtf8, DataType::Utf8View)]
+#[case::date_to_timestamp(
+    DataType::Date32,
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, None)
+)]
+fn test_fallible_cast_falls_back(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
 }

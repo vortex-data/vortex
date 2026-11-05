@@ -917,6 +917,8 @@ async fn test_ree_dict_predicate_memtable_oracle(
     "CAST(a AS BIGINT) >= (SELECT min(a) FROM oracle) AND CAST(a AS BIGINT) <= (SELECT max(a) - 1 FROM oracle)"
 )]
 #[case::subquery_null("a = (SELECT max(a) FROM oracle WHERE a > 100)")]
+#[case::int_to_decimal("CAST(a AS DECIMAL(12, 2)) > CAST(2.5 AS DECIMAL(12, 2))")]
+#[case::utf8_to_view("arrow_cast(s, 'Utf8View') = '2412'")]
 #[tokio::test]
 async fn test_rewritten_predicate_memtable_oracle(
     #[case] predicate: &str,
@@ -934,7 +936,11 @@ async fn test_rewritten_predicate_memtable_oracle(
     ));
     let batch = arrow_array::record_batch!(
         ("id", Int32, vec![0, 1, 2, 3, 4, 5]),
-        ("a", Int32, vec![Some(1), Some(2), None, Some(4), Some(5), Some(2)]),
+        (
+            "a",
+            Int32,
+            vec![Some(1), Some(2), None, Some(4), Some(5), Some(2)]
+        ),
         (
             "s",
             Utf8,
@@ -950,7 +956,11 @@ async fn test_rewritten_predicate_memtable_oracle(
     )?;
     ctx.write_arrow_batch("rewritten.vortex", &batch).await?;
     let actual_table = ctx
-        .table_provider("actual", "/rewritten.vortex", batch.schema().as_ref().clone())
+        .table_provider(
+            "actual",
+            "/rewritten.vortex",
+            batch.schema().as_ref().clone(),
+        )
         .await?;
     ctx.session.register_table("actual", actual_table)?;
     ctx.session.register_table(

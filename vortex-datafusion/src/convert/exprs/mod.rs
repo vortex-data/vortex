@@ -761,6 +761,40 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
         (Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64, Float64) => {
             CastPushdown::Keep
         }
+        // Every string and binary encoding is one Vortex dtype. Only casts whose target offsets
+        // cannot overflow, so that they cannot fail in DataFusion, are dropped.
+        (Utf8, Utf8View | LargeUtf8)
+        | (Utf8View, LargeUtf8)
+        | (Binary, BinaryView | LargeBinary)
+        | (BinaryView, LargeBinary) => CastPushdown::Drop,
+        // Rescaling to at least as many integer digits keeps every valid value in range.
+        (
+            Decimal32(from_precision, from_scale)
+            | Decimal64(from_precision, from_scale)
+            | Decimal128(from_precision, from_scale)
+            | Decimal256(from_precision, from_scale),
+            Decimal32(to_precision, to_scale)
+            | Decimal64(to_precision, to_scale)
+            | Decimal128(to_precision, to_scale)
+            | Decimal256(to_precision, to_scale),
+        ) if to_scale >= from_scale
+            && i16::from(*to_precision) - i16::from(*to_scale)
+                >= i16::from(*from_precision) - i16::from(*from_scale) =>
+        {
+            CastPushdown::Keep
+        }
+        // An integer fits when the decimal has as many integer digits as the integer type.
+        (
+            Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64,
+            Decimal32(precision, scale)
+            | Decimal64(precision, scale)
+            | Decimal128(precision, scale)
+            | Decimal256(precision, scale),
+        ) if i16::from(*precision) - i16::from(*scale)
+            >= integer_digits(source).ok_or(Unconverted::Unsupported)? =>
+        {
+            CastPushdown::Keep
+        }
         // A list cast casts each element. Vortex has no `FixedSizeList` to `List` cast.
         (List(from) | LargeList(from), List(to) | LargeList(to))
             if to.is_nullable() || !from.is_nullable() =>
@@ -768,6 +802,19 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
             classify_cast_types(from.data_type(), to.data_type())?
         }
         _ => return Err(Unconverted::Unsupported),
+    })
+}
+
+/// The number of decimal digits needed for every value of an integer type.
+fn integer_digits(data_type: &DataType) -> Option<i16> {
+    use DataType::*;
+    Some(match data_type {
+        Int8 | UInt8 => 3,
+        Int16 | UInt16 => 5,
+        Int32 | UInt32 => 10,
+        Int64 => 19,
+        UInt64 => 20,
+        _ => return None,
     })
 }
 
