@@ -115,9 +115,10 @@ impl Id {
         self.key() == RESERVED_LEN
     }
 
-    /// Whether this is one of the [`RESERVED_ARRAY_IDS`].
+    /// Whether this is one of the [`RESERVED_ARRAY_IDS`]: a canonical or the constant encoding,
+    /// the encodings that make up a columnar array.
     #[inline]
-    pub fn is_canonical_or_constant(&self) -> bool {
+    pub fn is_columnar(&self) -> bool {
         self.key() <= RESERVED_LEN
     }
 
@@ -370,19 +371,19 @@ mod tests {
             let id = Id::reserved(name);
             assert_eq!(id, Id::new(name));
             assert_eq!(id.as_str(), name);
-            assert!(id.is_canonical() && id.is_canonical_or_constant() && !id.is_constant());
+            assert!(id.is_canonical() && id.is_columnar() && !id.is_constant());
             assert_eq!(id.canonical_index(), Some(index));
         }
 
         let id = Id::reserved(constant);
         assert_eq!(id, Id::new(constant));
         assert_eq!(id.as_str(), "vortex.constant");
-        assert!(id.is_constant() && id.is_canonical_or_constant());
+        assert!(id.is_constant() && id.is_columnar());
         assert!(!id.is_canonical());
         assert_eq!(id.canonical_index(), None);
 
         let other = Id::new("vortex.test.unreserved");
-        assert!(!other.is_canonical_or_constant());
+        assert!(!other.is_columnar());
         assert_eq!(other.canonical_index(), None);
     }
 

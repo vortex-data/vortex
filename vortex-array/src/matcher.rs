@@ -59,7 +59,7 @@ pub fn vtable_matches<V: VTable>(
         if id != static_id {
             return false;
         }
-        if static_id.is_canonical_or_constant() {
+        if static_id.is_columnar() {
             return true;
         }
     }

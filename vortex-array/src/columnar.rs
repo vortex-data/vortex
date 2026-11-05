@@ -97,7 +97,7 @@ impl Matcher for AnyColumnar {
     /// inline ID decides.
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        array.encoding_id().is_canonical_or_constant()
+        array.encoding_id().is_columnar()
     }
 
     #[inline]

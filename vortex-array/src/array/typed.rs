@@ -164,7 +164,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         // Matchers trust reserved IDs without checking the vtable type. For a vtable with a
         // reserved ID this folds away at compile time.
         assert!(
-            !encoding_id.is_canonical_or_constant()
+            !encoding_id.is_columnar()
                 || reserved_vtable_type_id(encoding_id) == Some(TypeId::of::<V>()),
             "encoding ID {encoding_id} is reserved for a built-in vtable"
         );
