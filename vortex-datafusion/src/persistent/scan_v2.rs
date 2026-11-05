@@ -45,6 +45,8 @@ pub(crate) struct ScanDriver {
     concurrency: usize,
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
+    /// The most chunks that run beside each other, if fewer than the concurrency allows.
+    max_in_flight: Option<usize>,
 }
 
 impl ScanDriver {
@@ -53,7 +55,16 @@ impl ScanDriver {
             handle,
             concurrency,
             ordered,
+            max_in_flight: None,
         }
+    }
+
+    /// Run at most `max_in_flight` chunks beside each other. A chunk plans its pruning and its
+    /// reads when it starts, so a scan whose dynamic filter still changes starts few chunks ahead
+    /// of the ones it evaluates, and the later chunks prune with the newer value of the filter.
+    pub(crate) fn with_max_in_flight(mut self, max_in_flight: usize) -> Self {
+        self.max_in_flight = Some(max_in_flight);
+        self
     }
 
     /// Runs `root`, the first planner composed over `scan`, and everything it emits, and
@@ -66,6 +77,9 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let in_flight = self
+            .max_in_flight
+            .map_or(in_flight, |max_in_flight| in_flight.min(max_in_flight));
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,

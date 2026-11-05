@@ -84,11 +84,18 @@ use crate::join_filters::is_dropped_filter;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::dynamic_filters::DynamicFilePruner;
 use crate::persistent::dynamic_filters::DynamicFilterConversions;
 use crate::persistent::dynamic_filters::ScannedFile;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
+use crate::persistent::stream::ShouldPrune;
+
+/// The chunks a V2 scan with a dynamic filter that can still change runs beside each other for
+/// each chunk its concurrency allows per worker thread. In ClickBench, two chunks per partition
+/// made `ORDER BY "EventTime" LIMIT 10` over every column 20% faster than sixteen.
+const DYNAMIC_CHUNKS_PER_CONCURRENCY: usize = 2;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -385,10 +392,17 @@ impl FileOpener for VortexOpener {
                     .map(|idx| this_file_schema.field(idx).name().as_str())
                     .filter(|name| !filtered.contains(*name))
                     .collect::<Vec<_>>();
+                // The columns that the static filter reads, which the scan decodes for every row.
+                let static_columns = filter
+                    .iter()
+                    .flat_map(collect_columns)
+                    .map(|column| column.name().to_string())
+                    .collect::<Vec<_>>();
                 let scanned = ScannedFile {
                     path: &file.object_meta.location,
                     schema: &this_file_schema,
                     projected: &projected,
+                    static_columns: &static_columns,
                     filtered: !native_filters.is_empty(),
                     file: &vxf,
                 };
@@ -405,6 +419,10 @@ impl FileOpener for VortexOpener {
                     native_filters.extend(conjuncts);
                 }
             }
+            let dynamic_pruner =
+                dynamic_filter_conversions.file_pruner(&dynamic_filters, &this_file_schema, &vxf);
+            let has_dynamic_pruner = dynamic_pruner.is_some();
+
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
@@ -559,7 +577,14 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                let mut driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                if has_dynamic_pruner {
+                    // Each chunk prunes its zones with the filter as it starts. A TopK operator
+                    // tightens its filter with every batch, and the zones of most files hold no
+                    // row of its result, so chunks that start later prune far more.
+                    driver =
+                        driver.with_max_in_flight(DYNAMIC_CHUNKS_PER_CONCURRENCY * concurrency);
+                }
                 Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
@@ -678,13 +703,23 @@ impl FileOpener for VortexOpener {
                 stream
             };
 
-            if let Some(file_pruner) = file_pruner
-                && file_pruner.is_watching()
-            {
-                Ok(PrunableStream::new(file_pruner, stream).boxed())
-            } else {
-                Ok(stream)
+            let mut file_pruner = file_pruner.filter(FilePruner::is_watching);
+            let mut dynamic_pruner = dynamic_pruner;
+            if file_pruner.is_none() && dynamic_pruner.is_none() {
+                return Ok(stream);
             }
+
+            let should_prune: ShouldPrune = Box::new(move || {
+                if let Some(file_pruner) = &mut file_pruner
+                    && file_pruner.should_prune()?
+                {
+                    return Ok(true);
+                }
+                Ok(dynamic_pruner
+                    .as_mut()
+                    .is_some_and(DynamicFilePruner::should_prune))
+            });
+            Ok(PrunableStream::new(should_prune, stream).boxed())
         }
         .in_current_span()
         .boxed())

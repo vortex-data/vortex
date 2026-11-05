@@ -7,23 +7,28 @@ use std::task::Poll;
 
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
-use datafusion_pruning::FilePruner;
 use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
+
+/// Whether the scan of a file can stop, because an updated dynamic expression excludes the file.
+pub(crate) type ShouldPrune = Box<dyn FnMut() -> DFResult<bool> + Send>;
 
 /// Utility to end a stream early if its backing [`PartitionedFile`] can be pruned away by an updated dynamic expression.
 ///
 /// [`PartitionedFile`]: datafusion_datasource::PartitionedFile
 pub(crate) struct PrunableStream {
-    file_pruner: FilePruner,
+    should_prune: ShouldPrune,
     stream: Option<BoxStream<'static, DFResult<RecordBatch>>>,
 }
 
 impl PrunableStream {
-    pub fn new(file_pruner: FilePruner, stream: BoxStream<'static, DFResult<RecordBatch>>) -> Self {
+    pub fn new(
+        should_prune: ShouldPrune,
+        stream: BoxStream<'static, DFResult<RecordBatch>>,
+    ) -> Self {
         Self {
-            file_pruner,
+            should_prune,
             stream: Some(stream),
         }
     }
@@ -33,7 +38,7 @@ impl Stream for PrunableStream {
     type Item = DFResult<RecordBatch>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.as_mut().file_pruner.should_prune()? {
+        if (self.should_prune)()? {
             self.stream.take();
             Poll::Ready(None)
         } else {

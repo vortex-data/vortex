@@ -90,6 +90,8 @@ pub(crate) struct ScannedFile<'a> {
     pub(crate) schema: &'a SchemaRef,
     /// The names of the columns the scan outputs that no filter reads.
     pub(crate) projected: &'a [&'a str],
+    /// The names of the columns that the static filter of the scan reads.
+    pub(crate) static_columns: &'a [String],
     /// Whether the scan evaluates other filters that Vortex converts.
     pub(crate) filtered: bool,
     pub(crate) file: &'a VortexFile,
@@ -136,6 +138,7 @@ impl DynamicFilterConversions {
             path,
             schema,
             projected,
+            static_columns,
             filtered,
             file,
         } = *file;
@@ -145,17 +148,35 @@ impl DynamicFilterConversions {
             DynamicFilterTracking::classify(filter.expression()),
             DynamicFilterTracking::AllComplete
         ) {
+            // Each value of a dynamic filter only removes rows that its operator removes, so a file
+            // that the current value excludes is skipped, as DataFusion's file pruner does. Files
+            // that open late in a scan are often outside the threshold of a TopK operator that the
+            // earlier files set.
+            let (_, conjuncts) = filter.current();
+            if conjuncts
+                .iter()
+                .any(|(conjunct, _)| keeps_no_row(conjunct, file))
+            {
+                return Ok(None);
+            }
+
             // The scan of a small file only receives bounds on columns whose statistics estimate
-            // the rows they keep, as for a complete filter. Such a bound is cheap to evaluate, and
-            // the bounds on a small table on the build side of another join narrow the filter of
-            // that join, as with the weeks of `date_dim` in TPC-DS query 59.
+            // the rows they keep, as for a complete filter, or that the static filter decodes
+            // anyway, such as the search phrase of ClickBench query 25. Such a bound is cheap to
+            // evaluate, and the bounds on a small table on the build side of another join narrow
+            // the filter of that join, as with the weeks of `date_dim` in TPC-DS query 59.
             return Ok(Some(if file.row_count() >= MIN_FILE_ROWS {
                 filter.dynamic_expressions()
             } else {
                 filter
                     .bound_expressions()
                     .into_iter()
-                    .filter(|(column, _)| column_min_max(file, column).is_some())
+                    .filter(|(column, _)| {
+                        column_min_max(file, column).is_some()
+                            || static_columns
+                                .iter()
+                                .any(|name| name == AsRef::<str>::as_ref(column))
+                    })
                     .map(|(_, bound)| bound)
                     .collect()
             }));
@@ -197,6 +218,42 @@ impl DynamicFilterConversions {
         Ok(entry.insert((generation, switched)).1.clone())
     }
 
+    /// A pruner that ends the scan of `file` once the current value of one of `predicates` that
+    /// can still change excludes the file, or `None` if no such filter was converted for the
+    /// schema of the file with [`Self::conjuncts`].
+    pub(crate) fn file_pruner(
+        &self,
+        predicates: &[Arc<dyn PhysicalExpr>],
+        schema: &SchemaRef,
+        file: &VortexFile,
+    ) -> Option<DynamicFilePruner> {
+        let filters = predicates
+            .iter()
+            .filter_map(|predicate| {
+                let key = (
+                    Arc::as_ptr(predicate).cast::<()>().addr(),
+                    SchemaKey(Arc::clone(schema)),
+                );
+                let filter = Arc::clone(&self.filters.get(&key)?.1);
+                let complete = matches!(
+                    DynamicFilterTracking::classify(filter.expression()),
+                    DynamicFilterTracking::AllComplete
+                );
+                if complete {
+                    return None;
+                }
+
+                let (generation, _) = filter.current();
+                Some((filter, generation))
+            })
+            .collect::<Vec<_>>();
+
+        (!filters.is_empty()).then(|| DynamicFilePruner {
+            file: file.clone(),
+            filters,
+        })
+    }
+
     fn filter(
         &self,
         predicate: &Arc<dyn PhysicalExpr>,
@@ -224,6 +281,34 @@ impl DynamicFilterConversions {
                 .or_insert((Arc::clone(predicate), filter))
                 .1,
         ))
+    }
+}
+
+/// Ends the scan of a file once the current value of a dynamic filter that can still change
+/// excludes the file, as DataFusion's file pruner does with the filters it receives. A scan that
+/// reads the files of a table in order stops reading a file as soon as a TopK operator has found
+/// enough rows in the files before it.
+pub(crate) struct DynamicFilePruner {
+    file: VortexFile,
+    /// Each filter that can still change, with the generation at which it last kept the file.
+    filters: Vec<(Arc<DynamicFilter>, u64)>,
+}
+
+impl DynamicFilePruner {
+    /// Whether the statistics of the file show that the current value of a filter keeps none of
+    /// its rows. A filter is checked again only after it changes.
+    pub(crate) fn should_prune(&mut self) -> bool {
+        self.filters.iter_mut().any(|(filter, checked)| {
+            let (generation, conjuncts) = filter.current();
+            if generation == *checked {
+                return false;
+            }
+
+            *checked = generation;
+            conjuncts
+                .iter()
+                .any(|(conjunct, _)| keeps_no_row(conjunct, &self.file))
+        })
     }
 }
 

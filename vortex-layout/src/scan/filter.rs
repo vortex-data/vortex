@@ -108,16 +108,17 @@ impl FilterExpr {
         self.dynamic_conjuncts[conjunct_idx].as_ref()
     }
 
-    /// Whether to evaluate the conjunct over the next `input_rows` rows.
-    ///
-    /// A dynamic conjunct whose current predicate is `true` is skipped, as it would only read its
-    /// inputs. An optional conjunct is skipped as its switch decides.
-    pub fn should_evaluate(&self, conjunct_idx: usize, input_rows: usize) -> bool {
-        if self.dynamic_conjuncts[conjunct_idx].is_some()
+    /// Whether the conjunct is dynamic and its current predicate is `true`, such as the filter of
+    /// a TopK operator that has not seen enough rows yet. Evaluating it would only read its
+    /// inputs, but it can change before the scan evaluates it.
+    pub(crate) fn is_currently_true(&self, conjunct_idx: usize) -> bool {
+        self.dynamic_conjuncts[conjunct_idx].is_some()
             && is_currently_true(&self.conjuncts[conjunct_idx])
-        {
-            return false;
-        }
+    }
+
+    /// Whether to evaluate the conjunct over the next `input_rows` rows, as the switch of an
+    /// optional conjunct decides.
+    pub fn should_evaluate(&self, conjunct_idx: usize, input_rows: usize) -> bool {
         self.switches[conjunct_idx].as_ref().is_none_or(|switch| {
             switch.should_evaluate(self.version(conjunct_idx), input_rows as u64)
         })
@@ -156,12 +157,18 @@ impl FilterExpr {
         output_rows: usize,
         standalone: bool,
     ) {
-        if input_rows > 0 {
+        // The ordering compares the selectivity of each conjunct on its own. A switched conjunct
+        // after the required conjuncts can keep few of the rows that they keep, but most rows on
+        // its own, such as a TopK bound `SearchPhrase < 'x'` after `SearchPhrase <> ''`. If such
+        // a measurement moves the conjunct first, its switch measures it there and turns it off.
+        let switch = &self.switches[conjunct_idx];
+        if input_rows > 0 && (standalone || switch.is_none()) {
             #[expect(clippy::cast_precision_loss, reason = "a selectivity estimate")]
             let selectivity = output_rows as f64 / input_rows as f64;
             self.report_selectivity(conjunct_idx, selectivity);
         }
-        if let Some(switch) = &self.switches[conjunct_idx] {
+
+        if let Some(switch) = switch {
             switch.report(
                 self.version(conjunct_idx),
                 input_rows as u64,
@@ -337,6 +344,23 @@ mod tests {
         assert_eq!(*filter.ordering.read(), vec![0, 1]);
 
         filter.report_selectivity(1, 0.1);
+        assert_eq!(*filter.ordering.read(), vec![1, 0]);
+        Ok(())
+    }
+
+    #[test]
+    fn optional_conjuncts_after_others_do_not_reorder() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let expr = and(root(), switch(not(root()), 50));
+        let filter = FilterExpr::new(expr.bind(&dtype)?);
+        filter.report_evaluation(0, 100, 50, true);
+
+        // After the required conjunct, the optional conjunct keeps few of its rows, but this
+        // does not tell how many rows it keeps on its own.
+        filter.report_evaluation(1, 50, 1, false);
+        assert_eq!(*filter.ordering.read(), vec![0, 1]);
+
+        filter.report_evaluation(1, 100, 10, true);
         assert_eq!(*filter.ordering.read(), vec![1, 0]);
         Ok(())
     }

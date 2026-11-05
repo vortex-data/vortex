@@ -125,6 +125,47 @@ impl FilterPlans {
             .collect()
     }
 
+    /// The version of each dynamic conjunct, or `None` for a static one.
+    fn dynamic_versions(&self) -> Vec<Option<u64>> {
+        (0..self.pruning.len())
+            .map(|idx| {
+                self.expression
+                    .dynamic_updates(idx)
+                    .map(|updates| updates.version())
+            })
+            .collect()
+    }
+
+    /// The pruning plans of the dynamic conjuncts in `evaluated` whose zones a chunk over `rows`
+    /// can prune without a read.
+    ///
+    /// A scan prunes its rows once, before its first chunk, but an engine such as a TopK operator
+    /// tightens a dynamic conjunct while the scan runs. Each chunk prunes its zones again with the
+    /// current value of such a conjunct before it reads any data. A plan keeps the zone table
+    /// that an earlier pruning read, and proves its zones again only when the conjunct changes.
+    /// A plan whose zone table no scan read yet is skipped, as is done for scans of a few chunks.
+    fn dynamic_pruning(
+        &self,
+        evaluated: &BitVec,
+        session: &VortexSession,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Vec<PlanRef>> {
+        let mut plans = Vec::new();
+        for idx in 0..self.pruning.len() {
+            if !evaluated[idx] || self.expression.dynamic_updates(idx).is_none() {
+                continue;
+            }
+            let Some(plan) = self.pruning_plan(idx)? else {
+                continue;
+            };
+            if Scan::segments(session, plan, rows.clone(), mask)?.is_empty() {
+                plans.push(plan.clone());
+            }
+        }
+        Ok(plans)
+    }
+
     /// The pruning plans worth running before a scan of `rows` rows.
     ///
     /// A scan of at most one filtered chunk evaluates its conjuncts on that chunk next, so
@@ -175,6 +216,15 @@ pub(super) struct FilterPlanner {
     remaining: BitVec,
     active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
+    /// The pruning plans of the dynamic conjuncts still to prune the chunk's zones, set when the
+    /// chunk decides which conjuncts it evaluates.
+    pruning: Option<std::vec::IntoIter<PlanRef>>,
+    /// The pruning plan being evaluated.
+    pruning_active: Option<ScanAdaptor>,
+    /// The conjuncts the chunk evaluates, decided before any read.
+    evaluates: BitVec,
+    /// The versions of the dynamic conjuncts when the chunk last pruned its zones with them.
+    pruned_versions: Vec<Option<u64>>,
     announced: bool,
     /// Whether a conjunct has filtered the chunk's rows.
     evaluated: bool,
@@ -209,6 +259,10 @@ impl FilterPlanner {
             filter,
             active: None,
             pieces: Vec::new(),
+            pruning: None,
+            pruning_active: None,
+            evaluates: BitVec::new(),
+            pruned_versions: Vec::new(),
             announced: false,
             evaluated: false,
             next_hint: u32::MAX,
@@ -255,7 +309,9 @@ impl Drop for FilterPlanner {
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, adaptor)) = &mut self.active {
+        if let Some(adaptor) = &mut self.pruning_active {
+            adaptor.set_io_result(request, result);
+        } else if let Some((_, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -265,6 +321,11 @@ impl Planner for FilterPlanner {
     fn state(&self) -> State {
         if self.selected.is_none() {
             return State::Done;
+        }
+        if let Some(adaptor) = &self.pruning_active
+            && adaptor.state() != State::Done
+        {
+            return adaptor.state();
         }
         match &self.active {
             Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
@@ -276,8 +337,7 @@ impl Planner for FilterPlanner {
         let Some(selected) = &mut self.selected else {
             return Ok(PlannerOutput::Done);
         };
-        if !self.announced {
-            self.announced = true;
+        if self.pruning.is_none() {
             // Conjuncts the chunk skips are decided before any read, so their segments are not
             // fetched.
             let input_rows = selected.mask.true_count();
@@ -286,23 +346,78 @@ impl Planner for FilterPlanner {
                     self.remaining.set(index, false);
                 }
             }
+            self.evaluates = self.remaining.clone();
+            self.pruned_versions = self.filter.dynamic_versions();
+            let pruning = self.filter.dynamic_pruning(
+                &self.evaluates,
+                &self.scan.session,
+                selected.scope.rows.clone(),
+                &selected.mask,
+            )?;
+            self.pruning = Some(pruning.into_iter());
+        }
+        if let Some(adaptor) = &mut self.pruning_active {
+            if adaptor.state() != State::Done {
+                return Ok(match adaptor.compute()? {
+                    AdaptorStep::Yield => PlannerOutput::Continue,
+                    AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
+                    AdaptorStep::Piece(piece) => {
+                        self.pieces.push(piece_mask(&self.scan.session, piece)?);
+                        PlannerOutput::Continue
+                    }
+                });
+            }
+            let input = selected.mask.true_count();
+            let excluded = Mask::concat(self.pieces.iter())?;
+            vortex_ensure_eq!(excluded.len(), input);
+            selected.mask = selected.mask.intersect_by_rank(&!excluded);
+            tracing::debug!(
+                row_start = selected.scope.rows.start,
+                row_end = selected.scope.rows.end,
+                input_rows = input,
+                output_rows = selected.mask.true_count(),
+                "v2 chunk pruned by dynamic conjunct"
+            );
+            self.pruning_active = None;
+            self.pieces.clear();
+            if selected.mask.all_false() {
+                self.selected = None;
+                return Ok(PlannerOutput::Done);
+            }
+        }
+        if let Some(plan) = self.pruning.as_mut().and_then(Iterator::next) {
+            let scan = Scan::try_new(
+                self.scan.session.clone(),
+                plan,
+                vec![Split {
+                    rows: selected.scope.rows.clone(),
+                    mask: selected.mask.clone(),
+                }],
+            )?
+            .with_row_offset(self.scan.row_offset)
+            .with_value_cache(self.scan.values.clone());
+            self.pruning_active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            return Ok(PlannerOutput::Continue);
+        }
+        if !self.announced {
+            self.announced = true;
             let session = &self.scan.session;
             let rows = selected.scope.rows.clone();
+            // A dynamic conjunct whose predicate is still `true` is not prefetched, but the chunk
+            // evaluates it if it changes before its turn. The scan announces chunks ahead of
+            // their evaluation, often before a TopK operator has set its first threshold.
+            let expression = &self.filter.expression;
             let predicates = segments_read(
                 session,
                 self.filter
                     .predicates
                     .iter()
                     .enumerate()
-                    .filter(|(index, _)| self.remaining[*index])
+                    .filter(|(index, _)| {
+                        self.remaining[*index] && !expression.is_currently_true(*index)
+                    })
                     .map(|(_, plan)| plan),
                 rows.clone(),
-                &selected.mask,
-            )?;
-            let projection = segments_read(
-                session,
-                std::iter::once(&self.scan.projection),
-                rows,
                 &selected.mask,
             )?;
             let mut batch = Vec::new();
@@ -316,14 +431,27 @@ impl Planner for FilterPlanner {
                 &mut seen,
                 &mut batch,
             );
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Announce,
-                &projection,
-                &mut seen,
-                &mut batch,
-            );
+            // A chunk with a dynamic conjunct does not announce its projection. The source can
+            // read announced segments together with the segments next to them, but the
+            // conjunct often removes every row of the chunk once its engine tightens it, as a
+            // TopK operator does. In ClickBench, `SELECT * ... ORDER BY "EventTime" LIMIT 10` was
+            // 20% faster without these reads.
+            if !self.pruned_versions.iter().any(Option::is_some) {
+                let projection = segments_read(
+                    session,
+                    std::iter::once(&self.scan.projection),
+                    rows,
+                    &selected.mask,
+                )?;
+                hint(
+                    locations,
+                    &mut self.next_hint,
+                    IoIntent::Announce,
+                    &projection,
+                    &mut seen,
+                    &mut batch,
+                );
+            }
             if !batch.is_empty() {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
@@ -365,9 +493,26 @@ impl Planner for FilterPlanner {
             self.selected = None;
             return Ok(PlannerOutput::Done);
         }
+        // The scan plans and reads chunks ahead of their evaluation, often before a TopK operator
+        // has set its first threshold. Before each conjunct and before the projection, the chunk
+        // prunes its zones again with the dynamic conjuncts that changed since it last did.
+        let versions = self.filter.dynamic_versions();
+        if versions != self.pruned_versions {
+            self.pruned_versions = versions;
+            let pruning = self.filter.dynamic_pruning(
+                &self.evaluates,
+                &self.scan.session,
+                selected.scope.rows.clone(),
+                &selected.mask,
+            )?;
+            self.pruning = Some(pruning.into_iter());
+            return Ok(PlannerOutput::Continue);
+        }
         while let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
-            if !self.filter.expression.begin_evaluation(index) {
+            if self.filter.expression.is_currently_true(index)
+                || !self.filter.expression.begin_evaluation(index)
+            {
                 continue;
             }
             let scan = match Scan::try_new(

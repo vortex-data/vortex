@@ -19,13 +19,18 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::switch::Switch;
 
 /// Execute `array` to its canonical form for the rows of `demand`, or for every row without one.
 ///
-/// The values of rows outside the demand are unspecified. A computation that is not evaluated yet,
-/// such as a comparison, receives the demand through its [`ExecutionArgs`] and decides how to use
-/// it. An encoded or canonical array is executed whole.
+/// The values of rows outside the demand are unspecified. A computation that uses the demand, such
+/// as `AND` and `OR`, receives it through its [`ExecutionArgs`]. Every other array is executed
+/// whole, as the executor executes it: a comparison of an encoded array, for example, runs the
+/// comparison kernel of the encoding instead of decoding the array first.
 ///
 /// [`ExecutionArgs`]: crate::scalar_fn::ExecutionArgs
 pub fn execute_demanded(
@@ -41,7 +46,10 @@ pub fn execute_demanded(
             ConstantArray::new(Scalar::default_value(array.dtype()), array.len()).into_array(),
         );
     }
-    let Some(scalar_fn_array) = array.as_opt::<ScalarFn>() else {
+    let Some(scalar_fn_array) = array
+        .as_opt::<ScalarFn>()
+        .filter(|array| uses_demand(array.scalar_fn()))
+    else {
         return Ok(array.execute::<Canonical>(ctx)?.into_array());
     };
 
@@ -52,6 +60,15 @@ pub fn execute_demanded(
         .execute(&args, ctx)?
         .execute::<Canonical>(ctx)?
         .into_array())
+}
+
+/// Whether `scalar_fn` evaluates less of its inputs for a demand. Calling another function with
+/// its inputs directly would skip the kernels the executor finds for them.
+fn uses_demand(scalar_fn: &ScalarFnRef) -> bool {
+    scalar_fn
+        .as_opt::<Binary>()
+        .is_some_and(|operator| matches!(operator, Operator::And | Operator::Or))
+        || scalar_fn.is::<Switch>()
 }
 
 #[cfg(test)]
@@ -67,7 +84,6 @@ mod tests {
     use crate::arrays::Constant;
     use crate::arrays::PrimitiveArray;
     use crate::builtins::ArrayBuiltins;
-    use crate::scalar_fn::fns::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
