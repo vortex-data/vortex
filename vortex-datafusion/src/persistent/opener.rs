@@ -25,6 +25,7 @@ use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -83,6 +84,9 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::count_by::CountBy;
+use crate::persistent::count_by::count_chunk;
+use crate::persistent::count_by::count_rows;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
@@ -147,6 +151,9 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
+    /// A partial `COUNT(*)` emitted in place of the scanned rows. See
+    /// [`VortexCountByPushdown`](crate::VortexCountByPushdown).
+    pub(crate) count_by: Option<Arc<CountBy>>,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -211,6 +218,7 @@ impl FileOpener for VortexOpener {
 
         let mut projection = self.projection.clone();
         let (mut filter, dynamic_filters) = self.split_dynamic_filters();
+        let count_by = self.count_by.clone();
 
         let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
@@ -466,6 +474,27 @@ impl FileOpener for VortexOpener {
             let residual_filter = residual_filter
                 .map(|expr| reassign_expr_columns(expr, &stream_schema))
                 .transpose()?;
+            // The scan counts its rows itself only when they are exactly the columns DataFusion
+            // groups; otherwise each row DataFusion keeps after a residual filter counts once.
+            let count_scanned_rows = count_by.clone().filter(|_| {
+                residual_filter.is_none()
+                    && stream_schema.fields().len() == output_schema.fields().len()
+                    && stream_schema
+                        .fields()
+                        .iter()
+                        .zip(output_schema.fields().iter())
+                        .all(|(scanned, output)| scanned.data_type() == output.data_type())
+                    && leftover_projection
+                        .iter()
+                        .enumerate()
+                        .all(|(idx, projected)| {
+                            projected
+                                .expr
+                                .downcast_ref::<Column>()
+                                .is_some_and(|column| column.index() == idx)
+                        })
+            });
+            let counts_scanned_rows = count_scanned_rows.is_some();
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             let byte_range = file
@@ -488,8 +517,18 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
+            let count_output_schema = Arc::clone(&output_schema);
             let map_batch = move |chunk| {
                 let mut ctx = session.create_execution_ctx();
+                if let Some(count_by) = &count_scanned_rows {
+                    return count_chunk(
+                        chunk,
+                        count_by,
+                        &stream_target_field,
+                        &count_output_schema,
+                        &mut ctx,
+                    );
+                }
                 let arrow_session = ctx.session().clone();
                 let arrow = arrow_session.arrow().execute_arrow(
                     chunk,
@@ -644,6 +683,9 @@ impl FileOpener for VortexOpener {
             })
             .map(move |batch| -> DFResult<Option<RecordBatch>> {
                 let mut batch = batch?;
+                if counts_scanned_rows {
+                    return Ok(Some(batch));
+                }
                 if let Some(residual) = &residual_filter {
                     batch = batch_filter(&batch, residual).map_err(|e| {
                         exec_datafusion_err!(
@@ -658,11 +700,15 @@ impl FileOpener for VortexOpener {
                 let batch = projector.project_batch(&batch)?;
 
                 let (_, columns, row_count) = batch.into_parts();
-                Ok(Some(RecordBatch::try_new_with_options(
+                let batch = RecordBatch::try_new_with_options(
                     Arc::clone(&output_schema),
                     columns,
                     &RecordBatchOptions::new().with_row_count(Some(row_count)),
-                )?))
+                )?;
+                match &count_by {
+                    Some(count_by) => count_rows(&batch, count_by).map(Some),
+                    None => Ok(Some(batch)),
+                }
             })
             .filter_map(|batch| ready(batch.transpose()))
             .boxed();
@@ -1217,6 +1263,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1306,7 +1353,7 @@ mod tests {
             &[0, 1, 2]
         })?);
         let modulo: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
-            Arc::new(df_expr::Column::new("b", schema.index_of("b")?)),
+            Arc::new(Column::new("b", schema.index_of("b")?)),
             Operator::Modulo,
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
         ));
@@ -1628,6 +1675,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1721,6 +1769,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1905,6 +1954,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1971,6 +2021,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2188,6 +2239,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            count_by: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2306,7 +2358,7 @@ mod tests {
             ),
         ]));
         let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
-            Arc::new(df_expr::Column::new("ts", 1)),
+            Arc::new(Column::new("ts", 1)),
             Operator::Eq,
             Arc::new(df_expr::Literal::new(ScalarValue::TimestampMicrosecond(
                 Some(1_000_000),
@@ -2383,13 +2435,13 @@ mod tests {
         let size =
             write_arrow_to_vortex(Arc::clone(&store), "composition.vortex", batch.clone()).await?;
         let native: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
-            Arc::new(df_expr::Column::new("a", 0)),
+            Arc::new(Column::new("a", 0)),
             Operator::Gt,
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(35)))),
         ));
         let residual: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("b", 1)),
+                Arc::new(Column::new("b", 1)),
                 Operator::Modulo,
                 Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
             )),
@@ -2418,7 +2470,7 @@ mod tests {
             write_arrow_to_vortex(Arc::clone(&store), "filter-error.vortex", batch.clone()).await?;
         let filter: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::Column::new("a", 0)),
+                Arc::new(Column::new("a", 0)),
                 Operator::Divide,
                 Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
             )),

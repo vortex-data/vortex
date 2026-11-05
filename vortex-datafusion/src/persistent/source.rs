@@ -48,6 +48,7 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::persistent::count_by::CountBy;
 use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
@@ -221,6 +222,8 @@ pub struct VortexSource {
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
+    /// A partial `COUNT(*)` the scan emits in place of its rows. See [`VortexCountByPushdown`](crate::VortexCountByPushdown).
+    pub(crate) count_by: Option<Arc<CountBy>>,
 }
 
 impl VortexSource {
@@ -257,6 +260,7 @@ impl VortexSource {
             file_metadata_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
+            count_by: None,
         }
     }
 
@@ -334,6 +338,12 @@ impl VortexSource {
         &self.options
     }
 
+    /// Emit the partial state of `count_by` in place of the scanned rows.
+    pub(crate) fn with_count_by(mut self, count_by: Arc<CountBy>) -> Self {
+        self.count_by = Some(count_by);
+        self
+    }
+
     /// Replaces the table options for this source.
     pub fn with_options(mut self, opts: VortexTableOptions) -> Self {
         self.options = opts;
@@ -386,6 +396,7 @@ impl VortexSource {
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
+            count_by: self.count_by.clone(),
         };
 
         Ok(opener)

@@ -24,6 +24,7 @@
 
 mod access_plan;
 mod cache;
+mod count_by;
 mod format;
 pub mod metrics;
 mod opener;
@@ -34,6 +35,8 @@ mod source;
 mod stream;
 
 pub use access_plan::VortexAccessPlan;
+pub use count_by::VortexCountByExec;
+pub use count_by::VortexCountByPushdown;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
