@@ -683,7 +683,7 @@ unsafe extern "C" fn device_stream_release(stream: *mut ArrowDeviceArrayStream) 
     stream_ref.get_last_error = None;
     stream_ref.release = None;
 
-    let private_data = std::mem::replace(&mut stream_ref.private_data, ptr::null_mut());
+    let private_data = mem::replace(&mut stream_ref.private_data, ptr::null_mut());
     if !private_data.is_null() {
         drop(catch_unwind(AssertUnwindSafe(|| unsafe {
             drop(Box::from_raw(
