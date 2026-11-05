@@ -7,6 +7,7 @@ use arrow_array::Int16Array;
 use arrow_array::Int32Array;
 use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
+use arrow_array::StringArray;
 use arrow_array::StringViewArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -18,7 +19,9 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use datafusion_common::ScalarValue;
 use datafusion_physical_expr::expressions::Column;
+use datafusion_physical_expr::expressions::Literal;
 use object_store::ObjectStore;
 use object_store::memory::InMemory;
 use rstest::rstest;
@@ -120,6 +123,10 @@ async fn run(ctx: &SessionContext, sql: &str) -> anyhow::Result<(String, String)
      ORDER BY source, width",
     true
 )]
+#[case::constant_key(
+    "SELECT 'all' AS k, COUNT(*) AS c FROM hits WHERE width > 100 GROUP BY 1",
+    false
+)]
 #[case::other_aggregate(
     "SELECT url, SUM(width) AS s FROM hits GROUP BY url ORDER BY url",
     false
@@ -189,6 +196,42 @@ fn count_chunk_counts_dictionary_codes() -> anyhow::Result<()> {
             Arc::new(StringViewArray::from(vec!["a", "b", "c", "a"])),
             Arc::new(Int16Array::from(vec![1, 1, 1, 2])),
             Arc::new(Int64Array::from(vec![2, 2, 1, 1])),
+        ],
+    )?;
+    assert_eq!(batch, expected);
+    Ok(())
+}
+
+/// A scan of no columns, as for a constant grouping key, counts all of a chunk's rows as one
+/// group.
+#[test]
+fn count_chunk_counts_a_scan_of_no_columns() -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    let mut ctx = session.create_execution_ctx();
+
+    let chunk = StructArray::new_fieldless_with_len(5);
+    let scan_schema = Arc::new(Schema::empty());
+    let count_by = CountBy {
+        schema: Arc::new(Schema::new(vec![
+            Field::new("k", DataType::Utf8, false),
+            Field::new("count", DataType::Int64, false),
+        ])),
+        group_by: vec![Arc::new(Literal::new(ScalarValue::from("all")))],
+    };
+
+    let batch = count_chunk(
+        chunk.into_array(),
+        &count_by,
+        &Field::new_struct("", Fields::empty(), false),
+        &scan_schema,
+        &mut ctx,
+    )?;
+
+    let expected = RecordBatch::try_new(
+        Arc::clone(&count_by.schema),
+        vec![
+            Arc::new(StringArray::from(vec!["all"])),
+            Arc::new(Int64Array::from(vec![5])),
         ],
     )?;
     assert_eq!(batch, expected);

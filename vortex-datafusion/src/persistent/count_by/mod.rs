@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use arrow_array::Int64Array;
 use arrow_array::RecordBatch;
+use arrow_array::RecordBatchOptions;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -52,6 +53,7 @@ use datafusion_physical_plan::DisplayAs;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::ExecutionPlanProperties;
+use datafusion_physical_plan::InputOrderMode;
 use datafusion_physical_plan::PlanProperties;
 use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::aggregates::AggregateMode;
@@ -155,6 +157,9 @@ fn push_down_count_by(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Execution
     let aggregate = node.downcast_ref::<AggregateExec>()?;
     if *aggregate.mode() != AggregateMode::Partial
         || aggregate.limit_options().is_some()
+        // A sorted-mode final aggregate relies on the partial aggregate's output ordering, which
+        // the representative rows would not declare.
+        || *aggregate.input_order_mode() != InputOrderMode::Linear
         || !aggregate.dynamic_expressions_produced().is_empty()
         || aggregate.filter_expr().iter().any(Option::is_some)
     {
@@ -377,7 +382,12 @@ pub(crate) fn count_chunk(
         .arrow()
         .execute_arrow(chunk, Some(scan_field), ctx)?;
     let (_, columns, _) = scanned.as_struct().clone().into_parts();
-    let scanned = RecordBatch::try_new(Arc::clone(scan_schema), columns)?;
+    // A scan of no columns, as for a constant grouping key, still has its rows.
+    let scanned = RecordBatch::try_new_with_options(
+        Arc::clone(scan_schema),
+        columns,
+        &RecordBatchOptions::new().with_row_count(Some(counts.len())),
+    )?;
     count_by
         .partial_state(&scanned, counts)
         .map_err(|e| vortex_err!("Failed to evaluate the grouping expressions: {e}"))
