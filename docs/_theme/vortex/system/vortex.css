@@ -1,0 +1,612 @@
+/* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
+   Edit the system, then run tools/site-styles.mjs; do not edit here.
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
+   sha256 7842c9955386425ed04d02775a313651c9fa557580280f4e79d9ba890fa3a543 */
+
+/* ------------------------------------------------------------------ base */
+/* Every component sizes with border-box, so it draws the same under a site's reset or none. */
+:where([class*="vx-"]),
+:where([class*="vx-"])::before,
+:where([class*="vx-"])::after {
+  box-sizing: border-box;
+}
+/* Text for screen readers only, such as a copy button's "Copied". */
+.vx-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
+   vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
+   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
+   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
+   or the browser's: around the whole page, it marks nothing a reader can use. */
+.vx-skip-link {
+  position: fixed;
+  top: var(--space-8);
+  left: var(--space-8);
+  z-index: 1200;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 500;
+  text-decoration: none;
+}
+.vx-skip-link:not(:focus) {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+.vx-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.vx-label,
+.vx-label-sm {
+  color: var(--ink-muted);
+}
+/* A machine reference, such as an error digest or a commit hash, in a label or in text. It keeps
+   its case, selects whole for a bug report, and breaks anywhere rather than overflow a phone. */
+.vx-ref {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.vx-num {
+  font-variant-numeric: tabular-nums;
+}
+/* In prose, the link rule styles an author's links. A system link (a vx- class) has its own rule. */
+.vx-link,
+.vx-prose a:not([class*="vx-"]) {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent);
+  text-underline-offset: 3px;
+  transition: color var(--vx-motion), text-decoration-color var(--vx-motion);
+}
+.vx-link:hover,
+.vx-prose a:not([class*="vx-"]):hover {
+  color: var(--accent-ink);
+  text-decoration-color: currentColor;
+}
+
+/* Headings take ink, so a page never has to say so. It sits in base, which every site
+   copies. :where() keeps it at no specificity, so any component that colours its own headings wins. */
+:where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
+
+
+/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
+   both draw it, so it sits in base, which every site copies. */
+.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
+.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
+.vx-chain-arrow { color: var(--ink-muted); }
+
+/* ------------------------------------------------------------------ chrome */
+/* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
+   the quiet links, the buttons, the header, the footer, the theme switch, and the 404. Every
+   surface copies this section. */
+/* A quiet link in mono: header and footer navigation, feeds, source lines. */
+.vx-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--ink-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--vx-motion);
+}
+.vx-nav-link:hover,
+.vx-nav-link[aria-current="page"],
+.vx-nav-link[aria-current="true"] {
+  color: var(--ink);
+}
+.vx-nav-link svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
+   after that rule and wins the tie. */
+.vx-source {
+  display: inline-flex;
+  flex-wrap: wrap;
+  white-space: normal;
+  align-items: center;
+  gap: var(--space-4);
+}
+.vx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--control-md);
+  padding: 0 var(--space-16);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: 500 14px/1 var(--font-sans);
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--vx-motion), border-color var(--vx-motion);
+}
+.vx-btn svg { width: 16px; height: 16px; fill: currentColor; }
+/* Disabled: no fill, a line border, and muted text, so it reads as off in more than one way. */
+.vx-btn[disabled], .vx-btn[aria-disabled="true"] { background: transparent; border-color: var(--line); color: var(--ink-muted); cursor: not-allowed; }
+.vx-btn-primary { background: var(--primary); color: var(--on-primary); }
+.vx-btn-secondary { border-color: var(--edge); }
+.vx-btn-secondary:hover { border-color: var(--ink); }
+.vx-btn-ghost:hover { background: var(--raised); }
+/* Pressed: one step past hover, in place. */
+.vx-btn-primary:active:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--primary) 82%, var(--ground)); }
+.vx-btn-secondary:active:not([disabled], [aria-disabled="true"]) { background: var(--raised); }
+.vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
+.vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
+.vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
+/* Buttons side by side, primary first, wrapping onto a second row on a phone. */
+.vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
+
+/* The header: one row, the same on every surface (DECISIONS 35). The wordmark, the site's links,
+   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the theme
+   switch, the GitHub button and, on a narrow screen, the Menu. No breakpoint depends on the tools,
+   so at a given width the shared items look the same and sit in the same place on every surface;
+   the tools fit themselves into the room between. One solid line rule below it, sticky at the top
+   of the window. */
+.vx-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-24);
+  height: 64px;
+  padding: 0 var(--page-pad);
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+}
+/* The sticky header must not cover what takes focus or what a link scrolls to (WCAG 2.4.11).
+   The header is 64px tall. */
+html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)); }
+.vx-header-start { display: flex; flex-shrink: 0; align-items: center; }
+.vx-header-mark { height: 24px; width: auto; display: block; }
+.vx-header-mark.is-light, [data-theme="light"] .vx-header-mark.is-dark { display: none; }
+[data-theme="light"] .vx-header-mark.is-light { display: block; }
+/* A page set to System follows the OS: under its light, the marks swap as in Light. */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-header-mark.is-dark { display: none; }
+  [data-theme="system"] .vx-header-mark.is-light { display: block; }
+}
+.vx-header-nav { display: flex; gap: var(--space-24); }
+/* A surface's tools take the room between the links and the end group, at its right end. */
+.vx-header-tools { display: flex; align-items: center; gap: var(--space-12); min-width: 0; margin-left: auto; }
+.vx-header-end { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-16); margin-left: auto; }
+.vx-header-tools + .vx-header-end { margin-left: 0; }
+/* On one row, 32px set the wordmark and the end group apart from the links and the tools. */
+@media (min-width: 961px) {
+  .vx-header-start { padding-right: var(--space-32); }
+  .vx-header-end { padding-left: var(--space-32); }
+}
+/* A search field for the tools, as the docs use it, at control-md on raised. Below 960px its twin,
+   a search button (.vx-header-search-link) that opens the search page, takes its place. */
+.vx-header-search { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 160px; margin: 0; color: var(--ink-muted); }
+.vx-header-search svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
+.vx-header-search input { box-sizing: border-box; width: 100%; height: var(--control-md); margin: 0; padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 14px/1 var(--font-sans); transition: border-color var(--vx-motion); }
+.vx-header-search input:hover { border-color: var(--ink); }
+.vx-header-search input::placeholder { color: var(--ink-muted); opacity: 1; }
+.vx-header-search-link { display: none; }
+/* The menu: on a narrow screen the site's links go behind a Menu button at the end of the row, a
+   <details>, so it opens without scripts. Its panel is a popover under the button, on the ground with
+   the buttons' solid edge, so it covers what is under it. */
+.vx-header-menu { display: none; }
+.vx-header-menu > summary { list-style: none; }
+.vx-header-menu > summary::-webkit-details-marker { display: none; }
+.vx-header-menu > summary .is-close, .vx-header-menu[open] > summary .is-open { display: none; }
+.vx-header-menu[open] > summary .is-close { display: block; }
+.vx-header-menu[open] > summary { border-color: var(--ink); }
+.vx-header-menu-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-8));
+  right: var(--page-pad);
+  display: grid;
+  width: 220px;
+  padding: var(--space-4) 0;
+  background: var(--ground);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-card);
+}
+.vx-header-menu-panel .vx-nav-link { display: flex; min-height: 44px; padding: 0 var(--space-16); }
+.vx-header-menu-panel .vx-nav-link:hover { background: var(--wash); }
+/* The end group's switch and GitHub button have twin rows in the panel (.vx-header-menu-spill),
+   which show only when the end group hands them over, below 640px. */
+.vx-header-menu-spill { display: none; }
+/* Below 1180px the GitHub button keeps only its mark. Its aria-label still names the repository. */
+@media (max-width: 1180px) {
+  .vx-header-repo, .vx-header .vx-btn-count { display: none; }
+}
+/* Below 960px the links go into the Menu, and a search field gives way to its button. */
+@media (max-width: 960px) {
+  .vx-header-nav, .vx-header-search { display: none; }
+  .vx-header-menu { display: block; }
+  .vx-header-search-link { display: inline-flex; }
+}
+/* On a phone the row is the wordmark, the tools, and the Menu, whose button keeps its icon: the
+   switch and the GitHub button move into the Menu's panel, under the links, each on a row with a
+   solid line rule above it. So the row fits 320px with a surface's tools. */
+@media (max-width: 640px) {
+  .vx-header { gap: var(--space-12); }
+  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
+  .vx-header-end > .vx-theme-switch, .vx-header-end > .vx-header-github { display: none; }
+  .vx-header-menu-spill { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
+  a.vx-header-menu-spill { padding-block: 0; }
+  .vx-header-menu-text {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
+
+/* The footer: the same on every surface. The LF mark, the small print, and the project's links,
+   over one solid line rule. */
+.vx-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-16) var(--page-pad);
+  border-top: 1px solid var(--line);
+  font: 400 11px/1.5 var(--font-mono);
+  letter-spacing: 0.02em; /* the one tracked style: small print */
+  color: var(--ink-muted);
+}
+.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; }
+[data-theme="light"] .vx-footer-mark { filter: invert(1); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-footer-mark { filter: invert(1); }
+}
+/* 96ch: on a wide screen the line and the credit fit two balanced lines. */
+.vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
+.vx-footer-credit { white-space: nowrap; }
+.vx-footer-nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin-left: auto; }
+@media (max-width: 640px) { .vx-footer-nav { margin-left: 0; } }
+
+/* A fieldset, so its margin and minimum width are cleared. Until a script presses a button, the
+   choice THEME_BOOTSTRAP wrote to data-theme-choice on the root shows pressed. */
+/* The text switch (vx-switch) draws the theme switch's group, with words on its buttons. */
+.vx-theme-switch,
+.vx-switch {
+  display: inline-flex;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+}
+.vx-theme-switch button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  transition: color var(--vx-motion), background-color var(--vx-motion);
+}
+.vx-switch button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  height: 26px;
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-control);
+  font: 400 12.5px/26px var(--font-sans);
+  white-space: nowrap;
+  color: var(--ink-muted);
+  transition: color var(--vx-motion), background-color var(--vx-motion);
+}
+.vx-theme-switch button:hover,
+.vx-switch button:hover { color: var(--ink); }
+.vx-theme-switch button[aria-pressed="true"],
+.vx-switch button[aria-pressed="true"],
+:root[data-theme-choice="light"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="light"],
+:root[data-theme-choice="dark"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="dark"],
+:root[data-theme-choice="system"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="system"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+/* After the pressed rule, so a press shows on the current choice too. */
+.vx-theme-switch button:active,
+.vx-switch button:active { background: var(--edge); }
+.vx-theme-switch svg { width: 16px; height: 16px; fill: currentColor; }
+
+/* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
+   column between the header and the footer) leaves, and centres its text in it. With the mark it
+   takes the homepage hero's two columns, and stacks below 1100px as the hero does. */
+.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); padding: var(--space-32) var(--page-pad); }
+.vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
+.vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
+.vx-status-text > * { margin: 0; }
+/* The homepage's voice: a mono headline (vx-display-mono) and a mono sentence at the standfirst's size. */
+.vx-status-sentence { font: 400 16px/1.6 var(--font-mono); color: var(--ink-body); }
+/* The 404's headline is its code: mono at the display size, so the page has one large thing to read. */
+.vx-status-code { font: 500 64px/0.98 var(--font-mono); letter-spacing: -0.04em; color: var(--ink); }
+/* The mark's cell has a height to fill. Its host is never taller than 9/10 of the cell's width. */
+.vx-status-mark { position: relative; min-height: 0; container-type: size; }
+.vx-status-mark > * { position: absolute; inset: 0; height: min(100cqh, 90cqw); margin: auto 0; }
+@media (max-width: 1099px) {
+  .vx-status.has-mark { grid-template-columns: minmax(0, 1fr); align-content: center; gap: var(--space-24); }
+  .vx-status-mark { height: 320px; }
+}
+@media (max-width: 640px) {
+  .vx-status-mark { height: 240px; }
+}
+@media (max-width: 640px) { .vx-status-code { font-size: 48px; } }
+
+/* DotField: the ASCII mark's dot field, still, behind a page whose mark leaves its field to it
+   (the 404, with the mark's field: false) or that has open ground of its own. The dots sit on the
+   mark's grid, a dot in every second cell of 12px Geist Mono and every second 14px line, in the
+   mark's field grey. It covers the top of its host and fades out toward every edge and corner, as
+   the mark's field does, so no hard edge shows. The host takes .has-dot-field, so the field sits
+   under the host's content and over its background. Keep it out from behind running text: around
+   a text column the dots read as noise (Will, 4 Nov 2026, on the blog: "kind of awkward").
+   Decoration only: keep the field aria-hidden. It lives in chrome, with Status, because every
+   surface copies chrome. */
+.has-dot-field { position: relative; isolation: isolate; }
+.vx-dot-field {
+  --dot-field-ink: var(--grey-700);
+  position: absolute;
+  inset: 0 0 auto;
+  height: min(100%, 1400px);
+  z-index: -1;
+  pointer-events: none;
+  font: 400 12px/14px var(--font-mono);
+  background-image: radial-gradient(circle at 0.5ch 10px, var(--dot-field-ink) 0.8px, transparent 1.2px);
+  background-size: 2ch 28px;
+  -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
+}
+[data-theme="light"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
+}
+@media (forced-colors: active), print {
+  .vx-dot-field { display: none; }
+}
+
+/* ------------------------------------------------------------------ docs
+   docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
+   vx-docs on <body>, data-theme="dark" on <html> (the default theme, for a reader without scripts),
+   and the frame's classes below. Everything inside the nav, the rail and main is what Sphinx
+   writes. Type is in rem (1rem is 16px), so text follows the reader's default size. */
+.vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; }
+.vx-docs *, .vx-docs ::before, .vx-docs ::after { box-sizing: border-box; }
+.vx-docs svg { width: 16px; height: 16px; flex: none; fill: currentColor; }
+.vx-docs summary { list-style: none; cursor: pointer; }
+.vx-docs summary::-webkit-details-marker { display: none; }
+.vx-docs-skip { position: absolute; z-index: 9; left: var(--space-8); top: -6rem; padding: var(--space-8) var(--space-12); background: var(--surface); color: var(--ink); border: 1px solid var(--edge); border-radius: var(--radius-control); }
+.vx-docs-skip:focus { top: var(--space-8); }
+/* The phone menu's checkbox: hidden, with its label in the header's tools. It takes focus only where
+   the menu shows. */
+.vx-docs-toggle { display: none; position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.vx-docs-label,
+.vx-docs-toc p,
+.vx-docs-fold > summary,
+.vx-docs-nav .toctree-l1 > a,
+.vx-docs-main p.rubric,
+.vx-docs-main .highlight::before { font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
+
+/* The sidebar's button below 760px: the label of .vx-docs-toggle, last in the header's tools. It is
+   the word "Pages", like a mono button, so it does not read as a second Menu beside the site's. */
+.vx-docs-menu { display: none; }
+.vx-docs-menu { align-items: center; height: var(--control-md); padding: 0 var(--space-12); border: 1px solid var(--edge); border-radius: var(--radius-control); font: 400 0.8125rem/1 var(--font-mono); color: var(--ink-body); cursor: pointer; transition: border-color var(--vx-motion); }
+.vx-docs-menu:hover { border-color: var(--ink); }
+
+/* The frame: a 260px nav, the page column on surface, and a 220px "On this page" rail. The page
+   column holds the folded contents, main, and the links under it. Only main is
+   role="main", which Sphinx search reads for its snippets. */
+.vx-docs-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--page-pad); }
+/* The rails stick under the sticky header (Header). */
+.vx-docs-nav, .vx-docs-toc { grid-row: 1; position: sticky; top: var(--space-64); align-self: start; max-height: calc(100vh - var(--space-64)); overflow-y: auto; }
+.vx-docs-page { grid-column: 2; grid-row: 1; min-width: 0; padding: var(--space-32) var(--space-32) var(--space-48); background: var(--surface); border-inline: 1px solid var(--line); }
+.vx-docs-main { font-size: 1rem; line-height: 1.6; text-wrap: pretty; }
+.vx-docs-toc { grid-column: 3; padding: var(--space-16) 0 var(--space-32) var(--space-24); }
+
+/* DocsNav: the toctree. Top-level pages are the mono group labels; the current page is a raised fill. */
+.vx-docs-nav { padding: var(--space-8) var(--space-12) var(--space-32) 0; font-size: 0.875rem; line-height: 1.3; }
+.vx-docs-nav ul, .vx-docs-toc ul { list-style: none; margin: 0; padding: 0; }
+.vx-docs-nav li { position: relative; }
+.vx-docs-nav ul ul { padding-left: var(--space-12); }
+.vx-docs-nav .toctree-l1 { margin-top: var(--space-4); }
+.vx-docs-nav a { display: flex; align-items: center; min-height: var(--control-sm); padding: 2px var(--space-32) 2px var(--space-8); border-radius: var(--radius-control); font: 400 0.8125rem/1.3 var(--font-mono); color: var(--ink-body); text-decoration: none; transition: background-color var(--vx-motion), color var(--vx-motion); }
+.vx-docs-nav a:hover, .vx-docs-nav summary:hover { background: var(--wash); color: var(--ink); }
+.vx-docs-nav a:active { background: var(--edge); }
+.vx-docs-nav a[aria-current="page"] { background: var(--raised); color: var(--ink); font-weight: 500; }
+.vx-docs-nav summary { position: absolute; top: 0; right: 0; width: var(--control-sm); height: var(--control-sm); border-radius: var(--radius-control); color: var(--ink-muted); }
+.vx-docs-nav summary::after,
+.vx-docs-fold > summary::after { content: ""; position: absolute; inset: var(--space-8); background: currentColor; mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z'/></svg>") center / contain no-repeat; transition: rotate var(--vx-motion); }
+.vx-docs-nav details[open] > summary::after,
+.vx-docs-fold[open] > summary::after { rotate: 90deg; }
+
+/* Toc: the page's sections on a line rail. With no scroll spy there is no current tick. */
+.vx-docs-toc p { margin: 0 0 var(--space-12); }
+.vx-docs-toc ul ul { padding-left: var(--space-12); }
+.vx-docs-toc nav > ul { border-left: 1px solid var(--line); }
+.vx-docs-toc a, .vx-docs-fold a { display: block; margin-left: -1px; padding: 3px 0 3px var(--space-16); font: 400 0.8125rem/1.4 var(--font-mono); color: var(--ink-muted); text-decoration: none; overflow-wrap: anywhere; transition: color var(--vx-motion); }
+.vx-docs-toc a:hover, .vx-docs-fold a:hover { color: var(--ink); }
+/* The same contents, folded above the page on screens too narrow for the rail. */
+.vx-docs-fold { display: none; margin: 0 0 var(--space-24); border: 1px solid var(--line); border-radius: var(--radius-card); }
+.vx-docs-fold > summary { position: relative; padding: var(--space-8) var(--space-12); line-height: 20px; }
+.vx-docs-fold > summary::after { inset: var(--space-12) var(--space-12) auto auto; width: 16px; height: 16px; }
+.vx-docs-fold ul { list-style: none; margin: 0 var(--space-12) var(--space-12); padding: 0; }
+.vx-docs-fold ul ul { margin: 0; padding-left: var(--space-12); }
+
+/* Previous and next, and the edit link. The docs draw no breadcrumb: the sidebar shows the path. */
+.vx-docs-pager { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); margin-top: var(--space-48); }
+.vx-docs-pager a { padding: var(--space-12) var(--space-16); border: 1px solid var(--line); border-radius: var(--radius-card); font: 500 0.875rem/1.4 var(--font-mono); color: var(--ink); text-decoration: none; transition: background-color var(--vx-motion); }
+.vx-docs-pager a:hover { background: var(--wash); }
+.vx-docs-pager a:active { background: var(--edge); }
+.vx-docs-pager .vx-docs-label { display: block; margin-bottom: var(--space-4); }
+.vx-docs-pager .is-next { grid-column: 2; text-align: right; }
+.vx-docs-edit { margin: var(--space-32) 0 0; font-size: 0.875rem; }
+.vx-docs-edit a { color: var(--ink-muted); transition: color var(--vx-motion); }
+.vx-docs-edit a:hover { color: var(--ink); }
+
+/* The reading column. :where() keeps the flow margins below any element's own. */
+.vx-docs-main :where(section > *, dd > *, .admonition > *) { margin: 0 0 var(--space-16); }
+.vx-docs-main :where(section > :is(p, ul, ol, blockquote, dl.simple)) { max-width: var(--measure); }
+.vx-docs-main li + li { margin-top: var(--space-4); }
+.vx-docs-main li::marker { color: var(--ink-muted); }
+/* A post's mono heading ladder, one level up: a docs page's h1 is a post's h2. */
+.vx-docs-main :is(h1, h2, h3, h4) { scroll-margin-top: var(--space-16); color: var(--ink); text-wrap: balance; }
+.vx-docs-main h1 { margin: 0 0 var(--space-24); font: 500 1.75rem/1.15 var(--font-mono); letter-spacing: -0.02em; }
+.vx-docs-main h2 { margin: var(--space-32) 0 var(--space-8); font: 600 1.375rem/1.2 var(--font-mono); letter-spacing: -0.02em; }
+.vx-docs-main h3 { margin: var(--space-24) 0 var(--space-8); font: 600 1.125rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
+.vx-docs-main h4 { margin: var(--space-16) 0 var(--space-4); font: 600 1rem/1.25 var(--font-mono); letter-spacing: -0.01em; }
+.vx-docs-main strong { font-weight: 600; color: var(--ink); }
+/* Prose links are Blue at rest, as the old docs theme's were: a reference page is mostly links, and the reader scans for them. */
+.vx-docs-main a { color: var(--accent-ink); text-decoration: underline 1px color-mix(in srgb, var(--accent-ink) 40%, transparent); text-underline-offset: 3px; transition: color var(--vx-motion), text-decoration-color var(--vx-motion); }
+.vx-docs-main a:hover { text-decoration-color: currentColor; }
+.vx-docs-main a:has(> code) { text-decoration: none; }
+.vx-docs-main hr { margin: var(--space-32) 0; border: 0; border-top: 1px solid var(--line); }
+.vx-docs-main blockquote { padding-left: var(--space-16); border-left: 2px solid var(--edge); }
+.vx-docs-main img { max-width: 100%; height: auto; }
+.vx-docs-main figcaption { margin-top: var(--space-8); font-size: 0.875rem; line-height: 1.5; color: var(--ink-muted); }
+.vx-docs-main figcaption p { margin: 0; }
+.vx-docs-main p.rubric { margin: var(--space-24) 0 var(--space-8); }
+.vx-docs-main a.headerlink { display: inline-flex; margin-left: var(--space-8); vertical-align: middle; font-size: 0; opacity: 0; transition: opacity var(--vx-motion); }
+.vx-docs-main a.headerlink::before { content: ""; width: 16px; height: 16px; background: var(--ink-muted); mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M440-280H280q-83 0-141.5-58.5T80-480q0-83 58.5-141.5T280-680h160v80H280q-50 0-85 35t-35 85q0 50 35 85t85 35h160v80ZM320-440v-80h320v80H320Zm200 160v-80h160q50 0 85-35t35-85q0-50-35-85t-85-35H520v-80h160q83 0 141.5 58.5T880-480q0 83-58.5 141.5T680-280H520Z'/></svg>") center / contain no-repeat; }
+.vx-docs-main :hover > a.headerlink, .vx-docs-main a.headerlink:focus-visible { opacity: 1; }
+
+/* Inline code: CodeBlock's inline code. */
+.vx-docs-main code.literal { padding: 1px var(--space-4); font: 400 0.875em/1 var(--font-mono); color: var(--ink); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: border-color var(--vx-motion); }
+.vx-docs-main a:hover > code.literal { border-color: var(--ink); }
+/* Code that links (an API name in prose) takes the syntax type colour, as in signatures, and an underline,
+   so colour is not the only thing that marks it apart from plain inline code (WCAG 1.4.1). */
+.vx-docs-main a.reference > code.xref { color: var(--syntax-type); text-decoration: underline 1px color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+.vx-docs-main a.reference:hover > code.xref { text-decoration-color: currentColor; }
+
+/* CodeBlock: Pygments' classes on the four syntax tokens, under a label from highlight-<lang>. */
+.vx-docs-main div[class*="highlight-"] > .highlight { background: var(--raised); border-radius: var(--radius-card); overflow: hidden; }
+.vx-docs-main :where(div[class*="highlight-"]) > .highlight::before { content: "Text"; display: block; padding: var(--space-4) var(--space-16); border-bottom: 1px solid var(--edge); line-height: 20px; }
+.vx-docs-main :is(.highlight-python, .highlight-pycon) > .highlight::before { content: "Python"; }
+.vx-docs-main :is(.highlight-bash, .highlight-sh, .highlight-shell, .highlight-console) > .highlight::before { content: "Shell"; }
+.vx-docs-main .highlight-rust > .highlight::before { content: "Rust"; }
+.vx-docs-main .highlight-sql > .highlight::before { content: "SQL"; }
+.vx-docs-main .highlight-java > .highlight::before { content: "Java"; }
+.vx-docs-main .highlight-kotlin > .highlight::before { content: "Kotlin"; }
+.vx-docs-main .highlight-c > .highlight::before { content: "C"; }
+.vx-docs-main .highlight-cpp > .highlight::before { content: "C++"; }
+.vx-docs-main .highlight-json > .highlight::before { content: "JSON"; }
+.vx-docs-main .highlight-toml > .highlight::before { content: "TOML"; }
+.vx-docs-main .highlight-xml > .highlight::before { content: "XML"; }
+.vx-docs-main .highlight-cmake > .highlight::before { content: "CMake"; }
+.vx-docs-main .highlight-protobuf > .highlight::before { content: "Protobuf"; }
+.vx-docs-main .highlight pre { margin: 0; padding: var(--space-12) var(--space-16); overflow-x: auto; font: 400 0.8125rem/1.5 var(--font-mono); color: var(--syntax-plain); tab-size: 4; }
+.vx-docs-main .highlight :is(.k, .kn, .kd, .kr, .kp, .ow, .nt) { color: var(--syntax-keyword); }
+.vx-docs-main .highlight :is(.nf, .fm, .nb, .bp, .nd) { color: var(--syntax-function); }
+.vx-docs-main .highlight :is(.nc, .ne, .nn, .kt) { color: var(--syntax-type); }
+.vx-docs-main .highlight :is(.s, .s1, .s2, .sa, .sb, .sc, .sd, .se, .sh, .si, .sx, .m, .mi, .mf, .mh, .mo, .il, .kc) { color: var(--syntax-string); }
+.vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs, .cp, .gp) { color: var(--syntax-comment); }
+.vx-docs-main .highlight :is(.c, .c1, .cm, .ch, .cs) { font-style: italic; }
+
+/* Callout: an admonition. The icon carries the kind: info, or warning for what can go wrong. */
+.vx-docs-main .admonition { position: relative; padding: var(--space-12) var(--space-16) var(--space-12) var(--space-48); background: var(--raised); border-radius: var(--radius-card); font-size: 0.875rem; line-height: 1.55; }
+.vx-docs-main .admonition::before { content: ""; position: absolute; left: var(--space-16); top: 13px; width: 20px; height: 20px; background: var(--ink); mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Z'/></svg>") center / contain no-repeat; }
+.vx-docs-main :is(.warning, .caution, .attention, .danger, .error)::before { mask-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'><path d='m40-120 440-760 440 760H40Zm138-80h604L480-720 178-200Zm302-40q17 0 28.5-11.5T520-280q0-17-11.5-28.5T480-320q-17 0-28.5 11.5T440-280q0 17 11.5 28.5T480-240Zm-40-120h80v-200h-80v200Z'/></svg>"); background: var(--warn-ink); }
+.vx-docs-main .admonition > * { margin-bottom: var(--space-8); }
+.vx-docs-main .admonition > :last-child { margin-bottom: 0; }
+.vx-docs-main p.admonition-title { margin-bottom: 2px; font-weight: 600; color: var(--ink); }
+/* A warning's title takes warn-ink, as its icon does, so a warning does not read as a note. No rule, no tint. */
+.vx-docs-main :is(.warning, .caution, .attention, .danger, .error) > p.admonition-title { color: var(--warn-ink); }
+
+/* Tables: the tables section's heads and hairline rows. */
+.vx-docs-main table.docutils { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.875rem; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.vx-docs-main table.docutils th { padding: calc(var(--space-12) / 2) var(--space-12) calc(var(--space-12) / 2) 0; border-bottom: 1px solid var(--edge); text-align: left; vertical-align: bottom; font: 500 0.6875rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main table.docutils td { padding: calc(var(--space-12) / 2) var(--space-12) calc(var(--space-12) / 2) 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+/* An API summary table keeps each name whole above 760px. Inline code may break anywhere, and the
+   table's auto layout used that to squeeze the first column. A phone keeps the wrap, so nothing scrolls. */
+@media (min-width: 761px) {
+  .vx-docs-main table.autosummary td:first-child code { overflow-wrap: normal; }
+}
+.vx-docs-main :is(td, th) > p { margin: 0; }
+
+/* The API reference: a signature on raised, then its description and fields. */
+.vx-docs-main :is(dl.py, dl.c) { margin: var(--space-32) 0; }
+.vx-docs-main :is(dl.py, dl.c) :is(dl.py, dl.c) { margin: var(--space-24) 0; }
+.vx-docs-main dt.sig { padding: var(--space-8) var(--space-12); background: var(--raised); border-radius: var(--radius-control); font: 400 0.875rem/1.6 var(--font-mono); color: var(--syntax-plain); overflow-wrap: anywhere; }
+.vx-docs-main dt.sig .sig-name { font-weight: 600; color: var(--ink); }
+.vx-docs-main dt.sig :is(.sig-prename, .sig-paren) { color: var(--ink-muted); }
+.vx-docs-main dt.sig .property, .vx-docs-main dt.sig .k { font-style: normal; color: var(--syntax-keyword); }
+.vx-docs-main dt.sig em { font-style: normal; }
+.vx-docs-main dt.sig a { text-decoration: none; }
+/* Types read apart from names and punctuation, as in a code block. */
+.vx-docs-main dt.sig :is(a.reference, .sig-return-typehint) { color: var(--syntax-type); }
+.vx-docs-main dt.sig a.reference:hover { text-decoration: underline; }
+.vx-docs-main :is(dl.py, dl.c) > dd { margin: var(--space-12) 0 0 var(--space-24); }
+.vx-docs-main dl.field-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-8) var(--space-24); font-size: 1rem; }
+/* The labels (Parameters, Return type) are ink in the headings' voice, so each field reads as a group. */
+.vx-docs-main dl.field-list > dt { padding-top: var(--space-4); font: 600 0.875rem/1.5 var(--font-mono); color: var(--ink); }
+.vx-docs-main dl.field-list > dt .colon { display: none; }
+.vx-docs-main dl.field-list > dd { margin: 0; }
+.vx-docs-main dl.field-list > dd > :last-child { margin-bottom: 0; }
+/* A linked type is a type, as in the signature, not an inline code chip: a row of chips reads as boxes. */
+.vx-docs-main dl.field-list a.reference > code.xref { padding: 0; background: none; border: 0; color: var(--syntax-type); }
+.vx-docs-main dl.field-list a.reference:hover > code.xref { text-decoration: underline; }
+
+/* Footnotes, the indexes, and search. */
+.vx-docs-main aside.footnote { display: flex; gap: var(--space-8); font-size: 0.875rem; color: var(--ink-muted); }
+.vx-docs-main aside.footnote > p { margin: 0; }
+.vx-docs-main table.indextable { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.vx-docs-main table.indextable td { padding: var(--space-4) var(--space-16) var(--space-4) 0; vertical-align: top; }
+.vx-docs-main table.indextable ul { margin: 0; padding: 0; list-style: none; }
+.vx-docs-main table.indextable tr.cap td { padding-top: var(--space-24); font: 500 0.75rem/1.3 var(--font-mono); color: var(--ink-muted); }
+.vx-docs-main :is(.genindex-jumpbox, .modindex-jumpbox) { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.vx-docs-main form:not([role]) { display: flex; gap: var(--space-8); }
+.vx-docs-main form:not([role]) input { height: var(--control-md); padding: 0 var(--space-12); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 0.875rem var(--font-sans); }
+.vx-docs-main form:not([role]) input[type="text"] { flex: 1; min-width: 0; }
+.vx-docs-main form:not([role]) input[type="submit"] { cursor: pointer; }
+.vx-docs-main ul.search { padding: 0; list-style: none; }
+.vx-docs-main ul.search > li { padding: var(--space-16) 0; border-bottom: 1px solid var(--line); }
+.vx-docs-main ul.search p.context { margin: var(--space-4) 0 0; font-size: 0.875rem; color: var(--ink-muted); }
+.vx-docs-main span.highlighted { background: var(--accent-soft); color: var(--ink); }
+
+@media (max-width: 1120px) {
+  .vx-docs-layout { grid-template-columns: 260px minmax(0, 1fr); }
+  .vx-docs-layout > .vx-docs-toc { display: none; }
+  .vx-docs-fold { display: block; }
+}
+@media (max-width: 760px) {
+  .vx-docs-layout { display: block; padding: 0; }
+  .vx-docs-layout > .vx-docs-nav { display: none; position: static; max-height: none; padding: var(--space-8) var(--page-pad) var(--space-24); border-bottom: 1px solid var(--line); }
+  .vx-docs-toggle { display: block; }
+  .vx-docs-toggle:checked ~ .vx-docs-layout .vx-docs-nav { display: block; }
+  .vx-docs-menu { display: inline-flex; }
+  .vx-docs-page { padding: var(--space-24) var(--page-pad) var(--space-32); border: 0; }
+  .vx-docs-main dl.field-list { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .vx-docs-main table.genindextable, .vx-docs-main table.genindextable :is(tbody, tr, td) { display: block; }
+}
+
+/* ------------------------------------------------------------------ focus
+   One rule for every focusable element, last so that it wins over the resets above. The docs'
+   phone menu is a hidden checkbox, so its label shows the checkbox's ring. Rows and
+   segments inside a clipped container draw it inside their edge. */
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.vx-docs-toggle:focus-visible ~ .vx-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }

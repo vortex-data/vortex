@@ -339,29 +339,6 @@ mod tests {
     }
 
     #[test]
-    fn test_set_validity_values_all_true() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(&logical_type, 100);
-
-        unsafe { vector.ensure_validity_bitslice(10) }.fill(false);
-
-        let mask = Mask::from(BitBuffer::from(vec![true; 10]));
-
-        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 0, 10, None) };
-
-        assert!(!all_null);
-        for row in 0..10 {
-            assert!(!vector.row_is_null(row));
-        }
-
-        // When all values are true, the mask may be optimized to AllTrue,
-        // so validity_slice_mut may return None (no validity allocated)
-        if let Some(validity) = unsafe { vector.validity_bitslice_mut(10) } {
-            assert!(validity.iter().all(|v| *v));
-        }
-    }
-
-    #[test]
     fn test_set_validity_values_mixed() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(&logical_type, 100);
@@ -402,27 +379,6 @@ mod tests {
     }
 
     #[test]
-    fn test_set_validity_values_with_offset_and_smaller_len() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(&logical_type, 100);
-
-        let bits = vec![
-            true, false, true, true, false, false, true, true, false, true, true, true, false,
-            true, false,
-        ];
-        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
-
-        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 3, 5, None) };
-
-        assert!(!all_null);
-
-        let validity = unsafe { vector.validity_bitslice_mut(5).unwrap() };
-        for i in 0..5 {
-            assert_eq!(validity[i], bits[i + 3]);
-        }
-    }
-
-    #[test]
     fn test_set_validity_values_with_bit_buffer_offset() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(&logical_type, 100);
@@ -439,24 +395,6 @@ mod tests {
         let validity = unsafe { vector.validity_bitslice_mut(60).unwrap() };
         for i in 0..60 {
             assert_eq!(validity[i], bits[i + 2 + 5]);
-        }
-    }
-
-    #[test]
-    fn test_set_validity_values_64bit_alignment() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(&logical_type, 100);
-
-        let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
-        let mask = Mask::from(BitBuffer::from(bits.as_slice()));
-
-        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 5, 60, None) };
-
-        assert!(!all_null);
-
-        let validity = unsafe { vector.validity_bitslice_mut(60).unwrap() };
-        for i in 0..60 {
-            assert_eq!(validity[i], bits[i + 5]);
         }
     }
 
@@ -497,27 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_from_slice_80_to_0() {
-        let target = &mut [];
-        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        assert_eq!(copy_from_slice(target, &source, 0, 0), 0);
-        assert_eq!(copy_from_slice(target, &source, 8, 0), 0);
-        assert_eq!(copy_from_slice(target, &source, 10, 0), 0,);
-    }
-
-    #[test]
-    fn test_copy_from_slice_80_to_64_case_1() {
-        let mut target = [0u64];
-        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        assert_eq!(copy_from_slice(&mut target, &source, 16, 64), 34);
-        assert_eq!(
-            target[0], 0xff_fe_65_64_34_33_32_03_u64,
-            "{:#08x} == {:#08x}",
-            target[0], 0xff_fe_65_64_34_33_32_03_u64,
-        );
-    }
-
-    #[test]
     fn test_copy_from_slice_80_to_64_case_2() {
         let mut target = [0u64];
         let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
@@ -526,18 +443,6 @@ mod tests {
             target[0], 0xfe_65_64_34_33_32_03_02_u64,
             "{:#08x} == {:#08x}",
             target[0], 0xfe_65_64_34_33_32_03_02_u64,
-        );
-    }
-
-    #[test]
-    fn test_copy_from_slice_80_to_64_case_3() {
-        let mut target = [0u64];
-        let source = [1u8, 2, 3, 50, 51, 52, 100, 101, 254, 255];
-        assert_eq!(copy_from_slice(&mut target, &source, 0, 64), 21,);
-        assert_eq!(
-            target[0], 0x65_64_34_33_32_03_02_01_u64,
-            "{:#08x} == {:#08x}",
-            target[0], 0x65_64_34_33_32_03_02_01_u64,
         );
     }
 

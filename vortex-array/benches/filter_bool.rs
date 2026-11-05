@@ -21,6 +21,7 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -41,7 +42,11 @@ static SESSION: LazyLock<VortexSession> =
 /// 1000 rows took less than 1 µs, so the allocator work left behind by the previous, larger case
 /// was a large part of the single measured iteration in simulation, and CodSpeed reported no
 /// execution time for `filter_powerlaw_by_mostly_false[1000]`.
-const SIZES: &[usize] = &[10_000, 100_000, 250_000];
+const SIZES: &[usize] = if cfg!(codspeed) {
+    &[10_000, 100_000]
+} else {
+    &[10_000, 100_000, 250_000]
+};
 const DENSITY_SWEEP_SIZE: usize = 100_000;
 const ARRAY_SEED: u64 = 42;
 const MASK_SEED: u64 = 43;
@@ -153,6 +158,8 @@ fn mask_rng() -> StdRng {
 #[divan::bench(args = SIZES)]
 fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -173,6 +180,8 @@ fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -193,6 +202,8 @@ fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_random_by_random(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -213,6 +224,8 @@ fn filter_random_by_random(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -233,6 +246,8 @@ fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_random_by_power_law(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -255,6 +270,8 @@ fn filter_random_by_power_law(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -275,6 +292,8 @@ fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -292,9 +311,12 @@ fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = SIZES)]
+// The small case varies in simulation on unrelated PRs. The cause is unknown.
+#[divan::bench(args = if cfg!(codspeed) { &[100_000] } else { SIZES })]
 fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -312,9 +334,12 @@ fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = SIZES)]
+// The large case repeatedly makes system calls that simulation excludes from its measurement.
+#[divan::bench(args = if cfg!(codspeed) { &[10_000] } else { SIZES })]
 fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -335,6 +360,8 @@ fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
 #[divan::bench(args = SIZES)]
 fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
     let array = make_power_law_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -361,6 +388,8 @@ const DENSITIES: &[f64] = &[
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_random(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -381,6 +410,8 @@ fn density_sweep_random(bencher: Bencher, density: f64) {
 #[divan::bench(args = DENSITIES)]
 fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     let false_rate = (1.0 - density).max(0.0001);
     bencher
         .with_inputs(|| {
@@ -402,6 +433,8 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
 #[divan::bench]
 fn density_sweep_single_slice(bencher: Bencher) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -421,13 +454,23 @@ fn density_sweep_single_slice(bencher: Bencher) {
 
 // --- Extreme cases ---
 
-const LARGE_SIZES: &[usize] = &[10_000, 100_000, 250_000];
+const LARGE_SIZES: &[usize] = if cfg!(codspeed) {
+    &[10_000, 100_000]
+} else {
+    &[10_000, 100_000, 250_000]
+};
 const ALL_TRUE_SIZES: &[usize] = &[100_000];
-const ULTRA_SPARSE_SIZES: &[usize] = &[100_000, 250_000];
+const ULTRA_SPARSE_SIZES: &[usize] = if cfg!(codspeed) {
+    &[100_000]
+} else {
+    &[100_000, 250_000]
+};
 
 #[divan::bench(args = ALL_TRUE_SIZES)]
 fn filter_all_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (
@@ -448,6 +491,8 @@ fn filter_all_true(bencher: Bencher, n: usize) {
 #[divan::bench(args = LARGE_SIZES)]
 fn filter_one_false(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             let mut bits: Vec<bool> = vec![true; n];
@@ -470,6 +515,8 @@ fn filter_one_false(bencher: Bencher, n: usize) {
 #[divan::bench(args = ULTRA_SPARSE_SIZES)]
 fn filter_ultra_sparse(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     bencher
         .with_inputs(|| {
             (

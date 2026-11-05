@@ -3,7 +3,6 @@
 
 use std::fmt;
 
-use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -68,11 +67,20 @@ pub enum DateValue {
 
 impl fmt::Display for DateValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let date = match self {
-            DateValue::Days(days) => EPOCH + Span::new().days(*days),
-            DateValue::Milliseconds(ms) => EPOCH + Span::new().milliseconds(*ms),
+        let (unit, value) = match *self {
+            DateValue::Days(days) => (TimeUnit::Days, i64::from(days)),
+            DateValue::Milliseconds(ms) => (TimeUnit::Milliseconds, ms),
         };
-        write!(f, "{}", date)
+
+        // jiff cannot hold every storage value, such as any date after the year 9999.
+        let Ok(date) = unit
+            .to_jiff_span(value)
+            .and_then(|span| Ok(EPOCH.checked_add(span)?))
+        else {
+            return write!(f, "{value}{unit}");
+        };
+
+        write!(f, "{date}")
     }
 }
 
@@ -128,12 +136,14 @@ impl ExtVTable for Date {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::extension::ExtDType;
     use crate::extension::datetime::Date;
+    use crate::extension::datetime::DateValue;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
@@ -175,6 +185,15 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(365))));
         assert_eq!(format!("{}", scalar.as_extension()), "1971-01-01");
+    }
+
+    #[rstest]
+    #[case::ordinary(DateValue::Milliseconds(86_400_000), "1970-01-02")]
+    #[case::after_year_9999(DateValue::Days(2_932_897), "2932897days")]
+    #[case::beyond_jiff_span(DateValue::Days(10_000_000), "10000000days")]
+    #[case::max_milliseconds(DateValue::Milliseconds(i64::MAX), "9223372036854775807ms")]
+    fn display_date_value(#[case] value: DateValue, #[case] expected: &str) {
+        assert_eq!(value.to_string(), expected);
     }
 
     #[test]

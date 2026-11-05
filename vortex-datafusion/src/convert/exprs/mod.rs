@@ -22,6 +22,7 @@ use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions_nested::array_sum::ArraySum;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
@@ -31,6 +32,7 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -42,6 +44,7 @@ use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
+use vortex::expr::list_sum_opts;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
@@ -597,6 +600,10 @@ impl DefaultExpressionConverter {
             return Ok(result);
         }
 
+        if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
+            return self.convert_array_sum(scalar_fn, schema, input_dtype);
+        }
+
         let (input, length): (_, fn(Expression) -> Expression) =
             if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn).is_some() {
                 let [input] = scalar_fn.args() else {
@@ -632,6 +639,24 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `array_sum` to `list_sum`.
+    ///
+    /// DataFusion casts the list to `List<Float64>`, then adds each list's valid elements in
+    /// order: an empty or all-null list sums to null and a NaN poisons the sum. `list_sum` with
+    /// `include_nans` adds the cast elements the same way.
+    fn convert_array_sum(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [input] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("array_sum requires exactly one argument").into());
+        };
+        let list = self.convert_expr(input, schema, input_dtype)?;
+        Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
 
     fn convert_case_expr(
@@ -705,15 +730,18 @@ enum CastPushdown {
 
 /// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
 fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPushdown> {
-    use DataType::*;
     let options = cast.cast_options();
     if options.safe || options.format_options != DEFAULT_FORMAT_OPTIONS {
         return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
-    let target = cast.cast_type();
-    Ok(match (&source, target) {
-        _ if source == *target => CastPushdown::Drop,
+    classify_cast_types(&source, cast.cast_type())
+}
+
+fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastPushdown> {
+    use DataType::*;
+    Ok(match (source, target) {
+        _ if source == target => CastPushdown::Drop,
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))
@@ -724,10 +752,21 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
         (Int8, Int16 | Int32 | Int64)
         | (Int16, Int32 | Int64)
         | (Int32, Int64)
-        | (UInt8, UInt16 | UInt32 | UInt64)
-        | (UInt16, UInt32 | UInt64)
-        | (UInt32, UInt64)
+        | (UInt8, UInt16 | UInt32 | UInt64 | Int16 | Int32 | Int64)
+        | (UInt16, UInt32 | UInt64 | Int32 | Int64)
+        | (UInt32, UInt64 | Int64)
         | (Float32, Float64) => CastPushdown::Keep,
+        // Arrow and Vortex both convert with `as f64`: integers round to nearest and never fail,
+        // booleans become 1.0 or 0.0.
+        (Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64, Float64) => {
+            CastPushdown::Keep
+        }
+        // A list cast casts each element. Vortex has no `FixedSizeList` to `List` cast.
+        (List(from) | LargeList(from), List(to) | LargeList(to))
+            if to.is_nullable() || !from.is_nullable() =>
+        {
+            classify_cast_types(from.data_type(), to.data_type())?
+        }
         _ => return Err(Unconverted::Unsupported),
     })
 }

@@ -1,0 +1,682 @@
+/* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
+   Edit the system, then run tools/site-styles.mjs; do not edit here.
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
+   sha256 dbc7af41ba8de3e8c22cfbf9d82485f4dd352e23b1d379d17d530a971edfc906 */
+
+/* ------------------------------------------------------------------ base */
+/* Every component sizes with border-box, so it draws the same under a site's reset or none. */
+:where([class*="vx-"]),
+:where([class*="vx-"])::before,
+:where([class*="vx-"])::after {
+  box-sizing: border-box;
+}
+/* Text for screen readers only, such as a copy button's "Copied". */
+.vx-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
+   vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
+   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
+   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
+   or the browser's: around the whole page, it marks nothing a reader can use. */
+.vx-skip-link {
+  position: fixed;
+  top: var(--space-8);
+  left: var(--space-8);
+  z-index: 1200;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 500;
+  text-decoration: none;
+}
+.vx-skip-link:not(:focus) {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+.vx-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.vx-label,
+.vx-label-sm {
+  color: var(--ink-muted);
+}
+/* A machine reference, such as an error digest or a commit hash, in a label or in text. It keeps
+   its case, selects whole for a bug report, and breaks anywhere rather than overflow a phone. */
+.vx-ref {
+  font-family: var(--font-mono);
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.vx-num {
+  font-variant-numeric: tabular-nums;
+}
+/* In prose, the link rule styles an author's links. A system link (a vx- class) has its own rule. */
+.vx-link,
+.vx-prose a:not([class*="vx-"]) {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--ink) 30%, transparent);
+  text-underline-offset: 3px;
+  transition: color var(--vx-motion), text-decoration-color var(--vx-motion);
+}
+.vx-link:hover,
+.vx-prose a:not([class*="vx-"]):hover {
+  color: var(--accent-ink);
+  text-decoration-color: currentColor;
+}
+
+/* Headings take ink, so a page never has to say so. It sits in base, which every site
+   copies. :where() keeps it at no specificity, so any component that colours its own headings wins. */
+:where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
+
+
+/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
+   both draw it, so it sits in base, which every site copies. */
+.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
+.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
+.vx-chain-arrow { color: var(--ink-muted); }
+
+/* ------------------------------------------------------------------ chrome */
+/* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
+   the quiet links, the buttons, the header, the footer, the theme switch, and the 404. Every
+   surface copies this section. */
+/* A quiet link in mono: header and footer navigation, feeds, source lines. */
+.vx-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--ink-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--vx-motion);
+}
+.vx-nav-link:hover,
+.vx-nav-link[aria-current="page"],
+.vx-nav-link[aria-current="true"] {
+  color: var(--ink);
+}
+.vx-nav-link svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
+   after that rule and wins the tie. */
+.vx-source {
+  display: inline-flex;
+  flex-wrap: wrap;
+  white-space: normal;
+  align-items: center;
+  gap: var(--space-4);
+}
+.vx-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  height: var(--control-md);
+  padding: 0 var(--space-16);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: 500 14px/1 var(--font-sans);
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color var(--vx-motion), border-color var(--vx-motion);
+}
+.vx-btn svg { width: 16px; height: 16px; fill: currentColor; }
+/* Disabled: no fill, a line border, and muted text, so it reads as off in more than one way. */
+.vx-btn[disabled], .vx-btn[aria-disabled="true"] { background: transparent; border-color: var(--line); color: var(--ink-muted); cursor: not-allowed; }
+.vx-btn-primary { background: var(--primary); color: var(--on-primary); }
+.vx-btn-secondary { border-color: var(--edge); }
+.vx-btn-secondary:hover { border-color: var(--ink); }
+.vx-btn-ghost:hover { background: var(--raised); }
+/* Pressed: one step past hover, in place. */
+.vx-btn-primary:active:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--primary) 82%, var(--ground)); }
+.vx-btn-secondary:active:not([disabled], [aria-disabled="true"]) { background: var(--raised); }
+.vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
+.vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
+.vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
+/* Buttons side by side, primary first, wrapping onto a second row on a phone. */
+.vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
+
+/* The header: one row, the same on every surface (DECISIONS 35). The wordmark, the site's links,
+   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the theme
+   switch, the GitHub button and, on a narrow screen, the Menu. No breakpoint depends on the tools,
+   so at a given width the shared items look the same and sit in the same place on every surface;
+   the tools fit themselves into the room between. One solid line rule below it, sticky at the top
+   of the window. */
+.vx-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-24);
+  height: 64px;
+  padding: 0 var(--page-pad);
+  background: var(--ground);
+  border-bottom: 1px solid var(--line);
+}
+/* The sticky header must not cover what takes focus or what a link scrolls to (WCAG 2.4.11).
+   The header is 64px tall. */
+html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)); }
+.vx-header-start { display: flex; flex-shrink: 0; align-items: center; }
+.vx-header-mark { height: 24px; width: auto; display: block; }
+.vx-header-mark.is-light, [data-theme="light"] .vx-header-mark.is-dark { display: none; }
+[data-theme="light"] .vx-header-mark.is-light { display: block; }
+/* A page set to System follows the OS: under its light, the marks swap as in Light. */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-header-mark.is-dark { display: none; }
+  [data-theme="system"] .vx-header-mark.is-light { display: block; }
+}
+.vx-header-nav { display: flex; gap: var(--space-24); }
+/* A surface's tools take the room between the links and the end group, at its right end. */
+.vx-header-tools { display: flex; align-items: center; gap: var(--space-12); min-width: 0; margin-left: auto; }
+.vx-header-end { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-16); margin-left: auto; }
+.vx-header-tools + .vx-header-end { margin-left: 0; }
+/* On one row, 32px set the wordmark and the end group apart from the links and the tools. */
+@media (min-width: 961px) {
+  .vx-header-start { padding-right: var(--space-32); }
+  .vx-header-end { padding-left: var(--space-32); }
+}
+/* A search field for the tools, as the docs use it, at control-md on raised. Below 960px its twin,
+   a search button (.vx-header-search-link) that opens the search page, takes its place. */
+.vx-header-search { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 160px; margin: 0; color: var(--ink-muted); }
+.vx-header-search svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
+.vx-header-search input { box-sizing: border-box; width: 100%; height: var(--control-md); margin: 0; padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 14px/1 var(--font-sans); transition: border-color var(--vx-motion); }
+.vx-header-search input:hover { border-color: var(--ink); }
+.vx-header-search input::placeholder { color: var(--ink-muted); opacity: 1; }
+.vx-header-search-link { display: none; }
+/* The menu: on a narrow screen the site's links go behind a Menu button at the end of the row, a
+   <details>, so it opens without scripts. Its panel is a popover under the button, on the ground with
+   the buttons' solid edge, so it covers what is under it. */
+.vx-header-menu { display: none; }
+.vx-header-menu > summary { list-style: none; }
+.vx-header-menu > summary::-webkit-details-marker { display: none; }
+.vx-header-menu > summary .is-close, .vx-header-menu[open] > summary .is-open { display: none; }
+.vx-header-menu[open] > summary .is-close { display: block; }
+.vx-header-menu[open] > summary { border-color: var(--ink); }
+.vx-header-menu-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-8));
+  right: var(--page-pad);
+  display: grid;
+  width: 220px;
+  padding: var(--space-4) 0;
+  background: var(--ground);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-card);
+}
+.vx-header-menu-panel .vx-nav-link { display: flex; min-height: 44px; padding: 0 var(--space-16); }
+.vx-header-menu-panel .vx-nav-link:hover { background: var(--wash); }
+/* The end group's switch and GitHub button have twin rows in the panel (.vx-header-menu-spill),
+   which show only when the end group hands them over, below 640px. */
+.vx-header-menu-spill { display: none; }
+/* Below 1180px the GitHub button keeps only its mark. Its aria-label still names the repository. */
+@media (max-width: 1180px) {
+  .vx-header-repo, .vx-header .vx-btn-count { display: none; }
+}
+/* Below 960px the links go into the Menu, and a search field gives way to its button. */
+@media (max-width: 960px) {
+  .vx-header-nav, .vx-header-search { display: none; }
+  .vx-header-menu { display: block; }
+  .vx-header-search-link { display: inline-flex; }
+}
+/* On a phone the row is the wordmark, the tools, and the Menu, whose button keeps its icon: the
+   switch and the GitHub button move into the Menu's panel, under the links, each on a row with a
+   solid line rule above it. So the row fits 320px with a surface's tools. */
+@media (max-width: 640px) {
+  .vx-header { gap: var(--space-12); }
+  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
+  .vx-header-end > .vx-theme-switch, .vx-header-end > .vx-header-github { display: none; }
+  .vx-header-menu-spill { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
+  a.vx-header-menu-spill { padding-block: 0; }
+  .vx-header-menu-text {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+}
+
+/* The footer: the same on every surface. The LF mark, the small print, and the project's links,
+   over one solid line rule. */
+.vx-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-16) var(--page-pad);
+  border-top: 1px solid var(--line);
+  font: 400 11px/1.5 var(--font-mono);
+  letter-spacing: 0.02em; /* the one tracked style: small print */
+  color: var(--ink-muted);
+}
+.vx-footer-mark { height: 12px; width: auto; opacity: 0.85; }
+[data-theme="light"] .vx-footer-mark { filter: invert(1); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-footer-mark { filter: invert(1); }
+}
+/* 96ch: on a wide screen the line and the credit fit two balanced lines. */
+.vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
+.vx-footer-credit { white-space: nowrap; }
+.vx-footer-nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin-left: auto; }
+@media (max-width: 640px) { .vx-footer-nav { margin-left: 0; } }
+
+/* A fieldset, so its margin and minimum width are cleared. Until a script presses a button, the
+   choice THEME_BOOTSTRAP wrote to data-theme-choice on the root shows pressed. */
+/* The text switch (vx-switch) draws the theme switch's group, with words on its buttons. */
+.vx-theme-switch,
+.vx-switch {
+  display: inline-flex;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+}
+.vx-theme-switch button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  transition: color var(--vx-motion), background-color var(--vx-motion);
+}
+.vx-switch button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  height: 26px;
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-control);
+  font: 400 12.5px/26px var(--font-sans);
+  white-space: nowrap;
+  color: var(--ink-muted);
+  transition: color var(--vx-motion), background-color var(--vx-motion);
+}
+.vx-theme-switch button:hover,
+.vx-switch button:hover { color: var(--ink); }
+.vx-theme-switch button[aria-pressed="true"],
+.vx-switch button[aria-pressed="true"],
+:root[data-theme-choice="light"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="light"],
+:root[data-theme-choice="dark"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="dark"],
+:root[data-theme-choice="system"] .vx-theme-switch:not(:has([aria-pressed="true"])) button[data-choice="system"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+/* After the pressed rule, so a press shows on the current choice too. */
+.vx-theme-switch button:active,
+.vx-switch button:active { background: var(--edge); }
+.vx-theme-switch svg { width: 16px; height: 16px; fill: currentColor; }
+
+/* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
+   column between the header and the footer) leaves, and centres its text in it. With the mark it
+   takes the homepage hero's two columns, and stacks below 1100px as the hero does. */
+.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); padding: var(--space-32) var(--page-pad); }
+.vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
+.vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
+.vx-status-text > * { margin: 0; }
+/* The homepage's voice: a mono headline (vx-display-mono) and a mono sentence at the standfirst's size. */
+.vx-status-sentence { font: 400 16px/1.6 var(--font-mono); color: var(--ink-body); }
+/* The 404's headline is its code: mono at the display size, so the page has one large thing to read. */
+.vx-status-code { font: 500 64px/0.98 var(--font-mono); letter-spacing: -0.04em; color: var(--ink); }
+/* The mark's cell has a height to fill. Its host is never taller than 9/10 of the cell's width. */
+.vx-status-mark { position: relative; min-height: 0; container-type: size; }
+.vx-status-mark > * { position: absolute; inset: 0; height: min(100cqh, 90cqw); margin: auto 0; }
+@media (max-width: 1099px) {
+  .vx-status.has-mark { grid-template-columns: minmax(0, 1fr); align-content: center; gap: var(--space-24); }
+  .vx-status-mark { height: 320px; }
+}
+@media (max-width: 640px) {
+  .vx-status-mark { height: 240px; }
+}
+@media (max-width: 640px) { .vx-status-code { font-size: 48px; } }
+
+/* DotField: the ASCII mark's dot field, still, behind a page whose mark leaves its field to it
+   (the 404, with the mark's field: false) or that has open ground of its own. The dots sit on the
+   mark's grid, a dot in every second cell of 12px Geist Mono and every second 14px line, in the
+   mark's field grey. It covers the top of its host and fades out toward every edge and corner, as
+   the mark's field does, so no hard edge shows. The host takes .has-dot-field, so the field sits
+   under the host's content and over its background. Keep it out from behind running text: around
+   a text column the dots read as noise (Will, 4 Nov 2026, on the blog: "kind of awkward").
+   Decoration only: keep the field aria-hidden. It lives in chrome, with Status, because every
+   surface copies chrome. */
+.has-dot-field { position: relative; isolation: isolate; }
+.vx-dot-field {
+  --dot-field-ink: var(--grey-700);
+  position: absolute;
+  inset: 0 0 auto;
+  height: min(100%, 1400px);
+  z-index: -1;
+  pointer-events: none;
+  font: 400 12px/14px var(--font-mono);
+  background-image: radial-gradient(circle at 0.5ch 10px, var(--dot-field-ink) 0.8px, transparent 1.2px);
+  background-size: 2ch 28px;
+  -webkit-mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 40%, transparent 100%);
+}
+[data-theme="light"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-dot-field { --dot-field-ink: var(--grey-300); }
+}
+@media (forced-colors: active), print {
+  .vx-dot-field { display: none; }
+}
+
+/* ------------------------------------------------------------------ site */
+/* The frame: the terminal's dashed rule, 1px wide, 12px on and 4px off, in ink-body. A .vx-frame
+   box draws it on all four sides, over the ground, so it can sit on the ASCII mark. It is the
+   homepage's motif: the header and footer draw a solid line rule on every surface. Inside a frame,
+   the tabs' rule is dashed too. */
+:where(.vx-frame) {
+  --vx-dash-x: linear-gradient(90deg, var(--ink-body) 12px, transparent 12px);
+  --vx-dash-y: linear-gradient(180deg, var(--ink-body) 12px, transparent 12px);
+}
+.vx-frame {
+  background-color: var(--ground);
+  background-image: var(--vx-dash-x), var(--vx-dash-x), var(--vx-dash-y), var(--vx-dash-y);
+  background-size: 16px 1px, 16px 1px, 1px 16px, 1px 16px;
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-position: left top, left bottom, left top, right top;
+}
+.vx-frame .vx-tabs-list { border-bottom: 0; background: var(--vx-dash-x) left bottom / 16px 1px repeat-x; }
+
+/* A text field: raised, at control-md, with an edge that turns ink on hover, like the docs' search.
+   A row holds a field and its button. */
+.vx-field {
+  appearance: none;
+  height: var(--control-md);
+  margin: 0;
+  padding: 0 var(--space-12);
+  font: 400 14px/1 var(--font-sans);
+  color: var(--ink);
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-control);
+  transition: border-color var(--vx-motion);
+}
+.vx-field::placeholder { color: var(--ink-muted); opacity: 1; }
+.vx-field:hover { border-color: var(--ink); }
+.vx-field[aria-invalid="true"] { border-color: var(--error-ink); }
+.vx-field:disabled { background: transparent; border-color: var(--line); color: var(--ink-muted); cursor: not-allowed; }
+/* A compact field, for a pane's head or a toolbar. */
+.vx-field.is-sm { height: var(--control-sm); font-size: 13px; }
+.vx-field-row { display: flex; gap: var(--space-8); max-width: 440px; }
+.vx-field-row > .vx-field { flex: 1 1 auto; min-width: 0; }
+.vx-field-error { margin: var(--space-8) 0 0; color: var(--error-ink); }
+
+/* A display line never strands one word on its last line, and on phones its lines balance. */
+.vx-display { text-wrap: pretty; }
+/* On phones it sets at the h1 size, where 64px would take four lines. */
+@media (max-width: 640px) {
+  .vx-display { font-size: 48px; text-wrap: balance; }
+}
+
+/* The mono headline: tight, as the old terminal set it, and at the h3 size on phones. */
+.vx-display-mono { text-wrap: pretty; }
+@media (max-width: 640px) {
+  .vx-display-mono { font-size: 28px; }
+}
+
+/* The results table: every system's figure for each benchmark, in a frame. Vortex's column is Blue,
+   the best figure in each row is underlined, as a model card marks its best score, and the last
+   column says how Vortex does against Parquet. Below 760px only Vortex and the verdict show. */
+.vx-results { padding: var(--space-18) var(--space-24); font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); }
+.vx-results-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4) var(--space-16); margin: 0 0 var(--space-12); color: var(--ink); }
+/* The source line: bench's link and the read date, which wrap as one line each. */
+.vx-results-src { display: inline-flex; flex-wrap: wrap; gap: 0 var(--space-8); color: var(--ink-muted); }
+.vx-results-src > * { white-space: nowrap; }
+/* The foot: the key, then a note for each panel with a range, one per line. */
+.vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
+.vx-results-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+/* The cells do not wrap, so a table wider than its frame scrolls inside it, not off the page. */
+.vx-results-wrap { overflow-x: auto; }
+.vx-results-table th,
+.vx-results-table td { padding: var(--space-4) 0 var(--space-4) var(--space-16); text-align: right; white-space: nowrap; font-weight: 400; }
+.vx-results-table th:first-child { padding-left: 0; text-align: left; }
+.vx-results-table thead th { padding-bottom: var(--space-8); color: var(--ink-muted); }
+.vx-results-table tbody th { color: var(--ink-body); }
+.vx-results-table .is-ours { color: var(--accent-ink); }
+.vx-results-table .is-missing { color: var(--ink-muted); }
+/* The underline is ink on every column: it names the result, and Blue names Vortex. */
+.vx-results-table .is-best { color: var(--ink); font-weight: 600; text-decoration: underline 2px var(--ink); text-underline-offset: 5px; }
+.vx-results-table .is-best.is-ours { color: var(--accent-ink); }
+.vx-results-table .is-verdict { padding-left: var(--space-24); color: var(--ink); }
+@media (max-width: 760px) {
+  .vx-results { padding: var(--space-16); }
+  .vx-results-table :is(th, td):not(:first-child, .is-ours, .is-verdict) { display: none; }
+}
+/* The narrowest phones, 320px: the three columns fit inside the frame with 12px of padding, 12px between them, and headings that wrap. */
+@media (max-width: 400px) {
+  .vx-results { padding: var(--space-12); }
+  .vx-results-table :is(th, td):not(:first-child) { padding-left: var(--space-12); }
+  .vx-results-table th { white-space: normal; }
+}
+
+.vx-eyebrow { display: inline-flex; align-items: center; gap: var(--space-8); }
+.vx-eyebrow::before { content: ""; width: 6px; height: 6px; background: var(--ink-muted); flex: none; }
+
+.vx-tabs { overflow: hidden; }
+.vx-tabs-list { display: flex; padding: 0 var(--space-4); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.vx-tabs-list button {
+  appearance: none;
+  margin: 0 0 -1px;
+  padding: var(--space-12) var(--space-12) var(--space-8);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+.vx-tabs-list button:hover { color: var(--ink-body); }
+/* Six tabs fit a phone: the side padding steps down to 8px below 480px and 4px below 400px.
+   Narrower than about 330px, the list scrolls. */
+@media (max-width: 480px) {
+  .vx-tabs-list button { padding-inline: var(--space-8); }
+}
+@media (max-width: 400px) {
+  .vx-tabs-list button { padding-inline: var(--space-4); }
+}
+/* A selected tab takes Blue's rule, as every selection does. */
+.vx-tabs-list button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+/* After the selected rule, so a press shows on the selected tab too. */
+.vx-tabs-list button:active { background: var(--wash); }
+.vx-tabs-code { display: flex; align-items: flex-start; gap: var(--space-12); padding: var(--space-12) var(--space-16); }
+/* Every panel shares one grid cell and only the selected one shows, so the block is always the
+   tallest panel's height and switching tabs never moves the page. */
+.vx-tabs-panels { display: grid; flex: 1; min-width: 0; }
+.vx-tabs-panels > .vx-tabs-pre { grid-area: 1 / 1; }
+.vx-tabs-pre { margin: 0; flex: 1; min-width: 0; font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.vx-tabs-pre.is-idle { visibility: hidden; }
+.vx-prompt { color: var(--ink-muted); user-select: none; }
+.vx-copy { all: unset; cursor: pointer; color: var(--ink-muted); padding: 2px; }
+.vx-copy:hover { color: var(--ink); }
+.vx-copy:active { background: var(--wash); }
+.vx-copy svg { width: 16px; height: 16px; fill: currentColor; display: block; }
+.vx-copy .is-check, .vx-copy.is-done .is-copy { display: none; }
+.vx-copy.is-done .is-check { display: block; }
+
+/* A bar chart's rows: name, a bar on its track, the value. Vortex is the one Blue row. renderBars
+   sets --bar-value to fit the longest value, so every track has one length and the bars share a scale. */
+.vx-bars { display: grid; gap: var(--space-8); }
+.vx-bar {
+  display: grid;
+  grid-template-columns: var(--bar-name, 56px) minmax(0, 1fr) var(--bar-value, auto);
+  gap: var(--space-8);
+  align-items: center;
+  font: 400 12px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+.vx-bar-value { text-align: right; }
+.vx-bar-missing { grid-column: 2 / -1; }
+.vx-bar-extra { margin-left: var(--space-8); }
+.vx-bar-track { height: 6px; background: var(--chart-track); }
+.vx-bar-fill { display: block; height: 100%; background: var(--chart-muted); }
+.vx-bar.is-ours { color: var(--accent-ink); }
+.vx-bar.is-ours .vx-bar-fill { background: var(--chart-vortex); }
+/* Parquet, Lance and Arrow take muted tints of their colours, so the bars are not grey on grey,
+   drawn at 42% so that Vortex's Blue is the one solid bar and leads even where the others are
+   longer. Every bar prints its value, so the bar is never the only way to read it. */
+.vx-bar.is-parquet .vx-bar-fill { background: var(--chart-parquet); }
+.vx-bar.is-lance .vx-bar-fill { background: var(--chart-lance); }
+.vx-bar.is-arrow .vx-bar-fill { background: var(--chart-arrow); }
+.vx-bar:is(.is-parquet, .is-lance, .is-arrow) .vx-bar-fill { opacity: 0.42; }
+.vx-bars.is-lg .vx-bar { gap: var(--space-12); font-size: 12.5px; }
+.vx-bars.is-lg .vx-bar-track { height: 10px; }
+
+
+/* ------------------------------------------------------------------ tables
+   A post's tables, which Markdown writes, and data tables. The blog and the Explorer both copy it. */
+.vx-table-wrap { overflow-x: auto; }
+.vx-prose table,
+.vx-table { width: 100%; border-collapse: collapse; font: 400 14px/1.4 var(--font-sans); font-variant-numeric: tabular-nums; }
+.vx-prose th,
+.vx-table th {
+  padding: var(--space-8) var(--space-12) var(--space-8) 0;
+  text-align: left;
+  font: 500 11px/1.3 var(--font-mono);
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--edge);
+}
+.vx-prose td,
+.vx-table td { padding: var(--space-8) var(--space-12) var(--space-8) 0; border-bottom: 1px solid var(--line); }
+.vx-prose .is-num,
+.vx-table .is-num { text-align: right; white-space: nowrap; }
+/* The figures are mono at 13px; the column's head keeps the heads' 11px. */
+.vx-prose td.is-num,
+.vx-table td.is-num { font-family: var(--font-mono); font-size: 13px; }
+.vx-prose tr.is-total td,
+.vx-table tr.is-total td { color: var(--ink); font-weight: 600; border-bottom: 0; }
+/* Data tables: every cell in mono, rows at app height, and column names keep their case. */
+.vx-table.is-data th,
+.vx-table.is-data td { padding: var(--space-8) var(--space-12); }
+.vx-table.is-data td { height: var(--app-row); box-sizing: border-box; white-space: nowrap; font-family: var(--font-mono); font-size: 13px; color: var(--ink-body); }
+.vx-table th.is-selected { color: var(--accent-ink); }
+.vx-table td.is-selected { background: var(--accent-soft); color: var(--ink); }
+/* A data table on a surface keeps its head in view and washes the row under the pointer. A spacer
+   row (is-spacer) stands for rows a virtual list has not drawn. */
+.vx-table.is-data thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.vx-table.is-data tbody tr:not(.is-spacer):hover td { background: var(--wash); }
+.vx-table.is-data tr.is-spacer td { height: auto; padding: 0; border: 0; }
+
+/* ------------------------------------------------------------------ app: Explorer */
+.vx-tree { padding: var(--space-8) 0; font: 400 12.5px/1 var(--font-mono); }
+.vx-tree-node {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-12);
+  align-items: center;
+  min-height: var(--control-sm);
+  padding: var(--space-4) var(--space-16);
+  /* A layout is as deep as its file: each level steps in by space-16. The consumer sets
+     --vx-depth on the node (0 at the top), beside its aria-level. */
+  padding-left: calc(var(--space-12) + var(--vx-depth, 0) * var(--space-16));
+  color: var(--ink-body);
+  cursor: pointer;
+  transition: background-color var(--vx-motion);
+}
+/* A closed parent hides the nodes under it with the hidden attribute, which display: grid overrides. */
+.vx-tree-node[hidden] { display: none; }
+.vx-tree-node:hover { background: var(--wash); }
+.vx-tree-node[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+.vx-tree-node.is-nested { --vx-depth: 1; }
+.vx-tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vx-tree-type { color: var(--ink-muted); }
+.vx-tree-size { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.vx-tree-dot { display: inline-block; width: 8px; height: 8px; margin-right: var(--space-8); vertical-align: -1px; background: var(--vx-dt, var(--chart-muted)); }
+/* A parent leads with a chevron (chevron_right) that turns down when it is open. A leaf keeps the
+   space with an empty toggle, so names at one depth line up. */
+.vx-tree-toggle { display: inline-block; width: 16px; height: 16px; margin-right: var(--space-4); vertical-align: -4px; fill: var(--ink-muted); transition: rotate var(--vx-motion); }
+.vx-tree-node[aria-expanded="true"] > .vx-tree-name > .vx-tree-toggle,
+[aria-expanded="true"] > .vx-tree-toggle { rotate: 90deg; }
+.vx-tree-toggle.is-leaf { visibility: hidden; }
+.vx-tree-node:hover .vx-tree-toggle { fill: var(--ink); }
+
+/* Dtype colours: one per dtype family (components/lib/dtype.js names the family), shared by the
+   tree's dots and every Explorer view. Five families take chart-2 to chart-6, never
+   Blue. A list or struct is muted, because its children carry their own colours. The dtype's name
+   always shows beside its colour, so the colour is never the only cue. */
+.vx-dt-int { --vx-dt: var(--chart-5); }
+.vx-dt-float { --vx-dt: var(--chart-2); }
+.vx-dt-utf8 { --vx-dt: var(--chart-6); }
+.vx-dt-bool { --vx-dt: var(--chart-4); }
+.vx-dt-datetime { --vx-dt: var(--chart-3); }
+.vx-dt-list { --vx-dt: var(--chart-muted); }
+.vx-dt-struct { --vx-dt: var(--chart-muted); }
+.vx-dt-other { --vx-dt: var(--chart-muted); }
+/* A filled block of a dtype: solid in Dark, with the surface as the gap between blocks; a tint in
+   Light, with an edge in the full hue. A label on it takes --vx-dt-ink: chart-fill-ink on a hue, ink
+   on a muted family's grey. */
+.vx-dt-int, .vx-dt-float, .vx-dt-utf8, .vx-dt-bool, .vx-dt-datetime, .vx-dt-list, .vx-dt-struct, .vx-dt-other {
+  --vx-dt-fill: color-mix(in oklab, var(--vx-dt) var(--chart-fill-mix), var(--surface));
+  --vx-dt-edge: color-mix(in oklab, var(--vx-dt) var(--chart-edge-mix), var(--surface));
+  --vx-dt-ink: var(--chart-fill-ink);
+}
+.vx-dt-list, .vx-dt-struct, .vx-dt-other { --vx-dt-ink: var(--ink); }
+
+/* Pane: a card that holds one view of an app, with a head of controls, a body that scrolls, and an
+   optional foot. The card draws the frame; the pane lays it out. */
+.vx-pane { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.vx-pane-head {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-bottom: 1px solid var(--line);
+}
+.vx-pane-head > .vx-label { margin-right: auto; }
+.vx-pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+.vx-pane-foot { flex: none; padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
+
+/* Facts: a key and value list (dl). Each pair is a div of a dt, set as vx-label-sm in the markup,
+   and a dd in ink mono. is-row lays the pairs in one line that wraps. */
+.vx-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-12) var(--space-16); margin: 0; padding: var(--space-16); }
+.vx-facts.is-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.vx-facts > div { display: grid; gap: var(--space-4); min-width: 0; }
+.vx-facts dt { margin: 0; }
+.vx-facts dd { margin: 0; color: var(--ink); font: 400 13px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.vx-status-line { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-20); padding: var(--space-8) var(--space-20); border-top: 1px solid var(--line); }
+.vx-status-item { display: inline-flex; align-items: center; gap: var(--space-8); }
+.vx-status-item::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--status-idle); }
+.vx-status-item.is-ok::before { background: var(--status-ok); }
+.vx-status-item.is-warn::before { background: var(--status-warn); }
+.vx-status-item.is-error::before { background: var(--status-error); }
+
+/* ------------------------------------------------------------------ focus
+   One rule for every focusable element, last so that it wins over the resets above. The docs'
+   phone menu is a hidden checkbox, so its label shows the checkbox's ring. Rows and
+   segments inside a clipped container draw it inside their edge. */
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.vx-docs-toggle:focus-visible ~ .vx-header .vx-docs-menu { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+:is(.vx-docs-nav a, .vx-docs-nav summary, .vx-docs-toc a, .vx-docs-fold a, .vx-post-row, .vx-tree-node, .vx-tabs-list button, .vx-switch button, .vx-theme-switch button, .vx-table-wrap :is(a, button), .vx-docs-main table.docutils a):focus-visible { outline-offset: -2px; }

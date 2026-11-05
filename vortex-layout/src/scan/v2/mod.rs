@@ -43,7 +43,6 @@ use vortex_session::VortexSession;
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
-use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
@@ -100,6 +99,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    skip_unselective_dynamic: bool,
 }
 
 impl ScanBuilder {
@@ -113,6 +113,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            skip_unselective_dynamic: false,
         }
     }
 
@@ -135,6 +136,18 @@ impl ScanBuilder {
     /// Evaluates a bound predicate before projecting the surviving rows.
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
+        self
+    }
+
+    /// Allows the scan to switch off a filter conjunct containing dynamic expressions once it has
+    /// kept almost every row on several consecutive chunks, skipping its zone pruning and its
+    /// evaluation until its dynamic values change.
+    ///
+    /// The scan may then return rows the conjunct would reject, so only enable this when the
+    /// dynamic expressions are hints whose producer applies them again, such as DataFusion's
+    /// TopK and hash-join dynamic filters. Off by default.
+    pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
+        self.skip_unselective_dynamic = skip;
         self
     }
 
@@ -169,7 +182,7 @@ impl ScanBuilder {
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {
             Some(root) => root,
-            None => cache.insert_root(lower(&file.layout)?),
+            None => cache.insert_root(file.layout.new_plan()?),
         };
         let row_count = root.row_count();
         let filtered_chunk_rows = self
@@ -180,11 +193,23 @@ impl ScanBuilder {
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
+                let skip = self.skip_unselective_dynamic;
                 match cache.filter_plans(&filter) {
-                    Some(plans) => Ok(plans),
+                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
+                    // A scan whose skipping differs from the cached plans' plans its own.
+                    Some(_) => Ok(Arc::new(FilterPlans::new(
+                        filter,
+                        &root,
+                        &self.session,
+                        skip,
+                    )?)),
                     None => {
-                        let plans =
-                            Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
+                        let plans = Arc::new(FilterPlans::new(
+                            filter.clone(),
+                            &root,
+                            &self.session,
+                            skip,
+                        )?);
                         Ok(cache.insert_filter_plans(filter, plans))
                     }
                 }

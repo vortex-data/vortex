@@ -15,6 +15,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
@@ -55,6 +56,8 @@ use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::RUNTIME;
+use crate::buffer::exported_buffer_addresses;
+use crate::buffer::import_buffers;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_metadata;
@@ -211,8 +214,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
@@ -298,8 +303,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let metadata = extract_metadata(env, &metadata)?;
@@ -351,13 +358,45 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
 
         let ffi_array =
             unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        // Take the schema as well as the array. As the consumer, native code must release both, and dropping the
+        // owned schema does that; borrowing it would leak the exporter's copy on every batch.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
 
-        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }
+        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
 
         let batch = RecordBatch::from(StructArray::from(array_data));
         writer.write_record_batch(batch)?;
+        Ok(JNI_TRUE)
+    })
+}
+
+/// Import a Java Arrow batch with per-allocation ownership instead of a shared batch owner.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatchBuffers(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+    arrow_array_addr: jlong,
+    buffers: JObject,
+) -> jboolean {
+    if writer_ptr <= 0 {
+        return JNI_FALSE;
+    }
+    try_or_throw(&mut env, |env| {
+        // SAFETY: Java validates the root schema against the writer's schema and holds the
+        // writer monitor for this call. Moving the array clears its release callback.
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+        let array = unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        let exported_addresses = exported_buffer_addresses(&array);
+        let dtype = DataType::Struct(writer.arrow_schema.fields().clone());
+        // SAFETY: the Java export keeps all buffers alive through the import, and the
+        // caller validated its schema before exporting the array.
+        let data = unsafe { arrow_array::ffi::from_ffi_and_data_type(array, dtype) }
+            .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
+        let data = import_buffers(env, data, &exported_addresses, buffers)?;
+        writer.write_record_batch(RecordBatch::from(StructArray::from(data)))?;
         Ok(JNI_TRUE)
     })
 }

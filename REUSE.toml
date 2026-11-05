@@ -6,6 +6,37 @@ path = "docs/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# The docs theme's copies of the Vortex design system's CSS are code, under Apache-2.0.
+[[annotations]]
+path = "docs/_theme/vortex/system/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The docs theme's Geist Mono is Google Fonts' Latin subset of the font, under the SIL Open Font
+# License.
+[[annotations]]
+path = "docs/_static/fonts/geist-mono-latin.woff2"
+precedence = "override"
+SPDX-FileCopyrightText = "2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# The Linux Foundation's logo, in the footer of the docs and the Explorer, belongs to the Linux
+# Foundation.
+[[annotations]]
+path = ["docs/_static/lf_white.svg", "vortex-web/public/lf_white.svg"]
+precedence = "override"
+SPDX-FileCopyrightText = "The Linux Foundation"
+SPDX-License-Identifier = "LicenseRef-Third-Party"
+
+# three.js, which the docs serve for the 404's mark, because their CSP allows scripts from their
+# own origin only. A copy of three@0.170.0's build/three.module.min.js.
+[[annotations]]
+path = "docs/_static/vortex-mark/three.module.min.js"
+precedence = "override"
+SPDX-FileCopyrightText = "2010-2024 Three.js Authors"
+SPDX-License-Identifier = "MIT"
+
 # BtrBlocks diagram is licensed under CC-BY-4.0.
 [[annotations]]
 path = "vortex-btrblocks/decision-tree.*"
@@ -40,6 +71,13 @@ SPDX-License-Identifier = "CC-BY-4.0"
 [[annotations]]
 path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", "CITATION.cff", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties", "**.duckdb*"]
 precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The Vortex design system's stylesheets, copied into the Explorer by the system's
+# tools/site-styles.mjs. The copies carry the tool's header, not an SPDX one.
+[[annotations]]
+path = "vortex-web/src/styles/vortex*.css"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 

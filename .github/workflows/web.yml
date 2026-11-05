@@ -19,6 +19,8 @@ defaults:
   run:
     working-directory: vortex-web
 
+# The docs workflows build and deploy the Explorer (web-build.yml), because
+# one Vercel project serves both.
 jobs:
   changes:
     name: Detect Changes
@@ -38,8 +40,6 @@ jobs:
             web:
               - "vortex-web/**"
               - ".github/workflows/web.yml"
-              - ".github/workflows/deploy-vercel.yml"
-              - ".github/vercel-cli/**"
 
   check:
     name: Check & Lint
@@ -56,62 +56,16 @@ jobs:
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
         with:
           tool: wasm-pack@0.15.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: 1.4.3
+      # Storybook and Vite run on Node, and Bun runs their scripts with it.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "24"
-          cache: "npm"
-          cache-dependency-path: vortex-web/package-lock.json
-      - run: npm ci
-      - run: npm run wasm
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run build-storybook
-
-  build:
-    name: Build
-    needs: [changes]
-    if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install wasm-pack
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
-        with:
-          tool: wasm-pack@0.15.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
-        with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: vortex-web/package-lock.json
-      - run: npm ci
-      - run: npm run build
-      - name: Upload build artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: vortex-explorer
-          path: vortex-web/dist/
-
-  deploy:
-    name: Deploy to Vercel
-    needs: [build]
-    # Fork PRs get no secrets, so only pushes and same-repo PRs deploy.
-    if: >-
-      github.event_name == 'push' ||
-      github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      contents: read
-      deployments: write
-    uses: ./.github/workflows/deploy-vercel.yml
-    # A called workflow only sees the secrets its caller passes, including
-    # the secrets of the environment the called job deploys to.
-    secrets: inherit
-    with:
-      environment: vercel-explorer
-      artifact-name: vortex-explorer
-      config: vortex-web/vercel-output-config.json
-      production: ${{ github.event_name == 'push' }}
+      - run: bun install --frozen-lockfile
+      - run: bun run wasm
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run build-storybook

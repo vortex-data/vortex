@@ -19,11 +19,10 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::display::PlanTreeDisplay;
 use crate::plan::physical::pipeline::Chain;
@@ -32,13 +31,13 @@ use crate::plan::physical::pipeline::Compiler;
 /// The combined allocation behind [`PlanRef`].
 ///
 /// Common plan state is stored before the unsized `data` tail, so reading the operator ID, dtype,
-/// row count, or children does not dispatch through the operator vtable. Only `PlanData<V>` is
+/// row count, or slots does not dispatch through the operator vtable. Only `PlanData<V>` is
 /// erased to [`DynPlan`].
 struct PlanInner<D: ?Sized> {
     id: PlanId,
     dtype: DType,
     row_count: u64,
-    children: PlanChildren,
+    slots: PlanSlots,
     data: D, // must be last for unsized coercion
 }
 
@@ -76,35 +75,41 @@ impl PlanRef {
         self.0.row_count
     }
 
-    /// Returns the common child container without initializing any child.
-    pub fn children(&self) -> &PlanChildren {
-        &self.0.children
+    /// Returns the child slots without building any child.
+    pub fn slots(&self) -> &PlanSlots {
+        &self.0.slots
     }
 
-    /// Returns the number of children without initializing any child.
-    pub fn child_count(&self) -> usize {
-        self.0.children.len()
+    /// Returns the number of slots, present or absent, without building any child.
+    pub fn nslots(&self) -> usize {
+        self.0.slots.len()
     }
 
-    /// Returns the child at `index`, initializing it on first access.
-    pub fn child(&self, index: usize) -> VortexResult<Option<PlanRef>> {
-        self.0.children.get(index)
+    /// Returns the plan in `slot`, building it on first access, or `None` when the slot is
+    /// absent. Errors when `slot` is out of bounds.
+    pub fn slot(&self, slot: usize) -> VortexResult<Option<PlanRef>> {
+        Ok(self.0.slots.get(slot)?.cloned())
     }
 
-    /// Returns the child at `index`, or an error when the index is out of bounds.
-    pub fn child_required(&self, index: usize) -> VortexResult<PlanRef> {
-        self.child(index)?
-            .ok_or_else(|| vortex_err!("Missing plan child {index}"))
+    /// Returns the plan in `slot`, or an error when the slot is absent or out of bounds.
+    pub fn slot_required(&self, slot: usize) -> VortexResult<PlanRef> {
+        self.0.slots.required(slot).cloned()
     }
 
-    /// Rebuilds this plan with `children` stored outside its erased operator data.
-    pub fn with_children(&self, children: impl Into<PlanChildren>) -> VortexResult<PlanRef> {
-        self.dyn_plan().dyn_with_children(self, children.into())
+    /// The plans of the present slots in slot order, building each as it is visited. See
+    /// [`PlanSlots::children`].
+    pub fn children(&self) -> impl Iterator<Item = VortexResult<&PlanRef>> + '_ {
+        self.0.slots.children()
     }
 
-    /// Returns the display name of the child at `index`.
-    pub fn child_name(&self, index: usize) -> Cow<'_, str> {
-        self.dyn_plan().dyn_child_name(self, index)
+    /// Rebuilds this plan with `slots` stored outside its erased operator data.
+    pub fn with_slots(&self, slots: impl Into<PlanSlots>) -> VortexResult<PlanRef> {
+        self.dyn_plan().dyn_with_slots(self, slots.into())
+    }
+
+    /// Returns the display name of `slot`.
+    pub fn slot_name(&self, slot: usize) -> Cow<'_, str> {
+        self.dyn_plan().dyn_slot_name(self, slot)
     }
 
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
@@ -185,7 +190,7 @@ impl Debug for PlanRef {
             .field("id", &self.0.id)
             .field("dtype", &self.0.dtype)
             .field("row_count", &self.0.row_count)
-            .field("children", &self.0.children)
+            .field("slots", &self.0.slots)
             .field("data", &&self.0.data)
             .finish()
     }
@@ -199,8 +204,8 @@ pub struct PlanParts<V: PlanVTable> {
     pub dtype: DType,
     /// Number of rows in the operator's row domain.
     pub row_count: u64,
-    /// Child operators, in stable logical order.
-    pub children: PlanChildren,
+    /// Child slots, at the positions the operator defines.
+    pub slots: PlanSlots,
     /// Operator-specific, non-child data.
     pub data: V::PlanData,
 }
@@ -253,7 +258,7 @@ impl<V: PlanVTable> Plan<V> {
             id: parts.vtable.id(),
             dtype: parts.dtype,
             row_count: parts.row_count,
-            children: parts.children,
+            slots: parts.slots,
             data: PlanData {
                 vtable: parts.vtable,
                 data: parts.data,
@@ -293,19 +298,30 @@ impl<V: PlanVTable> Plan<V> {
         self.inner.row_count()
     }
 
-    /// Returns the common child container without initializing any child.
-    pub fn children(&self) -> &PlanChildren {
+    /// Returns the child slots without building any child.
+    pub fn slots(&self) -> &PlanSlots {
+        self.inner.slots()
+    }
+
+    /// Returns the number of slots, present or absent, without building any child.
+    pub fn nslots(&self) -> usize {
+        self.inner.nslots()
+    }
+
+    /// Returns the plan in `slot`, building it on first access, or `None` when the slot is
+    /// absent.
+    pub fn slot(&self, slot: usize) -> VortexResult<Option<PlanRef>> {
+        self.inner.slot(slot)
+    }
+
+    /// Returns the plan in `slot`, or an error when the slot is absent or out of bounds.
+    pub fn slot_required(&self, slot: usize) -> VortexResult<PlanRef> {
+        self.inner.slot_required(slot)
+    }
+
+    /// The plans of the present slots in slot order. See [`PlanSlots::children`].
+    pub fn children(&self) -> impl Iterator<Item = VortexResult<&PlanRef>> + '_ {
         self.inner.children()
-    }
-
-    /// Returns a child, initializing it on first access.
-    pub fn child(&self, index: usize) -> VortexResult<Option<PlanRef>> {
-        self.inner.child(index)
-    }
-
-    /// Returns the child at `index`, or an error when the index is out of bounds.
-    pub fn child_required(&self, index: usize) -> VortexResult<PlanRef> {
-        self.inner.child_required(index)
     }
 
     /// Erases this typed plan into a shared reference.
@@ -379,11 +395,11 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
     /// Formats operator-specific fields.
     fn dyn_fmt(&self, plan: &PlanRef, formatter: &mut Formatter<'_>) -> fmt::Result;
 
-    /// Clones operator data, runs its child-replacement callback, and rebuilds the common node.
-    fn dyn_with_children(&self, plan: &PlanRef, children: PlanChildren) -> VortexResult<PlanRef>;
+    /// Clones operator data, runs its slot-replacement callback, and rebuilds the common node.
+    fn dyn_with_slots(&self, plan: &PlanRef, slots: PlanSlots) -> VortexResult<PlanRef>;
 
-    /// Returns the display name of the child at `index`.
-    fn dyn_child_name<'a>(&'a self, plan: &'a PlanRef, index: usize) -> Cow<'a, str>;
+    /// Returns the display name of `slot`.
+    fn dyn_slot_name<'a>(&'a self, plan: &'a PlanRef, slot: usize) -> Cow<'a, str>;
 
     /// Serializes operator-specific metadata, or `None` when the operator is not serializable.
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>>;
@@ -407,21 +423,21 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         <V as PlanVTable>::fmt(plan.as_::<V>(), formatter)
     }
 
-    fn dyn_with_children(&self, plan: &PlanRef, children: PlanChildren) -> VortexResult<PlanRef> {
+    fn dyn_with_slots(&self, plan: &PlanRef, slots: PlanSlots) -> VortexResult<PlanRef> {
         let mut data = self.data.clone();
-        V::with_children(plan.as_::<V>(), &children, &mut data)?;
+        V::with_slots(plan.as_::<V>(), &slots, &mut data)?;
         Ok(PlanParts {
             vtable: self.vtable.clone(),
             dtype: plan.dtype().clone(),
             row_count: plan.row_count(),
-            children,
+            slots,
             data,
         }
         .into_plan())
     }
 
-    fn dyn_child_name<'a>(&'a self, plan: &'a PlanRef, index: usize) -> Cow<'a, str> {
-        V::child_name(plan.as_::<V>(), index)
+    fn dyn_slot_name<'a>(&'a self, plan: &'a PlanRef, slot: usize) -> Cow<'a, str> {
+        V::slot_name(plan.as_::<V>(), slot)
     }
 
     fn dyn_metadata(&self, plan: &PlanRef) -> Option<Vec<u8>> {

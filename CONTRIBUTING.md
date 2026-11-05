@@ -158,8 +158,9 @@ Use `make -C docs help` to list focused targets, and finish documentation change
 
 #### PR previews
 
-PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/`, a docs
-workflow, or the Vercel deploy files in `.github/vercel-cli/`. This includes draft PRs and PRs
+PRs with branches in `vortex-data/vortex` get a docs preview when they change `docs/`,
+`vortex-web/`, a docs or Explorer build workflow, or the Vercel deploy files in
+`.github/vercel-cli/`. This includes draft PRs and PRs
 targeting another feature branch. Fork PRs do not get hosted previews. Resolve merge conflicts
 before building a preview.
 
@@ -168,7 +169,8 @@ source code. The label stays on the PR and enables previews for later pushes. Re
 updates only if the PR no longer changes docs or a docs workflow.
 
 Previews are hosted on Vercel. The `vercel-docs` deployment status links to the latest preview for
-the PR, and the workflow summary records its URL. Each preview keeps its own URL. Previews build the
+the PR, and the workflow summary records its URL. One Vercel project serves the docs and the
+Explorer, so each preview also serves the Explorer at `/explorer/`. Each preview keeps its own URL. Previews build the
 PR head commit. Eligibility uses the complete PR diff, so rebasing over upstream docs changes does
 not enable a preview for an unrelated PR.
 

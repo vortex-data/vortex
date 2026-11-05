@@ -133,7 +133,7 @@
       "separateMultipleMajor": false
     },
     {
-      "description": "Propose major updates for the explore app in vortex-web, all in one PR per run. Lock file maintenance already takes compatible releases, but without this a new major (Vite, React, Storybook) never arrives. Not automerged: a person reviews the group.",
+      "description": "Propose major updates for the explore app in vortex-web, all in one PR per run. Lock file maintenance already takes compatible releases, but without this a new major (Vite, React, Storybook) never arrives. Not automerged: a person reviews the group. vortex-web installs with Bun; Renovate's npm manager also reads and updates bun.lock.",
       "matchManagers": [
         "npm"
       ],
@@ -171,7 +171,7 @@
       ]
     },
     {
-      "description": "Renovate passes the 7-day wait to npm as --before. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove that npmrc when the bug is fixed.",
+      "description": "Renovate passes the 7-day wait to npm as --before, for .github/vercel-cli. It cannot pass the wait to Bun, so for vortex-web the minimumReleaseAge in vortex-web/bunfig.toml enforces it. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800). vortex-web had one but now installs with Bun, and the .github/vercel-cli tree has none today. The npmrc stays in case a Vercel CLI update brings one in. Remove it when the bug is fixed.",
       "groupName": "JS lock file maintenance",
       "groupSlug": "js-lock-file-maintenance",
       "matchManagers": [

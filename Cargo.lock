@@ -11611,6 +11611,8 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "rstest",
  "vortex-array",
@@ -11697,11 +11699,6 @@ dependencies = [
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
- "arrow-arith 59.3.2",
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-cast 59.3.2",
- "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -11860,6 +11857,7 @@ dependencies = [
  "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
+ "smallvec",
  "vortex-array",
  "vortex-bench-support",
  "vortex-buffer",
@@ -12165,6 +12163,7 @@ name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
  "async-fs",
@@ -12262,6 +12261,7 @@ name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "hegeltest",
  "itertools 0.14.0",
  "mimalloc",
  "rand 0.10.3",
@@ -12407,7 +12407,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-row 59.3.2",
- "arrow-schema 59.3.2",
  "codspeed-divan-compat",
  "mimalloc",
  "num-traits",
@@ -12444,6 +12443,8 @@ dependencies = [
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rstest",

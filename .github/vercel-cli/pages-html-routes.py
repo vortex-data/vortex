@@ -12,8 +12,9 @@ URLs without `.html`.
 Usage: pages-html-routes.py OUTPUT_DIR
 
 OUTPUT_DIR is a `.vercel/output` directory holding `static/` and a
-`config.json` whose routes only set headers. The routes this script adds
-follow those header routes.
+`config.json` whose routes set headers, or redirect or rewrite a request
+that the HTML routes must not see, such as the Explorer's host. The routes
+this script adds follow them.
 """
 
 import json
@@ -44,6 +45,12 @@ def html_routes(static: Path) -> list[dict]:
         # Only reached when no file or directory matched.
         redirect(r"^/(.+)/$", "/$1", 307),
         {"src": r"^/(.+)$", "dest": "/$1.html", "check": True},
+        # An address that matches no file gets the build's 404 page, with a 404 status.
+        *(
+            [{"handle": "error"}, {"src": "^/.*$", "dest": "/404.html", "status": 404}]
+            if (static / "404.html").is_file()
+            else []
+        ),
     ]
 
 
@@ -52,7 +59,7 @@ def main(output: Path) -> None:
     config = json.loads(config_path.read_text())
     routes = config.get("routes", [])
     if any("handle" in route for route in routes):
-        sys.exit(f"{config_path}: routes must only set headers when HTML handling is added")
+        sys.exit(f"{config_path}: routes must not start a phase ('handle') when HTML handling is added")
     config["routes"] = routes + html_routes(output / "static")
     config_path.write_text(json.dumps(config, indent=2) + "\n")
 

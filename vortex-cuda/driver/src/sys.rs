@@ -19,6 +19,7 @@ use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ffi::c_uint;
 use std::ffi::c_void;
+use std::fmt;
 use std::sync::OnceLock;
 
 use libloading::Library;
@@ -57,6 +58,8 @@ pub type CUmodule = *mut CUmod_st;
 pub type CUfunction = *mut CUfunc_st;
 pub type CUmemoryPool = *mut CUmemPoolHandle_st;
 pub type CUhostFn = Option<unsafe extern "C" fn(user_data: *mut c_void)>;
+pub type CUstreamCallback =
+    Option<unsafe extern "C" fn(stream: CUstream, status: CUresult, user_data: *mut c_void)>;
 
 /// A CUDA driver API status code.
 #[repr(transparent)]
@@ -113,10 +116,21 @@ pub struct CUmemPool_attribute(pub c_int);
 
 impl CUmemPool_attribute {
     pub const CU_MEMPOOL_ATTR_RELEASE_THRESHOLD: Self = Self(4);
+    pub const CU_MEMPOOL_ATTR_USED_MEM_CURRENT: Self = Self(7);
 }
 
 /// The memory pool attribute type under the name of the driver header's enum.
 pub type CUmemPool_attribute_enum = CUmemPool_attribute;
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CUpointer_attribute(pub c_int);
+
+impl CUpointer_attribute {
+    pub const CU_POINTER_ATTRIBUTE_MEMORY_TYPE: Self = Self(2);
+}
+
+pub const CU_MEMORYTYPE_HOST: c_uint = 0x1;
 
 pub const CU_STREAM_NON_BLOCKING: c_uint = 0x1;
 pub const CU_MEMHOSTALLOC_PORTABLE: c_uint = 0x1;
@@ -213,6 +227,12 @@ driver_api! {
     fn cuStreamSynchronize(stream: CUstream);
     fn cuStreamWaitEvent(stream: CUstream, event: CUevent, flags: c_uint);
     fn cuLaunchHostFunc(stream: CUstream, function: CUhostFn, user_data: *mut c_void);
+    fn cuStreamAddCallback(
+        stream: CUstream,
+        callback: CUstreamCallback,
+        user_data: *mut c_void,
+        flags: c_uint,
+    );
     fn cuEventCreate(event: *mut CUevent, flags: c_uint);
     fn cuEventDestroy_v2(event: CUevent);
     fn cuEventRecord(event: CUevent, stream: CUstream);
@@ -246,6 +266,13 @@ driver_api! {
     fn cuMemcpyDtoH_v2(target: *mut c_void, source: CUdeviceptr, bytes: usize);
     fn cuMemHostAlloc(pointer: *mut *mut c_void, bytes: usize, flags: c_uint);
     fn cuMemFreeHost(pointer: *mut c_void);
+    fn cuPointerGetAttribute(data: *mut c_void, attribute: CUpointer_attribute, pointer: CUdeviceptr);
+    fn cuPointerGetAttributes(
+        count: c_uint,
+        attributes: *mut CUpointer_attribute,
+        data: *mut *mut c_void,
+        pointer: CUdeviceptr,
+    );
     fn cuMemPoolSetAttribute(
         pool: CUmemoryPool,
         attribute: CUmemPool_attribute,
@@ -276,15 +303,40 @@ driver_api! {
     fn cuGetErrorString(error: CUresult, description: *mut *const c_char);
 }
 
+/// Distinguishes an unavailable library from an incompatible library that opened successfully.
+#[derive(Debug)]
+pub(crate) enum DriverLoadError {
+    LibraryUnavailable,
+    MissingSymbol(String),
+}
+
+impl fmt::Display for DriverLoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LibraryUnavailable => {
+                write!(
+                    f,
+                    "none of [{}] could be loaded",
+                    DRIVER_LIBRARIES.join(", ")
+                )
+            }
+            Self::MissingSymbol(reason) => f.write_str(reason),
+        }
+    }
+}
+
+/// The cached library-loading or symbol-resolution error, loading the driver on first use.
+pub(crate) fn driver_load_error() -> Option<&'static DriverLoadError> {
+    driver().err()
+}
+
 /// The process-wide driver entry points, loaded on first use.
-fn driver() -> Result<&'static Driver, &'static str> {
-    static DRIVER: OnceLock<Result<Driver, String>> = OnceLock::new();
+fn driver() -> Result<&'static Driver, &'static DriverLoadError> {
+    static DRIVER: OnceLock<Result<Driver, DriverLoadError>> = OnceLock::new();
     DRIVER
         .get_or_init(|| {
-            let library = open_library()
-                .ok_or_else(|| format!("none of {DRIVER_LIBRARIES:?} could be loaded"))?;
-            Driver::load(library)
+            let library = open_library().ok_or(DriverLoadError::LibraryUnavailable)?;
+            Driver::load(library).map_err(DriverLoadError::MissingSymbol)
         })
         .as_ref()
-        .map_err(String::as_str)
 }

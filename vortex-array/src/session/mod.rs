@@ -44,6 +44,7 @@ use crate::arrays::Union;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::arrays::widen::WidenPlugin;
 
 /// Registry of array encodings.
 pub type ArrayRegistry = ArcSwapMap<Id, ArrayPluginRef>;
@@ -115,6 +116,7 @@ impl Default for ArraySession {
         this.register(PiecewiseSequence);
         this.register(RunEnd);
         this.register(VarBin);
+        this.register(WidenPlugin);
 
         this
     }

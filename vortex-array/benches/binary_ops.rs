@@ -37,6 +37,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -322,7 +323,8 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
     bench_decimal(bencher, lhs, rhs, Operator::Div);
 }
 
-#[vortex_bench_support::cpu_features]
+// The AVX-512 minimum varies by more than 10% while the median stays stable on unchanged code.
+#[vortex_bench_support::cpu_features(exclude = ["avx512"])]
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
     let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
@@ -357,6 +359,9 @@ fn bench_binary<T: Executable + 'static>(
     rhs: ArrayRef,
     operator: Operator,
 ) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     let len = lhs.len();
 

@@ -341,8 +341,23 @@ impl StatsAccumulator {
     }
 }
 
+/// Whether `dtype` is, or holds anywhere within it, a variant, which no builder can hold.
+pub(crate) fn contains_variant(dtype: &DType) -> bool {
+    match dtype {
+        DType::Variant(_) => true,
+        DType::Struct(fields, _) => fields.fields().any(|field| contains_variant(&field)),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => contains_variant(element),
+        DType::Map(map, _) => {
+            contains_variant(&map.key_dtype()) || contains_variant(&map.value_dtype())
+        }
+        DType::Extension(ext) => contains_variant(ext.storage_dtype()),
+        _ => false,
+    }
+}
+
 fn supports_file_stats(dtype: &DType) -> bool {
-    !matches!(dtype, DType::Variant(_))
+    // A variant, also one nested in a struct or list, has no builder to hold its statistics.
+    !contains_variant(dtype)
 }
 
 fn is_varlen_dtype(dtype: &DType) -> bool {
@@ -831,6 +846,7 @@ mod tests {
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
@@ -999,6 +1015,21 @@ mod tests {
             Some(ScalarValue::from(0u64))
         );
         Ok(())
+    }
+
+    #[rstest]
+    #[case::variant(DType::Variant(Nullability::Nullable))]
+    #[case::variant_in_struct(DType::Struct(
+        StructFields::new(["v"].into(), vec![DType::Variant(Nullability::Nullable)]),
+        Nullability::NonNullable,
+    ))]
+    #[case::variant_in_list(DType::List(
+        Arc::new(DType::Variant(Nullability::Nullable)),
+        Nullability::Nullable,
+    ))]
+    fn variant_columns_record_no_file_statistics(#[case] dtype: DType) {
+        let acc = StatsAccumulator::new(&dtype, None, &|_| true);
+        assert!(acc.aggregates.is_empty());
     }
 
     fn i32_dtype() -> DType {

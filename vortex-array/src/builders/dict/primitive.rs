@@ -30,6 +30,11 @@ use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::validity::Validity;
 
+/// Creates an encoder with a fixed code width based on the value domain and dictionary length limit.
+///
+/// The bound includes a possible null entry, so nullable values may require wider codes even when
+/// few distinct values occur. [`super::dict_encode_with_constraints`] narrows the codes after
+/// encoding; callers using this encoder directly retain the selected width.
 pub fn primitive_dict_builder<T: NativePType>(
     nullability: Nullability,
     constraints: &DictConstraints,
@@ -38,15 +43,17 @@ pub fn primitive_dict_builder<T: NativePType>(
 where
     NativeValue<T>: Hash + Eq,
 {
-    // bound constraints with the cardinality of the primitive type
-    let max_possible_len = (constraints.max_len as u64).min(match T::PTYPE.bit_width() {
+    // Codes start at zero, and nullable values need an additional dictionary entry for null.
+    let max_code = match T::PTYPE.bit_width() {
         8 => u8::MAX as u64,
         16 => u16::MAX as u64,
         32 => u32::MAX as u64,
         64 => u64::MAX,
         width => vortex_panic!("invalid bit_width: {width}"),
-    });
-    match max_possible_len {
+    }
+    .saturating_add(u64::from(nullability.is_nullable()));
+    let max_code = max_code.min(constraints.max_len.saturating_sub(1) as u64);
+    match max_code {
         max if max <= u8::MAX as u64 => Box::new(PrimitiveDictBuilder::<T, u8>::new_in(
             nullability,
             constraints,
@@ -218,22 +225,34 @@ where
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::primitive_dict_builder;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
+    use crate::builders::dict::DictConstraints;
     use crate::builders::dict::UNCONSTRAINED;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::dict_encoder_in;
     use crate::builders::dict::primitive::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
+    use crate::match_each_integer_ptype;
+    use crate::match_each_native_ptype;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    const USIZE_PTYPE: PType = PType::min_unsigned_ptype_for_value(usize::MAX as u64);
 
     #[test]
     fn encode_primitive() {
@@ -276,7 +295,11 @@ mod test {
     fn reset_clears_dict() {
         let mut ctx = SESSION.create_execution_ctx();
         let first = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        let mut encoder = dict_encoder_in(&first, &UNCONSTRAINED, ctx.allocator().clone());
+        let constraints = DictConstraints {
+            max_len: u32::MAX as usize,
+            ..UNCONSTRAINED
+        };
+        let mut encoder = dict_encoder_in(&first, &constraints, ctx.allocator().clone());
 
         assert_arrays_eq!(
             encoder.encode(&first, &mut ctx).unwrap(),
@@ -292,5 +315,62 @@ mod test {
             &mut ctx
         );
         assert_arrays_eq!(encoder.reset(), second, &mut ctx);
+    }
+
+    #[rstest]
+    #[case::u8(PType::U8, PType::U16)]
+    #[case::i8(PType::I8, PType::U16)]
+    #[case::u16(PType::U16, PType::U32)]
+    #[case::i16(PType::I16, PType::U32)]
+    fn encode_every_value_and_a_null(
+        #[case] ptype: PType,
+        #[case] codes_ptype: PType,
+        #[values(false, true)] null_first: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let arr = match_each_integer_ptype!(ptype, |T| {
+            let mut values = (T::MIN..=T::MAX).map(Some).collect::<Vec<_>>();
+            values.insert(if null_first { 0 } else { values.len() }, None);
+            PrimitiveArray::from_option_iter(values).into_array()
+        });
+        let dict = dict_encode(&arr, &mut ctx)?;
+
+        assert_eq!(
+            dict.codes().dtype(),
+            &DType::Primitive(codes_ptype, NonNullable)
+        );
+        assert_eq!(dict.values().len(), arr.len());
+        assert_arrays_eq!(dict, arr, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::u8(PType::U8, NonNullable, usize::MAX, PType::U8)]
+    #[case::u16(PType::U16, NonNullable, usize::MAX, PType::U16)]
+    #[case::u32(PType::U32, NonNullable, usize::MAX, PType::U32)]
+    #[case::nullable_u32(PType::U32, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::nullable_u64(PType::U64, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::nullable_f16(PType::F16, Nullable, usize::MAX, PType::U32)]
+    #[case::nullable_f32(PType::F32, Nullable, usize::MAX, USIZE_PTYPE)]
+    #[case::empty_budget(PType::U16, Nullable, 0, PType::U8)]
+    #[case::full_u8_codes(PType::U16, Nullable, 256, PType::U8)]
+    #[case::widen_u8_codes(PType::U16, Nullable, 257, PType::U16)]
+    #[case::full_u16_codes(PType::U32, Nullable, 65_536, PType::U16)]
+    #[case::widen_u16_codes(PType::U32, Nullable, 65_537, PType::U32)]
+    fn codes_fit_dictionary_bounds(
+        #[case] ptype: PType,
+        #[case] nullability: Nullability,
+        #[case] max_len: usize,
+        #[case] expected_codes_ptype: PType,
+    ) {
+        let ctx = SESSION.create_execution_ctx();
+        let constraints = DictConstraints {
+            max_len,
+            ..UNCONSTRAINED
+        };
+        let encoder = match_each_native_ptype!(ptype, |T| {
+            primitive_dict_builder::<T>(nullability, &constraints, ctx.allocator().clone())
+        });
+        assert_eq!(encoder.codes_ptype(), expected_codes_ptype);
     }
 }

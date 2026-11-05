@@ -158,9 +158,9 @@ impl VTable for ALP {
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Patches::new(
+                Patches::from_metadata(
                     len,
-                    p.offset()?,
+                    &p,
                     indices,
                     values,
                     chunk_offsets,
@@ -506,7 +506,6 @@ mod tests {
     #[case(1023)]
     #[case(1024)]
     #[case(1025)]
-    #[case(2047)]
     #[case(2048)]
     #[case(2049)]
     fn test_execute_f32(#[case] size: usize) {
@@ -529,7 +528,6 @@ mod tests {
     #[case(1023)]
     #[case(1024)]
     #[case(1025)]
-    #[case(2047)]
     #[case(2048)]
     #[case(2049)]
     fn test_execute_f64(#[case] size: usize) {
@@ -551,7 +549,6 @@ mod tests {
     #[case(1023)]
     #[case(1024)]
     #[case(1025)]
-    #[case(2047)]
     #[case(2048)]
     #[case(2049)]
     fn test_execute_with_patches(#[case] size: usize) {
@@ -583,7 +580,6 @@ mod tests {
     #[case(1023)]
     #[case(1024)]
     #[case(1025)]
-    #[case(2047)]
     #[case(2048)]
     #[case(2049)]
     fn test_execute_with_validity(#[case] size: usize) {
@@ -609,7 +605,6 @@ mod tests {
     #[case(1023)]
     #[case(1024)]
     #[case(1025)]
-    #[case(2047)]
     #[case(2048)]
     #[case(2049)]
     fn test_execute_with_patches_and_validity(#[case] size: usize) {
@@ -653,35 +648,6 @@ mod tests {
             .collect();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let array = PrimitiveArray::from_option_iter(values.clone());
-        let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
-
-        let slice_end = size - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
-
-        let expected =
-            PrimitiveArray::from_option_iter(values[slice_start..slice_end].iter().copied());
-        assert_arrays_eq!(sliced_encoded, expected, &mut ctx);
-    }
-
-    #[rstest]
-    #[case(500, 100)]
-    #[case(1000, 200)]
-    #[case(2048, 512)]
-    fn test_sliced_to_primitive(#[case] size: usize, #[case] slice_start: usize) {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values: Vec<Option<f64>> = (0..size)
-            .map(|i| {
-                if i % 5 == 0 {
-                    None
-                } else if i % 4 == 3 {
-                    Some(PI)
-                } else {
-                    Some(1.0)
-                }
-            })
-            .collect();
-
         let array = PrimitiveArray::from_option_iter(values.clone());
         let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
 

@@ -1,308 +1,75 @@
-:root {
-  --bg: #ffffff;
-  --bg-alt: #f5f6f7;
-  --fg: #101828;
-  --fg-muted: #4a5565;
-  --link: #0e7490;
-  --border: #e5e7eb;
-  --accent: #0e7490;
-  --warn: #9a6700;
-  --danger: #a40e26;
-  --mark: #fff8c5;
-  color-scheme: light dark;
+/* The docs' own rules. The build joins them after the design system's copies in system/: the
+   tokens, and the system's docs rules for the frame and Sphinx's markup. Spacing, colour, radii,
+   and motion come from the tokens. */
+
+/* Geist Mono, the tokens' first mono face: Google Fonts' Latin subset, one variable file for every
+   weight (23 KB). layout.html preloads it. Body text keeps the platform's sans. */
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+/* Images for one theme: the theme the reader chose (ThemeSwitch), else the OS's. */
+[data-theme="dark"] .only-light,
+[data-theme="light"] .only-dark { display: none !important; }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #101010;
-    --bg-alt: #1a1a1a;
-    --fg: #ececec;
-    --fg-muted: #99a1af;
-    --link: #2cb9d1;
-    --border: #272727;
-    --accent: #2cb9d1;
-    --warn: #d29922;
-    --danger: #ff8182;
-    --mark: #693e00;
-  }
-  .only-light { display: none !important; }
+  [data-theme="system"] .only-light { display: none !important; }
 }
 @media (prefers-color-scheme: light) {
-  .only-dark { display: none !important; }
+  [data-theme="system"] .only-dark { display: none !important; }
 }
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 1rem/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-img, svg { max-width: 100%; height: auto; }
-a { color: var(--link); text-decoration: none; }
-a:hover { text-decoration: underline; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.5em 0 0.5em; }
-h1 { font-size: 1.75rem; margin-top: 0.5em; }
-h2 { font-size: 1.35rem; }
-h3 { font-size: 1.15rem; }
-
-.visually-hidden {
+/* The landing page: the wordmark in place of the title, then cards. */
+.page-index .vx-docs-main > section > h1 {
   position: absolute;
-  width: 1px; height: 1px;
-  margin: -1px; padding: 0;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.skip-link {
-  position: absolute;
-  left: 0.5rem; top: -10rem;
-  z-index: 3;
-  padding: 0.5rem 1rem;
-  background: var(--bg-alt);
-}
-.skip-link:focus { top: 0.5rem; }
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
-}
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--fg);
-  font-weight: 600;
-  font-size: 1.1rem;
-}
-.search { flex: 1; max-width: 24rem; }
-.search input {
-  width: 100%;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-}
-.extlinks {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-left: auto;
-}
-.extlinks a { color: var(--fg-muted); }
-.extlinks svg { display: block; }
-.nav-toggle { display: none; color: var(--fg-muted); cursor: pointer; }
-#nav-toggle:focus-visible ~ .header .nav-toggle {
-  outline: 2px solid var(--accent);
-}
-
-.layout {
-  display: flex;
-  gap: 2rem;
-  max-width: 90rem;
-  margin: 0 auto;
-  padding: 0 1rem;
-}
-.sidebar {
-  flex: 0 0 16rem;
-  position: sticky;
-  top: 0;
-  max-height: 100vh;
-  overflow-y: auto;
-  padding: 1rem 0.5rem 2rem 0;
-  border-right: 1px solid var(--border);
-  font-size: 0.9rem;
-}
-.content {
-  flex: 1;
-  min-width: 0;
-  max-width: 48rem;
-  padding: 1rem 0 3rem;
-}
-.pagetoc {
-  flex: 0 0 13rem;
-  position: sticky;
-  top: 0;
-  max-height: 100vh;
-  overflow-y: auto;
-  padding: 1rem 0;
-  font-size: 0.85rem;
-}
-.pagetoc > nav > p { margin: 0 0 0.25rem; font-weight: 600; }
-.pagetoc ul { list-style: none; margin: 0; padding-left: 0; }
-.pagetoc ul ul { padding-left: 0.9rem; }
-.pagetoc a { color: var(--fg-muted); display: inline-block; padding: 0.1rem 0; }
-.pagetoc a:hover { color: var(--link); }
-
-.sidebar ul { list-style: none; margin: 0; padding-left: 0; }
-.sidebar ul ul { padding-left: 0.9rem; }
-.sidebar li { position: relative; }
-.sidebar a {
-  display: block;
-  padding: 0.15rem 1.6rem 0.15rem 0.4rem;
-  border-radius: 0.3rem;
-  color: var(--fg-muted);
-}
-.sidebar a:hover { color: var(--link); text-decoration: none; }
-.sidebar a.current {
-  color: var(--accent);
-  font-weight: 600;
-  background: var(--bg-alt);
-}
-.sidebar summary {
-  position: absolute;
-  top: 0.15rem; right: 0.2rem;
-  width: 1.3rem;
-  list-style: none;
-  cursor: pointer;
-  text-align: center;
-  color: var(--fg-muted);
-  user-select: none;
-}
-.sidebar summary::-webkit-details-marker { display: none; }
-.sidebar summary::after { content: "➤"; display: inline-block; }
-.sidebar details[open] > summary::after { transform: rotate(90deg); }
-
-.footer {
-  margin-top: 3rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-  font-size: 0.85rem;
-  color: var(--fg-muted);
-}
-
-pre, code, .sig {
-  font-family: monospace;
-  font-size: 0.875em;
-}
-pre {
-  padding: 0.75rem 1rem;
-  overflow-x: auto;
-  line-height: 1.45;
-}
-[class*="highlight-"] { margin: 1rem 0; }
-.highlight pre { margin: 0; border: 1px solid var(--border); border-radius: 0.4rem; }
-.literal {
-  background: var(--bg-alt);
-  padding: 0.1em 0.3em;
-  border-radius: 0.3em;
-  overflow-wrap: break-word;
-}
-dl.py, dl.c { margin: 1.5rem 0; }
-.sig {
-  padding: 0.4rem 0.6rem;
-  background: var(--bg-alt);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 0.3rem 0.3rem 0;
-  overflow-x: auto;
-}
-.sig .sig-name { font-weight: 700; }
-.sig + dd, .field-list + * { margin-top: 0.5rem; }
-dd { margin-left: 1.5rem; }
-.field-list { display: grid; grid-template-columns: max-content auto; gap: 0.25rem 1rem; }
-.field-list > dt { font-weight: 600; }
-.field-list > dd { margin: 0; }
-.property { color: var(--fg-muted); font-style: normal; }
-
-a.headerlink {
-  visibility: hidden;
-  margin-left: 0.3rem;
-  color: var(--fg-muted);
-  font-size: 0.8em;
-}
-h1:hover > a.headerlink, h2:hover > a.headerlink, h3:hover > a.headerlink,
-h4:hover > a.headerlink, dt:hover > a.headerlink {
-  visibility: visible;
-}
-a.headerlink:focus-visible {
-  visibility: visible;
-}
-
-.admonition {
-  margin: 1rem 0;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 0.3rem;
-  background: var(--bg-alt);
-  font-size: 0.95rem;
-}
-.admonition > .admonition-title { font-weight: 600; margin: 0 0 0.25rem; }
-.admonition > :last-child { margin-bottom: 0; }
-.warning { border-left-color: var(--warn); }
-.warning > .admonition-title { color: var(--warn); }
-.danger, .error { border-left-color: var(--danger); }
-.danger > .admonition-title, .error > .admonition-title { color: var(--danger); }
-
-table.docutils {
-  border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
-  margin: 1rem 0;
-}
-table.docutils th, table.docutils td {
-  border: 1px solid var(--border);
-  padding: 0.3rem 0.75rem;
-  text-align: left;
-}
-table.docutils th { background: var(--bg-alt); }
-
-table.versioning-terms p { margin: 0; }
-table.versioning-terms td:first-child { white-space: nowrap; }
-figure.versioning-diagram { margin-inline: 0; }
-
-.page-index .content > section > h1 {
-  position: absolute;
-  width: 1px; height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.vortex-wordmark { display: block; max-width: min(400px, 100%); margin: 1.5rem auto 2.5rem; }
+.vx-docs-main .vortex-wordmark { display: block; max-width: min(400px, 100%); margin: var(--space-24) auto var(--space-48); }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: 1rem;
+  gap: var(--space-16);
 }
 .card {
   position: relative;
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  padding: 0.75rem 1rem;
-  font-size: 0.92rem;
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: background-color var(--vx-motion);
 }
-.card > p:first-child { margin-top: 0; }
+.card:hover { background: var(--wash); }
+.vx-docs-main .card > * { margin: 0 0 var(--space-8); }
+.vx-docs-main .card > :last-child { margin-bottom: 0; }
+.vx-docs-main .card > p:first-child a { text-decoration: none; }
 .card > p:first-child a::after { content: ""; position: absolute; inset: 0; }
-.card > :last-child { margin-bottom: 0; }
 
-#search-results .search { list-style: none; padding-left: 0; }
-#search-results .search li { margin: 1rem 0; }
-span.highlighted { background: var(--mark); }
+/* The versioning spec's terms and diagrams. The diagrams draw their own light panels. */
+table.versioning-terms td:first-child { white-space: nowrap; }
+figure.versioning-diagram { margin-inline: 0; }
+figure.versioning-diagram img { border-radius: var(--radius-card); }
 
-.indextable { width: 100%; }
-.indextable td { vertical-align: top; padding: 0.1rem 0.5rem; }
-
-blockquote { margin: 1rem 0; padding-left: 1rem; border-left: 3px solid var(--border); color: var(--fg-muted); }
-hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
-
-@media (max-width: 70em) {
-  .pagetoc { display: none; }
-}
-@media (max-width: 50em) {
-  .layout { display: block; }
-  .sidebar {
-    display: none;
-    position: static;
-    max-height: none;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  #nav-toggle:checked ~ .layout .sidebar { display: block; }
-  .nav-toggle { display: block; }
-  .search { max-width: none; }
+/* The 404 (404.html): the shared Status between the header and the footer. The page is a flex
+   column, so the status takes the height that is left. The mark's cell is vortex.dev's: the
+   turning mark (vortex-status-mark.js), and, where it cannot draw, the static symbol, white in
+   Dark and inverted in Light. With scripts (the theme bootstrap set data-theme-choice), the cell
+   stays empty until the mark reports that it cannot draw. */
+body.page-404 { display: flex; flex-direction: column; min-height: 100dvh; }
+.vx-docs-status { flex: 1 0 auto; display: flex; flex-direction: column; }
+.vx-ascii-mark-still { position: absolute; inset: 0; margin: auto; width: 40%; height: auto; opacity: 0.85; }
+:root[data-theme-choice] .vx-ascii-mark-still { visibility: hidden; }
+:root[data-theme-choice] [data-mark-mode="static"] > .vx-ascii-mark-still,
+:root[data-theme-choice] [data-mark-mode="error"] > .vx-ascii-mark-still { visibility: visible; }
+[data-theme="light"] .vx-ascii-mark-still { filter: invert(1); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .vx-ascii-mark-still { filter: invert(1); }
 }
