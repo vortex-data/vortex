@@ -10,6 +10,8 @@ import { ThemePicker } from '../ThemePicker';
 
 const REPO = 'vortex-data/vortex';
 const REPO_URL = `https://github.com/${REPO}`;
+// Read at build time (vite.config.ts); '' when GitHub did not answer.
+const STARS = import.meta.env.VITE_GITHUB_STARS;
 // vortex.dev's redirect to the Slack invite.
 const SLACK_URL = 'https://vortex.dev/slack';
 const X_URL = 'https://x.com/vortexdotdev';
@@ -137,10 +139,16 @@ export function Header({ tools, menu }: HeaderProps) {
           <a
             className="vx-btn vx-btn-secondary is-mono vx-header-github"
             href={REPO_URL}
-            aria-label={`${REPO} on GitHub`}
+            aria-label={`${STARS ? `${STARS} stars, ` : ''}${REPO} on GitHub`}
             title={`${REPO} on GitHub`}
           >
             <MarkGithub />
+            {STARS && (
+              <span className="vx-btn-count">
+                <Icon name="star" />
+                {STARS}
+              </span>
+            )}
           </a>
         </div>
         <Menu
