@@ -556,7 +556,7 @@ unsafe fn device_stream_private_data<'a>(
 
 /// Release an Arrow C schema if it is live.
 pub fn release_schema(schema: &mut FFI_ArrowSchema) {
-    if let Some(release) = schema.release {
+    if let Some(release) = schema.release() {
         unsafe { release(schema) };
     }
 }

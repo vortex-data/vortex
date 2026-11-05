@@ -57,8 +57,8 @@ logical_plan
 12)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 13)------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_coupon_amt, ss_net_profit]
 14)------------------------Projection: date_dim.d_date_sk
-15)--------------------------Filter: date_dim.d_dow = Int32(1) AND (date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001))
-16)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow = Int32(1), date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
+15)--------------------------Filter: date_dim.d_dow = Int32(1) AND date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])
+16)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow = Int32(1), date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])]
 17)--------------------Projection: store.s_store_sk, store.s_city
 18)----------------------Filter: store.s_number_employees >= Int32(200) AND store.s_number_employees <= Int32(295)
 19)------------------------TableScan: store projection=[s_store_sk, s_number_employees, s_city], partial_filters=[store.s_number_employees >= Int32(200), store.s_number_employees <= Int32(295)]
@@ -81,5 +81,5 @@ physical_plan
 12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@3)], projection=[ss_customer_sk@2, ss_hdemo_sk@3, ss_addr_sk@4, ss_ticket_number@6, ss_coupon_amt@7, ss_net_profit@8, s_city@1]
 13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk, s_city], file_type=vortex, predicate: s_number_employees@6 >= 200 AND s_number_employees@6 <= 295
 14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_customer_sk@2, ss_hdemo_sk@3, ss_addr_sk@4, ss_store_sk@5, ss_ticket_number@6, ss_coupon_amt@7, ss_net_profit@8]
-15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dow@7 = 1 AND (d_year@6 = 1999 OR d_year@6 = 2000 OR d_year@6 = 2001)
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dow@7 = 1 AND d_year@6 IN (SET) ([1999, 2000, 2001])
 16)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_coupon_amt, ss_net_profit], file_type=vortex

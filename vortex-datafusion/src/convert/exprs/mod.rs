@@ -478,7 +478,7 @@ impl DefaultExpressionConverter {
         for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
             field.metadata_mut().remove(key);
             if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+                field.metadata_mut().insert(key, value.clone());
             }
         }
 

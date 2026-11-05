@@ -59,8 +59,8 @@ logical_plan
 13)------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 14)--------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_store_sk, ss_ticket_number]
 15)--------------------------Projection: date_dim.d_date_sk
-16)----------------------------Filter: date_dim.d_dom >= Int32(1) AND date_dim.d_dom <= Int32(2) AND (date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001))
-17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dom], partial_filters=[date_dim.d_dom >= Int32(1), date_dim.d_dom <= Int32(2), date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
+16)----------------------------Filter: date_dim.d_dom >= Int32(1) AND date_dim.d_dom <= Int32(2) AND date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])
+17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dom], partial_filters=[date_dim.d_dom >= Int32(1), date_dim.d_dom <= Int32(2), date_dim.d_year IN ([Int32(1999), Int32(2000), Int32(2001)])]
 18)----------------------Projection: store.s_store_sk
 19)------------------------Filter: store.s_county IN ([Utf8View("Orange County"), Utf8View("Bronx County"), Utf8View("Franklin Parish"), Utf8View("Williamson County")])
 20)--------------------------TableScan: store projection=[s_store_sk, s_county], partial_filters=[store.s_county IN ([Utf8View("Orange County"), Utf8View("Bronx County"), Utf8View("Franklin Parish"), Utf8View("Williamson County")])]
@@ -83,5 +83,5 @@ physical_plan
 12)------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(s_store_sk@0, ss_store_sk@2)], projection=[ss_customer_sk@1, ss_hdemo_sk@2, ss_ticket_number@4]
 13)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store.vortex]]}, projection=[s_store_sk], file_type=vortex, predicate: s_county@23 IN (SET) ([Orange County, Bronx County, Franklin Parish, Williamson County])
 14)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, ss_sold_date_sk@0)], projection=[ss_customer_sk@2, ss_hdemo_sk@3, ss_store_sk@4, ss_ticket_number@5]
-15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dom@9 >= 1 AND d_dom@9 <= 2 AND (d_year@6 = 1999 OR d_year@6 = 2000 OR d_year@6 = 2001)
+15)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_dom@9 >= 1 AND d_dom@9 <= 2 AND d_year@6 IN (SET) ([1999, 2000, 2001])
 16)----------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_store_sk, ss_ticket_number], file_type=vortex

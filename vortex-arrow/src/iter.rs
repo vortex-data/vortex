@@ -12,13 +12,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrowSession;
 
-/// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayIterator`.
+/// An adapter for converting an `RecordBatchStreamReader` into a Vortex `ArrayIterator`.
 ///
 /// The stream's schema and batches are imported through the [`ArrowSession`], so Arrow extension
 /// types are routed to their registered import plugins instead of being flattened into their
 /// storage types.
 pub struct ArrowArrayStreamAdapter {
-    stream: ffi_stream::ArrowArrayStreamReader,
+    stream: ffi_stream::RecordBatchStreamReader,
     session: ArrowSession,
     schema: SchemaRef,
     dtype: DType,
@@ -35,7 +35,7 @@ impl ArrowArrayStreamAdapter {
     /// lost it.
     pub fn try_new(
         session: &ArrowSession,
-        stream: ffi_stream::ArrowArrayStreamReader,
+        stream: ffi_stream::RecordBatchStreamReader,
     ) -> VortexResult<Self> {
         let schema = stream.schema();
         let dtype = session.from_arrow_schema(schema.as_ref())?;
