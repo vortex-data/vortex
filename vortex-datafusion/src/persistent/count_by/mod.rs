@@ -107,11 +107,32 @@ pub use top::VortexTopCountExec;
 /// # use vortex_datafusion::VortexCountByPushdown;
 /// let state = SessionStateBuilder::new()
 ///     .with_default_features()
-///     .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown))
+///     .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown::default()))
 ///     .build();
 /// ```
-#[derive(Debug, Default)]
-pub struct VortexCountByPushdown;
+#[derive(Debug)]
+pub struct VortexCountByPushdown {
+    /// Up to this many partial rows, a [`VortexTopCountExec`] merges them all rather than
+    /// pruning them first.
+    merge_all_rows: usize,
+}
+
+impl Default for VortexCountByPushdown {
+    fn default() -> Self {
+        Self {
+            merge_all_rows: top::MERGE_ALL_ROWS,
+        }
+    }
+}
+
+impl VortexCountByPushdown {
+    /// Sets how many partial rows a [`VortexTopCountExec`] merges without pruning them first.
+    #[cfg(test)]
+    pub(crate) fn with_merge_all_rows(mut self, merge_all_rows: usize) -> Self {
+        self.merge_all_rows = merge_all_rows;
+        self
+    }
+}
 
 impl PhysicalOptimizerRule for VortexCountByPushdown {
     fn optimize(
@@ -135,7 +156,7 @@ impl PhysicalOptimizerRule for VortexCountByPushdown {
             })
             .data()?;
         plan.transform_up(|node| {
-            Ok(match top_count(&node) {
+            Ok(match top_count(&node, self.merge_all_rows) {
                 Some(top) => Transformed::yes(top),
                 None => Transformed::no(node),
             })
@@ -256,7 +277,10 @@ fn push_down_count_by(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Execution
 /// Replaces a `TopK` sort by descending count over the final merge of a [`VortexCountBySource`]'s
 /// partial counts with a [`VortexTopCountExec`], which merges only the groups that can be among
 /// the largest counts.
-fn top_count(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
+fn top_count(
+    node: &Arc<dyn ExecutionPlan>,
+    merge_all_rows: usize,
+) -> Option<Arc<dyn ExecutionPlan>> {
     let sort = node.downcast_ref::<SortExec>()?;
     let fetch = sort.fetch()?;
     let [order] = sort.expr().as_ref() else {
@@ -290,6 +314,8 @@ fn top_count(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
         Arc::clone(input),
         aggregate.schema(),
         fetch,
+        order.options,
+        merge_all_rows,
     )))
 }
 
