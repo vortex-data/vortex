@@ -458,6 +458,12 @@ impl DeviceBuffer for CudaDeviceBuffer {
     /// Allocates host memory, schedules an async copy, and returns a future
     /// that completes when the copy is finished.
     ///
+    /// # Cancellation
+    ///
+    /// Dropping an unfinished future synchronizes the stream, potentially blocking
+    /// on unrelated work. If synchronization fails, the error is logged and buffers
+    /// and their stream/context ownership are leaked to avoid use-after-free.
+    ///
     /// # Arguments
     ///
     /// * `alignment` - The memory alignment to use for the host buffer.
