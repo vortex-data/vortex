@@ -528,14 +528,11 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
+                let concurrency = v2_chunk_concurrency(
+                    scan_concurrency,
+                    get_available_parallelism().unwrap_or(1),
+                    partitions,
+                );
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle
@@ -747,6 +744,17 @@ impl NaturalSplits {
             assignment_bytes,
         }
     }
+}
+
+/// How many chunks of one partition's V2 scan run beside each other.
+///
+/// Chunks run beside each other only as far as the engine's partitions leave cores idle: each
+/// partition gets its share of the `cores`, so at one partition per core its chunks run on the
+/// scan's own run. An explicit `scan_concurrency` is per thread, as for V1, and multiplies that
+/// share; zero runs every chunk on the scan's own run.
+fn v2_chunk_concurrency(scan_concurrency: Option<usize>, cores: usize, partitions: usize) -> usize {
+    let share = cores.div_ceil(partitions.max(1)).max(1);
+    scan_concurrency.map_or(share, |per_thread| per_thread.saturating_mul(share))
 }
 
 /// Whether any expression in `projection` contains a lambda.
@@ -1093,6 +1101,53 @@ mod tests {
         assert_eq!(natural_splits.assignment_bytes.as_ref(), [0, 0, 1, 1]);
         assert_eq!(split_aligned_row_range(0..1, &natural_splits), Some(0..2));
         assert_eq!(split_aligned_row_range(1..2, &natural_splits), Some(2..4));
+    }
+
+    #[rstest]
+    #[case::one_partition_per_core(None, 8, 8, 1)]
+    #[case::more_partitions_than_cores(None, 4, 16, 1)]
+    #[case::one_partition(None, 8, 1, 8)]
+    #[case::uneven_share(None, 8, 3, 3)]
+    #[case::no_partitions(None, 8, 0, 8)]
+    #[case::explicit_per_thread(Some(4), 8, 8, 4)]
+    #[case::explicit_scales_share(Some(2), 8, 2, 8)]
+    #[case::explicit_inline(Some(0), 8, 1, 0)]
+    fn test_v2_chunk_concurrency(
+        #[case] scan_concurrency: Option<usize>,
+        #[case] cores: usize,
+        #[case] partitions: usize,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(
+            v2_chunk_concurrency(scan_concurrency, cores, partitions),
+            expected
+        );
+    }
+
+    /// A V2 scan returns every row in order whether its chunks run inline or beside each other.
+    #[rstest]
+    #[tokio::test]
+    async fn test_v2_scan_concurrency_reads_every_row(
+        #[values(None, Some(0), Some(1), Some(4))] scan_concurrency: Option<usize>,
+        #[values(1, 64)] partitions: usize,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "concurrency/file.vortex";
+        let values: Vec<Option<i32>> = (0..50_000).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values)).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+
+        let mut opener = make_opener(object_store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = true;
+        opener.has_output_ordering = true;
+        opener.scan_concurrency = scan_concurrency;
+        opener.partitions = partitions;
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+        assert_eq!(concat_batches(&batch.schema(), &batches)?, batch);
+        Ok(())
     }
 
     /// Byte partitions read every row exactly once, independently of footer cache state.
