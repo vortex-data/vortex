@@ -335,11 +335,19 @@ impl FileOpener for VortexOpener {
             let this_file_schema = match file_schemas.get(&file.object_meta.location) {
                 Some(schema) => Arc::clone(schema.value()),
                 None => {
-                    let schema = Arc::new(calculate_physical_schema(
-                        vxf.dtype(),
-                        &unified_file_schema,
-                        &session.arrow(),
-                    )?);
+                    let schema = Arc::new(
+                        calculate_physical_schema(
+                            vxf.dtype(),
+                            &unified_file_schema,
+                            &session.arrow(),
+                        )
+                        .map_err(|e| {
+                            exec_datafusion_err!(
+                                "Failed to compute the physical schema of {}: {e}",
+                                file.path()
+                            )
+                        })?,
+                    );
                     file_schemas.insert(file.object_meta.location.clone(), Arc::clone(&schema));
                     schema
                 }
