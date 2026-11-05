@@ -39,8 +39,8 @@ use arrow_schema::SortOptions;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_common::arrow::compute::interleave_record_batch;
 use datafusion_common::arrow::compute::take;
-use datafusion_common::arrow::compute::take_record_batch;
 use datafusion_common::arrow::row::RowConverter;
 use datafusion_common::arrow::row::SortField;
 use datafusion_common::hash_utils::RandomState;
@@ -190,30 +190,74 @@ impl ExecutionPlan for VortexTopCountExec {
     }
 }
 
-/// A partition's partial counts and the hash of each row's grouping values.
+/// How many high bits of a grouping hash pick the shard that sums it.
+const SHARD_BITS: u32 = 4;
+const SHARDS: usize = 1 << SHARD_BITS;
+
+/// A partial row: its batch and row, its count, and the hash of its grouping values.
+#[derive(Clone, Copy)]
+struct HashedRow {
+    hash: u64,
+    count: i64,
+    batch: u32,
+    row: u32,
+}
+
+/// A partition's partial counts, with each row's hash in the shard its hash picks.
 struct HashedPartials {
     batches: Vec<RecordBatch>,
-    hashes: Vec<Vec<u64>>,
+    /// The rows of each shard. A row's `batch` indexes `batches`.
+    shards: Vec<Vec<HashedRow>>,
+}
+
+impl HashedPartials {
+    fn new() -> Self {
+        Self {
+            batches: Vec::new(),
+            shards: vec![Vec::new(); SHARDS],
+        }
+    }
+
+    /// Hashes the grouping values of a batch of partial counts and files its rows by shard.
+    fn push(&mut self, batch: RecordBatch) -> DFResult<()> {
+        let (keys, counts) = split_counts(&batch)?;
+        let mut hashes = vec![0; batch.num_rows()];
+        create_hashes(keys, &HASH_STATE, &mut hashes)?;
+        let index = to_u32(self.batches.len())?;
+        for (row, (&hash, &count)) in hashes.iter().zip(counts.values()).enumerate() {
+            self.shards[shard_of(hash)].push(HashedRow {
+                hash,
+                count,
+                batch: index,
+                row: to_u32(row)?,
+            });
+        }
+        self.batches.push(batch);
+        Ok(())
+    }
+}
+
+fn shard_of(hash: u64) -> usize {
+    // The shift leaves `SHARD_BITS` bits, which fit.
+    usize::try_from(hash >> (u64::BITS - SHARD_BITS)).unwrap_or(0)
+}
+
+fn to_u32(value: usize) -> DFResult<u32> {
+    u32::try_from(value).map_err(|e| datafusion_common::internal_datafusion_err!("{e}"))
 }
 
 /// The hash state of the grouping values. Any fixed state works: the hashes only need to agree
 /// within one execution.
 const HASH_STATE: RandomState = RandomState::with_seed(0);
 
+/// Hashes a partition's partial counts as they arrive, so the scan overlaps the hashing and
+/// filing by shard.
 async fn hash_partials(mut stream: SendableRecordBatchStream) -> DFResult<HashedPartials> {
-    let mut hashed = HashedPartials {
-        batches: Vec::new(),
-        hashes: Vec::new(),
-    };
+    let mut hashed = HashedPartials::new();
     while let Some(batch) = stream.next().await.transpose()? {
-        if batch.num_rows() == 0 {
-            continue;
+        if batch.num_rows() > 0 {
+            hashed.push(batch)?;
         }
-        let (keys, _) = split_counts(&batch)?;
-        let mut hashes = vec![0; batch.num_rows()];
-        create_hashes(keys, &HASH_STATE, &mut hashes)?;
-        hashed.batches.push(batch);
-        hashed.hashes.push(hashes);
     }
     Ok(hashed)
 }
@@ -230,12 +274,6 @@ fn split_counts(batch: &RecordBatch) -> DFResult<(&[ArrowArrayRef], &Int64Array)
 /// prune every input, so they cover the pruning on small data.
 const MERGE_ALL_ROWS: usize = if cfg!(test) { 0 } else { 1 << 15 };
 
-/// One batch of partial counts and the sum of the counts of each row's hash.
-struct Partial<'a> {
-    batch: &'a RecordBatch,
-    sums: Vec<i64>,
-}
-
 /// The `fetch` largest totals of the groups of `partials`, in descending order.
 fn top_counts(
     partials: Vec<HashedPartials>,
@@ -243,39 +281,39 @@ fn top_counts(
     fetch: usize,
     merge_all_rows: usize,
 ) -> DFResult<RecordBatch> {
-    let batches = partials
-        .iter()
-        .flat_map(|partial| partial.batches.iter().zip(&partial.hashes))
-        .collect::<Vec<_>>();
-    let rows = batches
-        .iter()
-        .map(|(batch, _)| batch.num_rows())
-        .sum::<usize>();
-    if rows <= merge_all_rows {
-        let partials = batches
-            .iter()
-            .map(|(batch, _)| Partial {
-                batch,
-                sums: vec![0; batch.num_rows()],
-            })
-            .collect::<Vec<_>>();
-        return top_groups(merge_exactly(&partials, i64::MIN)?, schema, fetch);
+    // Number the batches of every partition together.
+    let mut offsets = Vec::with_capacity(partials.len());
+    let mut batches = Vec::new();
+    for partial in &partials {
+        offsets.push(to_u32(batches.len())?);
+        batches.extend(partial.batches.iter());
     }
-    let (partials, bucket_sums) = sum_hashes(&batches)?;
+    let Some(first) = batches.first() else {
+        return Ok(RecordBatch::new_empty(Arc::clone(schema)));
+    };
+    let rows = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+    if rows <= merge_all_rows {
+        let rows = concat_batches(&first.schema(), batches.iter().copied())?;
+        return top_groups(group_exactly(rows)?, schema, fetch);
+    }
+
+    let widest = fetch.max(1).saturating_mul(2);
+    let mut shards = sum_shards(&partials, &offsets, widest)?;
 
     // The exact totals of the groups of the hashes with the largest sums bound the `fetch`-th
     // largest total from below. Widen the hashes until they hold `fetch` groups.
-    let mut bucket_sums = bucket_sums;
-    let mut widest = fetch.max(1).saturating_mul(2);
+    let mut widest = widest;
+    let mut tops = shards
+        .iter_mut()
+        .flat_map(|shard| std::mem::take(&mut shard.top))
+        .collect::<Vec<_>>();
     let threshold = loop {
-        let least = if widest < bucket_sums.len() {
-            *bucket_sums
-                .select_nth_unstable_by(widest, |a, b| b.cmp(a))
-                .1
+        let least = if widest < tops.len() {
+            *tops.select_nth_unstable_by(widest, |a, b| b.cmp(a)).1
         } else {
             i64::MIN
         };
-        let groups = merge_exactly(&partials, least)?;
+        let groups = merge_exactly(&batches, &shards, least)?;
         if groups.totals.len() >= fetch {
             let mut totals = groups.totals;
             let kth = totals.len() - fetch;
@@ -285,10 +323,14 @@ fn top_counts(
             break i64::MIN;
         }
         widest = widest.saturating_mul(4);
+        tops = shards
+            .iter()
+            .flat_map(|shard| shard.hash_sums.iter().copied())
+            .collect();
     };
 
     // A group whose hash sums to less than the threshold totals less than it.
-    top_groups(merge_exactly(&partials, threshold)?, schema, fetch)
+    top_groups(merge_exactly(&batches, &shards, threshold)?, schema, fetch)
 }
 
 /// The `fetch` groups with the largest totals, in descending order.
@@ -317,62 +359,35 @@ fn top_groups(groups: ExactGroups, schema: &SchemaRef, fetch: usize) -> DFResult
     Ok(RecordBatch::try_new(Arc::clone(schema), columns)?)
 }
 
-/// Sums the counts of each hash, on a thread for each shard of the hashes, and gives each row
-/// the sum of its hash. Returns the batches with their rows' sums, and every hash's sum.
-fn sum_hashes<'a>(
-    batches: &[(&'a RecordBatch, &'a Vec<u64>)],
-) -> DFResult<(Vec<Partial<'a>>, Vec<i64>)> {
-    let shards = get_available_parallelism().unwrap_or(1).max(1);
-    let rows = batches
-        .iter()
-        .map(|(batch, _)| batch.num_rows())
-        .sum::<usize>();
-    let shard_count = u64::try_from(shards).unwrap_or(1);
-    // The remainder is below `shards`, so it fits.
-    let shard_of = |hash: u64| usize::try_from(hash % shard_count).unwrap_or(0);
+/// The rows of one shard of the hashes, each with the sum of the counts of its hash.
+struct ShardSums {
+    rows: Vec<HashedRow>,
+    /// The sum of the counts of each row's hash.
+    row_sums: Vec<i64>,
+    /// Every hash's sum.
+    hash_sums: Vec<i64>,
+    /// The `widest + 1` largest of `hash_sums`, or all of them.
+    top: Vec<i64>,
+}
 
-    let sums = std::thread::scope(|scope| {
-        let workers = (0..shards)
-            .map(|shard| {
-                scope.spawn(move || -> DFResult<HashMap<u64, i64>> {
-                    let mut sums = HashMap::with_capacity(rows / shards + 1);
-                    for (batch, hashes) in batches {
-                        let (_, counts) = split_counts(batch)?;
-                        for (&hash, &count) in hashes.iter().zip(counts.values()) {
-                            if shard_of(hash) == shard {
-                                *sums.entry(hash).or_default() += count;
-                            }
-                        }
-                    }
-                    Ok(sums)
-                })
-            })
-            .collect::<Vec<_>>();
-        workers
-            .into_iter()
-            .map(|worker| {
-                worker
-                    .join()
-                    .map_err(|_| datafusion_common::internal_datafusion_err!("hash sum panicked"))?
-            })
-            .collect::<DFResult<Vec<_>>>()
-    })?;
-
-    let partials = std::thread::scope(|scope| {
-        let sums = &sums;
-        let workers = batches
-            .chunks(batches.len().div_ceil(shards).max(1))
-            .map(|chunk| {
+/// Sums the counts of each hash, with a thread for each group of shards. Every row of a hash is
+/// in one shard, so each thread sums its hashes alone, in a table a fraction of the size of
+/// one for every hash.
+fn sum_shards(
+    partials: &[HashedPartials],
+    offsets: &[u32],
+    widest: usize,
+) -> DFResult<Vec<ShardSums>> {
+    let threads = get_available_parallelism().unwrap_or(1).clamp(1, SHARDS);
+    let shards = (0..SHARDS).collect::<Vec<_>>();
+    std::thread::scope(|scope| {
+        let workers = shards
+            .chunks(SHARDS.div_ceil(threads))
+            .map(|shards| {
                 scope.spawn(move || {
-                    chunk
+                    shards
                         .iter()
-                        .map(|(batch, hashes)| Partial {
-                            batch,
-                            sums: hashes
-                                .iter()
-                                .map(|&hash| sums[shard_of(hash)][&hash])
-                                .collect(),
-                        })
+                        .map(|&shard| sum_shard(partials, offsets, shard, widest))
                         .collect::<Vec<_>>()
                 })
             })
@@ -382,19 +397,49 @@ fn sum_hashes<'a>(
             .map(|worker| {
                 worker
                     .join()
-                    .map_err(|_| datafusion_common::internal_datafusion_err!("row sums panicked"))
+                    .map_err(|_| datafusion_common::internal_datafusion_err!("hash sum panicked"))
             })
             .collect::<DFResult<Vec<_>>>()
-    })?
-    .into_iter()
-    .flatten()
-    .collect();
+    })
+    .map(|shards| shards.into_iter().flatten().collect())
+}
 
-    let bucket_sums = sums
-        .iter()
-        .flat_map(|sums| sums.values().copied())
-        .collect();
-    Ok((partials, bucket_sums))
+fn sum_shard(
+    partials: &[HashedPartials],
+    offsets: &[u32],
+    shard: usize,
+    widest: usize,
+) -> ShardSums {
+    let mut rows = Vec::with_capacity(
+        partials
+            .iter()
+            .map(|partial| partial.shards[shard].len())
+            .sum(),
+    );
+    for (partial, &offset) in partials.iter().zip(offsets) {
+        rows.extend(partial.shards[shard].iter().map(|row| HashedRow {
+            batch: row.batch + offset,
+            ..*row
+        }));
+    }
+    let mut sums = HashMap::<u64, i64>::with_capacity(rows.len());
+    for row in &rows {
+        *sums.entry(row.hash).or_default() += row.count;
+    }
+    let row_sums = rows.iter().map(|row| sums[&row.hash]).collect();
+    let mut hash_sums = sums.into_values().collect::<Vec<_>>();
+    let top = if widest < hash_sums.len() {
+        hash_sums.select_nth_unstable_by(widest, |a, b| b.cmp(a));
+        hash_sums[..=widest].to_vec()
+    } else {
+        hash_sums.clone()
+    };
+    ShardSums {
+        rows,
+        row_sums,
+        hash_sums,
+        top,
+    }
 }
 
 /// The partial counts of some hashes, merged by their grouping values.
@@ -410,29 +455,27 @@ struct ExactGroups {
 /// Merges, by their grouping values, the partial counts whose hash sums to at least `least`.
 /// Every row of a group has the same hash, so each group it returns holds all of that group's
 /// counts.
-fn merge_exactly(partials: &[Partial<'_>], least: i64) -> DFResult<ExactGroups> {
-    let Some(first) = partials.first() else {
-        return internal_err!("no partial counts to merge");
-    };
-    let schema = first.batch.schema();
-    let selected = partials
+fn merge_exactly(
+    batches: &[&RecordBatch],
+    shards: &[ShardSums],
+    least: i64,
+) -> DFResult<ExactGroups> {
+    let selected = shards
         .iter()
-        .map(|partial| {
-            let rows = UInt32Array::from(
-                partial
-                    .sums
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, sum)| **sum >= least)
-                    .map(|(row, _)| u32::try_from(row))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| datafusion_common::internal_datafusion_err!("{e}"))?,
-            );
-            Ok(take_record_batch(partial.batch, &rows)?)
+        .flat_map(|shard| {
+            shard
+                .rows
+                .iter()
+                .zip(&shard.row_sums)
+                .filter(move |(_, sum)| **sum >= least)
+                .map(|(row, _)| (row.batch as usize, row.row as usize))
         })
-        .collect::<DFResult<Vec<_>>>()?;
-    let rows = concat_batches(&schema, &selected)?;
+        .collect::<Vec<_>>();
+    group_exactly(interleave_record_batch(batches, &selected)?)
+}
 
+/// Merges partial counts by their grouping values.
+fn group_exactly(rows: RecordBatch) -> DFResult<ExactGroups> {
     let (keys, counts) = split_counts(&rows)?;
     let converter = RowConverter::new(
         keys.iter()
@@ -470,10 +513,8 @@ mod tests {
     use arrow_schema::Schema;
     use arrow_schema::SchemaRef;
     use datafusion_common::Result as DFResult;
-    use datafusion_common::hash_utils::create_hashes;
     use rstest::rstest;
 
-    use super::HASH_STATE;
     use super::HashedPartials;
     use super::top_counts;
 
@@ -496,12 +537,9 @@ mod tests {
                 )),
             ],
         )?;
-        let mut hashes = vec![0; batch.num_rows()];
-        create_hashes(&batch.columns()[..1], &HASH_STATE, &mut hashes)?;
-        Ok(HashedPartials {
-            batches: vec![batch],
-            hashes: vec![hashes],
-        })
+        let mut partials = HashedPartials::new();
+        partials.push(batch)?;
+        Ok(partials)
     }
 
     /// Totals spread over many small partial counts beat a single large one, and nulls group.
@@ -519,7 +557,7 @@ mod tests {
         let second = partials(&[
             (Some("b"), 1),
             (Some("c"), 1),
-            (None, 2),
+            (None, 4),
             (Some("e"), 4),
             (Some("b"), 4),
         ])?;
@@ -536,7 +574,7 @@ mod tests {
             .iter()
             .zip(counts.values().iter().copied())
             .collect::<Vec<_>>();
-        assert_eq!(top, vec![(Some("b"), 7), (Some("a"), 5), (Some("c"), 4)]);
+        assert_eq!(top, vec![(Some("b"), 7), (None, 6), (Some("a"), 5)]);
         Ok(())
     }
 
@@ -549,6 +587,16 @@ mod tests {
         let top = top_counts(vec![only], &schema(), 10, merge_all_rows)?;
         let counts = top.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
         assert_eq!(counts.values().to_vec(), vec![3, 2]);
+        Ok(())
+    }
+
+    /// A scan without rows has no top counts, rather than failing to merge nothing.
+    #[rstest]
+    fn top_counts_of_no_partials_is_empty(
+        #[values(0, usize::MAX)] merge_all_rows: usize,
+    ) -> DFResult<()> {
+        let top = top_counts(vec![HashedPartials::new()], &schema(), 3, merge_all_rows)?;
+        assert_eq!(top.num_rows(), 0);
         Ok(())
     }
 }
