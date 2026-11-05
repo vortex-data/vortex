@@ -141,7 +141,7 @@ pub fn read_url<'py>(
 
     let dataset =
         py.detach(move || current_runtime().block_on(PyVortexDataset::from_url(url, store_arc)))?;
-    dataset.to_array_inner(py, projection, row_filter, indices, row_range)
+    dataset.to_array_inner(py, projection, row_filter, indices, row_range, None)
 }
 
 /// A store object accepted by `read_url` / `write`.
