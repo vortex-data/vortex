@@ -15,7 +15,11 @@ use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::ends_with::EndsWithFunc;
+use datafusion_functions::string::lower::LowerFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions::string::starts_with::StartsWithFunc;
+use datafusion_functions::unicode::strpos::StrposFunc;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
@@ -42,12 +46,14 @@ use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::layout::layouts::row_idx;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::string::StringFn;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
@@ -562,6 +568,36 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        let string_fn = if ScalarFunctionExpr::try_downcast_func::<LowerFunc>(scalar_fn).is_some() {
+            Some(StringFn::Lower)
+        } else if ScalarFunctionExpr::try_downcast_func::<StrposFunc>(scalar_fn).is_some() {
+            match scalar_fn.return_type() {
+                DataType::Int32 => Some(StringFn::Strpos),
+                DataType::Int64 => Some(StringFn::Strpos64),
+                _ => return Err(Unconverted::Unsupported),
+            }
+        } else if ScalarFunctionExpr::try_downcast_func::<StartsWithFunc>(scalar_fn).is_some() {
+            Some(StringFn::StartsWith)
+        } else if ScalarFunctionExpr::try_downcast_func::<EndsWithFunc>(scalar_fn).is_some() {
+            Some(StringFn::EndsWith)
+        } else {
+            None
+        };
+        if let Some(function) = string_fn {
+            let children = scalar_fn
+                .args()
+                .iter()
+                .map(|arg| {
+                    let child = self.convert_expr(arg, schema, input_dtype)?;
+                    if !converted_dtype(&child, input_dtype)?.is_utf8() {
+                        return Err(Unconverted::Unsupported);
+                    }
+                    Ok(child)
+                })
+                .collect::<Conversion<Vec<_>>>()?;
+            return Ok(function.new_expr(EmptyOptions, children));
+        }
+
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
             // DataFusion's GetFieldFunc flattens nested field access into a single call
             // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
@@ -716,6 +752,19 @@ fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPu
     let target = cast.cast_type();
     Ok(match (&source, target) {
         _ if source == *target => CastPushdown::Drop,
+        // Views preserve narrow-offset strings without concatenating their values.
+        (Utf8, Utf8View) => CastPushdown::Drop,
+        // Decoding to views does not concatenate dictionary values into a narrow offset buffer.
+        (Dictionary(_, values), Utf8View) if matches!(values.as_ref(), Utf8 | Utf8View) => {
+            CastPushdown::Drop
+        }
+        // Run expansion gathers dictionary keys, then decodes them directly to views.
+        (RunEndEncoded(run_ends, values), Utf8View)
+            if matches!(run_ends.data_type(), Int16 | Int32)
+                && matches!(values.data_type(), Dictionary(_, strings) if matches!(strings.as_ref(), Utf8 | Utf8View)) =>
+        {
+            CastPushdown::Drop
+        }
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))

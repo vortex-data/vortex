@@ -49,6 +49,7 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
 use vortex::expr::between;
+use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
@@ -1569,6 +1570,78 @@ fn plan_predicate(predicate: &str, schema: &Schema) -> DFResult<Arc<dyn Physical
     )
 }
 
+#[rstest]
+#[case::lower("lower(arrow_cast(s, 'Utf8View'))")]
+#[case::equality("lower(arrow_cast(s, 'Utf8View')) = 'great-lakes'")]
+#[case::membership("lower(arrow_cast(s, 'Utf8View')) IN ('great-lakes', 'ος', NULL)")]
+#[case::negated("lower(arrow_cast(s, 'Utf8View')) NOT IN ('great-lakes', 'ος')")]
+#[case::position("strpos(lower(arrow_cast(s, 'Utf8View')), needle)")]
+#[case::contains("strpos(lower(arrow_cast(s, 'Utf8View')), needle) > 0")]
+#[case::prefix("starts_with(lower(arrow_cast(s, 'Utf8View')), needle)")]
+#[case::suffix("ends_with(lower(arrow_cast(s, 'Utf8View')), needle)")]
+#[case::literal_contains("strpos(lower(arrow_cast(s, 'Utf8View')), '%_\\') > 0")]
+#[case::literal_prefix("starts_with(lower(arrow_cast(s, 'Utf8View')), '%_\\')")]
+#[case::literal_suffix("ends_with(lower(arrow_cast(s, 'Utf8View')), '%_\\')")]
+fn test_string_functions_match_datafusion(#[case] sql: &str) -> anyhow::Result<()> {
+    let strings = StringArray::from(vec![
+        Some("GrEaT-LaKeS"),
+        Some("ΟΣ"),
+        Some("İÉx%_\\"),
+        Some("aXb"),
+        Some(""),
+        None,
+        Some("prefix"),
+        Some("suffix"),
+        Some("%_\\HEAD"),
+        Some("XX\\head"),
+        Some(""),
+    ]);
+    let needles = StringArray::from(vec![
+        Some("great"),
+        Some("ς"),
+        Some("%_\\"),
+        Some("_"),
+        Some(""),
+        Some(""),
+        None,
+        Some("fix"),
+        Some("%_\\"),
+        Some("%_\\"),
+        Some("x"),
+    ]);
+    let dictionary = DictionaryArray::<UInt32Type>::from_iter(strings.iter());
+    let runs = cast(&dictionary, &ree_dict_utf8(DataType::Int32))?;
+    for values in [
+        cast(&strings, &DataType::Utf8View)?,
+        Arc::new(strings) as arrow_array::ArrayRef,
+        Arc::new(dictionary),
+        runs,
+    ] {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("s", values.data_type().clone(), true),
+            Field::new("needle", DataType::Utf8, true),
+        ]));
+        let batch =
+            RecordBatch::try_new(Arc::clone(&schema), vec![values, Arc::new(needles.clone())])?;
+        let expr = plan_predicate(sql, &schema)?;
+        let native = convert(Arc::clone(&expr), &schema)?;
+        let session = VortexSession::default();
+        let serialized = native.serialize_proto()?;
+        assert_eq!(Expression::from_proto(&serialized, &session)?, native);
+        assert_native_matches(expr, batch)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn test_large_string_position_matches_datafusion() -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(
+        ("s", LargeUtf8, vec![Some("é📊hello"), None, Some("")]),
+        ("needle", LargeUtf8, vec![Some("h"), Some(""), Some("x")])
+    )?;
+    assert_native_matches(plan_predicate("strpos(s, needle)", &batch.schema())?, batch)
+}
+
 /// Regression test for #10634: coercion casts `REE<Dict<Utf8>>` columns to `Dict<Utf8>` before
 /// comparing them, and the converter must drop that cast rather than decline the predicate.
 #[rstest]
@@ -1593,6 +1666,10 @@ fn test_coerced_string_comparison_drops_encoding_cast(#[case] predicate: &str) -
 #[case::ree_int16_run_ends(ree_dict_utf8(DataType::Int16), dict_utf8(DataType::UInt32))]
 #[case::ree_identity(ree_dict_utf8(DataType::Int64), ree_dict_utf8(DataType::Int64))]
 #[case::int_identity(DataType::Int32, DataType::Int32)]
+#[case::utf8_view(DataType::Utf8, DataType::Utf8View)]
+#[case::dictionary_view(dict_utf8(DataType::UInt32), DataType::Utf8View)]
+#[case::ree_dictionary_view(ree_dict_utf8(DataType::Int32), DataType::Utf8View)]
+#[case::ree_dictionary_view_int16(ree_dict_utf8(DataType::Int16), DataType::Utf8View)]
 fn test_infallible_encoding_cast_is_dropped(
     #[case] source: DataType,
     #[case] target: DataType,
@@ -1619,6 +1696,14 @@ fn test_infallible_encoding_cast_is_dropped(
 #[case::dict_decode(dict_utf8(DataType::UInt32), DataType::Utf8)]
 #[case::dict_encode(DataType::Utf8, dict_utf8(DataType::UInt8))]
 #[case::large_utf8(DataType::LargeUtf8, DataType::Utf8)]
+#[case::large_utf8_view(DataType::LargeUtf8, DataType::Utf8View)]
+#[case::view_to_utf8(DataType::Utf8View, DataType::Utf8)]
+#[case::ree_plain_view(ree_utf8(DataType::Int32), DataType::Utf8View)]
+#[case::ree_int64_view(ree_dict_utf8(DataType::Int64), DataType::Utf8View)]
+#[case::large_dictionary_view(
+    DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::LargeUtf8)),
+    DataType::Utf8View
+)]
 fn test_fallible_encoding_cast_falls_back(
     #[case] source: DataType,
     #[case] target: DataType,
