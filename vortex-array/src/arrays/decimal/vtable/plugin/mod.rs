@@ -41,7 +41,8 @@ use crate::expr::stats::Precision;
 ///
 /// A canonical node keeps its buffer without a copy or a scan, so the buffer can stay on a device,
 /// and its valid values are trusted to fit the precision. A legacy node goes through
-/// [`WidenArray::from_stored_decimal`], which copies it to the host to scan its valid values.
+/// [`WidenArray::from_stored_decimal`], which scans its valid values on the host, so a legacy node
+/// in device memory fails to read.
 ///
 /// The [`Decimal`] vtable does not serialize or deserialize, so the default [`ArraySession`]
 /// registers this plugin in its place.

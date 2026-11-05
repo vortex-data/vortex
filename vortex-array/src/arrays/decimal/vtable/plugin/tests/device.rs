@@ -1,33 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Host copies of canonical and legacy nodes backed by device buffers.
+//! Reads of canonical and legacy nodes backed by device buffers.
 
 use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use rstest::rstest;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use super::SESSION;
-use super::canonical_reference;
-use super::decimal_leaf;
 use super::deserialize;
 use super::metadata;
 use super::stored_values;
+use crate::ArrayRef;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::buffer::DeviceBuffer;
 use crate::dtype::DType;
@@ -37,12 +34,11 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::validity::Validity;
 
-/// A device buffer that holds its bytes on the host. A copy to the host succeeds unless
-/// `fails_host_copy` is set.
+/// A device buffer that holds its bytes on the host and fails every copy to the host, so a read
+/// that copies it fails.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct TestDeviceBuffer {
     bytes: ByteBuffer,
-    fails_host_copy: bool,
 }
 
 impl DeviceBuffer for TestDeviceBuffer {
@@ -58,28 +54,20 @@ impl DeviceBuffer for TestDeviceBuffer {
         self.bytes.alignment()
     }
 
-    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-        if self.fails_host_copy {
-            vortex_bail!("no host copy");
-        }
-
-        Ok(ByteBuffer::copy_from_aligned(
-            self.bytes.as_slice(),
-            alignment,
-        ))
+    fn copy_to_host_sync(&self, _alignment: Alignment) -> VortexResult<ByteBuffer> {
+        vortex_bail!("a decimal read never copies device buffers to the host")
     }
 
     fn copy_to_host(
         &self,
         _alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
-        vortex_bail!("a decimal read copies device buffers synchronously")
+        vortex_bail!("a decimal read never copies device buffers to the host")
     }
 
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
         Arc::new(Self {
             bytes: self.bytes.slice(range),
-            fails_host_copy: self.fails_host_copy,
         })
     }
 
@@ -90,146 +78,79 @@ impl DeviceBuffer for TestDeviceBuffer {
 }
 
 fn on_device(bytes: ByteBuffer) -> BufferHandle {
-    BufferHandle::new_device(Arc::new(TestDeviceBuffer {
-        bytes,
-        fails_host_copy: false,
-    }))
+    BufferHandle::new_device(Arc::new(TestDeviceBuffer { bytes }))
 }
 
-fn on_failing_device(bytes: ByteBuffer) -> BufferHandle {
-    BufferHandle::new_device(Arc::new(TestDeviceBuffer {
-        bytes,
-        fails_host_copy: true,
-    }))
+/// Returns the validity of `[true, false, true]` as a bool array in device memory.
+fn device_validity() -> VortexResult<ArrayRef> {
+    let bits = on_device(ByteBuffer::copy_from([0b101u8]));
+
+    Ok(BoolArray::try_new_from_handle(bits, 0, 3, Validity::NonNullable)?.into_array())
 }
 
-/// A canonical node keeps its device buffer, and a legacy node and its validity move to the host.
-#[test]
-fn device_buffers_read_on_host() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable);
-    let validity = [true, false, true];
-    let validity_bits = on_device(ByteBuffer::copy_from([0b101u8]));
-    let validity_child =
-        BoolArray::try_new_from_handle(validity_bits, 0, 3, Validity::NonNullable)?;
-    let children = [validity_child.into_array()];
-
-    let canonical_values = on_device(buffer![-99i64, 7, 99].into_byte_buffer());
-    let canonical = deserialize(
-        &dtype,
-        3,
-        &metadata(DecimalType::I64),
-        &[canonical_values],
-        &children,
-    )?;
-    assert!(canonical.as_::<Decimal>().buffer_handle().is_on_device());
-
-    let legacy_values = on_device(buffer![-99i32, 7, 99].into_byte_buffer());
-    let legacy = deserialize(
-        &dtype,
-        3,
-        &metadata(DecimalType::I32),
-        &[legacy_values],
-        &children,
-    )?;
-    assert!(legacy.is_host());
-    assert_eq!(
-        decimal_leaf(&legacy).decimal_dtype(),
-        DecimalDType::new(2, 2)
-    );
-    assert_arrays_eq!(
-        legacy,
-        canonical_reference(DecimalDType::new(18, 2), &[-99, 7, 99], Some(&validity))?,
-        &mut ctx
-    );
-
-    Ok(())
-}
-
-/// A device buffer one slot below the validity array is also read on the host.
-#[test]
-fn nested_device_validity_reads_on_host() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable);
+/// Returns the validity of `[true, false, true]` as a dict whose codes are in device memory.
+fn nested_device_validity() -> VortexResult<ArrayRef> {
     let codes = PrimitiveArray::from_buffer_handle(
         on_device(buffer![0u8, 1, 0].into_byte_buffer()),
         PType::U8,
         Validity::NonNullable,
     );
-    let validity_child = DictArray::try_new(
+    let validity = DictArray::try_new(
         codes.into_array(),
         BoolArray::from_iter([true, false]).into_array(),
-    )?
-    .into_array();
-    assert!(!validity_child.is_host());
-
-    let legacy = deserialize(
-        &dtype,
-        3,
-        &metadata(DecimalType::I32),
-        &[stored_values(DecimalType::I32, &[-99, 7, 99])],
-        &[validity_child],
     )?;
-    assert!(legacy.is_host());
-    assert_eq!(
-        decimal_leaf(&legacy).decimal_dtype(),
-        DecimalDType::new(2, 2)
-    );
-    assert_arrays_eq!(
-        legacy,
-        canonical_reference(
-            DecimalDType::new(18, 2),
-            &[-99, 7, 99],
-            Some(&[true, false, true])
-        )?,
-        &mut ctx
-    );
 
-    Ok(())
+    Ok(validity.into_array())
 }
 
-/// A legacy node fails when its values or its validity cannot be copied to the host. A canonical
-/// node copies nothing, so it still reads.
+fn host_validity() -> VortexResult<ArrayRef> {
+    Ok(BoolArray::from_iter([true, false, true]).into_array())
+}
+
+/// A canonical node keeps its device buffer, because its read never scans the values.
 #[test]
-fn failed_host_copy_fails() -> VortexResult<()> {
+fn canonical_node_keeps_device_buffer() -> VortexResult<()> {
     let dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable);
-    let device_validity = [BoolArray::try_new_from_handle(
-        on_failing_device(ByteBuffer::copy_from([0b101u8])),
-        0,
-        3,
-        Validity::NonNullable,
-    )?
-    .into_array()];
-    let host_validity = BoolArray::from_iter([true, false, true]).into_array();
-
-    let error = deserialize(
-        &dtype,
-        3,
-        &metadata(DecimalType::I32),
-        &[stored_values(DecimalType::I32, &[-99, 7, 99])],
-        &device_validity,
-    )
-    .expect_err("a legacy node with device validity that cannot be copied fails");
-    assert!(error.to_string().contains("no host copy"));
-
-    let error = deserialize(
-        &dtype,
-        3,
-        &metadata(DecimalType::I32),
-        &[on_failing_device(buffer![-99i32, 7, 99].into_byte_buffer())],
-        &[host_validity],
-    )
-    .expect_err("a legacy node with device values that cannot be copied fails");
-    assert!(error.to_string().contains("no host copy"));
 
     let canonical = deserialize(
         &dtype,
         3,
         &metadata(DecimalType::I64),
-        &[on_failing_device(buffer![-99i64, 7, 99].into_byte_buffer())],
-        &device_validity,
+        &[on_device(buffer![-99i64, 7, 99].into_byte_buffer())],
+        &[device_validity()?],
     )?;
+
     assert!(canonical.as_::<Decimal>().buffer_handle().is_on_device());
+
+    Ok(())
+}
+
+/// A legacy node fails when its values or any buffer of its validity are in device memory, because
+/// choosing its width scans the values on the host.
+#[rstest]
+#[case::device_values(true, host_validity)]
+#[case::device_validity(false, device_validity)]
+#[case::nested_device_validity(false, nested_device_validity)]
+fn legacy_node_in_device_memory_fails(
+    #[case] values_on_device: bool,
+    #[case] validity: fn() -> VortexResult<ArrayRef>,
+) -> VortexResult<()> {
+    let dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable);
+    let values = if values_on_device {
+        on_device(buffer![-99i32, 7, 99].into_byte_buffer())
+    } else {
+        stored_values(DecimalType::I32, &[-99, 7, 99])
+    };
+
+    let result = deserialize(
+        &dtype,
+        3,
+        &metadata(DecimalType::I32),
+        &[values],
+        &[validity()?],
+    );
+
+    assert!(result.is_err_and(|error| error.to_string().contains("must be in host memory")));
 
     Ok(())
 }
