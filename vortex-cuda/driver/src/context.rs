@@ -169,15 +169,27 @@ impl CudaContext {
     fn retaining_pool(device: sys::CUdevice) -> sys::CUmemoryPool {
         let mut total = 0;
         // SAFETY: `device` is valid; the driver writes its memory size.
-        if unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }
-            .result()
-            .is_err()
-        {
+        if let Err(error) = unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }.result() {
+            tracing::warn!(
+                %error,
+                device,
+                operation = "querying device memory size",
+                "CUDA retaining pool setup failed; using the device's current pool"
+            );
             return std::ptr::null_mut();
         }
         // SAFETY: `device` is valid and supports memory pools.
-        let Ok(pool) = (unsafe { mem_pool::create(device) }) else {
-            return std::ptr::null_mut();
+        let pool = match unsafe { mem_pool::create(device) } {
+            Ok(pool) => pool,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    device,
+                    operation = "creating retaining memory pool",
+                    "CUDA retaining pool setup failed; using the device's current pool"
+                );
+                return std::ptr::null_mut();
+            }
         };
         let mut threshold = total as u64 / 2;
         // SAFETY: The release threshold is a u64.
@@ -188,9 +200,17 @@ impl CudaContext {
                 (&raw mut threshold).cast(),
             )
         };
-        if retained.is_err() {
+        if let Err(error) = retained {
+            tracing::warn!(
+                %error,
+                device,
+                operation = "setting memory pool release threshold",
+                "CUDA retaining pool setup failed; using the device's current pool"
+            );
             // SAFETY: Created above and never used.
-            let _ = unsafe { mem_pool::destroy(pool) };
+            if let Err(error) = unsafe { mem_pool::destroy(pool) } {
+                log_error("destroying unconfigured CUDA memory pool", error);
+            }
             return std::ptr::null_mut();
         }
         pool
