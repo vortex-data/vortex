@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::DriverError;
 use crate::context::CudaContext;
+use crate::error::log_result;
 use crate::stream::CudaStream;
 use crate::sys;
 
@@ -31,10 +32,12 @@ impl std::fmt::Debug for CudaEvent {
 
 impl Drop for CudaEvent {
     fn drop(&mut self) {
-        self.context.record_err(self.context.make_current());
+        let _ = log_result("binding context to destroy event", self.context.bind_to_thread());
         // SAFETY: Owned events are destroyed once; pending work completes regardless.
-        self.context
-            .record_err(unsafe { sys::cuEventDestroy_v2(self.event) }.result());
+        let _ = log_result(
+            "destroying CUDA event",
+            unsafe { sys::cuEventDestroy_v2(self.event) }.result(),
+        );
     }
 }
 
@@ -70,11 +73,8 @@ impl CudaEvent {
     }
 
     /// Blocks until the recorded work completes.
-    ///
-    /// Unlike most operations, this leaves errors recorded elsewhere in the context in place,
-    /// so that dropping a host buffer can wait for its own transfers despite them.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.context.make_current()?;
+        self.context.bind_to_thread()?;
         // SAFETY: The event is valid for this object's lifetime.
         unsafe { sys::cuEventSynchronize(self.event) }.result()
     }

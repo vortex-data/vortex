@@ -165,9 +165,10 @@ impl CudaSession {
     /// are released when the last owner drops, including streams and buffers that outlive their
     /// sessions. A later session initializes a new context. Initialization failures are not cached.
     ///
-    /// The wrapper's deferred errors and memory pool are shared. Use [`Self::with_context`] with
-    /// a separate wrapper for independent allocation policy. Separate wrappers created with
-    /// [`CudaContext::new`] still use the same native primary context; use
+    /// The memory pool is shared, but operation errors return directly to each caller. Use
+    /// [`Self::with_context`] with a separate wrapper for independent allocation policy.
+    /// Separate wrappers created with [`CudaContext::new`] still use the same native primary
+    /// context; use
     /// [`CudaContext::new_non_primary`] when a separate native context is required.
     ///
     /// Unlike [`Default::default`], this returns an error instead of panicking when CUDA cannot be

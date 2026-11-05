@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The device's primary context, its event pool, and deferred errors.
+//! The device's primary context and its memory and event pools.
 
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 
 use crate::DriverError;
 use crate::device;
+use crate::error::log_result;
 use crate::event::CudaEvent;
 use crate::mem_pool;
 use crate::mem_pool::MemPool;
@@ -34,7 +33,6 @@ pub struct CudaContext {
     mem_pool: MemPool,
     /// Whether the context is the device's primary context, released rather than destroyed.
     primary: bool,
-    error_state: AtomicU32,
     /// Timing-disabled events returned by finished accesses, reused to avoid creating and
     /// destroying an event per access.
     events: Mutex<Vec<sys::CUevent>>,
@@ -63,26 +61,31 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        // Errors here have nowhere to go: they would be recorded in the context being dropped.
-        let _ = self.make_current();
+        let _ = log_result("binding context for destruction", self.bind_to_thread());
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
-            let _ = unsafe { sys::cuEventDestroy_v2(event) };
+            let _ = log_result(
+                "destroying cached CUDA event",
+                unsafe { sys::cuEventDestroy_v2(event) }.result(),
+            );
         }
         if let MemPool::Owned(pool) = self.mem_pool {
             // SAFETY: Created by `wrap` and destroyed once; allocations still live are released
             // by the driver once they are freed.
-            let _ = unsafe { mem_pool::destroy(pool) };
+            let _ = log_result("destroying CUDA memory pool", unsafe {
+                mem_pool::destroy(pool)
+            });
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
-        let _ = unsafe {
+        let released = unsafe {
             if self.primary {
                 sys::cuDevicePrimaryCtxRelease_v2(self.device)
             } else {
                 sys::cuCtxDestroy_v2(self.context)
             }
         };
+        let _ = log_result("releasing CUDA context", released.result());
     }
 }
 
@@ -167,7 +170,6 @@ impl CudaContext {
             has_async_alloc,
             mem_pool,
             primary,
-            error_state: AtomicU32::new(0),
             events: Mutex::new(Vec::new()),
         });
         // On failure, dropping the context releases or destroys it.
@@ -277,20 +279,7 @@ impl CudaContext {
     }
 
     /// Makes this context current on the calling thread, if it is not already.
-    ///
-    /// First returns, and clears, any error recorded where none could be returned.
     pub fn bind_to_thread(&self) -> Result<(), DriverError> {
-        if self.error_state.load(Ordering::Relaxed) != 0 {
-            self.check_err()?;
-        }
-        self.make_current()
-    }
-
-    /// Makes this context current on the calling thread, leaving recorded errors in place.
-    ///
-    /// Cleanup and access tracking bind with this: an unrelated recorded error must not make
-    /// them skip a free or a record, nor be consumed where it cannot be reported.
-    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
         let mut current = std::ptr::null_mut();
         // SAFETY: The driver writes the current context.
         unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
@@ -303,13 +292,7 @@ impl CudaContext {
 
     /// Blocks until all work in the context completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.check_err()?;
-        self.synchronize_in_place()
-    }
-
-    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
-    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
-        self.make_current()?;
+        self.bind_to_thread()?;
         // SAFETY: The context is current.
         unsafe { sys::cuCtxSynchronize() }.result()
     }
@@ -364,7 +347,7 @@ impl CudaContext {
         if let Some(event) = self.events.lock().pop() {
             return Ok(event);
         }
-        self.make_current()?;
+        self.bind_to_thread()?;
         let mut event = std::ptr::null_mut();
         // SAFETY: The context is current; the driver writes the new event.
         unsafe {
@@ -388,28 +371,5 @@ impl CudaContext {
     #[cfg(test)]
     pub(crate) fn pooled_events(&self) -> usize {
         self.events.lock().len()
-    }
-
-    /// The first error recorded where none could be returned, clearing it.
-    pub fn check_err(&self) -> Result<(), DriverError> {
-        match self.error_state.swap(0, Ordering::Relaxed) {
-            0 => Ok(()),
-            error => Err(DriverError(CUresult(error))),
-        }
-    }
-
-    /// Keeps an error from a call that cannot return it, such as in `Drop`.
-    ///
-    /// An earlier error that was not yet checked is kept instead, as it is likely the cause.
-    pub fn record_err<T>(&self, result: Result<T, DriverError>) {
-        if let Err(error) = result {
-            // A failed exchange means an earlier error is pending, which takes precedence.
-            let _ = self.error_state.compare_exchange(
-                0,
-                error.0.0,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            );
-        }
     }
 }

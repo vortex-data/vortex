@@ -7,8 +7,12 @@
 //! kernel launches, and stream-ordered device memory. The driver library is loaded lazily, so
 //! dependents build and run without CUDA until they first use it.
 //!
-//! Device memory orders its accesses across streams automatically, paying for driver calls
-//! only when an access crosses streams; see [`CudaSlice`].
+//! Device memory orders its accesses across streams automatically; see [`CudaSlice`].
+//!
+//! Operations return errors directly. Finish access guards with [`SyncOnDrop::finish`] to
+//! receive tracking errors; dropping a guard still performs cleanup but only logs failures.
+//! Destructor failures are reported through `tracing`, not stored for a later caller. CUDA's
+//! asynchronous device errors can still surface at a later driver call or synchronization.
 //!
 //! [`sys`] exposes the CUDA bindings. Resource-specific modules provide Rust wrappers;
 //! the managed types own handles and enforce lifetimes and stream ordering.

@@ -6,6 +6,7 @@
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::fmt;
+use std::panic::Location;
 
 use crate::sys;
 use crate::sys::CUresult;
@@ -76,6 +77,18 @@ impl fmt::Display for DriverError {
 }
 
 impl std::error::Error for DriverError {}
+
+/// Reports cleanup failures immediately while preserving the result for explicit callers.
+#[track_caller]
+pub(crate) fn log_result<T>(
+    operation: &'static str,
+    result: Result<T, DriverError>,
+) -> Result<T, DriverError> {
+    if let Err(error) = &result {
+        tracing::error!(%error, operation, location = %Location::caller(), "CUDA cleanup failed");
+    }
+    result
+}
 
 impl CUresult {
     /// `Ok` for [`CUresult::CUDA_SUCCESS`], otherwise the error.

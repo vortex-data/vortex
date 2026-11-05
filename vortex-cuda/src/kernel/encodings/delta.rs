@@ -143,7 +143,7 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
                 .arg(&mut output)
                 .arg(&num_chunks_u64);
         })?;
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)))
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?))
     });
 
     // Chunks are decoded whole; the logical slice is applied to the result.

@@ -83,7 +83,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
             .arg(&len_u64);
     })?;
 
-    let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)));
+    let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)?));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_buf,

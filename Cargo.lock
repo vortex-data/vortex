@@ -11763,6 +11763,7 @@ dependencies = [
  "libloading",
  "parking_lot",
  "smallvec",
+ "tracing",
  "vortex-array",
 ]
 
