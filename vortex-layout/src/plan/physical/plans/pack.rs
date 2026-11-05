@@ -11,28 +11,32 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
-use vortex_array::scalar_fn::fns::pack::PackOptions;
+use vortex_array::scalar_fn::fns::select::FieldSelection;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_expr::descendent_bound_annotations;
-use vortex_expr::make_bound_free_field_annotator;
-use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::partition::PartitionRule;
+use crate::partition::PartitionSession;
+use crate::partition::PartitionedExpression;
+use crate::partition::PartitionedPlan;
+use crate::partition::Partitions;
+use crate::partition::PlanSlot;
+use crate::partition::Slots;
+use crate::partition::positional_name;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
@@ -341,7 +345,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         child: &Plan<Pack>,
         parent: &Plan<Eval>,
         _child_idx: usize,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if child.dtype().is_nullable() {
             return Ok(None);
@@ -349,289 +353,559 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         let expression = parent.expression();
         let fields = child.fields();
-        let referenced_fields =
-            descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
-                .get(&ExactBoundExpr(expression.clone()))
-                .vortex_expect("Bound expression missing free-field annotations")
-                .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
-        let partitioned =
-            partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
-
-        if partitioned.partition_names.is_empty() {
-            let selected_indices = fields
-                .names()
-                .iter()
-                .enumerate()
-                .filter_map(|(index, name)| referenced_fields.contains(name).then_some(index))
-                .collect::<Vec<_>>();
-            if selected_indices.len() == fields.nfields() {
-                return Ok(None);
+        if fields.nfields() == 0 {
+            return Ok(None);
+        }
+        let partitioned = match Pack.partition(child.dtype(), expression, session)? {
+            PartitionedExpression::One(slot, expr) => {
+                let field = child.slot_required(slot)?;
+                return Ok(Some(EvalPlan::try_new(expr, field)?.into_plan()));
             }
+            PartitionedExpression::Any(expr) => {
+                let rewritten = child.with_pruned_fields(Vec::new())?.into_plan();
+                return Ok(Some(EvalPlan::try_new(expr, rewritten)?.into_plan()));
+            }
+            PartitionedExpression::Many(partitioned) => partitioned,
+        };
+        let Partitions {
+            combiner,
+            partitions,
+        } = partitioned;
 
-            let pruned_fields = selected_indices
-                .into_iter()
-                .map(|field_index| {
-                    Ok((
-                        field_name(fields, field_index)?,
-                        field_plan(child, field_index)?,
-                    ))
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
-            let rewritten = child.with_pruned_fields(pruned_fields)?.into_plan();
-            return Ok(Some(
-                EvalPlan::try_new(expression.clone(), rewritten)?.into_plan(),
-            ));
-        }
+        let mut fields_changed = partitions.len() != fields.nfields();
+        let mut pruned_fields = Vec::with_capacity(partitions.len());
+        for (position, partition) in partitions.into_iter().enumerate() {
+            fields_changed |= partition.slot != Pack::FIELDS_OFFSET + position;
+            fields_changed |= fields
+                .field_name(position)
+                .is_none_or(|name| *name != positional_name(position));
 
-        if partitioned.partition_names.len() == 1 {
-            let name = partitioned
-                .partition_names
-                .get(0)
-                .ok_or_else(|| vortex_err!("Struct expression partition has no field"))?;
-            let index = fields.find(name).ok_or_else(|| {
-                vortex_err!("Struct expression references unknown field '{name}'")
-            })?;
-            let field = field_plan(child, index)?;
-            let lowered = step_into_struct_field(expanded, name, field.dtype().clone())?;
-            return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
-        }
-
-        let residual = partitioned.root;
-        let mut collapsed = Vec::with_capacity(partitioned.partitions.len());
-        let mut field_expressions = vec![None; fields.nfields()];
-        for index in 0..partitioned.partitions.len() {
-            let name = &partitioned.partition_names[index];
-            let partition = &partitioned.partitions[index];
-            let field_index = fields.find(name).ok_or_else(|| {
-                vortex_err!("Struct expression references unknown field '{name}'")
-            })?;
-            let field = field_plan(child, field_index)?;
-            let lowered = if let Some(pack) = partition
-                .as_scalar()
-                .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>())
-                && partition.children().len() == 1
-            {
-                let value_name = pack
-                    .names
-                    .get(0)
-                    .ok_or_else(|| vortex_err!("Struct expression partition pack is empty"))?;
-                collapsed.push((name.clone(), value_name.clone()));
-                partition.children()[0].clone()
-            } else {
-                partition.clone()
-            };
-            let lowered = step_into_struct_field(lowered, name, field.dtype().clone())?;
-            field_expressions[field_index] = Some(lowered);
-        }
-
-        let mut fields_changed = partitioned.partition_names.len() != fields.nfields();
-        let mut pruned_fields = Vec::with_capacity(partitioned.partition_names.len());
-        for (field_index, expression) in field_expressions.into_iter().enumerate() {
-            let Some(expression) = expression else {
-                continue;
-            };
-            let field = field_plan(child, field_index)?;
-            let field = if is_identity_expression(&expression, field.dtype())? {
+            let field = child.slot_required(partition.slot)?;
+            let field = if is_identity_expression(&partition.expr, field.dtype()) {
                 field
             } else {
                 fields_changed = true;
-                EvalPlan::try_new(expression, field)?.into_plan()
+                EvalPlan::try_new(partition.expr, field)?.into_plan()
             };
-            pruned_fields.push((field_name(fields, field_index)?, field));
+            pruned_fields.push((positional_name(position), field));
         }
         let rewritten = if fields_changed {
             child.with_pruned_fields(pruned_fields)?.into_plan()
         } else {
             child.to_plan()
         };
-        let residual = rewrite_partition_root(residual, rewritten.dtype().clone(), &collapsed)?;
 
-        if !fields_changed && residual == *expression {
+        if !fields_changed && combiner == *expression {
             return Ok(None);
         }
 
-        Ok(Some(EvalPlan::try_new(residual, rewritten)?.into_plan()))
+        Ok(Some(EvalPlan::try_new(combiner, rewritten)?.into_plan()))
     }
 }
 
-/// Rebinds a partitioned residual expression after collapsing single-value partitions.
-///
-/// # Arguments
-///
-/// * `expression` - The residual recombination expression returned by `partition_bound`.
-/// * `root_dtype` - The dtype produced by the rewritten plan and used to rebind every root.
-/// * `collapsed` - `(partition_name, value_name)` pairs whose one-field `Pack` was removed;
-///   each `$.partition_name.value_name` access is rewritten to `$.partition_name`.
-pub(super) fn rewrite_partition_root(
-    expression: BoundExpression,
-    root_dtype: DType,
-    collapsed: &[(FieldName, FieldName)],
-) -> VortexResult<BoundExpression> {
-    Ok(expression
-        .transform_down(|node| {
-            if let Some(value_name) = node.as_opt::<GetItem>() {
-                let partition_access = &node.children()[0];
-                if let Some(partition_name) = partition_access.as_opt::<GetItem>()
-                    && partition_access.children()[0].is_root()
-                    && collapsed.iter().any(|(partition, value)| {
-                        partition == partition_name && value == value_name
-                    })
-                {
-                    return Ok(Transformed {
-                        value: BoundExpression::try_new(
-                            GetItem.bind(partition_name.clone()),
-                            [BoundExpression::new_root(root_dtype.clone())],
-                        )?,
-                        changed: true,
-                        order: TraversalOrder::Skip,
-                    });
-                }
-            }
-
-            if node.is_root() {
-                Ok(Transformed {
-                    value: BoundExpression::new_root(root_dtype.clone()),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                })
-            } else {
-                Ok(Transformed::no(node))
-            }
-        })?
-        .into_inner())
-}
-
-fn field_name(fields: &StructFields, index: usize) -> VortexResult<FieldName> {
-    Ok(fields
-        .field_name(index)
-        .ok_or_else(|| vortex_err!("Struct field {index} has no name"))?
-        .clone())
-}
-
-fn field_plan(plan: &Plan<Pack>, index: usize) -> VortexResult<PlanRef> {
-    plan.field(index)
-}
-
-fn expanded_struct_root(
-    root_dtype: &DType,
-    fields: &StructFields,
-) -> VortexResult<BoundExpression> {
-    let root = BoundExpression::new_root(root_dtype.clone());
-    let children = fields
-        .names()
-        .iter()
-        .map(|name| BoundExpression::try_new(GetItem.bind(name.clone()), [root.clone()]))
-        .collect::<VortexResult<Vec<_>>>()?;
-    bound_pack(fields.names().clone(), children)
-}
-
-fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> VortexResult<bool> {
+fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> bool {
     if expression.is_root() {
-        return Ok(expression.dtype() == input_dtype);
+        return expression.dtype() == input_dtype;
     }
     if input_dtype.is_nullable() {
-        return Ok(false);
+        return false;
     }
     let Some(fields) = input_dtype.as_struct_fields_opt() else {
-        return Ok(false);
+        return false;
     };
-    Ok(expression == &expanded_struct_root(input_dtype, fields)?)
+    let Some(options) = expression.as_opt::<PackFn>() else {
+        return false;
+    };
+    !options.nullability.is_nullable()
+        && options.names == *fields.names()
+        && expression
+            .children()
+            .iter()
+            .zip(fields.names().iter())
+            .all(|(child, name)| {
+                child.as_opt::<GetItem>().is_some_and(|item| item == name)
+                    && child.children()[0].is_root()
+                    && child.children()[0].dtype() == input_dtype
+            })
 }
 
-fn expand_struct_root(
-    expression: BoundExpression,
-    expanded_root: &BoundExpression,
+#[derive(Clone, Copy)]
+pub enum PackSlot {
+    Field(PlanSlot),
+    Validity,
+}
+impl From<PackSlot> for PlanSlot {
+    fn from(slot: PackSlot) -> Self {
+        match slot {
+            PackSlot::Validity => Pack::VALIDITY_SLOT,
+            PackSlot::Field(index) => Pack::FIELDS_OFFSET + index,
+        }
+    }
+}
+
+impl PartitionedPlan for Pack {
+    type Slot = PackSlot;
+    fn slot_dtype(scope: &DType, slot: PackSlot) -> VortexResult<DType> {
+        match slot {
+            PackSlot::Validity => Ok(validity_dtype()),
+            PackSlot::Field(index) => field_dtype(struct_fields(scope)?, index),
+        }
+    }
+}
+
+pub fn register_pack_partition_rules(session: &PartitionSession) {
+    session.register_root_rule(Pack, &RootRule);
+    session.register_rule(Pack, GetItem, &GetItemRule);
+    session.register_rule(Pack, Select, &SelectRule);
+    session.register_rule(Pack, IsNotNull, &IsNotNullRule);
+    session.register_rule(Pack, IsNull, &IsNullRule);
+}
+
+fn struct_fields(scope: &DType) -> VortexResult<&StructFields> {
+    scope
+        .as_struct_fields_opt()
+        .ok_or_else(|| vortex_err!("Not a struct scope"))
+}
+
+fn field_dtype(fields: &StructFields, index: PlanSlot) -> VortexResult<DType> {
+    fields
+        .field_by_index(index)
+        .ok_or_else(|| vortex_err!("No field {index} in struct scope"))
+}
+
+fn validity_dtype() -> DType {
+    DType::Bool(Nullability::NonNullable)
+}
+
+fn select_fields(
+    slots: &Slots<'_, Pack>,
     fields: &StructFields,
-) -> VortexResult<BoundExpression> {
-    Ok(expression
-        .transform_down(|node| {
-            if node.is_root() {
-                return Ok(Transformed {
-                    value: expanded_root.clone(),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                });
-            }
-
-            let Some(scalar_fn) = node.as_scalar() else {
-                return Ok(Transformed::no(node));
-            };
-            if !node
-                .children()
-                .first()
-                .is_some_and(BoundExpression::is_root)
-            {
-                return Ok(Transformed::no(node));
-            }
-
-            if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
-                let index = fields.find(field_name).ok_or_else(|| {
-                    vortex_err!("Field {field_name} not found while expanding struct root")
-                })?;
-                return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                });
-            }
-
-            if let Some(selection) = scalar_fn.as_opt::<Select>() {
-                let names = selection.normalize_to_included_fields(fields.names())?;
-                let children = names
-                    .iter()
-                    .map(|name| {
-                        let index = fields
-                            .find(name)
-                            .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
-                    })
-                    .collect();
-                return Ok(Transformed {
-                    value: bound_pack(names, children)?,
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                });
-            }
-
-            Ok(Transformed::no(node))
-        })?
-        .into_inner())
+    names: FieldNames,
+    indices: Vec<PlanSlot>,
+) -> VortexResult<Expression> {
+    vortex_ensure!(fields.nfields() > 0);
+    let elements = names
+        .iter()
+        .cloned()
+        .zip(indices)
+        .map(|(name, index)| (name, slots.read(PackSlot::Field(index))));
+    let packed = unbound::pack(elements, Nullability::NonNullable);
+    if !slots.scope().is_nullable() {
+        return Ok(packed);
+    }
+    Ok(unbound::mask(packed, slots.read(PackSlot::Validity)))
 }
 
-fn step_into_struct_field(
-    expression: BoundExpression,
-    field_name: &FieldName,
-    field_dtype: DType,
-) -> VortexResult<BoundExpression> {
-    Ok(expression
-        .transform_down(|node| {
-            let is_field_access = node
-                .as_scalar()
-                .and_then(|scalar_fn| scalar_fn.as_opt::<GetItem>())
-                .is_some_and(|name| name == field_name)
-                && node.children()[0].is_root();
-
-            if is_field_access {
-                Ok(Transformed {
-                    value: BoundExpression::new_root(field_dtype.clone()),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                })
-            } else {
-                Ok(Transformed::no(node))
-            }
-        })?
-        .into_inner())
+/// $ -> pack(...) (non-nullable) or mask(pack(...), validity)
+struct RootRule;
+impl PartitionRule for RootRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let fields = struct_fields(slots.scope())?;
+        let indices = (0..fields.nfields()).collect();
+        select_fields(slots, fields, fields.names().clone(), indices).map(Some)
+    }
 }
 
-fn bound_pack(names: FieldNames, children: Vec<BoundExpression>) -> VortexResult<BoundExpression> {
-    BoundExpression::try_new(
-        PackFn.bind(PackOptions {
-            names,
-            nullability: Nullability::NonNullable,
-        }),
-        children,
-    )
+/// select(..., $) -> pack(... + optional validity)
+struct SelectRule;
+impl PartitionRule for SelectRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let selection = node.as_::<Select>();
+        let fields = struct_fields(slots.scope())?;
+        let names = match selection {
+            FieldSelection::Include(names) => names.clone(),
+            FieldSelection::Exclude(_) => selection.normalize_to_included_fields(fields.names())?,
+        };
+        let indices = names
+            .iter()
+            .map(|name| {
+                fields
+                    .find(name)
+                    .ok_or_else(|| vortex_err!("field {name} not found"))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        select_fields(slots, fields, names, indices).map(Some)
+    }
+}
+
+/// $.x -> $.x (non-nullable) or mask($.x, $.validity)
+struct GetItemRule;
+impl PartitionRule for GetItemRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let field_name = node.as_::<GetItem>();
+        let index = struct_fields(slots.scope())?
+            .find(field_name)
+            .ok_or_else(|| vortex_err!("Field {field_name} not found"))?;
+        let read = slots.read(PackSlot::Field(index));
+        if !slots.scope().is_nullable() {
+            return Ok(Some(read));
+        }
+        Ok(Some(unbound::mask(read, slots.read(PackSlot::Validity))))
+    }
+}
+
+/// is_not_null -> lit(true) (non-nullable) or $.validity
+struct IsNotNullRule;
+impl PartitionRule for IsNotNullRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let expr = if slots.scope().is_nullable() {
+            slots.read(PackSlot::Validity)
+        } else {
+            unbound::lit(true)
+        };
+        Ok(Some(expr))
+    }
+}
+
+/// is_null-> lit(false) (non-nullable) or !$.validity
+struct IsNullRule;
+impl PartitionRule for IsNullRule {
+    type Plan = Pack;
+    fn apply(
+        &self,
+        slots: &Slots<'_, Pack>,
+        _node: &BoundExpression,
+    ) -> VortexResult<Option<Expression>> {
+        let expr = if slots.scope().is_nullable() {
+            unbound::not(slots.read(PackSlot::Validity))
+        } else {
+            unbound::lit(false)
+        };
+        Ok(Some(expr))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use insta::assert_snapshot;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr as unbound;
+    use vortex_array::expr::bound::get_item;
+    use vortex_array::expr::bound::is_not_null;
+    use vortex_array::expr::bound::pack;
+
+    use super::*;
+    use crate::partition::PartitionedExpression;
+    use crate::partition::Partitions;
+    use crate::test::SESSION;
+
+    fn scope_of(expr: &BoundExpression) -> Option<&DType> {
+        if expr.is_root() {
+            return Some(expr.dtype());
+        }
+        expr.children().iter().find_map(scope_of)
+    }
+
+    fn i32() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    fn struct_of(fields: &[(&str, DType)], nullability: Nullability) -> DType {
+        DType::Struct(
+            StructFields::from_iter(fields.iter().map(|(name, dtype)| (*name, dtype.clone()))),
+            nullability,
+        )
+    }
+
+    fn two_field_struct() -> DType {
+        struct_of(&[("a", i32()), ("b", i32())], Nullability::NonNullable)
+    }
+
+    fn fmt_slot(slot: PlanSlot) -> String {
+        match slot {
+            Pack::VALIDITY_SLOT => "validity".to_string(),
+            slot => (slot - Pack::FIELDS_OFFSET).to_string(),
+        }
+    }
+
+    fn line(label: &str, expr: &BoundExpression) -> String {
+        let scope = scope_of(expr)
+            .map(|dtype| dtype.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        format!("{label} scope={scope}: {expr}\n")
+    }
+
+    fn snap(partitioning: PartitionedExpression) -> String {
+        match partitioning {
+            PartitionedExpression::Any(expr) => line("mono none", &expr),
+            PartitionedExpression::One(slot, expr) => {
+                line(&format!("mono {}", fmt_slot(slot)), &expr)
+            }
+            PartitionedExpression::Many(Partitions {
+                combiner: root,
+                partitions,
+            }) => {
+                let mut out = String::new();
+                for partition in &partitions {
+                    out.push_str(&line(
+                        &format!("partition {}", fmt_slot(partition.slot)),
+                        &partition.expr,
+                    ));
+                }
+                out.push_str(&line("root", &root));
+                out
+            }
+        }
+    }
+
+    fn partition(expr: Expression, scope: &DType) -> VortexResult<String> {
+        Ok(snap(Pack.partition(scope, &expr.bind(scope)?, &SESSION)?))
+    }
+
+    #[test]
+    fn is_not_null_of_non_nullable() -> VortexResult<()> {
+        let root = BoundExpression::new_root(two_field_struct());
+        let expr = pack(
+            [
+                ("v", is_not_null(root.clone())),
+                ("a", get_item("a", root.clone())),
+                ("b", get_item("b", root)),
+            ],
+            Nullability::NonNullable,
+        );
+        assert_snapshot!(snap(Pack.partition(&two_field_struct(), &expr, &SESSION)?), @"
+        partition 0 scope=i32: $
+        partition 1 scope=i32: $
+        root scope={0=i32, 1=i32}: pack(v: true, a: $.0, b: $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn validity_select_and_root() -> VortexResult<()> {
+        let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
+        let expr = unbound::select(["a"], unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope=i32: $
+        partition validity scope=bool: $
+        root scope={0=i32, 1=bool}: vortex.mask(pack(a: $.0), $.1)
+        ");
+        assert_snapshot!(partition(unbound::root(), &scope)?, @"
+        partition 0 scope=i32: $
+        partition 1 scope=i32: $
+        partition validity scope=bool: $
+        root scope={0=i32, 1=i32, 2=bool}: vortex.mask(pack(a: $.0, b: $.1), $.2)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn validity_and_field() -> VortexResult<()> {
+        let inner = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
+        let scope = struct_of(&[("a", i32()), ("s", inner)], Nullability::Nullable);
+        let expr = unbound::and(
+            unbound::is_null(unbound::root()),
+            unbound::gt(
+                unbound::get_item("d", unbound::get_item("s", unbound::root())),
+                unbound::lit(0i32),
+            ),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 1 scope={c=i32, d=i32}: $
+        partition validity scope=bool: pack(0: $, 1: vortex.not($))
+        root scope={0={c=i32, d=i32}, 1={0=bool, 1=bool}}: ($.1.1 and (vortex.mask($.0, $.1.0).d > 0i32))
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn validity_only() -> VortexResult<()> {
+        let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
+        let expr = unbound::is_not_null(unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: $");
+        let expr = unbound::is_null(unbound::root());
+        assert_snapshot!(partition(expr, &scope)?, @"mono validity scope=bool: vortex.not($)");
+
+        let a = struct_of(&[("x", i32())], Nullability::Nullable);
+        let b = struct_of(&[("y", i32())], Nullability::Nullable);
+        let scope = struct_of(&[("a", a), ("b", b)], Nullability::NonNullable);
+        let expr = unbound::and(
+            unbound::is_not_null(unbound::get_item("a", unbound::root())),
+            unbound::is_not_null(unbound::get_item("b", unbound::root())),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope={x=i32}?: is_not_null($)
+        partition 1 scope={y=i32}?: is_not_null($)
+        root scope={0=bool, 1=bool}: ($.0 and $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn equal_cuts() -> VortexResult<()> {
+        let root = BoundExpression::new_root(two_field_struct());
+        let a = get_item("a", root.clone());
+        let b = get_item("b", root);
+        let expr = pack(
+            [("x", a.clone()), ("y", b), ("z", a)],
+            Nullability::NonNullable,
+        );
+        assert_snapshot!(snap(Pack.partition(&two_field_struct(), &expr, &SESSION)?), @"
+        partition 0 scope=i32: $
+        partition 1 scope=i32: $
+        root scope={0=i32, 1=i32}: pack(x: $.0, y: $.1, z: $.0)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn is_not_null_one_partition() -> VortexResult<()> {
+        let expr = unbound::is_not_null(unbound::get_item("a", unbound::root()));
+        assert_snapshot!(partition(expr, &two_field_struct())?, @"mono 0 scope=i32: is_not_null($)");
+        Ok(())
+    }
+
+    #[test]
+    fn is_not_null_two_fields() -> VortexResult<()> {
+        let scope = struct_of(&[("a", i32()), ("b", i32())], Nullability::Nullable);
+        let expr = unbound::is_not_null(unbound::get_item("a", unbound::root()));
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope=i32: $
+        partition validity scope=bool: $
+        root scope={0=i32, 1=bool}: $.1
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_pack() -> VortexResult<()> {
+        let expr = unbound::get_item(
+            "a",
+            unbound::get_item(
+                "a",
+                unbound::pack([("a", unbound::root())], Nullability::NonNullable),
+            ),
+        );
+        assert_snapshot!(partition(expr, &two_field_struct())?, @"
+        partition 0 scope=i32: $
+        partition 1 scope=i32: $
+        root scope={0=i32, 1=i32}: $.0
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_ab_greater_c() -> VortexResult<()> {
+        let inner = struct_of(&[("b", i32())], Nullability::NonNullable);
+        let scope = struct_of(&[("a", inner), ("c", i32())], Nullability::NonNullable);
+        let expr = unbound::gt(
+            unbound::get_item("b", unbound::get_item("a", unbound::root())),
+            unbound::get_item("c", unbound::root()),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope={b=i32}: $.b
+        partition 1 scope=i32: $
+        root scope={0=i32, 1=i32}: ($.0 > $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_x_plus_1() -> VortexResult<()> {
+        let scope = struct_of(&[("x", i32()), ("y", i32())], Nullability::NonNullable);
+        let expr = unbound::gt(
+            unbound::checked_add(unbound::get_item("x", unbound::root()), unbound::lit(1i32)),
+            unbound::get_item("y", unbound::root()),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope=i32: ($ + 1i32)
+        partition 1 scope=i32: $
+        root scope={0=i32, 1=i32}: ($.0 > $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_comparison() -> VortexResult<()> {
+        let inner = struct_of(&[("a", i32())], Nullability::NonNullable);
+        let scope = struct_of(
+            &[("a", inner.clone()), ("b", inner)],
+            Nullability::NonNullable,
+        );
+        let expr = unbound::gt(
+            unbound::get_item("a", unbound::get_item("a", unbound::root())),
+            unbound::get_item("a", unbound::get_item("b", unbound::root())),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"
+        partition 0 scope={a=i32}: $.a
+        partition 1 scope={a=i32}: $.a
+        root scope={0=i32, 1=i32}: ($.0 > $.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_nested_and() -> VortexResult<()> {
+        let a = unbound::get_item("a", unbound::root());
+        let b = unbound::get_item("b", unbound::root());
+        let expr = unbound::and(
+            unbound::and(
+                unbound::gt(a.clone(), unbound::lit(5i32)),
+                unbound::gt(b, unbound::lit(5i32)),
+            ),
+            unbound::lt(a, unbound::lit(1i32)),
+        );
+        assert_snapshot!(partition(expr, &two_field_struct())?, @"
+        partition 0 scope=i32: pack(0: ($ > 5i32), 1: ($ < 1i32))
+        partition 1 scope=i32: ($ > 5i32)
+        root scope={0={0=bool, 1=bool}, 1=bool}: (($.0.0 and $.1) and $.0.1)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_duplicate_predicate() -> VortexResult<()> {
+        let a = unbound::get_item("a", unbound::root());
+        let b = unbound::get_item("b", unbound::root());
+        let gt5_a = unbound::gt(a, unbound::lit(5i32));
+        let expr = unbound::and(
+            unbound::and(gt5_a.clone(), unbound::gt(b, unbound::lit(5i32))),
+            gt5_a,
+        );
+        assert_snapshot!(partition(expr, &two_field_struct())?, @"
+        partition 0 scope=i32: ($ > 5i32)
+        partition 1 scope=i32: ($ > 5i32)
+        root scope={0=bool, 1=bool}: (($.0 and $.1) and $.0)
+        ");
+        Ok(())
+    }
+
+    #[test]
+    fn test_deeply_nested_comparison() -> VortexResult<()> {
+        let leaf = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
+        let middle = struct_of(&[("b", leaf)], Nullability::NonNullable);
+        let scope = struct_of(&[("a", middle)], Nullability::NonNullable);
+        let expr = unbound::gt(
+            unbound::get_item(
+                "c",
+                unbound::get_item("b", unbound::get_item("a", unbound::root())),
+            ),
+            unbound::get_item(
+                "d",
+                unbound::get_item("b", unbound::get_item("a", unbound::root())),
+            ),
+        );
+        assert_snapshot!(partition(expr, &scope)?, @"mono 0 scope={b={c=i32, d=i32}}: ($.b.c > $.b.d)");
+        Ok(())
+    }
 }
