@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::future;
 use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::ArrayRef;
@@ -42,10 +43,12 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::list::ListLayout;
+use crate::layouts::list::expr::ElementsSplit;
 use crate::layouts::list::expr::ListChildrenNeeded;
 use crate::layouts::list::expr::get_necessary_bound_list_children;
 use crate::layouts::list::expr::rewrite_offsets_expr;
 use crate::layouts::list::expr::rewrite_validity_expr;
+use crate::layouts::list::expr::split_list_transform;
 use crate::segments::SegmentSource;
 
 type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
@@ -170,8 +173,12 @@ impl ListReader {
 
     /// Projection for [`ListChildrenNeeded::All`] expressions.
     ///
-    /// An all-true mask over the full local range reads every child concurrently. Otherwise, the
-    /// read is bounded to the first and last selected list.
+    /// An all-true mask over the full local range reads every child concurrently, unless the
+    /// elements expression can fail and lists can be null. Otherwise, the read is bounded to the
+    /// first and last selected list.
+    ///
+    /// When the list is read through `list_transform`, the elements reader evaluates the lambdas'
+    /// bodies instead of reading whole elements. See [`split_list_transform`].
     fn project_all(
         &self,
         row_range: &Range<u64>,
@@ -179,31 +186,35 @@ impl ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
+        let nullable = self.layout.dtype().nullability() == Nullability::Nullable;
+        let split = match split_list_transform(expr)? {
+            Some(split) => split,
+            None => ElementsSplit::whole_elements(self.elements.dtype(), expr),
+        };
         let reader = self.clone();
         let row_range = row_range.clone();
-        let expr = expr.clone();
         Ok(async move {
             let mask = mask.await?;
-            if is_full_range && mask.all_true() {
-                reader.project_all_full(&expr)?.await
+            if is_full_range && mask.all_true() && (split.infallible || !nullable) {
+                reader.project_all_full(split)?.await
             } else {
-                reader.project_all_bounded(&row_range, &expr, mask)?.await
+                reader.project_all_bounded(&row_range, split, mask)?.await
             }
         }
         .boxed())
     }
 
     /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
+    fn project_all_full(&self, split: ElementsSplit) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
-        let expr = expr.clone();
         let session = self.session.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
         let elements_fut = self.fetch_elements(
             &(0..elements_row_count),
+            &split.elements,
             MaskFuture::new_true(usize::try_from(elements_row_count)?),
         )?;
         let validity_fut = fetch_validity(
@@ -220,27 +231,32 @@ impl ListReader {
                 create_validity(validity, nullability),
                 &mut session.create_execution_ctx(),
             )?;
-            lists.apply_bound(&expr)
+            lists.apply_bound(&split.outer)
         }
         .boxed())
     }
 
-    /// Bounded read for a sub-range or selective mask.
+    /// Bounded read for a sub-range, a selective mask, or a fallible elements expression over a
+    /// nullable list.
     ///
     /// Crops leading and trailing unselected lists, reads their offsets, and translates the first
     /// and last offset into the element-row range to fetch. When the selection has holes, the
     /// elements they select decide the read. If those are sparse, the elements read is masked to
     /// them, so it skips the rest, and the lists are rebuilt over only those. Otherwise the range
     /// is read whole and the lists over it are filtered.
+    ///
+    /// An elements expression that can fail must not see the elements of null lists, which can
+    /// hold anything. When it can fail and the selection holds null lists, the elements read is
+    /// always masked, to the selected valid lists, and the null lists come out empty.
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
-        expr: &BoundExpression,
+        split: ElementsSplit,
         mask: Mask,
     ) -> VortexResult<ArrayFuture> {
         // Crop to the smallest contiguous row range containing every selected list.
         let Some(selected_rows) = selected_row_range(&mask) else {
-            let empty = Canonical::empty(expr.dtype()).into_array();
+            let empty = Canonical::empty(split.outer.dtype()).into_array();
             return Ok(async move { Ok(empty) }.boxed());
         };
 
@@ -249,7 +265,6 @@ impl ListReader {
             ..(row_range.start + u64::try_from(selected_rows.end)?);
 
         let nullability = self.layout.dtype().nullability();
-        let expr = expr.clone();
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
         let validity_fut = fetch_validity(
@@ -262,18 +277,41 @@ impl ListReader {
             let offsets = offsets_fut.await?;
             let mut ctx = reader.session.create_execution_ctx();
 
-            // The lists to rebuild over a masked elements read, when the selection has holes and
-            // is sparse enough for that to pay off.
-            let masked = if selection.all_true() {
+            // An elements expression that can fail needs the validity first, to keep the
+            // elements of null lists out of the read.
+            // `selected_valid` is set only when some selected list is null.
+            let mut validity_fut = validity_fut;
+            let selected_valid = if split.infallible || nullability == Nullability::NonNullable {
                 None
             } else {
-                select_lists(&offsets, &selection, &mut ctx)?
+                let validity = validity_fut.await?;
+                let selected_valid = match &validity {
+                    Some(validity) => Some(
+                        &selection
+                            & &Validity::Array(validity.clone())
+                                .execute_mask(selection.len(), &mut ctx)?,
+                    ),
+                    None => None,
+                }
+                .filter(|selected_valid| selected_valid.true_count() < selection.true_count());
+                validity_fut = future::ready(Ok(validity)).boxed();
+                selected_valid
+            };
+
+            // The lists to rebuild over a masked elements read, when the selection has holes and
+            // is sparse enough for that to pay off, or when it holds null lists that must not be
+            // read.
+            let masked = if selection.all_true() && selected_valid.is_none() {
+                None
+            } else {
+                select_lists(&offsets, &selection, selected_valid.as_ref(), &mut ctx)?
             };
 
             let lists = match masked {
                 Some(selected) => {
                     let elements_fut = reader.fetch_elements(
                         &selected.elements_range,
+                        &split.elements,
                         MaskFuture::ready(selected.elements),
                     )?;
                     let (elements, validity) = try_join!(elements_fut, validity_fut)?;
@@ -291,6 +329,7 @@ impl ListReader {
                     let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
                     let elements_fut = reader.fetch_elements(
                         &elements_range,
+                        &split.elements,
                         MaskFuture::new_true(usize::try_from(
                             elements_range.end - elements_range.start,
                         )?),
@@ -309,7 +348,7 @@ impl ListReader {
                     }
                 }
             };
-            lists.apply_bound(&expr)
+            lists.apply_bound(&split.outer)
         }
         .boxed())
     }
@@ -369,16 +408,15 @@ impl ListReader {
         )
     }
 
-    /// Fire the read of the elements of `row_range` that `mask` selects, in element space.
-    ///
-    /// No expression is applied.
+    /// Fire the read of `expr` over the elements of `row_range` that `mask` selects, in element
+    /// space.
     fn fetch_elements(
         &self,
         row_range: &Range<u64>,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let root = root().bind(self.elements.dtype())?;
-        self.elements.projection_evaluation(row_range, &root, mask)
+        self.elements.projection_evaluation(row_range, expr, mask)
     }
 }
 
@@ -395,11 +433,13 @@ struct SelectedLists {
 /// Keep the `selection` lists of a cropped read, given their offsets (one more than the lists).
 ///
 /// The elements read are those of the kept lists, and the kept lists' offsets are prefix sums of
-/// their lengths. Returns `None` when the kept lists reference at least
-/// [`MASKED_ELEMENTS_THRESHOLD`] of the elements the offsets span.
+/// their lengths. When `selected_valid` is given, only its lists' elements are read, and the
+/// other selected lists, which are null, come out empty. Otherwise, returns `None` when the kept
+/// lists reference at least [`MASKED_ELEMENTS_THRESHOLD`] of the elements the offsets span.
 fn select_lists(
     offsets: &ArrayRef,
     selection: &Mask,
+    selected_valid: Option<&Mask>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<SelectedLists>> {
     let offsets = offsets
@@ -411,21 +451,27 @@ fn select_lists(
     vortex_ensure_eq!(offsets.len(), lists + 1);
     let first = offsets[0];
     let len = usize::try_from(offsets[lists] - first)?;
+    let read = selected_valid.unwrap_or(selection);
     let all = [(0, lists)];
-    let runs = selection.slices().unwrap_or_else(|| &all, || &[]);
+    let runs = read.slices().unwrap_or_else(|| &all, || &[]);
 
     let selected: u64 = runs
         .iter()
         .map(|&(start, end)| offsets[end] - offsets[start])
         .sum();
-    if selected as f64 >= MASKED_ELEMENTS_THRESHOLD * len as f64 {
+    if selected_valid.is_none() && selected as f64 >= MASKED_ELEMENTS_THRESHOLD * len as f64 {
         return Ok(None);
     }
 
     let mut kept_offsets = BufferMut::with_capacity(selection.true_count() + 1);
     let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
     let mut kept = 0u64;
+    let mut from = 0;
     for &(start, end) in runs {
+        if selected_valid.is_some() {
+            // The selected null lists since the last run are empty.
+            kept_offsets.push_n(kept, selection.slice(from..start).true_count());
+        }
         let base = offsets[start];
         kept_offsets.extend(
             offsets[start..end]
@@ -438,12 +484,17 @@ fn select_lists(
         );
         if range.0 < range.1 {
             match ranges.last_mut() {
-                // Only empty lists were dropped since the last run, so the elements are adjacent.
+                // Only lists whose elements are not read lie between, so the elements are
+                // adjacent.
                 Some(last) if last.1 == range.0 => last.1 = range.1,
                 _ => ranges.push(range),
             }
         }
         kept += offsets[end] - base;
+        from = end;
+    }
+    if selected_valid.is_some() {
+        kept_offsets.push_n(kept, selection.slice(from..lists).true_count());
     }
     kept_offsets.push(kept);
 
@@ -767,6 +818,7 @@ fn apply_lengths_validity(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::ops::Range;
 
     use rand::RngExt;
@@ -774,6 +826,7 @@ mod tests {
     use rand::prelude::StdRng;
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
@@ -784,14 +837,20 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_expr::Expression;
+    use vortex_expr::Lambda;
     use vortex_expr::cast;
+    use vortex_expr::checked_add;
     use vortex_expr::col;
+    use vortex_expr::get_item;
     use vortex_expr::gt;
     use vortex_expr::is_not_null;
     use vortex_expr::lit;
     use vortex_expr::pack;
+    use vortex_expr::var;
     use vortex_functions::expr::is_null;
     use vortex_functions::expr::list_length;
+    use vortex_functions::expr::list_sum;
+    use vortex_functions::expr::list_transform;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_utils::aliases::hash_map::HashMap;
@@ -1517,7 +1576,163 @@ mod tests {
         Ok(())
     }
 
-    /// Read `expr` through `reader` and over `array` in memory, and check they agree.
+    /// `{l: list<struct<a: i32, f: i32, g: list<struct<h: i32, i: i32>>>>, o: i32}`. The five
+    /// lists have lengths [2, 3, 0, 3, 2], and when `nullable` the second is null over elements
+    /// that are still stored.
+    fn transform_table(nullable: bool) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = StructArray::from_fields(&[
+            ("h", PrimitiveArray::from_iter(0..15_i32).into_array()),
+            ("i", PrimitiveArray::from_iter(100..115_i32).into_array()),
+        ])?
+        .into_array();
+        let g = ListArray::try_new(
+            inner,
+            buffer![0u32, 1, 3, 3, 4, 6, 6, 7, 9, 9, 15].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let elements = StructArray::from_fields(&[
+            ("a", PrimitiveArray::from_iter(0..10_i32).into_array()),
+            ("f", PrimitiveArray::from_iter(10..20_i32).into_array()),
+            ("g", g),
+        ])?
+        .into_array();
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, false, true, true, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        let l = ListArray::try_new(
+            elements,
+            buffer![0u32, 2, 5, 5, 8, 10].into_array(),
+            validity,
+            &mut ctx,
+        )?
+        .into_array();
+        Ok(StructArray::from_fields(&[
+            ("l", l),
+            ("o", PrimitiveArray::from_iter(0..5_i32).into_array()),
+        ])?
+        .into_array())
+    }
+
+    fn lambda(param: &str, body: Expression) -> Lambda {
+        Lambda::new([param], body).vortex_expect("lambda is valid")
+    }
+
+    /// `list_transform(l, x -> body)`.
+    fn transform(body: Expression) -> Expression {
+        list_transform(col("l"), lambda("x", body))
+    }
+
+    const EVERY_LIST_COLUMN: &[&str] = &[
+        "l.offsets",
+        "l.elements.a",
+        "l.elements.f",
+        "l.elements.g.offsets",
+        "l.elements.g.elements.h",
+        "l.elements.g.elements.i",
+    ];
+
+    /// A list read through one `list_transform` lambda reads only the element columns its body
+    /// uses, through nested lists too, whether or not the body can fail. Reading the list whole
+    /// beside a lambda, or through two lambdas, reads whole elements.
+    #[rstest]
+    #[case::field(transform(get_item("f", var("x"))), &["l.offsets", "l.elements.f"])]
+    #[case::under_another_fn(
+        list_sum(transform(get_item("f", var("x")))),
+        &["l.offsets", "l.elements.f"],
+    )]
+    #[case::beside_another_column(
+        pack([("t", transform(get_item("f", var("x")))), ("o", col("o"))], Nullability::NonNullable),
+        &["l.offsets", "l.elements.f", "o"],
+    )]
+    #[case::nested(
+        transform(list_transform(get_item("g", var("x")), lambda("y", get_item("h", var("y"))))),
+        &["l.offsets", "l.elements.g.offsets", "l.elements.g.elements.h"],
+    )]
+    #[case::fallible(
+        transform(checked_add(get_item("f", var("x")), lit(1_i32))),
+        &["l.offsets", "l.elements.f"],
+    )]
+    #[case::nested_fallible(
+        transform(list_transform(
+            get_item("g", var("x")),
+            lambda("y", checked_add(get_item("h", var("y")), lit(1_i32))),
+        )),
+        &["l.offsets", "l.elements.g.offsets", "l.elements.g.elements.h"],
+    )]
+    #[case::two_lambdas(
+        pack(
+            [("a", transform(get_item("a", var("x")))), ("f", transform(get_item("f", var("x"))))],
+            Nullability::NonNullable,
+        ),
+        EVERY_LIST_COLUMN,
+    )]
+    #[case::same_lambda_twice(
+        pack(
+            [("a", transform(get_item("f", var("x")))), ("b", list_sum(transform(get_item("f", var("x")))))],
+            Nullability::NonNullable,
+        ),
+        &["l.offsets", "l.elements.f"],
+    )]
+    #[case::beside_list_length(
+        pack(
+            [("t", transform(get_item("f", var("x")))), ("n", list_length(col("l")))],
+            Nullability::NonNullable,
+        ),
+        &["l.offsets", "l.elements.f"],
+    )]
+    #[case::beside_the_whole_list(
+        pack([("t", transform(get_item("f", var("x")))), ("l", col("l"))], Nullability::NonNullable),
+        EVERY_LIST_COLUMN,
+    )]
+    #[tokio::test]
+    async fn list_transform_reads_only_what_its_body_uses(
+        #[case] expr: Expression,
+        #[case] columns: &[&str],
+        #[values(false, true)] nullable: bool,
+        #[values(Mask::new_true(5), Mask::from_iter([false, true, false, true, true]))] mask: Mask,
+    ) -> VortexResult<()> {
+        let table = transform_table(nullable)?;
+        let strategy = TableStrategy::new(chunked_elements_strategy(), chunked_elements_strategy())
+            .with_list_layout();
+        let (segments, layout, session) = write_layout(&strategy, table.clone()).await?;
+        let source = Arc::new(RecordingSegmentSource::new(segments));
+        let reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&source) as _,
+            &session,
+            &LayoutReaderContext::new(),
+        )?;
+
+        let bound = expr.bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(0..5), &bound, MaskFuture::ready(mask.clone()))?
+            .await?;
+        let expected = table.filter(mask)?.apply(&expr)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+
+        let mut segment_column = HashMap::new();
+        segment_columns(&layout, "", &mut segment_column)?;
+        let read = source
+            .requested()
+            .iter()
+            .map(|id| segment_column[id].as_str())
+            .collect::<BTreeSet<_>>();
+        let mut expected_read = columns.iter().copied().collect::<BTreeSet<_>>();
+        if nullable {
+            expected_read.insert("l.validity");
+        }
+        assert_eq!(read, expected_read);
+        Ok(())
+    }
+
+    /// Read `expr` through the reader and over the array in memory, and check they agree, as
+    /// values or as both overflowing: the only failure these tests provoke.
     async fn assert_read_matches(
         array: &ArrayRef,
         reader: &LayoutReaderRef,
@@ -1526,17 +1741,79 @@ mod tests {
         row_range: Range<u64>,
         mask: Mask,
     ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
         let bound = expr.bind(reader.dtype())?;
-        let read = reader
-            .projection_evaluation(&row_range, &bound, MaskFuture::ready(mask.clone()))?
-            .await?;
+        let read =
+            match reader.projection_evaluation(&row_range, &bound, MaskFuture::ready(mask.clone()))
+            {
+                Ok(read) => read
+                    .await
+                    .and_then(|read| read.execute::<RecursiveCanonical>(&mut ctx)),
+                Err(err) => Err(err),
+            };
         let expected = array
             .slice(usize::try_from(row_range.start)?..usize::try_from(row_range.end)?)?
             .filter(mask)?
-            .apply(expr)?;
-        let mut ctx = session.create_execution_ctx();
-        assert_arrays_eq!(read, expected, &mut ctx);
+            .apply(expr)
+            .and_then(|expected| expected.execute::<RecursiveCanonical>(&mut ctx));
+        match (read, expected) {
+            (Ok(read), Ok(expected)) => {
+                assert_arrays_eq!(read.0.into_array(), expected.0.into_array(), &mut ctx)
+            }
+            (Err(read), Err(expected)) => {
+                let (read, expected) = (read.to_string(), expected.to_string());
+                assert!(
+                    read.contains("overflow") && expected.contains("overflow"),
+                    "{expr} over {row_range:?}: read failed with {read}, expected {expected}"
+                );
+            }
+            (read, expected) => panic!(
+                "{expr} over {row_range:?}: read {:?}, expected {:?}",
+                read.map(|read| read.0.into_array()),
+                expected.map(|expected| expected.0.into_array()),
+            ),
+        }
         Ok(())
+    }
+
+    /// `[[1, 2], null over [MAX], [MAX, 3], [], null over [4, MAX], [5]]`.
+    fn list_hiding_max() -> VortexResult<ArrayRef> {
+        Ok(ListArray::try_new(
+            buffer![1i32, 2, i32::MAX, i32::MAX, 3, 4, i32::MAX, 5].into_array(),
+            buffer![0u32, 2, 3, 5, 5, 7, 8].into_array(),
+            Validity::Array(
+                BoolArray::from_iter([true, false, true, true, false, true]).into_array(),
+            ),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array())
+    }
+
+    /// A body that can fail sees only the elements of the selected valid lists: `x + 1` overflows
+    /// on the `MAX` under the null lists only if it reads them, and on the third list only when
+    /// that list is selected.
+    #[rstest]
+    #[case::every_row(0..6, Mask::new_true(6))]
+    #[case::skips_the_overflowing_list(0..6, Mask::from_iter([true, true, false, true, true, true]))]
+    #[case::only_null_lists(1..5, Mask::from_iter([true, false, false, true]))]
+    #[case::sub_range(3..6, Mask::new_true(3))]
+    #[case::selects_the_overflowing_list(0..6, Mask::from_iter([false, false, true, false, false, true]))]
+    #[tokio::test]
+    async fn fallible_body_sees_only_selected_valid_lists(
+        #[case] row_range: Range<u64>,
+        #[case] mask: Mask,
+        #[values(false, true)] chunked: bool,
+    ) -> VortexResult<()> {
+        let expr = list_transform(root(), lambda("x", checked_add(var("x"), lit(1_i32))));
+        let list = list_hiding_max()?;
+        let (segments, layout, session) = if chunked {
+            write_layout(&chunked_elements_list_strategy(), list.clone()).await?
+        } else {
+            write_layout(&flat_list_strategy(), list.clone()).await?
+        };
+        let reader =
+            layout.new_reader("".into(), segments, &session, &LayoutReaderContext::new())?;
+        assert_read_matches(&list, &reader, &session, &expr, row_range, mask).await
     }
 
     /// Masked element reads skip element chunks no selected list references.
@@ -1581,8 +1858,8 @@ mod tests {
         Ok(())
     }
 
-    /// Random lists of `{a, b}` structs, read whole, by length, and by validity over random
-    /// ranges and masks, match the same expressions in memory.
+    /// Random lists of `{a, b}` structs with garbage under their null lists, read through every
+    /// kind of list use over random ranges and masks, match the same expressions in memory.
     #[tokio::test]
     async fn random_list_uses_match_memory() -> VortexResult<()> {
         let mut rng = StdRng::seed_from_u64(0);
@@ -1593,6 +1870,42 @@ mod tests {
                 [
                     ("n", list_length(col("l"))),
                     ("v", is_null(col("l"))),
+                    ("l", col("l")),
+                ],
+                Nullability::NonNullable,
+            ),
+            transform(get_item("a", var("x"))),
+            transform(checked_add(
+                get_item("a", var("x")),
+                get_item("b", var("x")),
+            )),
+            pack(
+                [
+                    ("s", list_sum(transform(get_item("a", var("x"))))),
+                    (
+                        "t",
+                        transform(checked_add(get_item("b", var("x")), lit(1_i32))),
+                    ),
+                ],
+                Nullability::NonNullable,
+            ),
+            pack(
+                [
+                    (
+                        "t",
+                        transform(checked_add(get_item("a", var("x")), lit(1_i32))),
+                    ),
+                    ("n", list_length(col("l"))),
+                    ("v", is_null(col("l"))),
+                ],
+                Nullability::NonNullable,
+            ),
+            pack(
+                [
+                    (
+                        "t",
+                        transform(checked_add(get_item("b", var("x")), lit(1_i32))),
+                    ),
                     ("l", col("l")),
                 ],
                 Nullability::NonNullable,
@@ -1622,7 +1935,7 @@ mod tests {
     }
 
     /// `{l: list<struct<a: i32, b: i32>>}` with up to four elements per list. Null lists hold
-    /// `MAX` and valid lists small values.
+    /// `MAX`, which overflows any body adding to it; valid lists hold small values.
     fn random_struct_lists(rng: &mut StdRng, lists: usize) -> VortexResult<ArrayRef> {
         let mut offsets = vec![0u32];
         let mut valid = Vec::with_capacity(lists);
