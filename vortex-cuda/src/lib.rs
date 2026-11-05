@@ -138,7 +138,7 @@ pub fn initialize_cuda(session: &CudaSession) {
 ///
 /// Each call returns an independent session with its own kernel registry and stream pool.
 /// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
-/// context-level state must supply their own context through [`CudaSession::with_context`].
+/// context-level state must use [`CudaContext::new_non_primary`] with [`CudaSession::with_context`].
 ///
 /// # Panics
 ///
