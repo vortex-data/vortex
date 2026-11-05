@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
+use once_cell::sync::OnceCell;
 use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
@@ -49,8 +50,12 @@ use crate::segments::SegmentId;
 pub struct FilterPlans {
     expression: FilterExpr,
     predicates: Vec<PlanRef>,
-    /// A metadata-only pruning plan per conjunct, where the conjunct has one.
-    pruning: Vec<Option<PlanRef>>,
+    /// The plan of the file, over which a pruning plan is planned.
+    root: PlanRef,
+    session: VortexSession,
+    /// A metadata-only pruning plan per conjunct, where the conjunct has one. A plan is planned
+    /// when a scan first prunes with it, as scans of one chunk do not prune with every conjunct.
+    pruning: Vec<OnceCell<Option<PlanRef>>>,
 }
 
 impl FilterPlans {
@@ -75,26 +80,34 @@ impl FilterPlans {
         let pruning = expression
             .conjuncts()
             .iter()
-            .map(|expr| {
-                expr.falsify(session)?
-                    .map(|pruning| {
-                        optimize(plan_row_idx_expression(pruning, root.clone())?, session)
-                    })
-                    .transpose()
-            })
-            .map(|plan| {
-                let plan = plan?;
-                match plan {
-                    Some(plan) if metadata_only(&plan)? => Ok(Some(plan)),
-                    _ => Ok(None),
-                }
-            })
-            .collect::<VortexResult<_>>()?;
+            .map(|_| OnceCell::new())
+            .collect();
+
         Ok(Self {
             expression,
             predicates,
+            root: root.clone(),
+            session: session.clone(),
             pruning,
         })
+    }
+
+    /// The metadata-only pruning plan of a conjunct, if it has one.
+    fn pruning_plan(&self, conjunct_idx: usize) -> VortexResult<Option<&PlanRef>> {
+        self.pruning[conjunct_idx]
+            .get_or_try_init(|| {
+                let expr = &self.expression.conjuncts()[conjunct_idx];
+                let Some(pruning) = expr.falsify(&self.session)? else {
+                    return Ok(None);
+                };
+
+                let plan = optimize(
+                    plan_row_idx_expression(pruning, self.root.clone())?,
+                    &self.session,
+                )?;
+                Ok(metadata_only(&plan)?.then_some(plan))
+            })
+            .map(Option::as_ref)
     }
 
     /// Whether the conjunct is optional and its switch is currently off.
@@ -105,8 +118,11 @@ impl FilterPlans {
 
     /// The pruning plans of every conjunct that has one.
     #[cfg(test)]
-    pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
-        self.pruning.iter().flatten()
+    pub(crate) fn pruning(&self) -> VortexResult<Vec<PlanRef>> {
+        (0..self.pruning.len())
+            .filter_map(|idx| self.pruning_plan(idx).transpose())
+            .map(|plan| plan.cloned())
+            .collect()
     }
 
     /// The pruning plans worth running before a scan of `rows` rows.
@@ -117,14 +133,14 @@ impl FilterPlans {
     /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
     /// SF10 was unchanged. An optional conjunct whose switch is off is neither pruned nor
     /// evaluated.
-    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+    pub(crate) fn pruning_over(&self, rows: u64) -> VortexResult<Vec<PlanRef>> {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
-        self.pruning
-            .iter()
-            .enumerate()
-            .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
-            .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
-            .filter_map(|(_, plan)| plan.as_ref())
+        (0..self.pruning.len())
+            .filter(|idx| !small || self.expression.dynamic_updates(*idx).is_none())
+            .filter(|idx| !self.expression.is_switched_off(*idx))
+            .filter_map(|idx| self.pruning_plan(idx).transpose())
+            .map(|plan| plan.cloned())
+            .collect()
     }
 }
 

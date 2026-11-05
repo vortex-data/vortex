@@ -3347,10 +3347,11 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_is_satisfied_by_file_stats() -> VortexResult<()> {
+async fn test_is_satisfied_by_file_stats_without_nulls() -> VortexResult<()> {
     let st = StructArray::from_fields(&[
         ("age", buffer![15i32, 18, 22, 25].into_array()),
         ("price", buffer![120i32, 130, 140, 150].into_array()),
+        ("kind", buffer![7i32, 7, 7, 7].into_array()),
     ])?;
     let mut buf = ByteBufferMut::empty();
     SESSION
@@ -3359,12 +3360,20 @@ async fn test_is_satisfied_by_file_stats() -> VortexResult<()> {
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    assert!(file.is_satisfied(&gt(col("age"), lit(10)))?);
-    assert!(file.is_satisfied(&and(gt(col("age"), lit(10)), lt(col("price"), lit(200))))?);
+    assert!(file.is_satisfied_by_non_null_rows(&gt(col("age"), lit(10)))?);
+    assert!(file.is_satisfied_by_non_null_rows(&and(
+        gt(col("age"), lit(10)),
+        lt(col("price"), lit(200))
+    ))?);
 
     // Some rows fail these, so they must not be proven.
-    assert!(!file.is_satisfied(&gt(col("age"), lit(20)))?);
-    assert!(!file.is_satisfied(&lt(col("price"), lit(140)))?);
+    assert!(!file.is_satisfied_by_non_null_rows(&gt(col("age"), lit(20)))?);
+    assert!(!file.is_satisfied_by_non_null_rows(&lt(col("price"), lit(140)))?);
+
+    // Equality holds for every row only where the column has one value.
+    assert!(file.is_satisfied_by_non_null_rows(&eq(col("kind"), lit(7)))?);
+    assert!(!file.is_satisfied_by_non_null_rows(&eq(col("kind"), lit(8)))?);
+    assert!(!file.is_satisfied_by_non_null_rows(&eq(col("age"), lit(15)))?);
 
     Ok(())
 }
@@ -3445,12 +3454,12 @@ async fn test_dynamic_expression_filter_follows_updates() -> VortexResult<()> {
     }
 
     // File statistics prove the current predicate true for every row only once it covers them.
-    assert!(!file.is_satisfied(&dynamic_expression(
+    assert!(!file.is_satisfied_by_non_null_rows(&dynamic_expression(
         Arc::clone(&threshold) as Arc<dyn DynamicExpressionSource>,
         [col("a")],
     ))?);
     threshold.set(100_000);
-    assert!(file.is_satisfied(&dynamic_expression(threshold, [col("a")]))?);
+    assert!(file.is_satisfied_by_non_null_rows(&dynamic_expression(threshold, [col("a")]))?);
 
     Ok(())
 }
@@ -3469,9 +3478,8 @@ async fn test_is_satisfied_by_non_null_rows() -> VortexResult<()> {
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
 
-    // The null row fails the comparison, so it only holds for the rows without nulls.
+    // The null row fails the comparison, but the proof only covers the rows without nulls.
     let bound = and(gt_eq(col("age"), lit(10)), lt_eq(col("age"), lit(30)));
-    assert!(!file.is_satisfied(&bound)?);
     assert!(file.is_satisfied_by_non_null_rows(&bound)?);
     assert!(!file.is_satisfied_by_non_null_rows(&gt(col("age"), lit(20)))?);
     Ok(())

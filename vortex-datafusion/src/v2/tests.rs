@@ -501,11 +501,8 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
         (fixture.comparison(2), vec![3], vec![3]),                //
         (fixture.comparison(3), vec![], vec![]),                  //
         (fixture.membership()?, vec![2], vec![2]),                //
-        (
-            unsupported as Arc<dyn PhysicalExpr>,
-            vec![1, 2, 3, 4],
-            vec![2],
-        ), //
+        // DataFusion evaluates the conjunct that Vortex cannot express inside the scan.
+        (unsupported as Arc<dyn PhysicalExpr>, vec![2], vec![2]),
     ] {
         bound.update(predicate)?;
         let scan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;

@@ -92,21 +92,10 @@ fn build_filter_mask(
         let mut mask = row_mask;
         let mut dynamic_versions = vec![None; filter.conjuncts().len()];
 
-        // Conjuncts the split skips are decided before any read, so they are neither pruned nor
-        // evaluated.
-        let input_rows = mask.true_count();
-        let remaining_conjuncts = (0..filter.conjuncts().len())
-            .map(|idx| filter.should_evaluate(idx, input_rows))
-            .collect::<BitVec>();
-
         // TODO(ngates): we could use FuturedUnordered to intersect the masks in parallel.
         for (idx, conjunct) in filter.conjuncts().iter().enumerate() {
             if mask.all_false() {
                 return Ok(mask);
-            }
-
-            if !remaining_conjuncts[idx] {
-                continue;
             }
 
             // Store the latest version of the dynamic expression prior to pruning.
@@ -120,22 +109,17 @@ fn build_filter_mask(
         }
 
         // Now we loop through the conjuncts in the preferred order and evaluate them.
-        let mut remaining = remaining_conjuncts;
-        let mut evaluated = false;
+        let mut remaining = BitVec::from_elem(filter.conjuncts().len(), true);
         while let Some(idx) = filter.next_conjunct(&remaining) {
             remaining.set(idx, false);
             if mask.all_false() {
                 return Ok(mask);
             }
 
-            if !filter.begin_evaluation(idx) {
-                continue;
-            }
-            let evaluation = Evaluation::new(&filter, idx);
+            let conjunct = &filter.conjuncts()[idx];
 
             // If the dynamic expression has changed since pruning, re-run the pruning.
             // Store the dynamic update once to avoid TOCTOU race condition.
-            let conjunct = &filter.conjuncts()[idx];
             let current_version = filter.dynamic_updates(idx).map(|du| du.version());
             if let Some(dv) = current_version
                 && dynamic_versions[idx].is_none_or(|v| v < dv)
@@ -148,8 +132,6 @@ fn build_filter_mask(
                 mask = mask.bitand(&conjunct_mask);
             }
             if mask.all_false() {
-                // Pruning removed every row, so the conjunct evaluated none.
-                evaluation.report(0, 0, !evaluated);
                 return Ok(mask);
             }
 
@@ -157,8 +139,10 @@ fn build_filter_mask(
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
-            evaluation.report(input_true_count, conjunct_mask.true_count(), !evaluated);
-            evaluated = true;
+            filter.report_selectivity(
+                idx,
+                conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+            );
 
             // Filter evaluations return a mask already intersected with the input mask.
             mask = conjunct_mask;
@@ -168,39 +152,10 @@ fn build_filter_mask(
     })
 }
 
-/// An evaluation of a filter conjunct begun with [`FilterExpr::begin_evaluation`]. An evaluation
-/// that ends without a report, such as on an error or a dropped split, is abandoned, so that
-/// another evaluation can measure the conjunct.
-struct Evaluation<'a> {
-    filter: &'a FilterExpr,
-    conjunct_idx: usize,
-    reported: bool,
-}
-
-impl<'a> Evaluation<'a> {
-    fn new(filter: &'a FilterExpr, conjunct_idx: usize) -> Self {
-        Self {
-            filter,
-            conjunct_idx,
-            reported: false,
-        }
-    }
-
-    /// Report that the conjunct kept `output_rows` of `input_rows` rows, where `standalone` says
-    /// whether no other conjunct filtered those rows before.
-    fn report(mut self, input_rows: usize, output_rows: usize, standalone: bool) {
-        self.filter
-            .report_evaluation(self.conjunct_idx, input_rows, output_rows, standalone);
-        self.reported = true;
-    }
-}
-
-impl Drop for Evaluation<'_> {
-    fn drop(&mut self) {
-        if !self.reported {
-            self.filter.abandon_evaluation(self.conjunct_idx);
-        }
-    }
+fn conditional_selectivity(input_true_count: usize, output_true_count: usize) -> f64 {
+    debug_assert!(input_true_count > 0);
+    debug_assert!(output_true_count <= input_true_count);
+    output_true_count as f64 / input_true_count as f64
 }
 
 /// Information needed to execute a single split task.
@@ -213,4 +168,14 @@ pub(crate) struct TaskContext {
     pub(crate) reader: LayoutReaderRef,
     /// The projection expression to apply to gather the scanned rows.
     pub(crate) projection: BoundExpression,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::conditional_selectivity;
+
+    #[test]
+    fn selectivity_is_relative_to_the_input_mask() {
+        assert_eq!(conditional_selectivity(20, 5), 0.25);
+    }
 }

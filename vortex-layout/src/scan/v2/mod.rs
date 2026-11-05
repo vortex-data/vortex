@@ -178,15 +178,10 @@ impl ScanBuilder {
             .transpose()?;
         let filter = self
             .filter
-            .map(|filter| -> VortexResult<_> {
-                match cache.filter_plans(&filter) {
-                    Some(plans) => Ok(plans),
-                    None => {
-                        let plans =
-                            Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
-                        Ok(cache.insert_filter_plans(filter, plans))
-                    }
-                }
+            .map(|filter| {
+                cache.filter_plans_or_build(&filter, || {
+                    FilterPlans::new(filter.clone(), &root, &self.session)
+                })
             })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a

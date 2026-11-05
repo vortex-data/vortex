@@ -60,11 +60,6 @@ pub struct PrunePlanner {
 impl PrunePlanner {
     /// The planner of `scan`'s filter's pruning plans over `rows`, continuing into `next`.
     pub fn new(scan: Arc<PreparedScan>, rows: Range<u64>, next: PruneNext) -> Self {
-        let pruning: Vec<_> = scan
-            .filter
-            .iter()
-            .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
-            .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
             scan,
@@ -72,7 +67,7 @@ impl PrunePlanner {
             next: Some(next),
             pruned: false,
             mask: Mask::new_true(len),
-            pruning: pruning.into_iter(),
+            pruning: Vec::new().into_iter(),
             active: None,
             pieces: Vec::new(),
             announced: false,
@@ -107,6 +102,13 @@ impl Planner for PrunePlanner {
         }
         if !self.announced {
             self.announced = true;
+            // Planning the pruning plans waits for the first compute, which a driver runs where
+            // it runs compute.
+            if let Some(filter) = &self.scan.filter {
+                self.pruning = filter
+                    .pruning_over(self.rows.end - self.rows.start)?
+                    .into_iter();
+            }
             // A pruning plan whose zones an earlier scan of the file pruned compiles to its kept
             // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(

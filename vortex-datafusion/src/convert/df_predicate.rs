@@ -99,10 +99,18 @@ impl DataFusionPredicate {
 /// Whether evaluating `expr` in a scan that outputs `projected` columns can pay off. A predicate
 /// that DataFusion evaluates costs about as much as the join it comes from, so it only pays when
 /// the rows it removes save decoding columns it does not read.
-pub(crate) fn saves_decoding(expr: &Expression, projected: &[&str]) -> bool {
+///
+/// In a scan that is `filtered` by other predicates, it only sees the rows they keep. In TPC-DS,
+/// the rows it then removed saved less than the extra filter step cost, as in query 76, where a
+/// null test keeps few rows of each sales table before two join lookups.
+pub(crate) fn saves_decoding(expr: &Expression, projected: &[&str], filtered: bool) -> bool {
     let Some(options) = expr.as_opt::<DataFusionPredicate>() else {
         return true;
     };
+    if filtered {
+        return false;
+    }
+
     projected.iter().any(|column| {
         options
             .schema
@@ -420,8 +428,9 @@ mod tests {
         let expr = DataFusionPredicate::expression(&predicate, &schema)
             .ok_or_else(|| vortex_err!("predicate reads a column"))?;
 
-        assert!(saves_decoding(&expr, &["a", "b"]));
-        assert!(!saves_decoding(&expr, &["b"]));
+        assert!(saves_decoding(&expr, &["a", "b"], false));
+        assert!(!saves_decoding(&expr, &["b"], false));
+        assert!(!saves_decoding(&expr, &["a", "b"], true));
         Ok(())
     }
 }

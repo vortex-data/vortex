@@ -1136,7 +1136,7 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let plans = cache
         .filter_plans(&filter()?)
         .expect("the first scan kept its filter plans");
-    assert_eq!(plans.pruning().count(), 1);
+    assert_eq!(plans.pruning()?.len(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
     Ok(())

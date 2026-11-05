@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -469,20 +470,64 @@ impl DefaultExpressionConverter {
         operand_field: &Field,
         schema: &Schema,
     ) -> Conversion<Scalar> {
-        let field = literal.return_field(schema)?;
-        if field.extension_type_name().is_some() || operand_field.extension_type_name().is_none() {
-            return self.import_literal(literal, &field);
+        let field = operand_literal_field(&literal.return_field(schema)?, operand_field);
+        self.import_literal(literal, &field)
+    }
+
+    /// Imports the values of `literals`, which share one Arrow field, through one Arrow array.
+    ///
+    /// The list of a hash join filter can hold thousands of keys, and importing each through an
+    /// array of its own costs more than the import of their array.
+    fn import_literals_for_operand(
+        &self,
+        literals: &[&df_expr::Literal],
+        operand_field: &Field,
+        schema: &Schema,
+    ) -> Conversion<Vec<Scalar>> {
+        let Some((first, rest)) = literals.split_first() else {
+            return Ok(Vec::new());
+        };
+
+        // Arrow checks the type of one value, such as the precision of a decimal, but not the type
+        // of an array that it builds from many values. The first value checks the shared type.
+        let mut scalars = Vec::with_capacity(literals.len());
+        scalars.push(self.import_literal_for_operand(first, operand_field, schema)?);
+        if rest.is_empty() {
+            return Ok(scalars);
         }
 
-        let mut field = field.as_ref().clone();
-        for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
-            field.metadata_mut().remove(key);
-            if let Some(value) = operand_field.metadata().get(key) {
-                field.metadata_mut().insert(key.into(), value.clone());
+        let field = first.return_field(schema)?;
+        for literal in rest {
+            if literal.return_field(schema)? != field {
+                for literal in rest {
+                    scalars.push(self.import_literal_for_operand(
+                        literal,
+                        operand_field,
+                        schema,
+                    )?);
+                }
+                return Ok(scalars);
             }
         }
 
-        self.import_literal(literal, &field)
+        let field = operand_literal_field(&field, operand_field);
+        let array = ScalarValue::iter_to_array(rest.iter().map(|literal| literal.value().clone()))?;
+
+        let mut ctx = self.session.create_execution_ctx();
+        self.session
+            .arrow()
+            .from_arrow_array(array, &field)
+            .and_then(|array| {
+                for idx in 0..array.len() {
+                    scalars.push(array.execute_scalar(idx, &mut ctx)?);
+                }
+                Ok(scalars)
+            })
+            .map_err(|error| {
+                Unconverted::Failed(DataFusionError::External(Box::new(
+                    error.with_context(format!("Failed to convert the literals of {first}")),
+                )))
+            })
     }
 
     /// Imports one scalar through the session's Arrow plugins, preserving `field`'s metadata.
@@ -534,18 +579,17 @@ impl DefaultExpressionConverter {
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
         // converts through Arrow, so equal values with equal metadata are converted once.
-        let elements = in_list
+        let literals = in_list
             .list()
             .iter()
-            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let literal = element
+                element
                     .downcast_ref::<df_expr::Literal>()
-                    .ok_or(Unconverted::Unsupported)?;
-
-                self.import_literal_for_operand(literal, &value_field, schema)
+                    .ok_or(Unconverted::Unsupported)
             })
             .collect::<Conversion<Vec<_>>>()?;
+        let literals = literals.into_iter().unique().collect::<Vec<_>>();
+        let elements = self.import_literals_for_operand(&literals, &value_field, schema)?;
 
         // An element of another type than the value declines the pushdown: no implicit casts.
         let membership =
@@ -861,6 +905,25 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> DFResult<Option<&Arc<dy
             "array_length requires one or two arguments"
         )),
     }
+}
+
+/// The field of a literal compared with `operand_field`, with the extension type of the operand.
+///
+/// A literal of an extension type keeps its own type, and a literal compared with an operand of
+/// no extension type keeps its field.
+fn operand_literal_field(field: &FieldRef, operand_field: &Field) -> Field {
+    let mut field = field.as_ref().clone();
+    if field.extension_type_name().is_some() || operand_field.extension_type_name().is_none() {
+        return field;
+    }
+
+    for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
+        field.metadata_mut().remove(key);
+        if let Some(value) = operand_field.metadata().get(key) {
+            field.metadata_mut().insert(key.into(), value.clone());
+        }
+    }
+    field
 }
 
 #[cfg(test)]

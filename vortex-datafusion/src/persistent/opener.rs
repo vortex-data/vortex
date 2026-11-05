@@ -72,6 +72,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
@@ -79,6 +80,7 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::join_filters::is_dropped_filter;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
@@ -218,17 +220,22 @@ impl FileOpener for VortexOpener {
         }
 
         // DataFusion only receives dynamic filters, such as the build-side keys of a hash join, as
-        // unsupported, so they are not part of `filter`. The scan prunes and filters with them.
-        let dynamic_filters = file_pruning_predicate
-            .as_ref()
-            .map(|predicate| {
-                split_conjunction(predicate)
-                    .into_iter()
-                    .filter(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter())
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        // unsupported, so they are not part of `filter`. A V2 scan prunes and filters with them.
+        //
+        // DataFusion's file pruner builds a pruning predicate from the current value of a dynamic
+        // filter again in each partition and as the filter changes, which for the IN list of a
+        // join with many keys costs more than the scan. A V2 scan prunes the file with its own
+        // conversion of the filter, so the file pruner only gets the other conjuncts.
+        let mut dynamic_filters = Vec::new();
+        if scan_v2 && let Some(predicate) = &file_pruning_predicate {
+            let (dynamic, other): (Vec<_>, Vec<_>) = split_conjunction(predicate)
+                .into_iter()
+                .filter(|expr| !is_dropped_filter(expr))
+                .cloned()
+                .partition(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter());
+            dynamic_filters = dynamic;
+            file_pruning_predicate = conjunction_opt(other);
+        }
 
         Ok(async move {
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
@@ -364,24 +371,38 @@ impl FileOpener for VortexOpener {
                 }
             }
             if !dynamic_filters.is_empty() {
+                // A column that a filter reads is decoded for that filter anyway, so only the
+                // other output columns gain when a costly conjunct removes rows.
+                let filtered = filter
+                    .iter()
+                    .chain(&dynamic_filters)
+                    .flat_map(collect_columns)
+                    .map(|column| column.name().to_string())
+                    .collect::<HashSet<_>>();
                 let projected = projection
                     .column_indices()
                     .into_iter()
                     .map(|idx| this_file_schema.field(idx).name().as_str())
+                    .filter(|name| !filtered.contains(*name))
                     .collect::<Vec<_>>();
                 let scanned = ScannedFile {
                     path: &file.object_meta.location,
                     schema: &this_file_schema,
                     projected: &projected,
+                    filtered: !native_filters.is_empty(),
                     file: &vxf,
                 };
                 for predicate in &dynamic_filters {
-                    native_filters.extend(dynamic_filter_conversions.conjuncts(
+                    let Some(conjuncts) = dynamic_filter_conversions.conjuncts(
                         predicate,
                         &scanned,
                         |predicate| expr_adapter.rewrite(predicate),
                         &expr_converter,
-                    )?);
+                    )?
+                    else {
+                        return Ok(stream::empty().boxed());
+                    };
+                    native_filters.extend(conjuncts);
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
@@ -2445,15 +2466,16 @@ mod tests {
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
     }
-    /// The scan applies a dynamic filter, which DataFusion only receives as unsupported, both when
-    /// the filter is complete before the file opens and when it changes while the scan runs.
+
+    /// A V2 scan applies a dynamic filter, which DataFusion only receives as unsupported, both
+    /// when the filter is complete before the file opens and when it changes while the scan runs.
+    /// The bound keeps few rows, so that the scan of a small file receives it.
     #[rstest]
     #[case::updated_after_open(false)]
     #[case::complete_before_open(true)]
     #[tokio::test]
-    async fn test_dynamic_filter_is_pushed_into_the_scan(
+    async fn test_dynamic_filter_is_pushed_into_the_v2_scan(
         #[case] complete_before_open: bool,
-        #[values(false, true)] scan_v2: bool,
     ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
@@ -2478,7 +2500,7 @@ mod tests {
         let bound: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
             column,
             Operator::GtEq,
-            df_expr::lit(row_count - 3),
+            df_expr::lit(row_count - 1),
         ));
         if complete_before_open {
             dynamic_filter.update(Arc::clone(&bound))?;
@@ -2490,7 +2512,7 @@ mod tests {
             Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0, 1], &schema),
         );
-        opener.scan_v2 = scan_v2;
+        opener.scan_v2 = true;
         opener.file_pruning_predicate = Some(Arc::clone(&dynamic_filter) as PhysicalExprRef);
 
         let stream = opener
@@ -2506,8 +2528,6 @@ mod tests {
                 "+---+----+",
                 "| a | b  |",
                 "+---+----+",
-                "| 7 | 70 |",
-                "| 8 | 80 |",
                 "| 9 | 90 |",
                 "+---+----+",
             ],

@@ -251,6 +251,13 @@ fn binary_satisfy(
         Operator::Gte => min(lhs).zip(max(rhs)).map(|(a, b)| gt_eq(a, b)),
         Operator::Lt => max(lhs).zip(min(rhs)).map(|(a, b)| lt(a, b)),
         Operator::Lte => max(lhs).zip(min(rhs)).map(|(a, b)| lt_eq(a, b)),
+        // Every value of `lhs` is at least `min(lhs) = max(rhs)`, so at least every value of
+        // `rhs`, and at most `max(lhs) = min(rhs)`, so at most every value of `rhs`.
+        Operator::Eq => min(lhs).zip(max(lhs)).zip(min(rhs).zip(max(rhs))).map(
+            |((lhs_min, lhs_max), (rhs_min, rhs_max))| {
+                and(eq(lhs_min, rhs_max), eq(lhs_max, rhs_min))
+            },
+        ),
         Operator::And => {
             return Ok(match (satisfy(lhs, session)?, satisfy(rhs, session)?) {
                 (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
@@ -264,12 +271,7 @@ fn binary_satisfy(
                     .chain(satisfy(rhs, session)?),
             ));
         }
-        Operator::Eq
-        | Operator::NotEq
-        | Operator::Add
-        | Operator::Sub
-        | Operator::Mul
-        | Operator::Div => None,
+        Operator::NotEq | Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
     };
     let Some(value_predicate) = value_predicate else {
         return Ok(None);
