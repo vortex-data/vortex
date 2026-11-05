@@ -33,6 +33,7 @@ pub(super) static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
     std::env::var("VORTEX_DICT_PAGE_SIZE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&size| size > 0)
         .map_or(0, usize::next_power_of_two)
 });
 
@@ -50,6 +51,18 @@ pub(super) struct DictPages {
     page_size: usize,
     len: usize,
     pages: Box<[OnceLock<ArrayRef>]>,
+}
+
+impl Drop for DictPages {
+    fn drop(&mut self) {
+        let decoded = self.pages.iter().filter(|p| p.get().is_some()).count();
+        tracing::debug!(
+            pages = self.pages.len(),
+            decoded,
+            len = self.len,
+            "dict pages dropped"
+        );
+    }
 }
 
 impl DictPages {
@@ -105,7 +118,15 @@ impl DictPages {
                 hit.push(page);
             }
         }
-        if hit.len() * *MAX_HIT_DENOMINATOR > self.pages.len() {
+        let fallback = hit.len() * *MAX_HIT_DENOMINATOR > self.pages.len();
+        tracing::debug!(
+            codes = codes.len(),
+            hit = hit.len(),
+            pages = self.pages.len(),
+            fallback,
+            "dict paged take"
+        );
+        if fallback {
             return Ok(None);
         }
 
