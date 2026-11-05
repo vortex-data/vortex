@@ -12,9 +12,12 @@ use datafusion_common::ScalarValue;
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::ColumnarValue;
+use datafusion_expr::Operator;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::scalar_subquery::ScalarSubqueryExpr;
 use datafusion_physical_plan::expressions as df_expr;
+use itertools::Itertools;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// How [`substitute_scalar_subqueries`] treats a subquery whose value is not known yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,4 +71,87 @@ pub(crate) fn substitute_scalar_subqueries(
 /// Whether `expr` contains a scalar subquery.
 pub(crate) fn contains_scalar_subquery(expr: &Arc<dyn PhysicalExpr>) -> DFResult<bool> {
     expr.exists(|expr| Ok(expr.is::<ScalarSubqueryExpr>()))
+}
+
+/// A value and the literals it is compared with by [`or_equality_terms`].
+pub(crate) type OrEqualityTerms<'a> = (&'a Arc<dyn PhysicalExpr>, Vec<&'a Arc<dyn PhysicalExpr>>);
+
+/// Splits `value = l1 OR value = l2 OR value IN (l3, ...)` into `value` and its literals.
+///
+/// The disjunction has the semantics of `value IN (l1, l2, l3, ...)`, including for nulls.
+/// Returns `None` for any other expression.
+pub(crate) fn or_equality_terms(expr: &Arc<dyn PhysicalExpr>) -> Option<OrEqualityTerms<'_>> {
+    let mut value: Option<&Arc<dyn PhysicalExpr>> = None;
+    let mut literals = Vec::new();
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        let (operand, terms) = if let Some(binary) = expr.downcast_ref::<df_expr::BinaryExpr>() {
+            match binary.op() {
+                Operator::Or => {
+                    pending.push(binary.right());
+                    pending.push(binary.left());
+                    continue;
+                }
+                Operator::Eq if binary.right().is::<df_expr::Literal>() => {
+                    (binary.left(), vec![binary.right()])
+                }
+                Operator::Eq if binary.left().is::<df_expr::Literal>() => {
+                    (binary.right(), vec![binary.left()])
+                }
+                _ => return None,
+            }
+        } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>()
+            && !in_list.negated()
+            && !in_list.is_empty()
+            && in_list.list().iter().all(|e| e.is::<df_expr::Literal>())
+        {
+            (in_list.expr(), in_list.list().iter().collect())
+        } else {
+            return None;
+        };
+        if operand.is::<df_expr::Literal>()
+            || value.is_some_and(|value| value.as_ref() != operand.as_ref())
+        {
+            return None;
+        }
+        value = Some(operand);
+        literals.extend(terms);
+    }
+    value.map(|value| (value, literals))
+}
+
+/// Removes conjuncts that another conjunct implies, keeping the first of identical ones.
+///
+/// A conjunct is implied by an identical conjunct, or by a membership test of the same value in a
+/// subset of its literals (see [`or_equality_terms`]): a row passes a filter only where every
+/// conjunct is true, and a value in the subset is in the superset.
+pub(crate) fn drop_implied_conjuncts(
+    conjuncts: Vec<&Arc<dyn PhysicalExpr>>,
+) -> Vec<&Arc<dyn PhysicalExpr>> {
+    let memberships = conjuncts
+        .iter()
+        .map(|conjunct| {
+            or_equality_terms(conjunct).map(|(value, literals)| {
+                (value, literals.into_iter().cloned().collect::<HashSet<_>>())
+            })
+        })
+        .collect_vec();
+    let implies = |by: usize, conjunct: usize| {
+        // Of equivalent conjuncts, only the first survives.
+        if conjuncts[by].as_ref() == conjuncts[conjunct].as_ref() {
+            return by < conjunct;
+        }
+        let (Some((by_value, by_set)), Some((value, set))) =
+            (&memberships[by], &memberships[conjunct])
+        else {
+            return false;
+        };
+        by_value.as_ref() == value.as_ref()
+            && by_set.is_subset(set)
+            && (by_set.len() < set.len() || by < conjunct)
+    };
+    (0..conjuncts.len())
+        .filter(|&conjunct| !(0..conjuncts.len()).any(|by| by != conjunct && implies(by, conjunct)))
+        .map(|conjunct| conjuncts[conjunct])
+        .collect()
 }

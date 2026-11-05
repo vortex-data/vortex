@@ -921,6 +921,9 @@ async fn test_ree_dict_predicate_memtable_oracle(
 #[case::utf8_to_view("arrow_cast(s, 'Utf8View') = '2412'")]
 #[case::coalesce_int("coalesce(a, 0) = 0")]
 #[case::coalesce_string("coalesce(s, 'none') IN ('none', '2412')")]
+#[case::or_equalities("a = 1 OR a = 4 OR a = 4")]
+#[case::repeated_disjunction("(a = 2 OR a = 4) AND (a = 2 OR a = 4 OR a = 4)")]
+#[case::implied_disjunction("a IN (1, 2, 4) AND (a = 4 OR a = 1)")]
 #[tokio::test]
 async fn test_rewritten_predicate_memtable_oracle(
     #[case] predicate: &str,

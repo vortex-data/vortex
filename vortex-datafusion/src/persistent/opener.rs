@@ -80,6 +80,7 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
 use crate::convert::exprs::rewrite::PendingSubquery;
+use crate::convert::exprs::rewrite::drop_implied_conjuncts;
 use crate::convert::exprs::rewrite::substitute_scalar_subqueries;
 use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
@@ -391,7 +392,7 @@ impl FileOpener for VortexOpener {
                         file.path()
                     ));
                 }
-                for expr in split_conjunction(filter) {
+                for expr in drop_implied_conjuncts(split_conjunction(filter)) {
                     let converted = expr_converter
                         .try_convert(expr, &this_file_schema)
                         .map_err(|e| {

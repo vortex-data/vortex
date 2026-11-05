@@ -303,6 +303,23 @@ impl DefaultExpressionConverter {
         input_dtype: &DType,
     ) -> Conversion<Expression> {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
+            // An OR of equalities on one value becomes a single membership test.
+            if *binary_expr.op() == DFOperator::Or
+                && let Some((value, literals)) = rewrite::or_equality_terms(expr)
+            {
+                let in_list = df_expr::InListExpr::try_new(
+                    Arc::clone(value),
+                    literals.into_iter().cloned().collect(),
+                    false,
+                    schema,
+                );
+                if let Ok(in_list) = in_list {
+                    match self.convert_in_list(&in_list, schema, input_dtype) {
+                        Err(Unconverted::Unsupported) => {}
+                        result => return result,
+                    }
+                }
+            }
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);

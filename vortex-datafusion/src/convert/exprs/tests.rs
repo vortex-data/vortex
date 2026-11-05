@@ -72,6 +72,7 @@ use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
 
 use super::rewrite::PendingSubquery;
+use super::rewrite::drop_implied_conjuncts;
 use super::rewrite::substitute_scalar_subqueries;
 use super::*;
 use crate::common_tests::TestSessionContext;
@@ -2682,5 +2683,126 @@ fn test_coalesce_of_columns_is_not_fill_null() -> DFResult<()> {
         Arc::new(df_expr::Column::new("b", 1)),
     ])?;
     assert!(!convert(expr, &schema)?.is::<FillNull>());
+    Ok(())
+}
+
+fn column_eq(value: i32) -> Arc<dyn PhysicalExpr> {
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(value)))),
+    ))
+}
+
+fn or_all(exprs: impl IntoIterator<Item = Arc<dyn PhysicalExpr>>) -> Arc<dyn PhysicalExpr> {
+    exprs
+        .into_iter()
+        .reduce(|left, right| Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Or, right)))
+        .expect("at least one disjunct")
+}
+
+fn in_list_expr(values: &[i32], schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals(values.iter().copied().map(Some)),
+        false,
+        schema,
+    )?))
+}
+
+#[rstest]
+#[case::equalities(vec![column_eq(3), column_eq(1), column_eq(1)])]
+#[case::reversed(vec![
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(3)))),
+        DFOperator::Eq,
+        Arc::new(df_expr::Column::new("a", 0)),
+    )) as Arc<dyn PhysicalExpr>,
+    column_eq(7),
+])]
+#[case::with_null(vec![
+    column_eq(3),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(None))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+fn test_or_of_equalities_converts_to_membership(
+    #[case] disjuncts: Vec<Arc<dyn PhysicalExpr>>,
+) -> anyhow::Result<()> {
+    let batch =
+        arrow_array::record_batch!(("a", Int32, vec![Some(1), Some(3), Some(7), None, Some(9)]))?;
+    let expr = or_all(disjuncts);
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(!converted.is::<Binary>(), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::different_columns(vec![
+    column_eq(1),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+#[case::other_comparison(vec![
+    column_eq(1),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+fn test_mixed_or_stays_binary(#[case] disjuncts: Vec<Arc<dyn PhysicalExpr>>) -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(
+        ("a", Int32, vec![Some(1), Some(3), Some(7), None]),
+        ("b", Int32, vec![Some(2), None, Some(1), Some(2)])
+    )?;
+    let expr = or_all(disjuncts);
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<Binary>());
+    assert_native_matches(expr, batch)
+}
+
+#[test]
+fn test_drop_implied_conjuncts() -> DFResult<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, true),
+        Field::new("b", DataType::Int32, true),
+    ]);
+    let small = or_all([column_eq(3), column_eq(1)]);
+    // TPC-DS Q13 repeats the same disjunction with a duplicate term.
+    let duplicate = or_all([column_eq(3), column_eq(1), column_eq(1)]);
+    let superset = in_list_expr(&[1, 2, 3], &schema)?;
+    let disjoint = in_list_expr(&[1, 4], &schema)?;
+    let other: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+    ));
+    let other_copy: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+    ));
+    let conjuncts = vec![
+        &superset,
+        &duplicate,
+        &other,
+        &disjoint,
+        &small,
+        &other_copy,
+    ];
+    let kept = drop_implied_conjuncts(conjuncts);
+    // `duplicate` and `small` have the same set, so the earlier one stays.
+    assert_eq!(
+        kept.iter().map(|expr| expr.to_string()).collect_vec(),
+        [&duplicate, &other, &disjoint]
+            .iter()
+            .map(|expr| expr.to_string())
+            .collect_vec()
+    );
     Ok(())
 }
