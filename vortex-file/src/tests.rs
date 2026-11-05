@@ -72,6 +72,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
+use vortex_array::scalar_fn::fns::string::StringFn;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
@@ -3220,6 +3221,36 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
     assert!(!file.can_prune(&gt(age, lit(20)))?);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_prune_unicode_lower_bounds() -> VortexResult<()> {
+    let lower = StringFn::Lower.try_new_expr(vortex_array::scalar_fn::EmptyOptions, [root()])?;
+    for (values, target, prunable) in [
+        (vec![Some("ΟΣ"), None, Some("ΟΣ")], "οσα", true),
+        (vec![Some("ΟΣ"), None, Some("ΟΣ")], "ος", false),
+        (vec![Some("İ"), None], "i\u{307}", false),
+        (vec![Some("İ"), None], "i", true),
+        (
+            vec![Some("namespace-000"), Some("namespace-001")],
+            "namespace-007",
+            true,
+        ),
+        (vec![Some("prefix"), Some("prefix-long")], "other", true),
+        // Lowercase is not monotonic, even on ASCII input.
+        (vec![Some("Z"), Some("a")], "a", false),
+        (vec![Some("A"), Some("Z")], "m", false),
+    ] {
+        let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
+        let mut buf = ByteBufferMut::empty();
+        SESSION
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let file = SESSION.open_options().open_buffer(buf)?;
+        assert_eq!(file.can_prune(&eq(lower.clone(), lit(target)))?, prunable);
+    }
     Ok(())
 }
 

@@ -75,10 +75,22 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::root;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::string::StringFn;
     use vortex_array::test_harness::check_metadata;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::RunEnd;
     use crate::RunEndMetadata;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -86,6 +98,44 @@ mod tests {
         crate::initialize(&session);
         session
     });
+
+    #[test]
+    fn unicode_lower_preserves_runs() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1, 2, 0]).into_array(),
+            VarBinViewArray::from_iter_nullable_str([Some("ΟΣ"), None, Some("İȾ")]).into_array(),
+        )?
+        .into_array();
+        let input = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_iter([3u32, 5, 7, 10]).into_array(),
+            values,
+            1,
+            8,
+            &mut ctx,
+        )?
+        .into_array();
+        let expression = StringFn::Lower.try_new_expr(EmptyOptions, [root()])?;
+        let result = input
+            .apply(&expression)?
+            .execute_until::<RunEnd>(&mut ctx)?;
+        assert!(result.is::<RunEnd>());
+        assert_arrays_eq!(
+            result,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("ος"),
+                Some("ος"),
+                None,
+                None,
+                Some("i\u{307}ⱦ"),
+                Some("i\u{307}ⱦ"),
+                Some("ος"),
+                Some("ος"),
+            ]),
+            &mut ctx
+        );
+        Ok(())
+    }
 
     #[cfg_attr(miri, ignore)]
     #[test]
