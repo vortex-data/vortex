@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// The shared header's scripts (the design system's Header and ThemeSwitch): every theme switch on
-// the page, and the Menu, which closes on Escape (focus goes back to its button) and on a click
-// outside it. Without scripts the Menu still opens and closes, and the theme follows the OS.
+// The shared header's and footer's scripts (the design system's Header and ThemeSwitch): the theme
+// switch at the footer's end, and the Menu, which closes on Escape (focus goes back to its button)
+// and on a click outside it. Without scripts the Menu still opens and closes, and the theme follows the OS.
 import { mountThemeSwitch } from "./vortex-theme.js";
 
 for (const el of document.querySelectorAll(".vx-theme-switch")) mountThemeSwitch(el);

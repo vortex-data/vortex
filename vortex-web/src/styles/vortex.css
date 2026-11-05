@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 dbc7af41ba8de3e8c22cfbf9d82485f4dd352e23b1d379d17d530a971edfc906 */
+   sha256 6cb5a6c437e776cb0355da2be1c2ce8108b28103a79be5460f91d9589d88d4ff */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -165,11 +165,13 @@ main[tabindex="-1"]:focus {
 .vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 
 /* The header: one row, the same on every surface (DECISIONS 35). The wordmark, the site's links,
-   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the theme
-   switch, the GitHub button and, on a narrow screen, the Menu. No breakpoint depends on the tools,
-   so at a given width the shared items look the same and sit in the same place on every surface;
-   the tools fit themselves into the room between. One solid line rule below it, sticky at the top
-   of the window. */
+   a surface's own tools (.vx-header-tools, which may be absent), then the end group: the socials
+   (X, Slack, and the GitHub button) and, on a narrow screen, the Menu. The theme switch is in the
+   footer. No
+   breakpoint depends on the tools, so at a given width the shared items look the same and sit in
+   the same place on every surface; the tools fit themselves into the room between. One solid line rule below it, sticky at the top
+   of the window. It takes the --page-max column, centred, with its rule, on every surface: the
+   site and bench draw it inside their page frame, and the docs and the Explorer have none. */
 .vx-header {
   position: sticky;
   top: 0;
@@ -177,7 +179,10 @@ main[tabindex="-1"]:focus {
   display: flex;
   align-items: center;
   gap: var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
   height: 64px;
+  margin-inline: auto;
   padding: 0 var(--page-pad);
   background: var(--ground);
   border-bottom: 1px solid var(--line);
@@ -199,6 +204,14 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-header-tools { display: flex; align-items: center; gap: var(--space-12); min-width: 0; margin-left: auto; }
 .vx-header-end { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-16); margin-left: auto; }
 .vx-header-tools + .vx-header-end { margin-left: 0; }
+/* The socials: the project's places, together at the row's end. X and Slack are icon links in the
+   nav links' muted ink, ink on hover, each a 32px square, so the hit target passes 24px (WCAG
+   2.5.8). Slack sits next to the GitHub button. */
+.vx-header-social { display: flex; align-items: center; gap: var(--space-4); }
+.vx-header-social-link { justify-content: center; width: var(--control-md); height: var(--control-md); border-radius: var(--radius-control); }
+/* The GitHub button is the mark and the star count; the repository's name is in its label. 12px on
+   each side of the count's rule. */
+.vx-header-github { gap: var(--space-12); }
 /* On one row, 32px set the wordmark and the end group apart from the links and the tools. */
 @media (min-width: 961px) {
   .vx-header-start { padding-right: var(--space-32); }
@@ -235,35 +248,42 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 }
 .vx-header-menu-panel .vx-nav-link { display: flex; min-height: 44px; padding: 0 var(--space-16); }
 .vx-header-menu-panel .vx-nav-link:hover { background: var(--wash); }
-/* The end group's switch and GitHub button have twin rows in the panel (.vx-header-menu-spill),
-   which show only when the end group hands them over, below 640px. */
-.vx-header-menu-spill { display: none; }
-/* Below 1180px the GitHub button keeps only its mark. Its aria-label still names the repository. */
-@media (max-width: 1180px) {
-  .vx-header-repo, .vx-header .vx-btn-count { display: none; }
-}
-/* Below 960px the links go into the Menu, and a search field gives way to its button. */
+/* The socials have twin rows in the panel (.vx-header-menu-spill), which show only when the end
+   group hands them over: X and Slack (is-icon) below 960px, GitHub below 640px. The first social
+   row has a solid line rule above it. The hide names the panel, so it outranks the panel's link
+   rule above. */
+.vx-header-menu-panel .vx-header-menu-spill { display: none; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
+.vx-header-menu-panel a.vx-header-menu-spill { padding-block: 0; }
+.vx-header-menu-spill.is-icon + .vx-header-menu-spill.is-icon { border-top: 0; }
+/* Below 960px the links go into the Menu, and a search field gives way to its button. X and Slack
+   go into the Menu too, so the row keeps the room the tools need. The GitHub button drops its count
+   (the count stays in its name), and it and the Menu button are 32px squares that hold an icon
+   alone, as a surface's icon-only tools should be. */
 @media (max-width: 960px) {
   .vx-header-nav, .vx-header-search { display: none; }
   .vx-header-menu { display: block; }
   .vx-header-search-link { display: inline-flex; }
-}
-/* On a phone the row is the wordmark, the tools, and the Menu, whose button keeps its icon: the
-   switch and the GitHub button move into the Menu's panel, under the links, each on a row with a
-   solid line rule above it. So the row fits 320px with a surface's tools. */
-@media (max-width: 640px) {
-  .vx-header { gap: var(--space-12); }
-  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
-  .vx-header-end > .vx-theme-switch, .vx-header-end > .vx-header-github { display: none; }
-  .vx-header-menu-spill { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: var(--space-8) var(--space-16); border-top: 1px solid var(--line); }
-  a.vx-header-menu-spill { padding-block: 0; }
+  .vx-header-social > .vx-header-social-link { display: none; }
+  .vx-header-menu-panel .vx-header-menu-spill.is-icon { display: flex; }
+  .vx-header-github .vx-btn-count { display: none; }
+  .vx-header .vx-header-github, .vx-header .vx-header-menu > summary { justify-content: center; width: var(--control-md); padding: 0; }
   .vx-header-menu-text {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
   }
 }
+/* On a phone the row is the wordmark, the tools, and the Menu: GitHub follows X and Slack into the
+   Menu's panel, under the links, and the socials' rows share one rule. So the row fits 320px with a
+   surface's tools. */
+@media (max-width: 640px) {
+  .vx-header { gap: var(--space-12); }
+  .vx-header-end, .vx-header-tools { gap: var(--space-8); }
+  .vx-header-end > .vx-header-social { display: none; }
+  .vx-header-menu-panel .vx-header-menu-spill { display: flex; }
+  .vx-header-menu-spill.is-social + .vx-header-menu-spill.is-social { border-top: 0; }
+}
 
-/* The footer: the same on every surface. The LF mark, the small print, and the project's links,
-   over one solid line rule. */
+/* The footer: the same on every surface. The LF mark, the small print, the project's links, and the
+   theme switch, over one solid line rule. */
 .vx-footer {
   display: flex;
   flex-wrap: wrap;
@@ -284,7 +304,16 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-footer-text { flex: 1 1 420px; min-width: 0; max-width: 96ch; margin: 0; text-wrap: balance; }
 .vx-footer-credit { white-space: nowrap; }
 .vx-footer-nav { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-16); margin-left: auto; }
-@media (max-width: 640px) { .vx-footer-nav { margin-left: 0; } }
+/* The theme switch follows the links, at the row's end. On a phone it moves up to the mark's line,
+   at its right end, and the links wrap at the start under the text. */
+@media (max-width: 640px) {
+  .vx-footer { column-gap: var(--space-16); }
+  .vx-footer-nav { margin-left: 0; }
+  .vx-footer-mark { order: -2; }
+  .vx-footer > .vx-theme-switch { order: -1; margin-left: auto; }
+}
+/* At 320px the mark and the switch share a line only with a smaller mark. */
+@media (max-width: 360px) { .vx-footer-mark { height: 10px; } }
 
 /* A fieldset, so its margin and minimum width are cleared. Until a script presses a button, the
    choice THEME_BOOTSTRAP wrote to data-theme-choice on the root shows pressed. */
@@ -451,7 +480,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-results { padding: var(--space-18) var(--space-24); font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); }
 .vx-results-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4) var(--space-16); margin: 0 0 var(--space-12); color: var(--ink); }
 /* The source line: bench's link and the read date, which wrap as one line each. */
-.vx-results-src { display: inline-flex; flex-wrap: wrap; gap: 0 var(--space-8); color: var(--ink-muted); }
+/* On the text's baseline: the link holds a 16px icon, and its text must line up with the date's. */
+.vx-results-src { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-8); color: var(--ink-muted); }
 .vx-results-src > * { white-space: nowrap; }
 /* The foot: the key, then a note for each panel with a range, one per line. */
 .vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
