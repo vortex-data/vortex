@@ -23,6 +23,7 @@ use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
+use vortex_datafusion::DropCostlyJoinFilters;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
@@ -43,6 +44,9 @@ pub fn get_session_context() -> SessionContext {
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
         .with_runtime_env(rt)
         .with_default_features();
+
+    session_state_builder =
+        session_state_builder.with_physical_optimizer_rule(Arc::new(DropCostlyJoinFilters));
 
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(

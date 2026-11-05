@@ -99,7 +99,6 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
-    skip_unselective_dynamic: bool,
 }
 
 impl ScanBuilder {
@@ -113,7 +112,6 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
-            skip_unselective_dynamic: false,
         }
     }
 
@@ -136,18 +134,6 @@ impl ScanBuilder {
     /// Evaluates a bound predicate before projecting the surviving rows.
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
-        self
-    }
-
-    /// Allows the scan to switch off a filter conjunct containing dynamic expressions once it has
-    /// kept almost every row on several consecutive chunks, skipping its zone pruning and its
-    /// evaluation until its dynamic values change.
-    ///
-    /// The scan may then return rows the conjunct would reject, so only enable this when the
-    /// dynamic expressions are hints whose producer applies them again, such as DataFusion's
-    /// TopK and hash-join dynamic filters. Off by default.
-    pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
-        self.skip_unselective_dynamic = skip;
         self
     }
 
@@ -192,27 +178,10 @@ impl ScanBuilder {
             .transpose()?;
         let filter = self
             .filter
-            .map(|filter| -> VortexResult<_> {
-                let skip = self.skip_unselective_dynamic;
-                match cache.filter_plans(&filter) {
-                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Some(_) => Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?)),
-                    None => {
-                        let plans = Arc::new(FilterPlans::new(
-                            filter.clone(),
-                            &root,
-                            &self.session,
-                            skip,
-                        )?);
-                        Ok(cache.insert_filter_plans(filter, plans))
-                    }
-                }
+            .map(|filter| {
+                cache.filter_plans_or_build(&filter, || {
+                    FilterPlans::new(filter.clone(), &root, &self.session)
+                })
             })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a

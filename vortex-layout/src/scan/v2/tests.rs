@@ -36,6 +36,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::switch;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
@@ -1011,23 +1012,20 @@ async fn small_scans_skip_dynamic_pruning() -> VortexResult<()> {
     Ok(())
 }
 
-/// Runs a scan of the `strings` column of `TABLE_CHUNKS` table chunks, filtered on `ints > bound`
-/// with a dynamic comparison when there is a bound, over `counted`. Returns the rows it kept and
-/// the segment requests it made.
+/// Runs a scan of the `strings` column of a table, filtered by `filter` when there is one, over
+/// `counted`. Returns the scan, the rows it kept and the segment requests it made.
 async fn strings_scan(
     session: &VortexSession,
     counted: &Arc<CountingSegmentSource>,
     layout: &LayoutRef,
     file: ScanFile,
     filter: Option<&Expression>,
-    skip_unselective_dynamic: bool,
 ) -> VortexResult<(Arc<PreparedScan>, usize, usize)> {
     let projection = get_item("strings", root()).bind(layout.dtype())?;
     let scan = Arc::new(
         ScanBuilder::new(session.clone(), file)
             .with_projection(projection)
             .with_some_filter(filter.map(|f| f.bind(layout.dtype())).transpose()?)
-            .with_skip_unselective_dynamic(skip_unselective_dynamic)
             .prepare()?,
     );
     let before = counted.requests();
@@ -1039,18 +1037,19 @@ async fn strings_scan(
     Ok((scan, rows, counted.requests() - before))
 }
 
-/// A dynamic conjunct that keeps every row on enough chunks is switched off: later scans neither
-/// prune its zones nor read its column, so they read no more than an unfiltered scan. A new dynamic
-/// value switches it back on. Without the opt-in it keeps being evaluated.
+/// An optional dynamic conjunct that keeps every row is switched off: a later scan that shares
+/// its switch neither prunes its zones nor reads its column, so it reads no more than an
+/// unfiltered scan. A new dynamic value switches it back on. A required conjunct keeps being
+/// evaluated.
 #[rstest]
-#[case::opted_in(true)]
-#[case::default(false)]
+#[case::optional(true)]
+#[case::required(false)]
 #[tokio::test]
-async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
-    #[case] skip: bool,
+async fn unselective_optional_conjuncts_switch_off_until_their_value_changes(
+    #[case] optional: bool,
 ) -> VortexResult<()> {
-    // Five filtered chunks per scan.
-    const TABLE_CHUNKS: usize = 600;
+    // Three filtered chunks per scan, so two scans skip fewer rows than the switch's first pause.
+    const TABLE_CHUNKS: usize = 300;
     let session = new_session().with_tokio();
     let (segments, layout) = write_chunks(&session, zoned_table().as_ref(), TABLE_CHUNKS).await?;
     let counted = Arc::new(CountingSegmentSource::new(segments));
@@ -1063,7 +1062,7 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
     let shared = file()?;
 
     let (_, all, unfiltered_reads) =
-        strings_scan(&session, &counted, &layout, file()?, None, skip).await?;
+        strings_scan(&session, &counted, &layout, file()?, None).await?;
     assert_eq!(all, TABLE_CHUNKS * CHUNK_ROWS);
 
     let bound = Arc::new(AtomicI32::new(-1));
@@ -1078,48 +1077,31 @@ async fn unselective_dynamic_conjuncts_switch_off_until_their_value_changes(
             ints,
         )
     };
+    let filter = if optional { switch(filter, 50) } else { filter };
 
-    // The first scan evaluates the conjunct on every chunk, which keeps every row.
-    let (scan, rows, first_reads) = strings_scan(
-        &session,
-        &counted,
-        &layout,
-        shared.clone(),
-        Some(&filter),
-        skip,
-    )
-    .await?;
+    // The first scan evaluates the conjunct on its first chunk, which keeps every row.
+    let (scan, rows, first_reads) =
+        strings_scan(&session, &counted, &layout, shared.clone(), Some(&filter)).await?;
     assert_eq!(rows, all);
     assert!(first_reads > unfiltered_reads);
     let plans = scan.filter().expect("the scan has a filter");
-    assert_eq!(plans.is_switched_off(0), skip);
+    assert_eq!(plans.is_switched_off(0), optional);
 
-    let (_, rows, reads) = strings_scan(
-        &session,
-        &counted,
-        &layout,
-        shared.clone(),
-        Some(&filter),
-        skip,
-    )
-    .await?;
+    let (_, rows, reads) =
+        strings_scan(&session, &counted, &layout, shared.clone(), Some(&filter)).await?;
     assert_eq!(rows, all);
     // Filtered and unfiltered scans cut chunks differently, so a switched-off scan can read a few
     // segments fewer than an unfiltered one, but never the filtered column.
-    if skip {
+    if optional {
         assert!(reads <= unfiltered_reads, "{reads} > {unfiltered_reads}");
     } else {
         assert!(reads > unfiltered_reads);
     }
 
-    // A tightened bound is a new dynamic value, so the conjunct is evaluated again. It now
-    // rejects half the rows, so it stays switched on.
-    bound.store(299_999, Ordering::Relaxed);
-    let (scan, rows, _) =
-        strings_scan(&session, &counted, &layout, shared, Some(&filter), skip).await?;
-    assert_eq!(rows, all - 300_000);
-    let plans = scan.filter().expect("the scan has a filter");
-    assert!(!plans.is_switched_off(0));
+    // A tightened bound is a new dynamic value, so the conjunct is pruned and evaluated again.
+    bound.store(149_999, Ordering::Relaxed);
+    let (_, rows, _) = strings_scan(&session, &counted, &layout, shared, Some(&filter)).await?;
+    assert_eq!(rows, all - 150_000);
     Ok(())
 }
 
@@ -1154,7 +1136,7 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let plans = cache
         .filter_plans(&filter()?)
         .expect("the first scan kept its filter plans");
-    assert_eq!(plans.pruning().count(), 1);
+    assert_eq!(plans.pruning()?.len(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
     Ok(())

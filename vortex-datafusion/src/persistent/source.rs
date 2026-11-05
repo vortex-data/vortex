@@ -22,6 +22,7 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -33,7 +34,7 @@ use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
-use vortex::expr::Expression;
+use parking_lot::RwLock;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
@@ -48,7 +49,8 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
-use crate::persistent::opener::DynamicFilterKey;
+use crate::join_filters::is_dropped_filter;
+use crate::persistent::dynamic_filters::DynamicFilterConversions;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -199,6 +201,9 @@ pub struct VortexSource {
     pub(crate) full_predicate: Option<PhysicalExprRef>,
     /// Accepted exact predicates, evaluated natively or as per-file residuals.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
+    /// Dynamic filters that a V2 scan reads in addition to the full predicate, shared by every
+    /// copy of the source of one scan.
+    dynamic_filters: Arc<RwLock<Vec<PhysicalExprRef>>>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
     df_metrics: ExecutionPlanMetricsSet,
     /// Shared layout readers, the source only lives as long as one scan.
@@ -208,12 +213,12 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// Conversions of the dynamic filters pushed into scans, shared by every partition.
+    dynamic_filter_conversions: Arc<DynamicFilterConversions>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
     file_schemas: Arc<DashMap<Path, SchemaRef>>,
-    /// The Vortex expression of each dynamic filter of the predicate, keyed by the filter.
-    dynamic_filters: Arc<DashMap<DynamicFilterKey, Expression>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -244,13 +249,14 @@ impl VortexSource {
             projection,
             full_predicate: None,
             vortex_predicate: None,
+            dynamic_filters: Arc::default(),
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            dynamic_filter_conversions: Arc::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
-            dynamic_filters: Arc::new(DashMap::default()),
             expression_converter,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -329,6 +335,20 @@ impl VortexSource {
         self
     }
 
+    /// The full predicate with the dynamic filters the scan keeps apart from it.
+    fn pruning_predicate(&self) -> Option<PhysicalExprRef> {
+        let dynamic_filters = self.dynamic_filters.read();
+        if dynamic_filters.is_empty() {
+            return self.full_predicate.clone();
+        }
+        Some(conjunction(
+            self.full_predicate
+                .iter()
+                .chain(dynamic_filters.iter())
+                .cloned(),
+        ))
+    }
+
     /// Returns the effective table options for this source.
     pub fn options(&self) -> &VortexTableOptions {
         &self.options
@@ -367,7 +387,7 @@ impl VortexSource {
             vortex_reader_factory,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
-            file_pruning_predicate: self.full_predicate.clone(),
+            file_pruning_predicate: self.pruning_predicate(),
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
             limit: base_config.limit.map(|l| l as u64),
@@ -376,9 +396,9 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
             scan_caches: Arc::clone(&self.scan_caches),
+            dynamic_filter_conversions: Arc::clone(&self.dynamic_filter_conversions),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
-            dynamic_filters: Arc::clone(&self.dynamic_filters),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
@@ -499,6 +519,25 @@ impl FileSource for VortexSource {
             ));
         }
 
+        // A V2 scan keeps dynamic filters without a new node. DataFusion rebuilds every node
+        // between a new scan and the operator that pushed the filters, which cost more planning
+        // time than some small TPC-DS queries at SF1 saved by their filters.
+        if self.options.scan_v2
+            && filters
+                .iter()
+                .all(|filter| DynamicFilterTracking::classify(filter).contains_dynamic_filter())
+        {
+            let mut dynamic_filters = self.dynamic_filters.write();
+            for filter in &filters {
+                if !dynamic_filters.iter().any(|kept| Arc::ptr_eq(kept, filter)) {
+                    dynamic_filters.push(Arc::clone(filter));
+                }
+            }
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; filters.len()],
+            ));
+        }
+
         let mut source = self.clone();
 
         // Combine new filters with existing predicate for file pruning.
@@ -518,19 +557,10 @@ impl FileSource for VortexSource {
             .with_updated_node(Arc::new(source) as _));
         }
 
-        // A dynamic filter, such as the bound a top-K tightens while it runs, stays with the
-        // operator that produces it, which enforces it exactly. A V2 scan also evaluates it, from
-        // its current value, to prune and filter what that operator would discard.
-        let mut dynamic = Vec::new();
         let supported_filters = filters
             .into_iter()
             .map(|expr| {
-                if self.options.scan_v2
-                    && DynamicFilterTracking::classify(&expr).contains_dynamic_filter()
-                {
-                    dynamic.push(Arc::clone(&expr));
-                    Ok(PushedDownPredicate::unsupported(expr))
-                } else if self
+                if self
                     .expression_converter
                     .try_convert(&expr, self.table_schema.table_schema())?
                     .is_some()
@@ -542,10 +572,9 @@ impl FileSource for VortexSource {
             })
             .collect::<DFResult<Vec<_>>>()?;
 
-        if dynamic.is_empty()
-            && supported_filters
-                .iter()
-                .all(|p| matches!(p.discriminant, PushedDown::No))
+        if supported_filters
+            .iter()
+            .all(|p| matches!(p.discriminant, PushedDown::No))
         {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; supported_filters.len()],
@@ -559,8 +588,7 @@ impl FileSource for VortexSource {
                 PushedDown::Yes => Some(&p.predicate),
                 PushedDown::No => None,
             })
-            .cloned()
-            .chain(dynamic);
+            .cloned();
 
         let predicate = match source.vortex_predicate {
             Some(predicate) => conjunction(std::iter::once(predicate).chain(supported)),
@@ -598,9 +626,16 @@ impl FileSource for VortexSource {
         &self,
         f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
     ) -> DFResult<TreeNodeRecursion> {
+        // A join does not compute a filter that no scan reads.
+        let dynamic_filters = self.dynamic_filters.read().clone();
+        let predicates = self
+            .full_predicate
+            .iter()
+            .flat_map(split_conjunction)
+            .chain(&dynamic_filters)
+            .filter(|predicate| !is_dropped_filter(predicate));
         datafusion_physical_plan::apply_expression_roots(
-            self.full_predicate
-                .iter()
+            predicates
                 .chain(self.vortex_predicate.iter())
                 .chain(self.projection.iter().map(|expr| &expr.expr)),
             f,
@@ -639,7 +674,7 @@ mod tests {
             &self,
             expr: &PhysicalExprRef,
             schema: &Schema,
-        ) -> DFResult<Option<Expression>> {
+        ) -> DFResult<Option<vortex::expr::Expression>> {
             self.inner.try_convert(expr, schema)
         }
 
@@ -773,33 +808,10 @@ mod tests {
         Ok(())
     }
 
-    /// A V1 scan leaves a dynamic filter to the operator that produces it.
+    /// A dynamic filter stays with the operator that produces it, which enforces it exactly. The
+    /// V2 scan receives it through the full predicate, alongside the filters pushed down exactly.
     #[test]
-    fn try_pushdown_filters_leaves_dynamic_filters_out_of_v1_scans() -> anyhow::Result<()> {
-        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
-        let source = sort_test_source(Arc::clone(&schema));
-        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-            vec![Arc::new(Column::new("name", 0)) as Arc<dyn PhysicalExpr>],
-            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
-        )) as Arc<dyn PhysicalExpr>;
-
-        let result = source.try_pushdown_filters(vec![dynamic], &ConfigOptions::new())?;
-
-        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
-        let updated_source = result
-            .updated_node
-            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?
-            .downcast_ref::<VortexSource>()
-            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
-            .clone();
-        assert!(updated_source.vortex_predicate.is_none());
-        Ok(())
-    }
-
-    /// A dynamic filter stays with the operator that produces it, but a V2 scan also evaluates
-    /// its current value, alongside the filters pushed down exactly.
-    #[test]
-    fn try_pushdown_filters_scans_with_dynamic_filters() -> anyhow::Result<()> {
+    fn try_pushdown_filters_leaves_dynamic_filters_to_their_producer() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
         let source = sort_test_source(Arc::clone(&schema)).with_options(VortexTableOptions {
             scan_v2: true,
@@ -826,10 +838,41 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
             .clone();
+        assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&exact));
         assert_eq!(
-            updated_source.vortex_predicate.as_ref(),
+            updated_source.full_predicate.as_ref(),
             Some(&conjunction([exact, dynamic]))
         );
+        Ok(())
+    }
+
+    /// A V2 scan keeps dynamic filters without a new node, so that DataFusion does not rebuild the
+    /// plan above it, and reads them for the operator that produces them.
+    #[test]
+    fn try_pushdown_filters_keeps_only_dynamic_filters_without_a_new_node() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let source = sort_test_source(Arc::clone(&schema)).with_options(VortexTableOptions {
+            scan_v2: true,
+            ..Default::default()
+        });
+        let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("name", 0)) as Arc<dyn PhysicalExpr>],
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+        )) as Arc<dyn PhysicalExpr>;
+
+        let result =
+            source.try_pushdown_filters(vec![Arc::clone(&dynamic)], &ConfigOptions::new())?;
+
+        assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+        assert!(result.updated_node.is_none());
+        assert_eq!(source.pruning_predicate().as_ref(), Some(&dynamic));
+
+        let mut read = false;
+        source.apply_expressions(&mut |expr| {
+            read |= Arc::ptr_eq(expr, &dynamic);
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        assert!(read);
         Ok(())
     }
 

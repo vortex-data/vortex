@@ -27,11 +27,13 @@ datafusion-functions-nested = { workspace = true }
 datafusion-physical-expr = { workspace = true }
 datafusion-physical-expr-adapter = { workspace = true }
 datafusion-physical-expr-common = { workspace = true }
+datafusion-physical-optimizer = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 datafusion-pruning = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 object_store = { workspace = true }
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }

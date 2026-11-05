@@ -4,7 +4,8 @@
 //! Filtering run-end encoded arrays.
 //!
 //! Small or sparse selections use direct take. Otherwise, filtering updates the run ends and
-//! removes runs that contain no selected rows, preserving the run-end encoding.
+//! removes runs that contain no selected rows, preserving the run-end encoding. A mask that keeps
+//! fewer rows than there are runs walks its set bits instead of the runs.
 //!
 //! A run's new end is the number of selected rows before its original end, called the mask's
 //! _rank_. A run disappears when this count does not increase:
@@ -39,6 +40,7 @@ use fearless_simd::dispatch;
 use fearless_simd_macros::simd;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -107,6 +109,7 @@ impl FilterKernel for RunEnd {
                     array.offset() as u64,
                     array.len() as u64,
                     mask_values.bit_buffer(),
+                    selected_rows,
                     ctx.allocator(),
                 )?
             });
@@ -135,11 +138,13 @@ impl FilterKernel for RunEnd {
 ///
 /// A filtered run end is the rank of the mask at the source run end, i.e. the number of selected
 /// rows before it, and a run is retained when its rank exceeds the previous run's rank.
+/// `selected_rows` is the number of set bits in `mask`.
 pub fn filter_run_end_primitive<R: NativePType + AsPrimitive<u64>>(
     run_ends: &[R],
     offset: u64,
     length: u64,
     mask: &BitBuffer,
+    selected_rows: usize,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<(PrimitiveArray, Mask)>
 where
@@ -147,6 +152,19 @@ where
 {
     // The rank loop reads the mask without bounds checks and relies on this length.
     vortex_ensure_eq!(mask.len() as u64, length);
+
+    // A mask that keeps fewer rows than there are runs, such as the mask of a selective dynamic
+    // filter, is cheaper to walk by its set bits than run by run.
+    if selected_rows < run_ends.len() {
+        return Ok(filter_run_end_sparse(
+            run_ends,
+            offset,
+            length,
+            mask,
+            selected_rows,
+            allocator,
+        ));
+    }
 
     let (filtered_run_ends, retained_runs) =
         run_end_ranks(run_ends, offset, length, mask, allocator);
@@ -231,6 +249,64 @@ where
     (filtered_run_ends, retained_runs)
 }
 
+/// [`filter_run_end_primitive`] for a mask with fewer set bits than runs. Each set bit finds its
+/// run by galloping forward from the run of the previous set bit.
+fn filter_run_end_sparse<R: NativePType + AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mask: &BitBuffer,
+    selected_rows: usize,
+    allocator: &BufferAllocatorRef,
+) -> (PrimitiveArray, Mask)
+where
+    u64: AsPrimitive<R>,
+{
+    let run_end = |run_idx: usize| min(run_ends[run_idx].as_() - offset, length);
+
+    let mut filtered_run_ends = BufferMut::<R>::with_capacity_in(selected_rows, allocator.clone());
+    let mut values_mask = BitBufferMut::new_unset(run_ends.len());
+    let mut run_idx = 0;
+    let mut current_run = None;
+    let mut selected = 0u64;
+
+    for position in mask.set_indices() {
+        let position = position as u64;
+        if run_end(run_idx) <= position {
+            // Gallop to a run that ends after the position, then search the last step.
+            let mut low = run_idx;
+            let mut step = 1;
+            while low + step < run_ends.len() && run_end(low + step) <= position {
+                low += step;
+                step *= 2;
+            }
+            let high = (low + step).min(run_ends.len());
+            run_idx = low
+                + 1
+                + run_ends[low + 1..high]
+                    .partition_point(|end| min(end.as_() - offset, length) <= position);
+        }
+
+        if current_run != Some(run_idx) {
+            if current_run.is_some() {
+                filtered_run_ends.push(selected.as_());
+            }
+            values_mask.set(run_idx);
+            current_run = Some(run_idx);
+        }
+        selected += 1;
+    }
+
+    if current_run.is_some() {
+        filtered_run_ends.push(selected.as_());
+    }
+
+    (
+        PrimitiveArray::new(filtered_run_ends, Validity::NonNullable),
+        values_mask.freeze().into(),
+    )
+}
+
 /// Counts the set bits of a mask before non-decreasing positions, reading each 64-bit word once.
 ///
 /// The methods are always inlined, so the rank loop counts with the POPCNT of its dispatch level.
@@ -312,6 +388,33 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
+    }
+
+    /// Sparse and dense masks select the same rows as filtering the decoded values.
+    #[rstest]
+    #[case::sparse(1)]
+    #[case::dense(3)]
+    fn filter_matches_decoded_values(#[case] keep_every: usize) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = (0..1000i32).map(|v| v / 7).collect::<Vec<_>>();
+        let arr = RunEnd::encode(
+            PrimitiveArray::from_iter(values.clone()).into_array(),
+            &mut ctx,
+        )?
+        .into_array()
+        .slice(5..995)?;
+
+        // A sparse mask keeps fewer rows than there are runs.
+        let keep = |i: usize| (i * 31) % (7 * 13) < keep_every * 7;
+        let filtered = arr.filter(Mask::from_iter((0..990).map(keep)))?;
+        let expected = values[5..995]
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| keep(*i))
+            .map(|(_, v)| *v)
+            .collect::<Vec<_>>();
+        assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected), &mut ctx);
+        Ok(())
     }
 
     #[test]
@@ -407,6 +510,7 @@ mod tests {
             offset,
             len as u64,
             &mask,
+            mask.true_count(),
             SESSION.create_execution_ctx().allocator(),
         )?;
 

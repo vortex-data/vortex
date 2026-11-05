@@ -214,14 +214,15 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
 }
 
 #[rstest]
-#[case(Operator::And, vec![30, 20], vec![30], vec![20])]
-#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20])]
+#[case(Operator::And, vec![30, 20], vec![30], vec![20], vec![])]
+#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20], vec![30, 20])]
 #[tokio::test]
 async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     #[case] operator: Operator,
     #[case] unrestricted: Vec<i32>,
     #[case] above_bound: Vec<i32>,
     #[case] equal_bound: Vec<i32>,
+    #[case] odd: Vec<i32>,
 ) -> anyhow::Result<()> {
     let source = vortex_source()
         .await?
@@ -261,7 +262,8 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
         })
     })?;
     assert!(visited);
-    // An unsupported dynamic predicate must not erase the static AND restriction.
+    // A dynamic predicate that Vortex cannot express is evaluated by DataFusion, and must not erase
+    // the static AND restriction.
     let unsupported = Arc::new(df_expr::BinaryExpr::new(
         Arc::new(df_expr::BinaryExpr::new(
             Arc::clone(&column),
@@ -282,7 +284,7 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
             )) as Arc<dyn PhysicalExpr>,
             equal_bound,
         ),
-        (unsupported as Arc<dyn PhysicalExpr>, unrestricted),
+        (unsupported as Arc<dyn PhysicalExpr>, odd),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
         let schema = stream.schema();
@@ -499,11 +501,8 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
         (fixture.comparison(2), vec![3], vec![3]),                //
         (fixture.comparison(3), vec![], vec![]),                  //
         (fixture.membership()?, vec![2], vec![2]),                //
-        (
-            unsupported as Arc<dyn PhysicalExpr>,
-            vec![1, 2, 3, 4],
-            vec![2],
-        ), //
+        // DataFusion evaluates the conjunct that Vortex cannot express inside the scan.
+        (unsupported as Arc<dyn PhysicalExpr>, vec![2], vec![2]),
     ] {
         bound.update(predicate)?;
         let scan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;

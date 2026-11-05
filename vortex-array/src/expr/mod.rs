@@ -108,6 +108,7 @@ pub use exprs::replace_time_zone;
 pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
+pub use exprs::switch;
 pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;

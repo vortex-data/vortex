@@ -11,6 +11,7 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -38,6 +39,9 @@ use crate::segments::SegmentSource;
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
+/// The plans of one filter, which the first scan that misses builds while the others wait.
+type FilterSlot = Arc<Mutex<Option<Arc<FilterPlans>>>>;
+
 #[derive(Default)]
 struct Inner {
     root: Mutex<Option<PlanRef>>,
@@ -47,7 +51,8 @@ struct Inner {
     ranges: Mutex<Option<SegmentRanges>>,
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
-    filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
+    /// Each entry is built once, as the scans of a file's partitions start together.
+    filters: Mutex<FxHashMap<ExprKey, FilterSlot>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
@@ -104,24 +109,39 @@ impl ScanCache {
     }
 
     /// The plans of `filter` an earlier scan kept.
+    #[cfg(test)]
     pub(super) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
-        self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
+        self.0
+            .filters
+            .lock()
+            .get(&ExprKey(filter.clone()))
+            .and_then(|slot| slot.lock().clone())
     }
 
-    /// Keeps the plans of `filter`, returning the plans already kept if another scan got there
-    /// first.
-    pub(super) fn insert_filter_plans(
+    /// The plans of `filter`, which `build` plans if no scan has kept them yet.
+    ///
+    /// Scans that miss at the same time wait for the first to plan the filter, rather than plan
+    /// it again. Planning a filter of several conjuncts over a large file can take milliseconds.
+    pub(super) fn filter_plans_or_build(
         &self,
-        filter: BoundExpression,
-        plans: Arc<FilterPlans>,
-    ) -> Arc<FilterPlans> {
-        Arc::clone(
+        filter: &BoundExpression,
+        build: impl FnOnce() -> VortexResult<FilterPlans>,
+    ) -> VortexResult<Arc<FilterPlans>> {
+        let slot = Arc::clone(
             self.0
                 .filters
                 .lock()
-                .entry(ExprKey(filter))
-                .or_insert(plans),
-        )
+                .entry(ExprKey(filter.clone()))
+                .or_default(),
+        );
+        let mut slot = slot.lock();
+        if let Some(plans) = slot.as_ref() {
+            return Ok(Arc::clone(plans));
+        }
+
+        let plans = Arc::new(build()?);
+        *slot = Some(Arc::clone(&plans));
+        Ok(plans)
     }
 
     /// Serves `segments` through the segments the file's scans retain.

@@ -51,7 +51,6 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
@@ -73,6 +72,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
@@ -80,13 +80,15 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::join_filters::is_dropped_filter;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::dynamic_filters::DynamicFilterConversions;
+use crate::persistent::dynamic_filters::ScannedFile;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
-use crate::v2::dynamic_filters::convert_dynamic_filter;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
@@ -127,14 +129,12 @@ pub(crate) struct VortexOpener {
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, pruned zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// Conversions of the dynamic filters pushed into scans, shared by every partition.
+    pub dynamic_filter_conversions: Arc<DynamicFilterConversions>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
     pub file_schemas: Arc<DashMap<Path, SchemaRef>>,
-    /// The Vortex expression of each dynamic filter of `filter`, converted once for every file
-    /// and partition of the scan. Sharing it lets the scan cache of each file keep the filter's
-    /// plans for every partition that scans the file.
-    pub dynamic_filters: Arc<DashMap<DynamicFilterKey, Expression>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -147,51 +147,6 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
-}
-
-/// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
-/// alive for as long as the scan.
-pub(crate) type DynamicFilterKey = usize;
-
-impl VortexOpener {
-    /// The predicate without its dynamic filters, and each dynamic filter's columns and Vortex
-    /// expression. A dynamic filter is converted once, against the table schema, for the whole
-    /// scan.
-    fn split_dynamic_filters(&self) -> (Option<PhysicalExprRef>, Vec<(Vec<String>, Expression)>) {
-        let Some(filter) = &self.filter else {
-            return (None, Vec::new());
-        };
-        let (dynamic, exact): (Vec<_>, Vec<_>) =
-            split_conjunction(filter).into_iter().partition(|conjunct| {
-                DynamicFilterTracking::classify(conjunct).contains_dynamic_filter()
-            });
-        if dynamic.is_empty() {
-            return (Some(Arc::clone(filter)), Vec::new());
-        }
-        let dynamic = dynamic
-            .into_iter()
-            .map(|conjunct| {
-                let columns = collect_columns(conjunct)
-                    .into_iter()
-                    .map(|column| column.name().to_string())
-                    .collect();
-                let key = Arc::as_ptr(conjunct).cast::<()>().addr();
-                let expression = self
-                    .dynamic_filters
-                    .entry(key)
-                    .or_insert_with(|| {
-                        convert_dynamic_filter(
-                            Arc::clone(conjunct),
-                            Arc::clone(self.table_schema.file_schema()),
-                            Arc::clone(&self.expression_converter),
-                        )
-                    })
-                    .clone();
-                (columns, expression)
-            })
-            .collect();
-        (conjunction_opt(exact.into_iter().cloned()), dynamic)
-    }
 }
 
 impl FileOpener for VortexOpener {
@@ -210,7 +165,7 @@ impl FileOpener for VortexOpener {
         ];
 
         let mut projection = self.projection.clone();
-        let (mut filter, dynamic_filters) = self.split_dynamic_filters();
+        let mut filter = self.filter.clone();
 
         let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
@@ -226,6 +181,7 @@ impl FileOpener for VortexOpener {
         let layout_readers = Arc::clone(&self.layout_readers);
         let segment_sources = Arc::clone(&self.segment_sources);
         let scan_caches = Arc::clone(&self.scan_caches);
+        let dynamic_filter_conversions = Arc::clone(&self.dynamic_filter_conversions);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
@@ -261,6 +217,24 @@ impl FileOpener for VortexOpener {
             file_pruning_predicate = file_pruning_predicate
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
+        }
+
+        // DataFusion only receives dynamic filters, such as the build-side keys of a hash join, as
+        // unsupported, so they are not part of `filter`. A V2 scan prunes and filters with them.
+        //
+        // DataFusion's file pruner builds a pruning predicate from the current value of a dynamic
+        // filter again in each partition and as the filter changes, which for the IN list of a
+        // join with many keys costs more than the scan. A V2 scan prunes the file with its own
+        // conversion of the filter, so the file pruner only gets the other conjuncts.
+        let mut dynamic_filters = Vec::new();
+        if scan_v2 && let Some(predicate) = &file_pruning_predicate {
+            let (dynamic, other): (Vec<_>, Vec<_>) = split_conjunction(predicate)
+                .into_iter()
+                .filter(|expr| !is_dropped_filter(expr))
+                .cloned()
+                .partition(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter());
+            dynamic_filters = dynamic;
+            file_pruning_predicate = conjunction_opt(other);
         }
 
         Ok(async move {
@@ -396,19 +370,41 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
-            // The operator that produces a dynamic filter enforces it exactly, so the scan
-            // evaluates it only where the file has every column it reads.
-            native_filters.extend(
-                dynamic_filters
+            if !dynamic_filters.is_empty() {
+                // A column that a filter reads is decoded for that filter anyway, so only the
+                // other output columns gain when a costly conjunct removes rows.
+                let filtered = filter
                     .iter()
-                    .filter(|(columns, _)| {
-                        columns.iter().all(|column| {
-                            this_file_schema.field_with_name(column).is_ok()
-                                && !literal_value_cols.contains_key(column)
-                        })
-                    })
-                    .map(|(_, expression)| expression.clone()),
-            );
+                    .chain(&dynamic_filters)
+                    .flat_map(collect_columns)
+                    .map(|column| column.name().to_string())
+                    .collect::<HashSet<_>>();
+                let projected = projection
+                    .column_indices()
+                    .into_iter()
+                    .map(|idx| this_file_schema.field(idx).name().as_str())
+                    .filter(|name| !filtered.contains(*name))
+                    .collect::<Vec<_>>();
+                let scanned = ScannedFile {
+                    path: &file.object_meta.location,
+                    schema: &this_file_schema,
+                    projected: &projected,
+                    filtered: !native_filters.is_empty(),
+                    file: &vxf,
+                };
+                for predicate in &dynamic_filters {
+                    let Some(conjuncts) = dynamic_filter_conversions.conjuncts(
+                        predicate,
+                        &scanned,
+                        |predicate| expr_adapter.rewrite(predicate),
+                        &expr_converter,
+                    )?
+                    else {
+                        return Ok(stream::empty().boxed());
+                    };
+                    native_filters.extend(conjuncts);
+                }
+            }
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
@@ -416,6 +412,10 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
+
+            if let Some(native_filter) = &native_filter {
+                tracing::debug!(path = %file.path(), %native_filter, "native scan filter");
+            }
 
             // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
@@ -508,11 +508,7 @@ impl FileOpener for VortexOpener {
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter)
-                    // Dynamic filters are pushed down inexactly: the TopK or join that produces
-                    // one applies it again, so the scan may stop evaluating one that rejects
-                    // almost nothing.
-                    .with_skip_unselective_dynamic(true);
+                    .with_some_filter(native_filter);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -933,6 +929,7 @@ mod tests {
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use futures::TryStreamExt;
     use insta::assert_snapshot;
@@ -1216,10 +1213,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -1627,10 +1624,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -1720,10 +1717,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -1904,10 +1901,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -1970,10 +1967,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -2187,10 +2184,10 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            dynamic_filter_conversions: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
-            dynamic_filters: Default::default(),
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
@@ -2365,7 +2362,7 @@ mod tests {
             &self,
             _expr: &PhysicalExprRef,
             _schema: &Schema,
-        ) -> DFResult<Option<Expression>> {
+        ) -> DFResult<Option<vortex::expr::Expression>> {
             Ok(None)
         }
     }
@@ -2467,6 +2464,75 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
+        Ok(())
+    }
+
+    /// A V2 scan applies a dynamic filter, which DataFusion only receives as unsupported, both
+    /// when the filter is complete before the file opens and when it changes while the scan runs.
+    /// The bound keeps few rows, so that the scan of a small file receives it.
+    #[rstest]
+    #[case::updated_after_open(false)]
+    #[case::complete_before_open(true)]
+    #[tokio::test]
+    async fn test_dynamic_filter_is_pushed_into_the_v2_scan(
+        #[case] complete_before_open: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+        let row_count = 10;
+        let batch = record_batch!(
+            ("a", Int32, (0..row_count).map(Some).collect::<Vec<_>>()),
+            (
+                "b",
+                Int32,
+                (0..row_count).map(|v| Some(v * 10)).collect::<Vec<_>>()
+            )
+        )?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let schema = batch.schema();
+
+        let column: PhysicalExprRef = Arc::new(df_expr::Column::new("a", 0));
+        let dynamic_filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let bound: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            column,
+            Operator::GtEq,
+            df_expr::lit(row_count - 1),
+        ));
+        if complete_before_open {
+            dynamic_filter.update(Arc::clone(&bound))?;
+            dynamic_filter.mark_complete();
+        }
+
+        let mut opener = make_test_opener(
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
+            ProjectionExprs::from_indices(&[0, 1], &schema),
+        );
+        opener.scan_v2 = true;
+        opener.file_pruning_predicate = Some(Arc::clone(&dynamic_filter) as PhysicalExprRef);
+
+        let stream = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?;
+        if !complete_before_open {
+            dynamic_filter.update(bound)?;
+        }
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        assert_batches_eq!(
+            [
+                "+---+----+",
+                "| a | b  |",
+                "+---+----+",
+                "| 9 | 90 |",
+                "+---+----+",
+            ],
+            &data
+        );
         Ok(())
     }
 }

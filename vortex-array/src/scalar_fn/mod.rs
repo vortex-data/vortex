@@ -47,6 +47,7 @@ pub mod unstable;
 #[allow(dead_code, unused_imports)]
 pub(crate) mod unstable;
 
+pub mod demand;
 pub mod fns;
 pub mod internal;
 pub mod session;
