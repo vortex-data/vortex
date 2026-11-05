@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 
 use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -15,6 +16,7 @@ use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::mask::Mask;
 
 use crate::duckdb::ReusableDict;
@@ -113,6 +115,11 @@ pub(crate) fn new_exporter_with_flatten(
         );
     }
 
+    let values_len = values.len();
+    match_each_integer_ptype!(codes.ptype(), |I| {
+        check_codes(codes.as_slice::<I>(), values_len)
+    })?;
+
     let reusable_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(codes.ptype(), |I| {
@@ -122,6 +129,24 @@ pub(crate) fn new_exporter_with_flatten(
             codes_type: PhantomData::<I>,
         }))
     })
+}
+
+/// Checks that every code is a valid index into `values_len` dictionary values.
+///
+/// DuckDB does not check the selection vector of a dictionary vector, so a code that is out of
+/// bounds causes an out-of-bounds read in DuckDB.
+fn check_codes<I: IntegerPType>(codes: &[I], values_len: usize) -> VortexResult<()> {
+    let in_bounds = codes.iter().all(|code| {
+        code.to_u32()
+            .and_then(|code| usize::try_from(code).ok())
+            .is_some_and(|code| code < values_len)
+    });
+    vortex_ensure!(
+        in_bounds,
+        "Dictionary code out of bounds for {values_len} values"
+    );
+
+    Ok(())
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
@@ -177,6 +202,21 @@ mod tests {
         cache: &ConversionCache,
     ) -> VortexResult<Box<dyn ColumnExporter>> {
         new_exporter_with_flatten(array, cache, &mut SESSION.create_execution_ctx(), false)
+    }
+
+    #[test]
+    fn test_out_of_bounds_codes_fail() {
+        // SAFETY: The code 5 is out of bounds on purpose, because the exporter must reject it.
+        let arr = unsafe {
+            DictArray::new_unchecked(
+                buffer![0u32, 5].into_array(),
+                buffer![10i32, 20].into_array(),
+            )
+        };
+
+        let result = new_exporter(&arr, &ConversionCache::default());
+
+        assert!(result.is_err_and(|err| err.to_string().contains("out of bounds")));
     }
 
     #[test]

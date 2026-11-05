@@ -8,6 +8,7 @@ use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -22,6 +23,7 @@ use super::DictOwnedExt;
 use super::DictParts;
 use super::array::DictSlots;
 use super::array::DictSlotsView;
+use super::array::check_codes_in_bounds;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -30,6 +32,7 @@ use crate::Canonical;
 use crate::CanonicalView;
 use crate::EqMode;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -163,10 +166,15 @@ impl VTable for Dict {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = DictMetadata::decode(metadata)?;
         let codes_ptype = metadata.get_codes_ptype()?;
+        vortex_ensure!(
+            codes_ptype.is_int(),
+            "DictArray codes must be integers, got {codes_ptype}"
+        );
+
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",
@@ -182,6 +190,8 @@ impl VTable for Dict {
         let codes_dtype = DType::Primitive(codes_ptype, codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;
+        check_codes_in_bounds(&codes, values.len(), &mut session.create_execution_ctx())?;
+
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
         Ok(ArrayParts::new(
