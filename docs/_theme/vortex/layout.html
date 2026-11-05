@@ -37,6 +37,7 @@
   {%- for css in css_files %}
   {{ css_tag(css) }}
   {%- endfor %}
+  <link rel="preload" href="{{ pathto('_static/fonts/geist-latin.woff2', 1) }}" as="font" type="font/woff2" crossorigin />
   <link rel="preload" href="{{ pathto('_static/fonts/geist-mono-latin.woff2', 1) }}" as="font" type="font/woff2" crossorigin />
   <script type="module" src="{{ pathto('_static/vortex-header.js', 1) }}"></script>
   {%- block scripts %}

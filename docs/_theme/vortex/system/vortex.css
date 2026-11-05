@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 c5d549a64fded36786fa6ead8c651f009836902c1bd41e78cb0ae9cbfb680be5 */
+   sha256 741e45ce35202369e7c2ad4c95a1cfc53b14dbc981ff113fc98110c5b4c03f76 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -283,12 +283,17 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 }
 
 /* The footer: the same on every surface. The LF mark, the small print, the project's links, and the
-   theme switch, over one solid line rule. */
+   theme switch, over one solid line rule. It takes the header's column: --page-max, centred, with
+   its rule. The site and bench draw it inside their page frame; the docs and the Explorer have
+   none (Will, 5 Nov 2026: "the footer width should match the header width"). */
 .vx-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-16) var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
   padding: var(--space-16) var(--page-pad);
   border-top: 1px solid var(--line);
   font: 400 11px/1.5 var(--font-mono);
@@ -367,8 +372,10 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 
 /* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
    column between the header and the footer) leaves, and centres its text in it. With the mark it
-   takes the homepage hero's two columns, and stacks below 1100px as the hero does. */
-.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); padding: var(--space-32) var(--page-pad); }
+   takes the homepage hero's two columns, and stacks below 1100px as the hero does. It takes the
+   header's column (--page-max, centred), so the docs' 404, which has no page frame, matches the
+   site's (Will, 5 Nov 2026). */
+.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); width: 100%; max-width: var(--page-max); margin-inline: auto; padding: var(--space-32) var(--page-pad); }
 .vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
 .vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
 .vx-status-text > * { margin: 0; }
@@ -420,11 +427,13 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 }
 
 /* ------------------------------------------------------------------ docs
-   docs.vortex.dev: Sphinx's own markup, drawn with no script and no web font. The theme writes
-   vx-docs on <body>, data-theme="dark" on <html> (the default theme, for a reader without scripts),
-   and the frame's classes below. Everything inside the nav, the rail and main is what Sphinx
-   writes. Type is in rem (1rem is 16px), so text follows the reader's default size. */
-.vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; }
+   docs.vortex.dev: Sphinx's own markup. The theme writes vx-docs on <body>, data-theme="dark" on
+   <html> (the default theme, for a reader without scripts), and the frame's classes below.
+   Everything inside the nav, the rail and main is what Sphinx writes. Type is in rem (1rem is
+   16px), so text follows the reader's default size. The docs do not load base.css, but they render
+   text as it does, so the same card draws the same on the docs and on the site (Will, 5 Nov 2026:
+   the 404 pages must "match *exactly*"). */
+.vx-docs { margin: 0; background: var(--ground); color: var(--ink-body); font: 400 1rem/1.6 var(--font-sans); overflow-x: clip; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%; }
 .vx-docs *, .vx-docs ::before, .vx-docs ::after { box-sizing: border-box; }
 .vx-docs svg { width: 16px; height: 16px; flex: none; fill: currentColor; }
 .vx-docs summary { list-style: none; cursor: pointer; }
