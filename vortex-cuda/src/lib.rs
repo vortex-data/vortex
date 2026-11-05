@@ -103,7 +103,7 @@ use crate::kernel::SliceExecutor;
 
 /// Checks if a CUDA driver and at least one CUDA device are available.
 pub fn cuda_available() -> bool {
-    CudaContext::new(0).is_ok()
+    CudaContext::device_count().is_ok_and(|count| count > 0)
 }
 
 /// Registers CUDA kernels.
