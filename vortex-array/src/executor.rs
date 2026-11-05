@@ -50,6 +50,7 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
+use crate::optimizer::mark_unoptimized;
 use crate::stats::ArrayStats;
 use crate::trace_op;
 
@@ -142,8 +143,7 @@ impl ArrayRef {
     /// loop:
     ///   Step 1: done(current_array)?
     ///     - root activation   -> return current_array
-    ///     - ExecuteSlot frame -> pop, reattach child, try the child's reduce_parent rules on
-    ///                            the parent, resume parent
+    ///     - ExecuteSlot frame -> pop, reattach child, optimize the parent, resume parent
     ///
     ///   Step 2: current_builder active?
     ///     - yes -> skip Step 2a / 2b
@@ -152,7 +152,7 @@ impl ArrayRef {
     ///   Step 2a: if stack.top exists:
     ///               parent = stack.top.parent_array
     ///               child = current_array
-    ///               child.reduce_parent(parent with child put back, stack.top.slot_idx)
+    ///               optimize(parent with child put back)
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
@@ -169,9 +169,9 @@ impl ArrayRef {
     ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
     ///
-    /// The parent-reduce rules in Step 1 and Step 2a see the encodings a child reaches while it
-    /// executes. The optimizer only sees the child alone at that point, and the parent keeps its
-    /// optimized mark when the child is put back.
+    /// Optimizing the parent in Step 1 and Step 2a lets its rules see the encodings a child
+    /// reaches while it executes. The optimizer only sees the child alone at that point, and
+    /// putting the child back in place would otherwise keep the parent's optimized mark.
     ///
     /// Step 2b first checks whether `current_array`'s encoding owns any execute-parent kernel at
     /// all (a marker entry in the same kernel snapshot), so a pure compression encoding does not
@@ -240,35 +240,33 @@ impl ArrayRef {
                         return Ok(current_array);
                     }
                     Some(frame) => {
-                        let slot_idx = frame.slot_idx;
-                        let child = current_array.clone();
+                        let _slot_idx = frame.slot_idx;
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
-                        trace_op!(record_execute_until_pop_frame(slot_idx, &current_array));
+                        trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
 
-                        // The parent keeps its optimized mark when its child is put back, so the
-                        // optimizer would skip it. Its parent-reduce rules may match the encoding
-                        // the child executed to, so try them here.
-                        if current_builder.is_none()
-                            && let Some(rewritten) =
-                                optimizer.reduce_parent(&current_array, &child, slot_idx)?
-                        {
-                            current_array = optimizer.optimize_array(&rewritten)?;
+                        // `pop_frame` cleared the parent's optimized mark, so its rules see the
+                        // encoding the child executed to. Skip while a builder holds part of the
+                        // parent, as the parent rewrites below do.
+                        if current_builder.is_none() {
+                            current_array = optimizer.optimize_array(&current_array)?;
                         }
                         continue;
                     }
                 }
             }
 
-            // Step 2a: reduce_parent, then execute_parent, against the suspended parent from
+            // Step 2a: optimize, then execute_parent, against the suspended parent from
             // ExecuteSlot.
             //
-            // Each execution step can expose a child encoding that a parent-reduce rule matches,
-            // such as a cast that pushes into the encoding a decode step produced. The rules get
-            // the parent with the child put back, since they may read any of its slots. Skip when
-            // a builder is active, for the same reason as the execute_parent step below.
+            // Each execution step can expose a child encoding that a rule of the parent matches,
+            // such as a cast that pushes into the encoding a decode step produced. The optimizer
+            // gets a copy of the parent with the child put back, since rules may read any of its
+            // slots. The copy is a new, unoptimized node, so a different array means a rule
+            // rewrote it. Skip when a builder is active, for the same reason as the
+            // execute_parent step below.
             if current_builder.is_none()
                 && let Some(frame) = stack.last()
-                && let Some(result) = {
+                && let Some(optimized) = {
                     // SAFETY: `current_array` is the taken child, executed only by physical
                     // rewrites, so it keeps the slot's logical dtype and length.
                     let parent = unsafe {
@@ -276,12 +274,11 @@ impl ArrayRef {
                             .parent_array
                             .with_slot_filled_unchecked(frame.slot_idx, current_array.clone())
                     };
-                    optimizer.reduce_parent(&parent, &current_array, frame.slot_idx)?
+                    let optimized = optimizer.optimize_array(&parent)?;
+                    (!ArrayRef::ptr_eq(&optimized, &parent)).then_some(optimized)
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = optimizer.optimize_array(&result)?;
-                trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
                 continue;
@@ -666,6 +663,9 @@ fn pop_frame(
         "child len changed during execution"
     );
     let parent_array = unsafe { frame.parent_array.put_slot_unchecked(frame.slot_idx, child) }?;
+    // Putting the child back in place keeps the parent's optimized mark, but the parent's rules
+    // have not seen the encoding the child executed to.
+    mark_unoptimized(&parent_array);
     Ok((parent_array, frame.parent_builder))
 }
 

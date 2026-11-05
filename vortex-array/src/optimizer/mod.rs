@@ -121,6 +121,14 @@ pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
     array.optimized_state().mark_optimized();
 }
 
+/// Clears the optimized mark of `array`, whose child the executor replaced.
+///
+/// The executor puts an executed child back in place, which keeps the parent's mark. The rules of
+/// the parent can match the child's new encoding, so the parent must be optimized again.
+pub(crate) fn mark_unoptimized(array: &ArrayRef) {
+    array.optimized_state().0.store(false, Ordering::Relaxed);
+}
+
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
@@ -303,7 +311,16 @@ impl<'a> Optimizer<'a> {
                     continue;
                 };
 
-                if let Some(new_array) = self.reduce_parent(&current_array, child, slot_idx)? {
+                // Session kernels take precedence over the child's static parent-reduce rules.
+                if let Some(session_kernels) = self.session_kernels
+                    && let Some(new_array) =
+                        try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
+                {
+                    reduced_parent = Some(new_array);
+                    break;
+                }
+
+                if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
                     reduced_parent = Some(new_array);
                     break;
                 }
@@ -325,26 +342,6 @@ impl<'a> Optimizer<'a> {
         }
 
         vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
-    }
-
-    /// Runs the parent-reduce rules of `child`, the child of `parent` in `slot_idx`, returning the
-    /// rewritten parent if one applies.
-    ///
-    /// Session kernels take precedence over the child's static parent-reduce rules.
-    pub(crate) fn reduce_parent(
-        &self,
-        parent: &ArrayRef,
-        child: &ArrayRef,
-        slot_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(session_kernels) = self.session_kernels
-            && let Some(new_array) =
-                try_session_parent_reduce(session_kernels, parent, child, slot_idx)?
-        {
-            return Ok(Some(new_array));
-        }
-
-        child.reduce_parent(parent, slot_idx)
     }
 
     /// Optimizes the nodes that a rule built below the array it returned, if the optimizer has

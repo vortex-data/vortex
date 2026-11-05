@@ -199,17 +199,17 @@ execute_until<M>(root):
     │  ├─ yes → return     │  ├─ yes → skip Step 2a / 2b
     │  └─ no  → pop frame, │  └─ no
     │     reattach child,  │
-    │     try reduce_parent│
-    │     on the parent,   │
+    │     optimize the     │
+    │     parent,          │
     │     restore builder, │
     │     loop             ▼
     │         ┌────────────────────────────────────────────┐
     │         │ Step 2a: against stack.top.parent_array:   │
-    │         │   current_array.reduce_parent(             │
+    │         │   optimize(                                │
     │         │     parent with current_array put back )   │
     │         │   then execute_parent_for_child(           │
     │         │     parent, current_array )                │
-    │         │ lookup session rules and kernels by key:   │
+    │         │ lookup session kernels by key:             │
     │         │   (parent.encoding_id(),                   │
     │         │    child.encoding_id())                    │
     │         ├────────────┬───────────────────────────────┘
@@ -256,11 +256,10 @@ observe inconsistent state and could discard accumulated builder data.
 Both Step 2a and Step 2b route through `execute_parent_for_child`, which looks up
 `(parent.encoding_id(), child.encoding_id())` in the session kernel snapshot.
 
-Before its kernels, Step 2a tries the parent-reduce rules for the same pair: the session's, then
-the child's static rules. The rules see the parent with the child put back. Popping a frame tries
-them once more against the child's final encoding. Each execution step can expose an encoding that
-a rule matches, such as a cast that pushes into the encoding a decode step produced, and the
-optimizer only sees the child alone while it executes.
+Before its kernels, Step 2a optimizes the parent with the child put back, and popping a frame
+optimizes the parent again. Each execution step can expose an encoding that a rule of the parent
+matches, such as a cast that pushes into the encoding a decode step produced, and the optimizer
+only sees the child alone while it executes.
 
 ## Incremental Execution
 
