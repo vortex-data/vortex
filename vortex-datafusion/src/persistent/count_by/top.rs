@@ -51,6 +51,8 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
+use datafusion_execution::memory_pool::MemoryConsumer;
+use datafusion_execution::memory_pool::MemoryReservation;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::Partitioning;
@@ -180,26 +182,43 @@ impl ExecutionPlan for VortexTopCountExec {
         let partials = (0..self.input.output_partitioning().partition_count())
             .map(|partition| {
                 let stream = self.input.execute(partition, Arc::clone(&context))?;
-                Ok(SpawnedTask::spawn(hash_partials(stream)))
+                let reservation = MemoryConsumer::new(format!("VortexTopCountExec[{partition}]"))
+                    .register(context.memory_pool());
+                Ok(SpawnedTask::spawn(hash_partials(stream, reservation)))
             })
             .collect::<DFResult<Vec<_>>>()?;
+        let merge_reservation =
+            MemoryConsumer::new("VortexTopCountExec merge").register(context.memory_pool());
         let schema = Arc::clone(&self.schema);
         let fetch = self.fetch;
         let merge_all_rows = self.merge_all_rows;
         let top = async move {
             let mut hashed = Vec::with_capacity(partials.len());
+            let mut reservations = Vec::with_capacity(partials.len());
             for partial in partials {
-                let partial = partial
+                let (partial, reservation) = partial
                     .join_unwind()
                     .await
                     .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
                 hashed.push(partial);
+                reservations.push(reservation);
             }
-            // The merge runs threads of its own; keep it off the runtime's workers.
-            SpawnedTask::spawn_blocking(move || top_counts(hashed, &schema, fetch, merge_all_rows))
-                .join_unwind()
-                .await
-                .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))?
+            let rows = hashed
+                .iter()
+                .flat_map(|partial| &partial.batches)
+                .map(RecordBatch::num_rows)
+                .sum::<usize>();
+            merge_reservation.try_grow(rows.saturating_mul(MERGE_BYTES_PER_ROW))?;
+            // The merge runs threads of its own; keep it off the runtime's workers. The
+            // reservations last until it returns.
+            SpawnedTask::spawn_blocking(move || {
+                let top = top_counts(hashed, &schema, fetch, merge_all_rows);
+                drop((reservations, merge_reservation));
+                top
+            })
+            .join_unwind()
+            .await
+            .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))?
         };
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             Arc::clone(&self.schema),
@@ -270,15 +289,25 @@ const HASH_STATE: RandomState = RandomState::with_seed(0);
 
 /// Hashes a partition's partial counts as they arrive, so the scan overlaps the hashing and
 /// filing by shard.
-async fn hash_partials(mut stream: SendableRecordBatchStream) -> DFResult<HashedPartials> {
+async fn hash_partials(
+    mut stream: SendableRecordBatchStream,
+    reservation: MemoryReservation,
+) -> DFResult<(HashedPartials, MemoryReservation)> {
     let mut hashed = HashedPartials::new();
     while let Some(batch) = stream.next().await.transpose()? {
         if batch.num_rows() > 0 {
+            reservation.try_grow(
+                batch.get_array_memory_size() + batch.num_rows() * size_of::<HashedRow>(),
+            )?;
             hashed.push(batch)?;
         }
     }
-    Ok(hashed)
+    Ok((hashed, reservation))
 }
+
+/// The memory the merge takes for each partial row: the row's copy in its shard, the sum of
+/// its hash, and its hash's entry in the shard's table.
+const MERGE_BYTES_PER_ROW: usize = 2 * size_of::<HashedRow>() + 3 * size_of::<i64>();
 
 /// The grouping columns and the count column of a batch of partial counts.
 fn split_counts(batch: &RecordBatch) -> DFResult<(&[ArrowArrayRef], &Int64Array)> {
@@ -315,36 +344,24 @@ fn top_counts(
         return top_groups(group_exactly(rows)?, schema, fetch);
     }
 
-    let widest = fetch.max(1).saturating_mul(2);
-    let mut shards = sum_shards(&partials, &offsets, widest)?;
-
-    // The exact totals of the groups of the hashes with the largest sums bound the `fetch`-th
-    // largest total from below. Widen the hashes until they hold `fetch` groups.
-    let mut widest = widest;
+    // The hashes with the `widest + 1` largest sums hold at least `widest + 1 > fetch` groups,
+    // every row of each, so the `fetch`-th largest of their exact totals bounds the `fetch`-th
+    // largest total from below. With no more than `widest` hashes, every group is merged.
+    let widest = fetch.saturating_mul(2);
+    let shards = sum_shards(&partials, &offsets, widest)?;
     let mut tops = shards
-        .iter_mut()
-        .flat_map(|shard| std::mem::take(&mut shard.top))
+        .iter()
+        .flat_map(|shard| shard.top.iter().copied())
         .collect::<Vec<_>>();
-    let threshold = loop {
-        let least = if widest < tops.len() {
-            *tops.select_nth_unstable_by(widest, |a, b| b.cmp(a)).1
-        } else {
-            i64::MIN
-        };
-        let groups = merge_exactly(&batches, &shards, least)?;
-        if groups.totals.len() >= fetch {
-            let mut totals = groups.totals;
-            let kth = totals.len() - fetch;
-            break *totals.select_nth_unstable(kth).1;
-        }
-        if least == i64::MIN {
-            break i64::MIN;
-        }
-        widest = widest.saturating_mul(4);
-        tops = shards
-            .iter()
-            .flat_map(|shard| shard.hash_sums.iter().copied())
-            .collect();
+    let least = if widest < tops.len() {
+        *tops.select_nth_unstable_by(widest, |a, b| b.cmp(a)).1
+    } else {
+        i64::MIN
+    };
+    let mut totals = merge_exactly(&batches, &shards, least)?.totals;
+    let threshold = match totals.len().checked_sub(fetch) {
+        Some(kth) => *totals.select_nth_unstable(kth).1,
+        None => i64::MIN,
     };
 
     // A group whose hash sums to less than the threshold totals less than it.
@@ -382,9 +399,7 @@ struct ShardSums {
     rows: Vec<HashedRow>,
     /// The sum of the counts of each row's hash.
     row_sums: Vec<i64>,
-    /// Every hash's sum.
-    hash_sums: Vec<i64>,
-    /// The `widest + 1` largest of `hash_sums`, or all of them.
+    /// The `widest + 1` largest sums of the shard's hashes, or all of them.
     top: Vec<i64>,
 }
 
@@ -445,17 +460,14 @@ fn sum_shard(
         *sums.entry(row.hash).or_default() += row.count;
     }
     let row_sums = rows.iter().map(|row| sums[&row.hash]).collect();
-    let mut hash_sums = sums.into_values().collect::<Vec<_>>();
-    let top = if widest < hash_sums.len() {
-        hash_sums.select_nth_unstable_by(widest, |a, b| b.cmp(a));
-        hash_sums[..=widest].to_vec()
-    } else {
-        hash_sums.clone()
-    };
+    let mut top = sums.into_values().collect::<Vec<_>>();
+    if widest < top.len() {
+        top.select_nth_unstable_by(widest, |a, b| b.cmp(a));
+        top.truncate(widest + 1);
+    }
     ShardSums {
         rows,
         row_sums,
-        hash_sums,
         top,
     }
 }
@@ -533,10 +545,18 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use arrow_schema::SchemaRef;
+    use datafusion_common::DataFusionError;
     use datafusion_common::Result as DFResult;
+    use datafusion_common::internal_datafusion_err;
+    use datafusion_execution::memory_pool::GreedyMemoryPool;
+    use datafusion_execution::memory_pool::MemoryConsumer;
+    use datafusion_execution::memory_pool::MemoryPool;
+    use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
+    use futures::stream;
     use rstest::rstest;
 
     use super::HashedPartials;
+    use super::hash_partials;
     use super::top_counts;
 
     fn schema() -> SchemaRef {
@@ -608,6 +628,39 @@ mod tests {
         let top = top_counts(vec![only], &schema(), 10, merge_all_rows)?;
         let counts = top.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
         assert_eq!(counts.values().to_vec(), vec![3, 2]);
+        Ok(())
+    }
+
+    /// Partial counts beyond the memory pool fail to buffer rather than grow unaccounted.
+    #[tokio::test]
+    async fn hash_partials_reserves_its_batches() -> DFResult<()> {
+        let batch = partials(&[(Some("a"), 1), (Some("b"), 3)])?
+            .batches
+            .remove(0);
+        let input = Box::pin(RecordBatchStreamAdapter::new(
+            batch.schema(),
+            stream::iter([Ok(batch.clone())]),
+        ));
+        let pool: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(64));
+        let reservation = MemoryConsumer::new("test").register(&pool);
+        let err = hash_partials(input, reservation)
+            .await
+            .err()
+            .ok_or_else(|| internal_datafusion_err!("64 bytes held a batch"))?;
+        assert!(
+            matches!(err.find_root(), DataFusionError::ResourcesExhausted(_)),
+            "{err}"
+        );
+
+        let input = Box::pin(RecordBatchStreamAdapter::new(
+            batch.schema(),
+            stream::iter([Ok(batch)]),
+        ));
+        let pool: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(1 << 20));
+        let reservation = MemoryConsumer::new("test").register(&pool);
+        let (hashed, reservation) = hash_partials(input, reservation).await?;
+        assert_eq!(hashed.batches.len(), 1);
+        assert!(reservation.size() > 0);
         Ok(())
     }
 
