@@ -76,6 +76,7 @@ use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ArrowDeviceArrayWithSchema;
 use crate::arrow::ExportDeviceArray;
+use crate::arrow::PendingArrowChildren;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
@@ -1331,15 +1332,19 @@ async fn export_struct(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
-    // We need the children to be held across await points.
-    let mut children = Vec::with_capacity(fields.len());
+    // Release earlier exports if a later child fails or this future is cancelled.
+    let mut pending = PendingArrowChildren {
+        children: Vec::with_capacity(fields.len()),
+        dictionary: None,
+    };
 
     for field in fields.iter() {
         let (arrow_field, _) = export_array(field.clone(), ctx).await?;
-        children.push(arrow_field);
+        pending.children.push(arrow_field);
     }
 
-    let mut private_data = PrivateData::new(vec![validity_buffer], children, ctx)?;
+    let mut private_data =
+        PrivateData::new(vec![validity_buffer], mem::take(&mut pending.children), ctx)?;
     let sync_event: SyncEvent = private_data.sync_event();
 
     // Populate the ArrowArray with the child arrays.

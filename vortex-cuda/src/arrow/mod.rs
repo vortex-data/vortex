@@ -131,7 +131,7 @@ impl ArrowDeviceArray {
 unsafe impl Send for ArrowArray {}
 unsafe impl Sync for ArrowArray {}
 
-/// Releases exported children if constructing their parent's private data fails.
+/// Releases exported children if exporting a sibling or constructing their parent fails.
 struct PendingArrowChildren {
     children: Vec<ArrowArray>,
     dictionary: Option<ArrowArray>,
@@ -1012,6 +1012,29 @@ mod tests {
             assert_eq!(count.load(Ordering::Relaxed), 1);
             assert_eq!(Arc::strong_count(&count), 1);
         }
+    }
+
+    #[test]
+    fn pending_children_releases_earlier_exports_on_error() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let result = (|| -> VortexResult<()> {
+            let mut pending = PendingArrowChildren {
+                children: Vec::new(),
+                dictionary: None,
+            };
+            let exports = [
+                Ok(counted_array(&count)),
+                Err(vortex_err!("child export failed")),
+            ];
+            for exported in exports {
+                pending.children.push(exported?);
+            }
+            Ok(())
+        })();
+
+        assert!(result.is_err());
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert_eq!(Arc::strong_count(&count), 1);
     }
 
     #[test]
