@@ -335,6 +335,18 @@ mod tests {
         DataType::List(Arc::new(Field::new("item", DataType::Int32, true)))
     }
 
+    fn map_target() -> DataType {
+        let entries = Field::new_struct(
+            "entries",
+            vec![
+                Field::new("key", DataType::Int32, false),
+                Field::new("value", DataType::Int32, true),
+            ],
+            false,
+        );
+        DataType::Map(Arc::new(entries), false)
+    }
+
     /// Must error rather than panic inside `execute::<T>`.
     #[rstest]
     #[case::bool_from_utf8(utf8(), DataType::Boolean)]
@@ -353,6 +365,7 @@ mod tests {
         utf8(),
         DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Int32, true)), 2)
     )]
+    #[case::map_from_primitive(primitive(), map_target())]
     #[case::byte_from_primitive(primitive(), DataType::Utf8)]
     #[case::byte_from_bool(boolean(), DataType::Binary)]
     fn incompatible_target_returns_error(#[case] array: ArrayRef, #[case] target: DataType) {

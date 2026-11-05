@@ -15,6 +15,7 @@ use vortex_array::arrays::Map;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -34,6 +35,12 @@ pub(super) fn to_arrow_map(
     exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Map(..)),
+        "Arrow map export requires a map dtype, got {}",
+        array.dtype()
+    );
+
     let array = match array.try_downcast::<Map>() {
         Ok(map) => map,
         Err(array) => array.execute::<MapArray>(ctx)?,
