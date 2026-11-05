@@ -39,6 +39,7 @@ use vortex::dtype::Nullability;
 use vortex::expr::Expression;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::fill_null;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -659,12 +660,54 @@ impl DefaultExpressionConverter {
         Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
 
+    /// Converts `CASE WHEN value IS NOT NULL THEN value ELSE literal END`, which DataFusion
+    /// simplifies `coalesce(value, literal)` to, into `fill_null`.
+    ///
+    /// DataFusion evaluates the literal only where the value is null, and evaluating a literal
+    /// cannot fail. Only types with a Vortex `fill_null` kernel are supported, and the literal must
+    /// have the value's type. Returns `None` for any other `CASE`.
+    fn try_convert_fill_null(
+        &self,
+        case_expr: &df_expr::CaseExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Option<Expression>> {
+        let ([(when_expr, then_expr)], Some(fill)) =
+            (case_expr.when_then_expr(), case_expr.else_expr())
+        else {
+            return Ok(None);
+        };
+        let Some(fill) = fill.downcast_ref::<df_expr::Literal>() else {
+            return Ok(None);
+        };
+        if case_expr.expr().is_some()
+            || !when_expr
+                .downcast_ref::<df_expr::IsNotNullExpr>()
+                .is_some_and(|is_not_null| **is_not_null.arg() == **then_expr)
+        {
+            return Ok(None);
+        }
+        let data_type = then_expr.data_type(schema)?;
+        if fill.value().is_null()
+            || fill.value().data_type() != data_type
+            || !supports_fill_null(&data_type)
+        {
+            return Ok(None);
+        }
+        let value = self.convert_expr(then_expr, schema, input_dtype)?;
+        let fill = self.import_literal(fill, &*fill.return_field(schema)?)?;
+        Ok(Some(fill_null(value, lit(fill))))
+    }
+
     fn convert_case_expr(
         &self,
         case_expr: &df_expr::CaseExpr,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if let Some(fill_null) = self.try_convert_fill_null(case_expr, schema, input_dtype)? {
+            return Ok(fill_null);
+        }
         // Only the searched form (CASE WHEN cond THEN value ...) is supported.
         if case_expr.expr().is_some() {
             return Err(Unconverted::Unsupported);
@@ -888,6 +931,16 @@ fn supported_data_types(dt: &DataType) -> bool {
     }
 
     is_supported
+}
+
+/// Whether Vortex can fill the nulls of values of this type: booleans, numbers and strings.
+fn supports_fill_null(data_type: &DataType) -> bool {
+    use DataType::*;
+    data_type.is_numeric()
+        || matches!(
+            data_type,
+            Boolean | Utf8 | LargeUtf8 | Utf8View | Binary | LargeBinary | BinaryView
+        )
 }
 
 /// Returns the list argument of an `array_length` call that can be rewritten to `list_length`:

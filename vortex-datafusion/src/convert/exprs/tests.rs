@@ -66,6 +66,7 @@ use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::fill_null::FillNull;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
@@ -2600,5 +2601,86 @@ fn test_fallible_cast_falls_back(
         None,
     ));
     assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+/// Plans `coalesce(a, fill)` as DataFusion does: simplified to
+/// `CASE WHEN a IS NOT NULL THEN a ELSE fill END`.
+fn coalesce_expr(args: Vec<Arc<dyn PhysicalExpr>>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let [value, fill] = <[_; 2]>::try_from(args)
+        .map_err(|_| exec_datafusion_err!("coalesce_expr takes two arguments"))?;
+    Ok(Arc::new(df_expr::CaseExpr::try_new(
+        None,
+        vec![(
+            Arc::new(df_expr::IsNotNullExpr::new(Arc::clone(&value))) as Arc<dyn PhysicalExpr>,
+            value,
+        )],
+        Some(fill),
+    )?))
+}
+
+#[rstest]
+#[case::int(
+    Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])),
+    ScalarValue::Int32(Some(0))
+)]
+#[case::decimal(
+    decimal128(vec![Some(-1), None, Some(99_999)], 7, 2),
+    ScalarValue::Decimal128(Some(12_345), 7, 2)
+)]
+#[case::utf8_view(
+    cast(&StringArray::from(vec![Some("a"), None, Some("c")]), &DataType::Utf8View)?,
+    ScalarValue::Utf8View(Some("none".into()))
+)]
+#[case::boolean(
+    Arc::new(BooleanArray::from(vec![Some(true), None, Some(false)])),
+    ScalarValue::Boolean(Some(false))
+)]
+#[case::no_nulls(Arc::new(Int32Array::from(vec![1, 2])), ScalarValue::Int32(Some(0)))]
+fn test_native_coalesce(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] fill: ScalarValue,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Literal::new(fill)),
+    ])?;
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<FillNull>());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::null_fill(DataType::Int32, ScalarValue::Int32(None))]
+#[case::date(DataType::Date32, ScalarValue::Date32(Some(1)))]
+#[case::timestamp(
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+    ScalarValue::TimestampMillisecond(Some(1), None)
+)]
+fn test_coalesce_without_fill_null(
+    #[case] data_type: DataType,
+    #[case] fill: ScalarValue,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", data_type, true)]);
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Literal::new(fill)),
+    ])?;
+    let converted = DefaultExpressionConverter::default().try_convert(&expr, &schema)?;
+    assert!(!converted.is_some_and(|converted| converted.is::<FillNull>()));
+    Ok(())
+}
+
+#[test]
+fn test_coalesce_of_columns_is_not_fill_null() -> DFResult<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, true),
+        Field::new("b", DataType::Int32, true),
+    ]);
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Column::new("b", 1)),
+    ])?;
+    assert!(!convert(expr, &schema)?.is::<FillNull>());
     Ok(())
 }

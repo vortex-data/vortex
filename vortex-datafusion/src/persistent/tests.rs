@@ -919,6 +919,8 @@ async fn test_ree_dict_predicate_memtable_oracle(
 #[case::subquery_null("a = (SELECT max(a) FROM oracle WHERE a > 100)")]
 #[case::int_to_decimal("CAST(a AS DECIMAL(12, 2)) > CAST(2.5 AS DECIMAL(12, 2))")]
 #[case::utf8_to_view("arrow_cast(s, 'Utf8View') = '2412'")]
+#[case::coalesce_int("coalesce(a, 0) = 0")]
+#[case::coalesce_string("coalesce(s, 'none') IN ('none', '2412')")]
 #[tokio::test]
 async fn test_rewritten_predicate_memtable_oracle(
     #[case] predicate: &str,
