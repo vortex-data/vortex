@@ -30,7 +30,6 @@ use std::hash::Hasher;
 
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::EqMode;
 use crate::array::ArrayId;
@@ -66,8 +65,8 @@ impl VTable for Primitive {
 
     #[inline]
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.primitive");
-        *ID
+        const ID: ArrayId = ArrayId::reserved("vortex.primitive");
+        ID
     }
 
     #[inline]
