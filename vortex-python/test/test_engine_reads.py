@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Reads of a Vortex file through pyarrow, Polars and DuckDB give the same rows as the source data."""
+"""Reads of a Vortex file through pyarrow, Polars, DuckDB and DataFusion give the same rows as the source data."""
 
 import hashlib
 from typing import Any, Literal
 
+import datafusion
 import duckdb
 import polars as pl
 import pyarrow as pa
@@ -53,6 +54,13 @@ def conn(vxf: vx.VortexFile) -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect(database=":memory:")
     _ = conn.register("ds", vxf.to_dataset())
     return conn
+
+
+@pytest.fixture
+def ctx(vxf: vx.VortexFile) -> datafusion.SessionContext:
+    ctx = datafusion.SessionContext()
+    ctx.register_dataset("ds", vxf.to_dataset())
+    return ctx
 
 
 def numeric_columns(source: pa.Table) -> list[str]:
@@ -129,3 +137,26 @@ def test_duckdb_aggregation(source: pa.Table, conn: duckdb.DuckDBPyConnection) -
 
     for name, value in zip(names, actual, strict=True):
         assert value == pytest.approx(pc.mean(source[name]).as_py())
+
+
+# DataFusion reads the fragments of the dataset as separate partitions and merges them in any order,
+# so these queries sort their rows.
+def test_datafusion_scan(source: pa.Table, ctx: datafusion.SessionContext) -> None:
+    actual = ctx.sql("select * from ds order by x").to_arrow_table()
+
+    assert_rows_equal(actual, source)
+
+
+def test_datafusion_filter(source: pa.Table, ctx: datafusion.SessionContext) -> None:
+    actual = ctx.sql(f"select x from ds where x >= {ROW} order by x").to_arrow_table()
+
+    assert_rows_equal(actual, source.select(["x"]).filter(pc.field("x") >= ROW))
+
+
+def test_datafusion_aggregation(source: pa.Table, ctx: datafusion.SessionContext) -> None:
+    names = numeric_columns(source)
+    aggregations = ", ".join(f"avg({name}) as {name}" for name in names)
+    (actual,) = ctx.sql(f"select {aggregations} from ds").to_pylist()
+
+    for name in names:
+        assert actual[name] == pytest.approx(pc.mean(source[name]).as_py())

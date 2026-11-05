@@ -551,6 +551,12 @@ class VortexFragment(pyarrow.dataset.Fragment):
         self._dataset = dataset
         self._row_range = _row_range
 
+    def _check_schema(self, schema: pyarrow.Schema | None) -> None:
+        # Engines such as DataFusion pass the dataset schema, which every fragment already reads
+        # with. Any other schema would need a cast that the fragment does not do.
+        if schema is not None and not schema.equals(self._dataset.schema):
+            raise ValueError("schema is not supported, except for the schema of the dataset")
+
     @property
     @override
     def physical_schema(self) -> pyarrow.Schema:
@@ -580,8 +586,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.dataset.Scanner:
         """See :class:`vortex.dataset.VortexDataset.scanner`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.scanner(
             columns=columns,
             filter=filter,
@@ -610,8 +615,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> Iterator[pyarrow.RecordBatch]:
         """See :class:`vortex.dataset.VortexDataset.to_batches`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.to_batches(
             columns=columns,
             filter=filter,
@@ -640,8 +644,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
         """See :class:`vortex.dataset.VortexDataset.to_table`"""
-        if schema:
-            raise ValueError("schema is not supported")
+        self._check_schema(schema)
         return self._dataset.to_table(
             columns=columns,
             filter=filter,

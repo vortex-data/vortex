@@ -225,6 +225,24 @@ def test_fragment_schema(ds: vx.dataset.VortexDataset) -> None:
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 
 
+def test_fragment_reads_accept_only_the_dataset_schema(ds: vx.dataset.VortexDataset) -> None:
+    fragment = next(iter(ds.get_fragments()))
+    expected = fragment.to_table()
+
+    # DataFusion passes the dataset schema to unify it with the fragment schema.
+    assert fragment.scanner(ds.schema).to_table() == expected
+    assert fragment.to_table(ds.schema) == expected
+    assert pa.Table.from_batches(fragment.to_batches(ds.schema)) == expected
+
+    other = pa.schema([("index", pa.int32())])
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.scanner(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        fragment.to_table(other)
+    with pytest.raises(ValueError, match="schema of the dataset"):
+        list(fragment.to_batches(other))
+
+
 def test_fragment_take(ds: vx.dataset.VortexDataset) -> None:
     fragments = list(ds.get_fragments())
     assert fragments[0].take(pa.array([10, 50, 1_000])).to_pylist() == [
