@@ -935,8 +935,13 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
+    use std::array::from_fn;
     use std::ffi::CStr;
+    use std::mem;
     use std::ptr;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use arrow_schema::DataType;
     use arrow_schema::ffi::FFI_ArrowSchema;
@@ -966,9 +971,73 @@ mod tests {
     use crate::arrow::ArrowSchema;
     use crate::arrow::DeviceArrayStreamExt;
     use crate::arrow::LIBC_EINVAL;
+    use crate::arrow::PendingArrowChildren;
     use crate::arrow::PrivateData;
     use crate::arrow::release_device_array;
     use crate::arrow::release_schema;
+
+    unsafe extern "C" fn count_release(array: *mut ArrowArray) {
+        // SAFETY: The callback receives the live array created by counted_array.
+        let array = unsafe { &mut *array };
+        // SAFETY: counted_array transfers one Arc reference to private_data, released once here.
+        let count = unsafe { Arc::from_raw(array.private_data.cast::<AtomicUsize>()) };
+        count.fetch_add(1, Ordering::Relaxed);
+        array.release = None;
+        array.private_data = ptr::null_mut();
+    }
+
+    fn counted_array(count: &Arc<AtomicUsize>) -> ArrowArray {
+        ArrowArray {
+            release: Some(count_release),
+            private_data: Arc::into_raw(Arc::clone(count)).cast_mut().cast(),
+            ..ArrowArray::empty()
+        }
+    }
+
+    #[test]
+    fn pending_children_releases_children_and_dictionary() {
+        let counts: [Arc<AtomicUsize>; 3] = from_fn(|_| Arc::new(AtomicUsize::new(0)));
+        let pending = PendingArrowChildren {
+            children: vec![
+                counted_array(&counts[0]),
+                ArrowArray::empty(),
+                counted_array(&counts[1]),
+            ],
+            dictionary: Some(counted_array(&counts[2])),
+        };
+
+        drop(pending);
+
+        for count in counts {
+            assert_eq!(count.load(Ordering::Relaxed), 1);
+            assert_eq!(Arc::strong_count(&count), 1);
+        }
+    }
+
+    #[test]
+    fn pending_children_transfers_ownership_without_releasing() {
+        let counts: [Arc<AtomicUsize>; 3] = from_fn(|_| Arc::new(AtomicUsize::new(0)));
+        let mut pending = PendingArrowChildren {
+            children: vec![counted_array(&counts[0]), counted_array(&counts[1])],
+            dictionary: Some(counted_array(&counts[2])),
+        };
+        let transferred = PendingArrowChildren {
+            children: mem::take(&mut pending.children),
+            dictionary: pending.dictionary.take(),
+        };
+
+        drop(pending);
+        for count in &counts {
+            assert_eq!(count.load(Ordering::Relaxed), 0);
+            assert_eq!(Arc::strong_count(count), 2);
+        }
+
+        drop(transferred);
+        for count in counts {
+            assert_eq!(count.load(Ordering::Relaxed), 1);
+            assert_eq!(Arc::strong_count(&count), 1);
+        }
+    }
 
     /// Copy a CUDA buffer to the host; requires a live array from this exporter.
     pub(super) fn private_data_buffer_bytes(
