@@ -21,7 +21,9 @@ use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
+use datafusion_physical_expr::conjunction_opt;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::split_conjunction;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
 use datafusion_physical_expr_common::physical_expr::fmt_sql;
 use datafusion_physical_plan::DisplayFormatType;
@@ -51,6 +53,10 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
+
+/// DataFusion's default for `datafusion.optimizer.default_filter_selectivity`, used until filters
+/// are pushed with the session configuration.
+const DEFAULT_FILTER_SELECTIVITY: u8 = 20;
 
 /// File scan implementation for reading one or more `.vortex` files.
 ///
@@ -221,6 +227,9 @@ pub struct VortexSource {
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
+    /// The session's `default_filter_selectivity` when filters were pushed, used to estimate
+    /// the scan's statistics after its predicate.
+    pub(crate) default_filter_selectivity: u8,
 }
 
 impl VortexSource {
@@ -257,6 +266,7 @@ impl VortexSource {
             file_metadata_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
+            default_filter_selectivity: DEFAULT_FILTER_SELECTIVITY,
         }
     }
 
@@ -343,6 +353,18 @@ impl VortexSource {
     /// Returns the predicate this source is going to push down
     pub fn predicate(&self) -> Option<&Arc<dyn PhysicalExpr>> {
         self.vortex_predicate.as_ref()
+    }
+
+    /// The conjuncts of the pushed predicate that hold no dynamic filter, whose value would
+    /// change while the query runs.
+    pub(crate) fn static_predicate(&self) -> Option<PhysicalExprRef> {
+        let predicate = self.vortex_predicate.as_ref()?;
+        conjunction_opt(
+            split_conjunction(predicate)
+                .into_iter()
+                .filter(|expr| !DynamicFilterTracking::classify(expr).contains_dynamic_filter())
+                .cloned(),
+        )
     }
 
     fn create_vortex_opener(
@@ -491,7 +513,7 @@ impl FileSource for VortexSource {
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
@@ -500,6 +522,7 @@ impl FileSource for VortexSource {
         }
 
         let mut source = self.clone();
+        source.default_filter_selectivity = config.optimizer.default_filter_selectivity;
 
         // Combine new filters with existing predicate for file pruning.
         // This full predicate is used by FilePruner to eliminate files.
