@@ -36,6 +36,28 @@ use crate::arrays::decimal::DecimalDataParts;
 use crate::dtype::DecimalType;
 use crate::expr::stats::Precision;
 
+/// The metadata of a `vortex.decimal` node.
+#[derive(prost::Message)]
+struct DecimalMetadata {
+    /// The [`DecimalType`] discriminant of the stored width.
+    ///
+    /// The width is recorded apart from the dtype, because a legacy node can store a width other
+    /// than the canonical width of its precision.
+    #[prost(int32, tag = "1")]
+    values_type: i32,
+}
+
+impl DecimalMetadata {
+    fn get_values_type(&self) -> VortexResult<DecimalType> {
+        DecimalType::try_from(self.values_type).map_err(|_| {
+            vortex_err!(
+                "DecimalMetadata values_type must be a known DecimalType, got {}",
+                self.values_type
+            )
+        })
+    }
+}
+
 /// Writes a [`DecimalArray`] as a `vortex.decimal` node, and reads every such node as the
 /// canonical decimal array or a decimal [`Widen`].
 ///
@@ -129,28 +151,6 @@ impl ArrayPlugin for DecimalPlugin {
 
     fn is_supported_encoding(&self, id: &ArrayId) -> bool {
         *id == VTable::id(&Decimal) || *id == VTable::id(&Widen)
-    }
-}
-
-/// The metadata of a `vortex.decimal` node.
-#[derive(prost::Message)]
-struct DecimalMetadata {
-    /// The [`DecimalType`] discriminant of the stored width.
-    ///
-    /// The width is recorded apart from the dtype, because a legacy node can store a width other
-    /// than the canonical width of its precision.
-    #[prost(int32, tag = "1")]
-    values_type: i32,
-}
-
-impl DecimalMetadata {
-    fn get_values_type(&self) -> VortexResult<DecimalType> {
-        DecimalType::try_from(self.values_type).map_err(|_| {
-            vortex_err!(
-                "DecimalMetadata values_type must be a known DecimalType, got {}",
-                self.values_type
-            )
-        })
     }
 }
 
