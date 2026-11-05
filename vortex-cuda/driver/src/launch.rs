@@ -5,6 +5,8 @@
 
 use std::ffi::c_void;
 
+use crate::DriverError;
+use crate::event::CudaEvent;
 use crate::memory::AccessKind;
 use crate::memory::ArgAccess;
 use crate::memory::CudaSlice;
@@ -12,8 +14,6 @@ use crate::memory::CudaView;
 use crate::memory::CudaViewMut;
 use crate::module::CudaFunction;
 use crate::repr::DeviceRepr;
-use crate::result::DriverError;
-use crate::stream::CudaEvent;
 use crate::stream::CudaStream;
 use crate::sys;
 
