@@ -39,10 +39,10 @@ impl Matcher for AnyArray {
 
 /// Defines a [`Matcher`] for a fixed set of array vtables and the enum of typed views it returns.
 ///
-/// The concrete vtable's `TypeId` is read with one virtual call and compared against each member,
-/// so this is cheaper than chaining `is::<A>() || is::<B>()`, which makes one call per member.
-/// Each member adds a `TypeId` comparison; a large set on a hot path may warrant a dedicated
-/// classification method on `DynArrayData` instead, as `AnyCanonical` uses.
+/// The concrete vtable's `TypeId` is stored inline in the array, so matching reads it once and
+/// compares it against each member without a virtual call. Each member adds a `TypeId`
+/// comparison; a large set on a hot path may warrant a dedicated classification method on
+/// `DynArrayData` instead, as `AnyCanonical` uses.
 macro_rules! vtable_set_matcher {
     (
         $(#[$matcher_meta:meta])*
