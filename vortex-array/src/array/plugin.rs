@@ -8,14 +8,10 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -162,55 +158,5 @@ pub trait ArrayPlugin: 'static + Send + Sync {
 impl Debug for dyn ArrayPlugin {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ArrayPlugin").field(&self.id()).finish()
-    }
-}
-
-impl<V: VTable> ArrayPlugin for V {
-    fn id(&self) -> ArrayId {
-        VTable::id(self)
-    }
-
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
-    fn serialize(
-        &self,
-        array: &ArrayRef,
-        session: &VortexSession,
-    ) -> VortexResult<Option<ArraySerialization>> {
-        vortex_ensure_eq!(
-            self.id(),
-            array.encoding_id(),
-            "array plugin cannot serialize an in-memory array of another encoding",
-        );
-        Ok(V::serialize(array.as_::<V>(), session)?
-            .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
-    }
-
-    fn deserialize(
-        &self,
-        parts: ArrayDeserialization<'_>,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayRef> {
-        vortex_ensure_eq!(
-            self.id(),
-            parts.serialized_id,
-            "array plugin does not recognize the serialized ID",
-        );
-        Ok(Array::<V>::try_from_parts(V::deserialize(
-            self,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)?
-        .into_array())
     }
 }

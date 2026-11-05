@@ -789,7 +789,6 @@ mod tests {
     use vortex_session::registry::CachedId;
 
     use super::*;
-    use crate::Array;
     use crate::ArrayPlugin;
     use crate::ArraySerialization;
     use crate::ArrayVTable;
@@ -868,16 +867,18 @@ mod tests {
                 "old primitive wire ID cannot represent length {}",
                 parts.len,
             );
-            Ok(Array::<Primitive>::try_from_parts(ArrayVTable::deserialize(
+            ArrayPlugin::deserialize(
                 &Primitive,
-                parts.dtype,
-                parts.len,
-                parts.metadata,
-                parts.buffers,
-                parts.children,
+                ArrayDeserialization::new(
+                    old_primitive_id(),
+                    parts.dtype,
+                    parts.len,
+                    parts.metadata,
+                    parts.buffers,
+                    parts.children,
+                ),
                 session,
-            )?)?
-            .into_array())
+            )
         }
     }
 

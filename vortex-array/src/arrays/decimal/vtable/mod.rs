@@ -42,7 +42,6 @@ use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::serde::ArrayChildren;
 
 /// A [`Decimal`]-encoded Vortex array.
 pub type DecimalArray = Array<Decimal>;
@@ -103,13 +102,6 @@ impl VTable for Decimal {
         ))
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
     fn validate(
         &self,
         data: &DecimalData,
@@ -136,18 +128,6 @@ impl VTable for Decimal {
         }
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Decimal deserialization requires DecimalPlugin")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -24,7 +24,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -36,13 +35,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
 use crate::rules::RULES;
 use crate::zigzag_decode;
+
+mod plugin;
 
 /// A [`ZigZag`]-encoded Vortex array.
 pub type ZigZagArray = Array<ZigZag>;
@@ -90,47 +90,6 @@ impl VTable for ZigZag {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ZigZagArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        if children.len() != 1 {
-            vortex_bail!("Expected 1 child, got {}", children.len());
-        }
-
-        let ptype = PType::try_from(dtype)?;
-        let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
-
-        let encoded = children.get(0, &encoded_type, len)?;
-        let slots = smallvec![Some(encoded.clone())];
-        let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
