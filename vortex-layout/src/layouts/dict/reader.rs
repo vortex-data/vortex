@@ -190,10 +190,12 @@ fn unshared(values: ArrayRef) -> ArrayRef {
 /// to reuse them across the layout's splits. A selective filter can leave a projection
 /// referencing only a few values, which the source encoding's take kernel decodes on their own.
 ///
-/// When this projection is the layout's only split, nothing else reuses the decoded values, so
-/// take from the undecoded source if its codes are fewer than `1 / SPARSE_TAKE_DENOMINATOR` of
-/// the values. Across several splits a source without a sparse take kernel would decode every
-/// value once per split, so the shared array is kept.
+/// When this projection covers the whole layout, other splits of a scan do not reuse its
+/// decoded values, so take from the undecoded source if its codes are fewer than
+/// `1 / SPARSE_TAKE_DENOMINATOR` of the values. The shared array stays undecoded, so a later
+/// projection of the whole layout takes from the source again rather than reusing a decode.
+/// Across several splits, a source without a sparse take kernel would decode every value once
+/// per split, so those keep the shared array.
 fn sparse_values(values: &ArrayRef, codes_len: usize, whole_layout: bool) -> Option<ArrayRef> {
     if !whole_layout {
         return None;
