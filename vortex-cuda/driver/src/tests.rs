@@ -334,42 +334,54 @@ fn retaining_pool_keeps_freed_memory() -> Result<(), DriverError> {
 }
 
 #[test]
-fn streams_share_retaining_pool_without_changing_device_pool() -> Result<(), DriverError> {
+fn streams_allocate_from_the_same_retaining_pool() -> Result<(), DriverError> {
     let Some(first) = pooled_stream() else {
         return Ok(());
     };
-    let context = first.context();
-    let pool = context.mem_pool();
-    // SAFETY: The context keeps the device valid.
-    let device_pool = unsafe { device::get_mem_pool(context.cu_device()) }?;
-    assert_ne!(pool, device_pool);
-    let threshold = pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?;
-    let second = context.new_stream()?;
+    let pool = first.context().mem_pool();
+    let second = first.context().new_stream()?;
     assert_eq!(second.context().mem_pool(), pool);
 
-    let a = first.alloc_zeros::<u32>(1024)?;
-    let b = second.alloc_zeros::<u32>(1024)?;
+    let _a = first.alloc_zeros::<u32>(1024)?;
+    let _b = second.alloc_zeros::<u32>(1024)?;
     first.synchronize()?;
     second.synchronize()?;
     assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)? >= 8192);
-    drop(a);
-    drop(b);
-    first.synchronize()?;
-    second.synchronize()?;
-    assert_eq!(
-        pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?,
-        0
-    );
-    assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT)? > 0);
-    assert_eq!(context.mem_pool(), pool);
-    // SAFETY: The context still keeps the device valid.
-    assert_eq!(
-        unsafe { device::get_mem_pool(context.cu_device()) }?,
-        device_pool
-    );
-    assert_eq!(
-        pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?,
-        threshold
-    );
+    Ok(())
+}
+
+#[test]
+fn retaining_pool_does_not_change_device_pool() -> Result<(), DriverError> {
+    if !driver_available(sys::driver_load_error()) {
+        return Ok(());
+    }
+    match CudaContext::device_count() {
+        Ok(0) | Err(DriverError(sys::CUresult::CUDA_ERROR_NO_DEVICE)) => return Ok(()),
+        Ok(_) => {}
+        Err(error) => return Err(error),
+    }
+    let device = device::get(0)?;
+    // SAFETY: The driver is initialized and the device handle is valid.
+    let supports_pools = unsafe {
+        device::get_attribute(
+            device,
+            sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED,
+        )
+    }?;
+    if supports_pools == 0 {
+        return Ok(());
+    }
+    // Capture the device policy before creating any Vortex-owned pool.
+    // SAFETY: The device handle is valid.
+    let device_pool = unsafe { device::get_mem_pool(device) }?;
+    let attr = PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD;
+    let threshold = pool_attribute(device_pool, attr)?;
+
+    let context = CudaContext::new(0)?;
+    assert!(!context.mem_pool().is_null());
+    assert_ne!(context.mem_pool(), device_pool);
+    // SAFETY: The device handle remains valid.
+    assert_eq!(unsafe { device::get_mem_pool(device) }?, device_pool);
+    assert_eq!(pool_attribute(device_pool, attr)?, threshold);
     Ok(())
 }
