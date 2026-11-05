@@ -154,7 +154,18 @@ where
     let mut values = Vec::with_capacity(chunked.nchunks());
     let mut offset = 0usize;
 
-    for chunk in chunked.non_empty_chunks() {
+    // Chunks of chunks, as from concatenating chunked batches, join like their leaves.
+    fn push_leaves(chunked: &ChunkedArray, leaves: &mut Vec<ArrayRef>) {
+        for chunk in chunked.non_empty_chunks() {
+            match chunk.as_opt::<Chunked>() {
+                Some(inner) => push_leaves(&inner.into_owned(), leaves),
+                None => leaves.push(chunk.clone()),
+            }
+        }
+    }
+    let mut leaves = Vec::with_capacity(chunked.nchunks());
+    push_leaves(chunked, &mut leaves);
+    for chunk in &leaves {
         let chunk = chunk.clone().execute_until::<ArrowDictExportable>(ctx)?;
         let chunk_values = if let Some(dict) = chunk.as_opt::<Dict>() {
             dict.values().cast(dtype.clone())?
@@ -443,6 +454,39 @@ mod tests {
             Some("a"),
             None,
         ]);
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        Ok(())
+    }
+
+    /// A chunk of chunks, as a scan concatenating chunked batches produces, joins like its
+    /// leaves instead of decoding and hashing its values.
+    #[test]
+    fn nested_chunked_dicts_join_without_hashing() -> VortexResult<()> {
+        let dict = |codes: [u8; 2]| -> VortexResult<_> {
+            let values = ["a", "b"]
+                .into_iter()
+                .map(Some)
+                .collect::<VarBinViewArray>();
+            Ok(DictArray::try_new(
+                PrimitiveArray::from_iter(codes).into_array(),
+                values.into_array(),
+            )?
+            .into_array())
+        };
+        let inner =
+            ChunkedArray::try_new(vec![dict([0, 1])?, dict([1, 1])?], DType::Utf8(Nullable))?;
+        let chunked = ChunkedArray::try_new(
+            vec![inner.into_array(), dict([1, 0])?],
+            DType::Utf8(Nullable),
+        )?
+        .into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt32, DataType::Utf8))?;
+
+        // Each leaf's two values are appended, not deduplicated.
+        assert_eq!(actual.as_any_dictionary().values().len(), 6);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        let expected = StringArray::from(vec!["a", "b", "b", "b", "b", "a"]);
         assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
     }
