@@ -22,6 +22,7 @@ use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions::unicode::substr::SubstrFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
@@ -49,6 +50,7 @@ use vortex::expr::list_sum_opts;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
+use vortex::expr::or_collect;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
@@ -320,6 +322,22 @@ impl DefaultExpressionConverter {
                     }
                 }
             }
+            if *binary_expr.op() == DFOperator::Eq {
+                for (function, literal) in [
+                    (binary_expr.left(), binary_expr.right()),
+                    (binary_expr.right(), binary_expr.left()),
+                ] {
+                    if let Some((input, length)) = substr_prefix(function) {
+                        return self.convert_prefix_membership(
+                            input,
+                            length,
+                            std::slice::from_ref(literal),
+                            schema,
+                            input_dtype,
+                        );
+                    }
+                }
+            }
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);
@@ -542,6 +560,15 @@ impl DefaultExpressionConverter {
         {
             return Err(Unconverted::Unsupported);
         }
+        if let Some((input, length)) = substr_prefix(in_list.expr()) {
+            let membership =
+                self.convert_prefix_membership(input, length, in_list.list(), schema, input_dtype)?;
+            return Ok(if in_list.negated() {
+                not(membership)
+            } else {
+                membership
+            });
+        }
         let value = self.convert_expr(in_list.expr(), schema, input_dtype)?;
         // Boolean rewrites may skip evaluating the input, particularly for all-null lists.
         if !is_infallible(&value) {
@@ -573,6 +600,52 @@ impl DefaultExpressionConverter {
         } else {
             membership
         })
+    }
+
+    /// Converts `substr(input, 1, length) IN (values)` to an OR of `input LIKE 'value%'`.
+    ///
+    /// `substr` counts UTF-8 characters, and a string whose first `length` characters equal a
+    /// value of exactly `length` characters is a string with that value as a byte prefix. Other
+    /// values, including nulls, are unsupported. A LIKE prefix pattern also prunes zones.
+    fn convert_prefix_membership(
+        &self,
+        input: &Arc<dyn PhysicalExpr>,
+        length: usize,
+        values: &[Arc<dyn PhysicalExpr>],
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        if !matches!(
+            input.data_type(schema)?,
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+        ) {
+            return Err(Unconverted::Unsupported);
+        }
+        let patterns = values
+            .iter()
+            .map(|value| {
+                value
+                    .downcast_ref::<df_expr::Literal>()
+                    .and_then(|literal| literal.value().try_as_str().flatten())
+                    .filter(|value| value.chars().count() == length)
+                    .map(like_prefix_pattern)
+                    .ok_or(Unconverted::Unsupported)
+            })
+            .collect::<Conversion<Vec<_>>>()?;
+        let input = self.convert_expr(input, schema, input_dtype)?;
+        if !is_infallible(&input) {
+            return Err(Unconverted::Unsupported);
+        }
+        or_collect(patterns.into_iter().unique().map(|pattern| {
+            Like.new_expr(
+                LikeOptions::default(),
+                [
+                    input.clone(),
+                    lit(Scalar::utf8(pattern, Nullability::NonNullable)),
+                ],
+            )
+        }))
+        .ok_or(Unconverted::Unsupported)
     }
 
     fn convert_scalar_function(
@@ -958,6 +1031,40 @@ fn supports_fill_null(data_type: &DataType) -> bool {
             data_type,
             Boolean | Utf8 | LargeUtf8 | Utf8View | Binary | LargeBinary | BinaryView
         )
+}
+
+/// Returns the input and length of `substr(input, 1, length)` with a positive literal length.
+fn substr_prefix(expr: &Arc<dyn PhysicalExpr>) -> Option<(&Arc<dyn PhysicalExpr>, usize)> {
+    let scalar_fn = expr.downcast_ref::<ScalarFunctionExpr>()?;
+    ScalarFunctionExpr::try_downcast_func::<SubstrFunc>(scalar_fn)?;
+    let [input, start, length] = scalar_fn.args() else {
+        return None;
+    };
+    let int64 =
+        |expr: &Arc<dyn PhysicalExpr>| match expr.downcast_ref::<df_expr::Literal>()?.value() {
+            ScalarValue::Int64(Some(value)) => Some(*value),
+            _ => None,
+        };
+    if int64(start)? != 1 {
+        return None;
+    }
+    let length = usize::try_from(int64(length)?)
+        .ok()
+        .filter(|length| *length > 0)?;
+    Some((input, length))
+}
+
+/// A LIKE pattern matching strings that start with `prefix`.
+fn like_prefix_pattern(prefix: &str) -> String {
+    let mut pattern = String::with_capacity(prefix.len() + 1);
+    for c in prefix.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
 }
 
 /// Returns the list argument of an `array_length` call that can be rewritten to `list_length`:

@@ -47,6 +47,7 @@ use datafusion_expr::ScalarUDF;
 use datafusion_expr::physical_planning_context::ScalarSubqueryResults;
 use datafusion_expr::physical_planning_context::SubqueryIndex;
 use datafusion_functions::core::coalesce::CoalesceFunc;
+use datafusion_functions::unicode::substr::SubstrFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
@@ -2804,5 +2805,109 @@ fn test_drop_implied_conjuncts() -> DFResult<()> {
             .map(|expr| expr.to_string())
             .collect_vec()
     );
+    Ok(())
+}
+
+fn contains_like(expr: &Expression) -> bool {
+    expr.is::<Like>() || expr.children().iter().any(contains_like)
+}
+
+fn substr_expr(start: i64, length: i64, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(ScalarUDF::from(SubstrFunc::new())),
+        vec![
+            Arc::new(df_expr::Column::new("s", 0)),
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(start)))),
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(length)))),
+        ],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
+}
+
+fn string_batch(data_type: &DataType) -> anyhow::Result<RecordBatch> {
+    let values = StringArray::from(vec![
+        Some("24128-0001"),
+        Some("2412"),
+        Some("24128"),
+        None,
+        Some("a%c_e"),
+        Some("abcde"),
+        Some("äöüßx"),
+        Some("äöü"),
+        Some("a\\c_e!"),
+    ]);
+    Ok(RecordBatch::try_from_iter([(
+        "s",
+        cast(&values, data_type)?,
+    )])?)
+}
+
+fn string_literals(values: &[&str], data_type: &DataType) -> DFResult<Vec<Arc<dyn PhysicalExpr>>> {
+    values
+        .iter()
+        .map(|value| {
+            Ok(Arc::new(df_expr::Literal::new(
+                ScalarValue::Utf8(Some((*value).to_owned())).cast_to(data_type)?,
+            )) as Arc<dyn PhysicalExpr>)
+        })
+        .collect()
+}
+
+#[rstest]
+#[case::zip(&["24128", "76232"])]
+#[case::metacharacters(&["a%c_e", "a\\c_e"])]
+#[case::multibyte(&["äöüßx"])]
+fn test_substr_membership_converts_to_prefix_like(
+    #[case] values: &[&str],
+    #[values(DataType::Utf8, DataType::Utf8View, DataType::LargeUtf8)] data_type: DataType,
+    #[values(false, true)] negated: bool,
+) -> anyhow::Result<()> {
+    let batch = string_batch(&data_type)?;
+    let length = i64::try_from(values[0].chars().count())?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
+        substr_expr(1, length, &batch.schema())?,
+        string_literals(values, &data_type)?,
+        negated,
+        &batch.schema(),
+    )?);
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(contains_like(&converted), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+fn test_substr_equality_converts_to_prefix_like(
+    #[values(DataType::Utf8, DataType::Utf8View)] data_type: DataType,
+) -> anyhow::Result<()> {
+    let batch = string_batch(&data_type)?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        string_literals(&["äöü"], &data_type)?.remove(0),
+        DFOperator::Eq,
+        substr_expr(1, 3, &batch.schema())?,
+    ));
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<Like>());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::shorter_value(1, 5, &["2412"])]
+#[case::mixed_lengths(1, 5, &["24128", "2412"])]
+#[case::longer_value(1, 3, &["abcd"])]
+#[case::later_start(2, 4, &["4128"])]
+#[case::zero_length(1, 0, &[""])]
+fn test_substr_membership_falls_back(
+    #[case] start: i64,
+    #[case] length: i64,
+    #[case] values: &[&str],
+) -> anyhow::Result<()> {
+    let batch = string_batch(&DataType::Utf8)?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
+        substr_expr(start, length, &batch.schema())?,
+        string_literals(values, &DataType::Utf8)?,
+        false,
+        &batch.schema(),
+    )?);
+    assert!(!converts(&expr, &batch.schema())?);
     Ok(())
 }

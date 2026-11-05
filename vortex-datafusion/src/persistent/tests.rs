@@ -924,6 +924,10 @@ async fn test_ree_dict_predicate_memtable_oracle(
 #[case::or_equalities("a = 1 OR a = 4 OR a = 4")]
 #[case::repeated_disjunction("(a = 2 OR a = 4) AND (a = 2 OR a = 4 OR a = 4)")]
 #[case::implied_disjunction("a IN (1, 2, 4) AND (a = 4 OR a = 1)")]
+#[case::substr_in("substr(s, 1, 5) IN ('24128', '76232', 'a%c_e', 'äöü12')")]
+#[case::substr_not_in("substr(s, 1, 5) NOT IN ('24128', 'äöü12')")]
+#[case::substr_eq("substr(s, 1, 4) = '2412'")]
+#[case::substr_or("substr(s, 1, 3) = 'äöü' OR substr(s, 1, 3) = 'a%c'")]
 #[tokio::test]
 async fn test_rewritten_predicate_memtable_oracle(
     #[case] predicate: &str,
