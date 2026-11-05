@@ -37,6 +37,7 @@ mod stream;
 pub use access_plan::VortexAccessPlan;
 pub use count_by::VortexCountByPushdown;
 pub use count_by::VortexCountBySource;
+pub use count_by::VortexTopCountExec;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;

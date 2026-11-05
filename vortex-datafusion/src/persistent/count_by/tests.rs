@@ -13,6 +13,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
+use datafusion::arrow::util::display::array_value_to_string;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -275,6 +276,80 @@ async fn count_by_pushdown_can_be_disabled_per_table() -> anyhow::Result<()> {
     .await?;
     let (plan, _) = run(&ctx, "SELECT url, COUNT(*) AS c FROM hits GROUP BY url").await?;
     assert!(!plan.contains("VortexCountBy:"), "{plan}");
+    Ok(())
+}
+
+/// Rows of a result, as `(grouping values, count)` with the count last.
+async fn rows(ctx: &SessionContext, sql: &str) -> anyhow::Result<Vec<(String, i64)>> {
+    let batches = ctx.sql(sql).await?.collect().await?;
+    let mut rows = Vec::new();
+    for batch in batches {
+        let count = batch.num_columns() - 1;
+        let counts = batch
+            .column(count)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| anyhow::anyhow!("count is not Int64"))?;
+        let keys = (0..batch.num_rows())
+            .map(|row| {
+                (0..count)
+                    .map(|column| array_value_to_string(batch.column(column), row))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|values| values.join("|"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.extend(keys.into_iter().zip(counts.values().iter().copied()));
+    }
+    Ok(rows)
+}
+
+/// The largest counts the pushed-down top-k returns are DataFusion's, and each is a group's
+/// exact total. Groups tied at the cutoff may differ.
+#[rstest]
+#[case::dictionary_key("url", "", 5)]
+#[case::computed_key(
+    "source, CASE WHEN source = 0 THEN referer ELSE '' END AS src, url",
+    "WHERE width > 10",
+    20
+)]
+#[case::offset("referer", "", 3)]
+#[case::nullable_key("referer", "WHERE width < 500", 7)]
+#[tokio::test]
+async fn top_count_matches_datafusion(
+    #[case] keys: &str,
+    #[case] filter: &str,
+    #[case] limit: usize,
+) -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new());
+    write_hits(&store).await?;
+    let group_by = (1..=keys.split(", ").count())
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let top = format!(
+        "SELECT {keys}, COUNT(*) AS c FROM hits {filter} GROUP BY {group_by} ORDER BY c DESC LIMIT {limit}"
+    );
+    let all = format!("SELECT {keys}, COUNT(*) AS c FROM hits {filter} GROUP BY {group_by}");
+
+    let expected = session(&store, false);
+    expected.sql(CREATE_HITS).await?;
+    let expected_top = rows(&expected, &top).await?;
+    let totals = rows(&expected, &all)
+        .await?
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let actual = session(&store, true);
+    actual.sql(CREATE_HITS).await?;
+    let (plan, _) = run(&actual, &top).await?;
+    assert!(plan.contains("VortexTopCountExec"), "{plan}");
+    let actual_top = rows(&actual, &top).await?;
+
+    let counts = |rows: &[(String, i64)]| rows.iter().map(|(_, count)| *count).collect::<Vec<_>>();
+    assert_eq!(counts(&actual_top), counts(&expected_top));
+    for (key, count) in &actual_top {
+        assert_eq!(totals.get(key), Some(count), "{key}");
+    }
     Ok(())
 }
 
