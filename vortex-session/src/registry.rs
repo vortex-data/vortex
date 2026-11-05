@@ -30,14 +30,14 @@ pub const RESERVED_ARRAY_IDS: [&str; RESERVED_LEN as usize] = [
     "vortex.bool",
     "vortex.primitive",
     "vortex.decimal",
-    "vortex.struct",
-    "vortex.union",
+    "vortex.varbinview",
     "vortex.listview",
     "vortex.map",
     "vortex.fixed_size_list",
-    "vortex.varbinview",
-    "vortex.variant",
+    "vortex.struct",
+    "vortex.union",
     "vortex.ext",
+    "vortex.variant",
     "vortex.constant",
 ];
 
