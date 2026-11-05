@@ -11,12 +11,14 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -29,6 +31,10 @@ use crate::scalar_fn::ScalarFnVTable;
 pub enum StringFn {
     /// Whole-string Unicode lowercase, including contextual final sigma.
     Lower,
+    /// Conservative minimum of lowercase over a UTF-8 min/max interval, or null if unknown.
+    LowerMinBound,
+    /// Conservative maximum of lowercase over a UTF-8 min/max interval, or null if unknown.
+    LowerMaxBound,
     /// One-based character position, or zero when absent. Overflow produces null.
     Strpos,
     /// The 64-bit position variant for large strings.
@@ -46,6 +52,14 @@ impl ScalarFnVTable for StringFn {
         match self {
             Self::Lower => {
                 static ID: CachedId = CachedId::new("vortex.lower");
+                *ID
+            }
+            Self::LowerMinBound => {
+                static ID: CachedId = CachedId::new("vortex.lower_min_bound");
+                *ID
+            }
+            Self::LowerMaxBound => {
+                static ID: CachedId = CachedId::new("vortex.lower_max_bound");
                 *ID
             }
             Self::Strpos => {
@@ -100,6 +114,7 @@ impl ScalarFnVTable for StringFn {
         let nullable = Nullability::from(args.iter().any(DType::is_nullable));
         Ok(match self {
             Self::Lower => DType::Utf8(nullable),
+            Self::LowerMinBound | Self::LowerMaxBound => DType::Utf8(Nullability::Nullable),
             Self::Strpos => DType::Primitive(PType::I32, Nullability::Nullable),
             Self::Strpos64 => DType::Primitive(PType::I64, nullable),
             Self::StartsWith | Self::EndsWith => DType::Bool(nullable),
@@ -113,6 +128,15 @@ impl ScalarFnVTable for StringFn {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+        if matches!(self, Self::Lower)
+            && let Some(scalar) = input.as_constant()
+        {
+            let lowered = match scalar.as_utf8().value() {
+                Some(value) => Scalar::utf8(value.to_lowercase(), input.dtype().nullability()),
+                None => Scalar::null(input.dtype().clone()),
+            };
+            return Ok(ConstantArray::new(lowered, args.row_count()).into_array());
+        }
         let mut dtypes = vec![input.dtype().clone()];
         let input = input.execute::<VarBinViewArray>(ctx)?;
         let input_validity = input.validity()?.execute_mask(input.len(), ctx)?;
@@ -153,6 +177,15 @@ impl ScalarFnVTable for StringFn {
         let dtype = self.return_dtype(options, &dtypes)?;
         let result = match self {
             Self::Lower => unreachable!(),
+            Self::LowerMinBound | Self::LowerMaxBound => VarBinViewArray::from_iter(
+                pairs.map(|pair| {
+                    pair.and_then(|(low, high)| {
+                        lower_bound(low, high, matches!(self, Self::LowerMaxBound))
+                    })
+                }),
+                dtype.clone(),
+            )
+            .into_array(),
             Self::Strpos | Self::Strpos64 => {
                 let positions = pairs.into_iter().map(|pair| {
                     pair.map(|(value, search)| {
@@ -198,6 +231,46 @@ impl ScalarFnVTable for StringFn {
     }
 }
 
+fn lower_bound(low: &str, high: &str, upper: bool) -> Option<String> {
+    if low == high {
+        return Some(low.to_lowercase());
+    }
+    let common = low
+        .bytes()
+        .zip(high.bytes())
+        .take_while(|(low, high)| low == high)
+        .count();
+    let prefix = &low.as_bytes()[..common];
+    if !prefix.is_ascii() {
+        return None;
+    }
+    // Every value in the interval shares this ASCII prefix. Its lowercase is independent
+    // of any suffix, unlike Unicode contextual mappings such as Greek final sigma.
+    let mut bound = std::str::from_utf8(prefix).ok()?.to_lowercase();
+    match (low.as_bytes().get(common), high.as_bytes().get(common)) {
+        (Some(&low), Some(&high)) if low.is_ascii() && high.is_ascii() => {
+            // Bound all possible first differing characters, not just the endpoints:
+            // ASCII lowercase is not monotonic across ranges such as 'Z'..='a'.
+            let letters = (low..=high).map(|byte| byte.to_ascii_lowercase());
+            let byte = if upper {
+                letters.max()? + 1
+            } else {
+                letters.min()?
+            };
+            bound.push(char::from(byte));
+        }
+        (None, Some(_)) => {
+            if upper {
+                // The successor prefix is above every possible suffix, even Unicode ones.
+                let last = bound.pop()?;
+                bound.push(char::from_u32(u32::from(last) + 1)?);
+            }
+        }
+        _ => return None,
+    }
+    Some(bound)
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
@@ -206,11 +279,17 @@ mod tests {
     use super::StringFn;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Constant;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::RunEnd;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::expr::Expression;
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::session::ScalarFnSession;
@@ -241,6 +320,64 @@ mod tests {
             ]),
             &mut session.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn unicode_lower_preserves_runs() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let mut ctx = session.create_execution_ctx();
+        let values = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1, 2, 0]).into_array(),
+            VarBinViewArray::from_iter_nullable_str([Some("ΟΣ"), None, Some("İȾ")]).into_array(),
+        )?
+        .into_array();
+        let input = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_iter([3u32, 5, 7, 10]).into_array(),
+            values,
+            1,
+            8,
+            &mut ctx,
+        )?
+        .into_array();
+        let expression = StringFn::Lower.try_new_expr(EmptyOptions, [root()])?;
+        let result = input
+            .apply(&expression)?
+            .execute_until::<RunEnd>(&mut ctx)?;
+        assert!(result.is::<RunEnd>());
+        assert_arrays_eq!(
+            result,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("ος"),
+                Some("ος"),
+                None,
+                None,
+                Some("i\u{307}ⱦ"),
+                Some("i\u{307}ⱦ"),
+                Some("ος"),
+                Some("ος"),
+            ]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unicode_lower_preserves_constants() -> VortexResult<()> {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let expression = StringFn::Lower.try_new_expr(EmptyOptions, [root()])?;
+        for (input, expected) in [(Some("ΟΣ"), Some("ος")), (None, None)] {
+            let result = ConstantArray::new(Scalar::from(input), 1024)
+                .into_array()
+                .apply(&expression)?
+                .execute_until::<Constant>(&mut ctx)?;
+            assert!(result.is::<Constant>());
+            assert_arrays_eq!(
+                result,
+                ConstantArray::new(Scalar::from(expected), 1024),
+                &mut ctx
+            );
+        }
         Ok(())
     }
 }

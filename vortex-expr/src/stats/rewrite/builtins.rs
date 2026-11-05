@@ -45,6 +45,7 @@ use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::fns::string::StringFn;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -769,6 +770,25 @@ fn stat_expr(expr: &BoundExpression, stat: Stat) -> Option<BoundExpression> {
 
     if let Some(dtype) = expr.as_opt::<Cast>() {
         return cast_stat(expr.child(0), dtype, stat);
+    }
+
+    if matches!(stat, Stat::Min | Stat::Max)
+        && expr
+            .as_scalar()
+            .is_some_and(|scalar_fn| scalar_fn.id() == StringFn::Lower.id())
+    {
+        let low = min(expr.child(0))?;
+        let high = max(expr.child(0))?;
+        let bound = if stat == Stat::Min {
+            StringFn::LowerMinBound
+        } else {
+            StringFn::LowerMaxBound
+        };
+        return Some(
+            bound
+                .try_new_bound_expr(EmptyOptions, [low, high])
+                .vortex_expect("lower bounds must be UTF-8"),
+        );
     }
 
     let aggregate_fn = stat.aggregate_fn()?;
