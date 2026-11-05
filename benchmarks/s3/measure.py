@@ -9,7 +9,6 @@ import hashlib
 import json
 import math
 import os
-import statistics
 import subprocess
 import time
 from collections import defaultdict
@@ -38,7 +37,76 @@ def wait_until(target: float):
         time.sleep(min(55, remaining))
 
 
-def read_window(path: Path) -> tuple[dict, list[dict]]:
+QUANTILES = (("median", 0.5), ("p90", 0.9), ("p99", 0.99), ("p999", 0.999))
+
+
+def timing_fields(row: dict, values: list[dict]):
+    for field, timings in (
+        ("headers", [r["response_ms"] for r in values]),
+        ("first_byte", [r["first_byte_ms"] for r in values]),
+        ("body", [r["duration_ms"] - r["response_ms"] for r in values]),
+        ("total", [r["duration_ms"] for r in values]),
+    ):
+        if any(t is None or not math.isfinite(t) or t < 0 for t in timings):
+            raise ValueError("Incomplete or nonfinite request timing")
+        for name, probability in QUANTILES:
+            row[f"{field}_{name}_ms"] = quantile(timings, probability)
+
+
+def check_cell(row: dict, cell: dict, values: list[dict]):
+    if cell["requests"] != len(values) or cell["bytes"] != sum(r["bytes"] for r in values) or cell["errors"]:
+        raise ValueError("Cell counters disagree with the raw requests")
+    if not math.isfinite(cell["seconds"]) or cell["seconds"] <= 0:
+        raise ValueError("Invalid cell duration")
+    row.update({key: cell[key] for key in ("seconds", "bytes", "errors", "peak_inflight", "avg_inflight")})
+    timing_fields(row, values)
+    row["aggregate_mib_per_second"] = cell["bytes"] / 1048576 / cell["seconds"]
+
+
+def check_request(request: dict):
+    if request["status"] != "complete" or request["bytes"] != request["range"]["end"] - request["range"]["start"]:
+        raise ValueError("Request coverage or consumed bytes differs from the declared workload")
+    timings = [request[key] for key in ("response_ms", "first_byte_ms", "duration_ms")]
+    if any(t is None or not math.isfinite(t) or t < 0 for t in timings) or timings != sorted(timings):
+        raise ValueError("Incomplete or inconsistent request timing")
+
+
+def read_cold(environment: dict, records: list[dict]) -> list[dict]:
+    requests = [r for r in records if r.get("kind") == "request" and r["phase"] == "cold"]
+    declared = {int(size): count for size, count in (environment.get("cold_requests") or {}).items()}
+    if not environment.get("cold_source"):
+        if requests:
+            raise ValueError("Cold reads without a declared cold source")
+        return []
+    groups = defaultdict(list)
+    for request in requests:
+        check_request(request)
+        groups[request["bytes"]].append(request)
+    if {size: len(values) for size, values in groups.items()} != declared or set(declared) != set(environment["sizes"]):
+        raise ValueError("Cold coverage differs from the declared cold objects")
+    if len({r["path"] for r in requests}) != len(requests):
+        raise ValueError("A cold object was read more than once")
+    summaries = {r["range_bytes"]: r for r in records if r.get("kind") == "cell_summary" and r.get("phase") == "cold"}
+    if set(summaries) != set(declared):
+        raise ValueError("Missing cold cell summaries")
+    rows = []
+    for size, values in sorted(groups.items()):
+        idle = [r["started_unix_ms"] - r["last_modified_unix_ms"] for r in values]
+        row = {
+            "measurement_id": environment["measurement_id"],
+            "phase": "cold",
+            "round": 0,
+            "bytes_per_request": size,
+            "concurrency": environment["cold_concurrency"],
+            "requests": len(values),
+        }
+        check_cell(row, summaries[size], values)
+        row["min_hours_since_write"] = min(idle) / 3600000
+        rows.append(row)
+    return rows
+
+
+def read_window(path: Path) -> tuple[dict, list[dict], list[dict]]:
     records = [json.loads(line) for line in path.read_text().splitlines() if line]
     if not records or records[0].get("kind") != "environment" or records[0].get("schema_version") != 1:
         raise ValueError("Missing versioned measurement environment")
@@ -52,14 +120,10 @@ def read_window(path: Path) -> tuple[dict, list[dict]]:
         * len(environment["concurrency"])
         * environment["requests_per_cell"]
     )
-    if len(requests) != expected or any(
-        r["status"] != "complete" or r["bytes"] != r["range"]["end"] - r["range"]["start"] for r in requests
-    ):
+    if len(requests) != expected:
         raise ValueError("Request coverage or consumed bytes differs from the declared workload")
     for request in requests:
-        timings = [request[key] for key in ("response_ms", "first_byte_ms", "duration_ms")]
-        if any(t is None or not math.isfinite(t) or t < 0 for t in timings) or timings != sorted(timings):
-            raise ValueError("Incomplete or inconsistent request timing")
+        check_request(request)
     groups = defaultdict(list)
     for request in requests:
         groups[(request["round"], request["bytes"], request["requested_concurrency"])].append(request)
@@ -75,7 +139,7 @@ def read_window(path: Path) -> tuple[dict, list[dict]]:
         {r["ordinal"] for r in values} != set(range(environment["requests_per_cell"])) for values in groups.values()
     ):
         raise ValueError("Missing or duplicated request ordinal")
-    cell_records = [r for r in records if r.get("kind") == "cell_summary"]
+    cell_records = [r for r in records if r.get("kind") == "cell_summary" and r.get("phase", "measure") == "measure"]
     summaries = {(r["round"], r["range_bytes"], r["requested_concurrency"]): r for r in cell_records}
     if set(summaries) != declared or len(cell_records) != len(declared):
         raise ValueError("Missing cell summaries")
@@ -83,30 +147,57 @@ def read_window(path: Path) -> tuple[dict, list[dict]]:
     for (round_, size, concurrency), values in sorted(groups.items()):
         row = {
             "measurement_id": environment["measurement_id"],
+            "phase": "hot",
             "round": round_,
             "bytes_per_request": size,
             "concurrency": concurrency,
             "requests": len(values),
         }
-        cell = summaries[(round_, size, concurrency)]
-        if cell["requests"] != len(values) or cell["bytes"] != sum(r["bytes"] for r in values) or cell["errors"]:
-            raise ValueError("Cell counters disagree with the raw requests")
-        if not math.isfinite(cell["seconds"]) or cell["seconds"] <= 0:
-            raise ValueError("Invalid cell duration")
-        row.update({key: cell[key] for key in ("seconds", "bytes", "errors", "peak_inflight", "avg_inflight")})
-        for field, timings in (
-            ("headers", [r["response_ms"] for r in values]),
-            ("first_byte", [r["first_byte_ms"] for r in values]),
-            ("body", [r["duration_ms"] - r["response_ms"] for r in values]),
-            ("total", [r["duration_ms"] for r in values]),
-        ):
-            if any(t is None or not math.isfinite(t) or t < 0 for t in timings):
-                raise ValueError("Incomplete or nonfinite request timing")
-            row[field + "_median_ms"] = statistics.median(timings)
-            row[field + "_p90_ms"] = quantile(timings, 0.9)
-        row["aggregate_mib_per_second"] = cell["bytes"] / 1048576 / cell["seconds"]
+        check_cell(row, summaries[(round_, size, concurrency)], values)
+        row["min_hours_since_write"] = None
         rows.append(row)
-    return environment, rows
+    cold = read_cold(environment, records)
+    samples = [
+        {**r, "phase": "hot" if r["phase"] == "measure" else "cold"}
+        for r in records
+        if r.get("kind") == "request" and r.get("phase") in ("measure", "cold")
+    ]
+    return environment, rows + cold, samples
+
+
+def tails(samples: list[dict]) -> list[dict]:
+    """Pool every window, round and concurrency so p99.9 rests on enough requests per size."""
+    groups = defaultdict(list)
+    for sample in samples:
+        groups[(sample["phase"], sample["bytes"], sample["requested_concurrency"])].append(sample)
+        groups[(sample["phase"], sample["bytes"], "all")].append(sample)
+    rows = []
+    order = sorted(groups, key=lambda key: (key[0], key[1], key[2] == "all", 0 if key[2] == "all" else key[2]))
+    for phase, size, concurrency in order:
+        values = groups[(phase, size, concurrency)]
+        row = {"phase": phase, "bytes_per_request": size, "concurrency": concurrency, "requests": len(values)}
+        timing_fields(row, values)
+        row["total_max_ms"] = max(r["duration_ms"] for r in values)
+        rows.append(row)
+    return rows
+
+
+def tail_markdown(rows: list[dict]) -> str:
+    lines = [
+        "| phase | bytes | n | first byte p50/p99/p99.9 ms | total p50 | p90 | p99 | p99.9 | max |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        if r["concurrency"] == "all":
+            lines.append(
+                f"| {r['phase']} | {r['bytes_per_request']} | {r['requests']} | "
+                f"{r['first_byte_median_ms']:.1f}/{r['first_byte_p99_ms']:.1f}/{r['first_byte_p999_ms']:.1f} | "
+                + " | ".join(
+                    f"{r[k]:.1f}" for k in ("total_median_ms", "total_p90_ms", "total_p99_ms", "total_p999_ms")
+                )
+                + f" | {r['total_max_ms']:.1f} |"
+            )
+    return "\n".join(lines) + "\n"
 
 
 def configuration(args: argparse.Namespace) -> dict:
@@ -176,6 +267,9 @@ def identity(environment: dict) -> dict:
             "seed",
             "warmup_seconds",
             "endpoint_override",
+            "cold_source",
+            "cold_concurrency",
+            "cold_objects",
         )
     }
 
@@ -207,10 +301,10 @@ def collect(args: argparse.Namespace, env: dict[str, str], plan: dict, index: in
             command += ["--allow-local"]
         command += args.probe_args
         subprocess.run(command, env=env, check=True, timeout=args.window_timeout_seconds)
-        environment, _ = read_window(trace)
+        environment, _, _ = read_window(trace)
         for previous in plan["windows"]:
             if previous["status"] == "success":
-                reference, _ = read_window(args.output / f"window-{previous['index']:02}.jsonl")
+                reference, _, _ = read_window(args.output / f"window-{previous['index']:02}.jsonl")
                 if identity(reference) != identity(environment):
                     raise ValueError("Host, objects or probe configuration changed between windows")
         window.update(status="success", sha256=hashlib.sha256(trace.read_bytes()).hexdigest())
@@ -224,18 +318,27 @@ def collect(args: argparse.Namespace, env: dict[str, str], plan: dict, index: in
 
 
 def summarize(args: argparse.Namespace, plan: dict, *, require_complete: bool = True):
-    rows = []
+    rows, samples = [], []
     for window in plan["windows"]:
         if window["status"] == "success":
             trace = args.output / f"window-{window['index']:02}.jsonl"
             if hashlib.sha256(trace.read_bytes()).hexdigest() != window["sha256"]:
                 raise ValueError("Measurement trace changed after collection")
-            rows.extend(read_window(trace)[1])
-    if rows:
-        with (args.output / "measurements.csv").open("w") as stream:
-            writer = csv.DictWriter(stream, list(rows[0]), lineterminator="\n")
-            writer.writeheader()
-            writer.writerows(rows)
+            _, window_rows, window_samples = read_window(trace)
+            rows.extend(window_rows)
+            samples.extend(window_samples)
+    for name, table in (("measurements.csv", rows), ("tails.csv", tails(samples))):
+        if table:
+            with (args.output / name).open("w") as stream:
+                writer = csv.DictWriter(stream, list(table[0]), lineterminator="\n")
+                writer.writeheader()
+                writer.writerows(table)
+    if require_complete and samples:
+        markdown = "## S3 request latency tails\n\n" + tail_markdown(tails(samples))
+        print(markdown)
+        if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(summary, "a") as stream:
+                stream.write(markdown)
     if require_complete and any(w["status"] != "success" for w in plan["windows"]):
         raise ValueError("Some measurement windows failed; partial evidence was preserved")
 

@@ -3,6 +3,7 @@
 
 //! Collect request-level S3 measurements without a query engine or a latency model.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
@@ -65,6 +66,12 @@ struct Args {
     warmup_seconds: f64,
     #[arg(long)]
     timeout_seconds: f64,
+    /// Persistent prefix in the same bucket that only this sweep reads. Objects live under
+    /// `<range bytes>/` directories and each is read once per window.
+    #[arg(long)]
+    cold_source: Option<Url>,
+    #[arg(long, default_value_t = 4)]
+    cold_concurrency: usize,
     /// Exercise the collector using files; these traces are ineligible for S3 model training.
     #[arg(long)]
     allow_local: bool,
@@ -82,6 +89,7 @@ struct Request {
     object_size: Option<u64>,
     e_tag: Option<String>,
     version: Option<String>,
+    last_modified_unix_ms: Option<i64>,
     requested_concurrency: usize,
     inflight_at_start: usize,
     start_ms: f64,
@@ -109,6 +117,7 @@ impl Request {
             object_size: None,
             e_tag: None,
             version: None,
+            last_modified_unix_ms: None,
             requested_concurrency: 1,
             inflight_at_start: 1,
             start_ms,
@@ -168,6 +177,7 @@ async fn measure_get(
     record.object_size = Some(read.object.size);
     record.e_tag = read.object.e_tag.clone();
     record.version = read.object.version.clone();
+    record.last_modified_unix_ms = Some(read.object.last_modified.timestamp_millis());
     record.requested_concurrency = read.concurrency;
     record.inflight_at_start = inflight.current.fetch_add(1, Ordering::Relaxed) + 1;
     inflight
@@ -254,13 +264,71 @@ fn ranges(
         .collect())
 }
 
+/// Cold objects by range size, each with the seeded range it is read at.
+type ColdReads = BTreeMap<u64, Vec<(ObjectMeta, Range<u64>)>>;
+
+/// Group cold objects by their `<range bytes>/` directory and give each one a seeded range.
+fn cold_reads(
+    objects: Vec<ObjectMeta>,
+    prefix: &Path,
+    sizes: &[u64],
+    seed: u64,
+) -> anyhow::Result<ColdReads> {
+    let mut groups = BTreeMap::<u64, Vec<ObjectMeta>>::new();
+    for object in objects {
+        let size = object
+            .location
+            .prefix_match(prefix)
+            .and_then(|mut parts| parts.next())
+            .and_then(|part| part.as_ref().parse::<u64>().ok())
+            .with_context(|| {
+                format!(
+                    "Cold object {} is not below a size directory",
+                    object.location
+                )
+            })?;
+        anyhow::ensure!(
+            object.size >= size,
+            "Cold object {} is smaller than its {size}-byte range",
+            object.location
+        );
+        groups.entry(size).or_default().push(object);
+    }
+    anyhow::ensure!(
+        sizes.iter().all(|size| groups.contains_key(size)),
+        "Cold source has no objects for some requested sizes"
+    );
+    groups.retain(|size, _| sizes.contains(size));
+    let mut rng = StdRng::seed_from_u64(seed);
+    Ok(groups
+        .into_iter()
+        .map(|(size, mut objects)| {
+            objects.sort_by(|a, b| a.location.cmp(&b.location));
+            objects.shuffle(&mut rng);
+            let reads = objects
+                .into_iter()
+                .map(|object| {
+                    let start = rng.random_range(0..=object.size - size);
+                    (object, start..start + size)
+                })
+                .collect();
+            (size, reads)
+        })
+        .collect())
+}
+
 fn emit(output: &mut impl Write, value: &impl Serialize) -> anyhow::Result<()> {
     serde_json::to_writer(&mut *output, value)?;
     writeln!(output)?;
     Ok(())
 }
 
-async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyhow::Result<()> {
+async fn collect(
+    args: Args,
+    store: Arc<dyn ObjectStore>,
+    prefix: Path,
+    cold_prefix: Option<Path>,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         !args.sizes.is_empty() && args.sizes.iter().all(|n| *n > 0),
         "Sizes must be positive"
@@ -283,6 +351,10 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
             && args.timeout_seconds > 0.0,
         "Invalid request deadline"
     );
+    anyhow::ensure!(
+        args.cold_concurrency > 0,
+        "Cold concurrency must be positive"
+    );
     let timeout = Duration::from_secs_f64(args.timeout_seconds);
     let epoch = Epoch {
         start: Instant::now(),
@@ -297,6 +369,18 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
     for size in &args.sizes {
         ranges(&objects, *size, 1, args.seed)?;
     }
+    // LIST reads only metadata, so cataloguing the cold prefix up front does not warm its objects.
+    let cold = match &cold_prefix {
+        Some(cold_prefix) => {
+            let listed = tokio::time::timeout(
+                timeout,
+                store.list(Some(cold_prefix)).try_collect::<Vec<_>>(),
+            )
+            .await??;
+            cold_reads(listed, cold_prefix, &args.sizes, args.seed)?
+        }
+        None => BTreeMap::new(),
+    };
     let system = sysinfo::System::new_all();
     let endpoint_override = [
         "AWS_ENDPOINT",
@@ -333,7 +417,11 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
             "client": "object_store; dependency version pinned in Cargo.lock", "allocator": "mimalloc; purging disabled",
             "scope": "SDK operations; GET body fully consumed; internal HTTP retries are included in duration but not separately counted",
             "objects": objects.iter().map(|o| json!({"path": o.location.as_ref(), "size": o.size, "e_tag": o.e_tag,
-                                                   "version": o.version, "last_modified": o.last_modified.to_rfc3339()})).collect::<Vec<_>>()
+                                                   "version": o.version, "last_modified": o.last_modified.to_rfc3339()})).collect::<Vec<_>>(),
+            "cold_source": args.cold_source.as_ref().map(Url::as_str), "cold_concurrency": args.cold_concurrency,
+            "cold_requests": cold.iter().map(|(size, reads)| (size.to_string(), reads.len())).collect::<BTreeMap<_, _>>(),
+            "cold_objects": cold.values().flatten().map(|(o, _)| json!({"path": o.location.as_ref(), "size": o.size,
+                "e_tag": o.e_tag, "version": o.version, "last_modified": o.last_modified.to_rfc3339()})).collect::<Vec<_>>()
         }),
     )?;
     let mut catalog = Request::new("LIST", &prefix, &epoch);
@@ -448,7 +536,7 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
             }
             emit(
                 &mut output,
-                &json!({"kind": "cell_summary", "round": round, "range_bytes": size,
+                &json!({"kind": "cell_summary", "phase": "measure", "round": round, "range_bytes": size,
                 "requested_concurrency": concurrency, "requests": records.len(), "errors": failed,
                 "bytes": records.iter().map(|r| r.bytes).sum::<u64>(), "seconds": seconds,
                 "peak_inflight": inflight.peak.load(Ordering::Relaxed),
@@ -460,6 +548,53 @@ async fn collect(args: Args, store: Arc<dyn ObjectStore>, prefix: Path) -> anyho
                 records.len()
             );
         }
+    }
+    // Cold reads run last, without HEAD or warmup, so each GET is the first touch of its object
+    // since the previous window and is never repeated within this one.
+    for (size, reads) in &cold {
+        let inflight = Inflight::default();
+        let start = Instant::now();
+        let mut records = stream::iter(reads.iter().enumerate())
+            .map(|(ordinal, (object, range))| {
+                measure_get(
+                    store.as_ref(),
+                    Read {
+                        object,
+                        range: range.clone(),
+                        phase: "cold",
+                        round: 0,
+                        ordinal,
+                        concurrency: args.cold_concurrency,
+                    },
+                    &epoch,
+                    &inflight,
+                    timeout,
+                )
+            })
+            .buffer_unordered(args.cold_concurrency)
+            .collect::<Vec<_>>()
+            .await;
+        let seconds = start.elapsed().as_secs_f64();
+        records.sort_by_key(|r| r.ordinal);
+        let failed = records.iter().filter(|r| r.status != "complete").count();
+        errors += failed;
+        for record in &records {
+            emit(&mut output, record)?;
+        }
+        emit(
+            &mut output,
+            &json!({"kind": "cell_summary", "phase": "cold", "round": 0, "range_bytes": size,
+            "requested_concurrency": args.cold_concurrency, "requests": records.len(), "errors": failed,
+            "bytes": records.iter().map(|r| r.bytes).sum::<u64>(), "seconds": seconds,
+            "peak_inflight": inflight.peak.load(Ordering::Relaxed),
+            "avg_inflight": records.iter().map(|r| r.duration_ms).sum::<f64>() / (seconds * 1000.0)}),
+        )?;
+        output.flush()?;
+        eprintln!(
+            "cold size={size} concurrency={} requests={} errors={failed} seconds={seconds:.3}",
+            args.cold_concurrency,
+            records.len()
+        );
     }
     emit(&mut output, &json!({"kind": "complete", "errors": errors}))?;
     output.flush()?;
@@ -495,7 +630,26 @@ async fn main() -> anyhow::Result<()> {
         _ => anyhow::bail!("Use an s3:// prefix; filesystem smoke runs need --allow-local"),
     };
     let prefix = Path::from_url_path(args.source.path())?;
-    collect(args, store, prefix).await
+    let cold_prefix = match &args.cold_source {
+        Some(cold) => {
+            anyhow::ensure!(
+                cold.scheme() == args.source.scheme()
+                    && cold.host_str() == args.source.host_str()
+                    && cold.path().ends_with('/')
+                    && cold.query().is_none(),
+                "Cold source must be a plain prefix in the same bucket as the source"
+            );
+            let cold_prefix = Path::from_url_path(cold.path())?;
+            anyhow::ensure!(
+                prefix.prefix_match(&cold_prefix).is_none()
+                    && cold_prefix.prefix_match(&prefix).is_none(),
+                "Cold and hot prefixes must not overlap"
+            );
+            Some(cold_prefix)
+        }
+        None => None,
+    };
+    collect(args, store, prefix, cold_prefix).await
 }
 
 #[cfg(test)]
@@ -725,6 +879,50 @@ mod tests {
                 .all(|(i, range)| range.end <= objects[*i].size && range.end - range.start == 24)
         );
         assert!(ranges(&objects, 129, 1, 42).is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cold_objects_are_grouped_by_size_and_read_once() -> anyhow::Result<()> {
+        let store = InMemory::new();
+        for index in 0..3 {
+            store
+                .put(
+                    &Path::from(format!("cold/4/{index}.bin")),
+                    vec![0; 6].into(),
+                )
+                .await?;
+            store
+                .put(
+                    &Path::from(format!("cold/16/{index}.bin")),
+                    vec![0; 20].into(),
+                )
+                .await?;
+        }
+        let prefix = Path::from("cold");
+        let objects = store.list(Some(&prefix)).try_collect::<Vec<_>>().await?;
+        let reads = cold_reads(objects.clone(), &prefix, &[4, 16], 42)?;
+        assert_eq!(reads.keys().copied().collect::<Vec<_>>(), vec![4, 16]);
+        for (size, reads) in &reads {
+            let mut paths = reads
+                .iter()
+                .map(|(o, _)| o.location.clone())
+                .collect::<Vec<_>>();
+            paths.sort();
+            paths.dedup();
+            assert_eq!(paths.len(), 3);
+            assert!(
+                reads
+                    .iter()
+                    .all(|(o, r)| r.end - r.start == *size && r.end <= o.size)
+            );
+        }
+        assert!(cold_reads(objects, &prefix, &[8], 42).is_err());
+        store
+            .put(&Path::from("cold/16/small.bin"), vec![0; 8].into())
+            .await?;
+        let objects = store.list(Some(&prefix)).try_collect::<Vec<_>>().await?;
+        assert!(cold_reads(objects, &prefix, &[16], 42).is_err());
         Ok(())
     }
 }
