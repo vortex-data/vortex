@@ -315,6 +315,7 @@ async fn rows(ctx: &SessionContext, sql: &str) -> anyhow::Result<Vec<(String, i6
 )]
 #[case::offset("referer", "", 3)]
 #[case::nullable_key("referer", "WHERE width < 500", 7)]
+#[case::no_rows("url", "WHERE width > 5000", 4)]
 #[tokio::test]
 async fn top_count_matches_datafusion(
     #[case] keys: &str,
