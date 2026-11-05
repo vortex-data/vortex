@@ -5,6 +5,8 @@ use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::task::Poll;
+use std::time::Instant;
 
 use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
@@ -62,6 +64,7 @@ use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
+use vortex::layout::scan::v2::ScanMetrics;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
@@ -83,6 +86,8 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::metrics::ScanMetricsFlush;
+use crate::persistent::metrics::V2ScanMetrics;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
@@ -147,6 +152,8 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
+    /// The DataFusion metrics a V2 scan reports into, when the scan is a V2 scan.
+    pub v2_metrics: Option<V2ScanMetrics>,
 }
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
@@ -232,6 +239,7 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
+        let v2_metrics = self.v2_metrics.clone();
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -300,6 +308,11 @@ impl FileOpener for VortexOpener {
                         .map(|vortex_metadata| vortex_metadata.footer().clone())
                 });
             let footer_cache_hit = cached_footer.is_some();
+            if let Some(metrics) = &v2_metrics
+                && file_metadata_cache.is_some()
+            {
+                metrics.record_footer_lookup(footer_cache_hit);
+            }
 
             if let Some(footer) = cached_footer {
                 open_opts = open_opts.with_footer(footer);
@@ -506,7 +519,9 @@ impl FileOpener for VortexOpener {
                     scan_file.segments,
                 );
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                let scan_metrics = Arc::new(ScanMetrics::default());
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
+                    .with_metrics(Arc::clone(&scan_metrics))
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter)
                     // Dynamic filters are pushed down inexactly: the TopK or join that produces
@@ -538,10 +553,14 @@ impl FileOpener for VortexOpener {
                 });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
+                let planning = Instant::now();
                 let scan = handle
                     .spawn_cpu(move || builder.prepare())
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
+                if let Some(metrics) = &v2_metrics {
+                    metrics.planning_time.add_elapsed(planning);
+                }
                 let scan = Arc::new(scan);
 
                 // The planners, composed: with a filter, its pruning plans first over the whole
@@ -564,7 +583,19 @@ impl FileOpener for VortexOpener {
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                let batches = driver.run(scan, root, map_batch);
+                Ok(match v2_metrics {
+                    Some(metrics) => {
+                        let flush = ScanMetricsFlush::new(scan_metrics, metrics);
+                        batches
+                            .chain(stream::poll_fn(move |_| {
+                                flush.flush();
+                                Poll::Ready(None)
+                            }))
+                            .boxed()
+                    }
+                    None => batches,
+                })
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -943,6 +974,7 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::file::WriteStrategyBuilder;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
@@ -1196,6 +1228,80 @@ mod tests {
         Ok(summary.size())
     }
 
+    /// The sum of the counter `name` over every partition of `metrics`.
+    fn metric(metrics: &ExecutionPlanMetricsSet, name: &str) -> usize {
+        metrics
+            .clone_inner()
+            .sum_by_name(name)
+            .map(|value| value.as_usize())
+            .unwrap_or_default()
+    }
+
+    /// A V2 scan reports what zone pruning and its filter excluded and what it read.
+    #[rstest]
+    #[tokio::test]
+    async fn test_v2_metrics_report_pruning(
+        #[values(None, Some(4))] scan_concurrency: Option<usize>,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "metrics/file.vortex";
+        let values: Vec<Option<i32>> = (0..30_000).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values)).unwrap();
+        // Zones of 3,000 rows: `a < 5000` keeps the first two zones and the filter then rejects
+        // the last 1,000 rows of the second.
+        let strategy = WriteStrategyBuilder::from_session(&SESSION)
+            .with_row_block_size(3_000)
+            .with_data_block_target_bytes(None)
+            .build();
+        let array = SESSION
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+        let path = Path::parse(file_path)?;
+        let mut write = ObjectStoreWrite::new(Arc::clone(&object_store), &path).await?;
+        let data_size = SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut write, array.to_array_stream())
+            .await?
+            .size();
+        write.shutdown().await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from(batch.schema());
+
+        let filter = logical2physical(&col("a").lt(lit(5_000_i32)), table_schema.table_schema());
+        let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.scan_v2 = true;
+        opener.scan_concurrency = scan_concurrency;
+        opener.file_metadata_cache = Some(Arc::new(
+            DefaultCache::<Path, CachedFileMetadataEntry>::new(64 * 1024 * 1024),
+        ));
+        opener.v2_metrics = Some(V2ScanMetrics::new(&opener.df_metrics, 0));
+
+        for _ in 0..2 {
+            let batches = opener
+                .open(file.clone())?
+                .await?
+                .try_collect::<Vec<_>>()
+                .await?;
+            assert_eq!(
+                batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+                5_000
+            );
+        }
+
+        let metrics = &opener.df_metrics;
+        assert_eq!(metric(metrics, "footer_cache_misses"), 1);
+        assert_eq!(metric(metrics, "footer_cache_hits"), 1);
+        assert_eq!(metric(metrics, "rows_pruned_by_zones_static"), 2 * 24_000);
+        assert_eq!(metric(metrics, "rows_pruned_by_zones_dynamic"), 0);
+        assert_eq!(metric(metrics, "rows_read"), 2 * 6_000);
+        assert_eq!(metric(metrics, "rows_filtered_static"), 2 * 1_000);
+        assert!(metric(metrics, "segments_read") > 0);
+        assert!(metric(metrics, "bytes_read") > 0);
+        assert!(metric(metrics, "scan_planning_time") > 0);
+        Ok(())
+    }
+
     fn make_opener(
         object_store: Arc<dyn ObjectStore>,
         table_schema: TableSchema,
@@ -1217,6 +1323,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1628,6 +1735,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1721,6 +1829,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1905,6 +2014,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -1971,6 +2081,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),
@@ -2188,6 +2299,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            v2_metrics: None,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             dynamic_filters: Default::default(),

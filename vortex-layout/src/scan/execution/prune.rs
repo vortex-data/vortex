@@ -48,8 +48,10 @@ pub struct PrunePlanner {
     pruned: bool,
     /// The rows no pruning plan has excluded yet, over `rows`.
     mask: Mask,
-    pruning: IntoIter<PlanRef>,
-    active: Option<ScanAdaptor>,
+    /// Each pruning plan still to run, with whether its conjunct has dynamic expressions.
+    pruning: IntoIter<(bool, PlanRef)>,
+    /// The running pruning plan, with whether its conjunct has dynamic expressions.
+    active: Option<(bool, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -63,7 +65,11 @@ impl PrunePlanner {
         let pruning: Vec<_> = scan
             .filter
             .iter()
-            .flat_map(|filter| filter.pruning_over(rows.end - rows.start).cloned())
+            .flat_map(|filter| {
+                filter
+                    .pruning_over(rows.end - rows.start)
+                    .map(|(dynamic, plan)| (dynamic, plan.clone()))
+            })
             .collect();
         let len = usize::try_from(rows.end - rows.start).unwrap_or(usize::MAX);
         Self {
@@ -84,7 +90,7 @@ impl PrunePlanner {
 
 impl IoConsumer for PrunePlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some(adaptor) = &mut self.active {
+        if let Some((_, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -96,7 +102,7 @@ impl Planner for PrunePlanner {
             return State::Done;
         }
         match &self.active {
-            Some(adaptor) if adaptor.state() != State::Done => adaptor.state(),
+            Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
@@ -111,7 +117,7 @@ impl Planner for PrunePlanner {
             // result and lists no segment, so only unpruned plans prefetch their zone maps.
             let segments = segments_read(
                 &self.scan.session,
-                self.pruning.as_slice().iter(),
+                self.pruning.as_slice().iter().map(|(_, plan)| plan),
                 self.rows.clone(),
                 &self.mask,
             )?;
@@ -129,7 +135,7 @@ impl Planner for PrunePlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some(adaptor) = &mut self.active {
+        if let Some((dynamic, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
@@ -144,6 +150,9 @@ impl Planner for PrunePlanner {
             let excluded = Mask::concat(self.pieces.iter())?;
             vortex_ensure_eq!(excluded.len(), input);
             self.mask = self.mask.intersect_by_rank(&!excluded);
+            self.scan
+                .metrics
+                .add_rows_pruned(*dynamic, input - self.mask.true_count());
             tracing::debug!(
                 row_start = self.rows.start,
                 row_end = self.rows.end,
@@ -159,7 +168,7 @@ impl Planner for PrunePlanner {
             self.done = true;
             return Ok(PlannerOutput::Done);
         }
-        if let Some(plan) = self.pruning.next() {
+        if let Some((dynamic, plan)) = self.pruning.next() {
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 plan,
@@ -170,7 +179,10 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.active = Some((
+                dynamic,
+                ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
+            ));
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.

@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::buffer::BufferHandle;
 
+use crate::scan::execution::ScanMetrics;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -97,17 +98,24 @@ impl RetainedSegments {
 pub(super) struct RetainingSegmentSource {
     pub(super) inner: Arc<dyn SegmentSource>,
     pub(super) retained: Arc<RetainedSegments>,
+    /// Counts the requests served from `retained` and the reads of `inner`.
+    pub(super) metrics: Arc<ScanMetrics>,
 }
 
 impl SegmentSource for RetainingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         if let Some(buffer) = self.retained.get(id) {
+            self.metrics.add_segment_cache_hit();
             return futures::future::ready(Ok(buffer)).boxed();
         }
         let retained = Arc::clone(&self.retained);
+        let metrics = Arc::clone(&self.metrics);
         self.inner
             .request(id)
-            .inspect_ok(move |buffer| retained.insert(id, buffer))
+            .inspect_ok(move |buffer| {
+                metrics.add_segment_read(buffer.len());
+                retained.insert(id, buffer);
+            })
             .boxed()
     }
 }
