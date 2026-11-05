@@ -41,8 +41,8 @@ planning review on 2026-10-23.
   generators of committed files, such as golden snapshots (WD6, CD7, WR3) and the edition record
   (WR2). CI fails when a committed file is stale. Use the narrowest command, as `AGENTS.md`
   describes.
-- Several PRs form stacks: WD1 to WD5, WR1 to WR3, CD4 with CD4b and CD6 on it, LT3, CD5, and
-  CD7 in a layout that is still open (D41), and optionally CD8a and CD8b. `develop` squash-merges
+- Several PRs form stacks: WD1 to WD5, WR1 to WR3, CD4 with CD4b and CD6 on it, LT3 with CD5 on it
+  (CD7 folded in, D41), and optionally CD8a and CD8b. `develop` squash-merges
   PRs. So after the base PR merges, a plain `git rebase develop` replays the base commits again and
   conflicts. Rebase the next PR with `git rebase --onto develop <old base tip>`, or with
   `gh stack`. The WD1 to WD5 stack follows "Stack and branches" in the NR brief instead: it starts
@@ -80,9 +80,9 @@ planning review on 2026-10-23.
 | CD4 | Decimal `Widen` in memory, `WidenArray::from_stored_decimal` (D40), the decimal `Sum` and `MinMax` kernels (D36), and the serializer lowering (D26) | WD1, WD3, WD4, CD1, CD3, CD3b, CD4p | Large |
 | CD4b | Export decimal `Widen` arrays to Arrow with one copy | CD4 | Small |
 | LT3 | Sum, min, and max on the DecimalByteParts MSP, and the reshaped DecimalByteParts benchmarks (D19, D42) | WD3, CD1 | Medium |
-| CD5 | DecimalByteParts is the decimal over an integer child: the MSP keeps the canonical width, capped at `i64`, a narrower MSP is an integer `Widen`, and decoding needs no scan (D16). #10905 closed on 2026-11-05, and its replacement is open | WD1, LT3, CD1, CD3, #11284, the CD2 fixtures in 0.91.0 | Medium |
+| CD5 | DecimalByteParts is the decimal over an integer child: the MSP keeps the canonical width, capped at `i64`, a narrower MSP is an integer `Widen`, and decoding needs no scan (D16). CD7 is folded in, so one PR holds both. #10905 closed on 2026-11-05 | WD1, LT3, CD1, CD3, CD3b, #11284, the CD2 fixtures in 0.91.0 | Large |
 | CD6 | The `vortex.decimal` read plugin converts old nodes through `WidenArray::from_stored_decimal` | FX1, CD3, CD3b, CD4, the CD2 fixtures in 0.91.0 | Medium |
-| CD7 | One DecimalByteParts scheme on the canonical array, which stores a narrower MSP as an integer `Widen`, also next to lower parts (D17). #10992 closed on 2026-11-05, and its replacement is open | WD1, CD1, CD3b, CD5 | Medium |
+| CD7 | One DecimalByteParts scheme on the canonical array, which stores a narrower MSP as an integer `Widen`, also next to lower parts (D17). Folded into CD5 on 2026-11-05. #10992 closed on 2026-11-05 | WD1, CD1, CD3b, CD5 | Medium |
 | CD8a | Every decimal array has the canonical width | CD3, CD5, CD6, CD7 | Large |
 | CD8b | `DecimalArray::try_new` checks every valid value, with an `ExecutionCtx` | CD8a | Large |
 | CD8c | Remove the code for mixed decimal widths | CD8a | Medium |
@@ -208,7 +208,7 @@ files. The column "Shared files" names the pairs that do not, so run those one a
 | 2 | WD2, WD6, CD3b | WD6 needs only WD1 (D35) | None |
 | 3 | WD3, then WD4 | One stack. Read the CodSpeed reports with the rule in the NR brief ("CodSpeed on stacked PRs") | None |
 | 4 | WD5, CD4, then CD4b | FX3 is merged (`dcb4f50ae2`). CD4b is stacked on CD4 and has no release gate | WD5 and CD4 both edit `vortex-array/src/arrays/widen/rules.rs` |
-| 5 | CD6, and LT3, CD5, and CD7 | CD6 merged on 2026-11-05. #10905 (CD5) and #10992 (CD7) closed on 2026-11-05 for the redesign of D16. LT3 lands first, and the layout of the rest is open. The scan design does not land in between, even if CD5 and CD7 miss the release of CD6 | CD5 and CD7 share the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs` and `benches/dbp_assemble.rs`, and the stack orders them. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
+| 5 | CD6, and LT3, CD5, and CD7 | CD6 merged on 2026-11-05. #10905 (CD5) and #10992 (CD7) closed on 2026-11-05 for the redesign of D16. LT3 lands first, and one PR for CD5 with CD7 folded in stacks on it. That PR merges only after #11284. It can split later if review needs it. The scan design does not land in between, even if CD5 and CD7 miss the release of CD6 | CD5 and CD7 share the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs` and `benches/dbp_assemble.rs`, and the stack orders them. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
 | 6 | CD8a | The last in-memory step that the wire change needs | None |
 | 7 | CD8b, CD8c, WR1 | Each needs only CD8a | CD8b adds a `ctx` parameter to `DecimalArray::new` and `try_new`, which CD8c and WR1 call. CD8b and CD8c both edit `vortex-array/src/builders/decimal.rs` and the same tests. Land CD8b first, or rebase the others on it |
 | 8 | WR2, then WR3 | WR3 after its design pass. If possible, the wire stack ships in the same release as the in-memory change (D11) | None |

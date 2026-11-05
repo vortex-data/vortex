@@ -1009,8 +1009,8 @@ canonical width wraps it in a `Widen` without decoding is left to the design pas
 Superseded on 2026-11-05. #10905 closed, because DecimalByteParts became the decimal over an
 integer child (D16). The MSP keeps the canonical width, capped at `i64`, and a narrower MSP is an
 integer `Widen`, so decoding needs no scan and never returns a decimal `Widen`. LT3 lands first
-(D19). The brief of the replacement is open. The rest of this section records the design of
-2026-10-29.
+(D19). CD7 folds into the same PR (D41). The brief of the replacement is open. The rest of this
+section records the design of 2026-10-29.
 
 This brief replaces the first design of #10905, which widened every narrow MSP with a copy. That
 design regressed CodSpeed by up to 11x on decode, and by 1.3x to 2.6x on min and max, sum and
@@ -1319,8 +1319,8 @@ Open questions: None. D26 is settled in CD4.
 Superseded on 2026-11-05. #10992 closed with #10905 (D16). Its replacement stores a narrower MSP
 as an integer `Widen`, also next to lower parts (D17). The compressor executes every child to its
 canonical form before it compresses it, so the scheme narrows the MSP, compresses the narrow
-child, and then wraps the result in the `Widen`. The brief of the replacement is open. The rest of
-this section records the design of 2026-10-29.
+child, and then wraps the result in the `Widen`. CD7 folds into the replacement of CD5 (D41). The
+rest of this section records the design of 2026-10-29.
 
 - Goal: The btrblocks decimal scheme takes the canonical array and chooses the number of lower parts
   from the values. It narrows the MSP as the compressor narrows other internal children.
