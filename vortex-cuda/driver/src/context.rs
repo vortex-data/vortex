@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 
 use crate::DriverError;
 use crate::device;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::mem_pool;
 use crate::module::CudaModule;
@@ -60,20 +60,21 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        let _ = log_result("binding context for destruction", self.bind_to_thread());
+        if let Err(error) = self.bind_to_thread() {
+            log_error("binding context for destruction", error);
+        }
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
-            let _ = log_result(
-                "destroying cached CUDA event",
-                unsafe { sys::cuEventDestroy_v2(event) }.result(),
-            );
+            if let Err(error) = unsafe { sys::cuEventDestroy_v2(event) }.result() {
+                log_error("destroying cached CUDA event", error);
+            }
         }
         if !self.mem_pool.is_null() {
             // SAFETY: Created by `wrap` and destroyed once; allocations still live are released
             // by the driver once they are freed.
-            let _ = log_result("destroying CUDA memory pool", unsafe {
-                mem_pool::destroy(self.mem_pool)
-            });
+            if let Err(error) = unsafe { mem_pool::destroy(self.mem_pool) } {
+                log_error("destroying CUDA memory pool", error);
+            }
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
@@ -84,7 +85,9 @@ impl Drop for CudaContext {
                 sys::cuCtxDestroy_v2(self.context)
             }
         };
-        let _ = log_result("releasing CUDA context", released.result());
+        if let Err(error) = released.result() {
+            log_error("releasing CUDA context", error);
+        }
     }
 }
 

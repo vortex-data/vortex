@@ -380,21 +380,22 @@ impl PartialEq for CudaDeviceBuffer {
 /// Retains both sides of an enqueued D2H copy until completion, including an unpolled future.
 struct PendingHostCopy {
     buffers: Option<(ByteBufferMut, Arc<dyn private::DeviceAllocation>)>,
+    // Store this before creating the future so Drop reports it even if the future is never
+    // polled. Taking it when returning the error prevents logging a returned primary error.
+    tracking_error: Option<DriverError>,
 }
 
 impl PendingHostCopy {
-    async fn finish(
-        mut self,
-        len: usize,
-        tracking_result: Result<(), DriverError>,
-    ) -> VortexResult<ByteBuffer> {
+    async fn finish(mut self, len: usize) -> VortexResult<ByteBuffer> {
         let (_, allocation) = self.buffers.as_ref().vortex_expect("copy is pending");
         await_stream_callback(allocation.stream()).await?;
 
         let (mut host_buffer, _keep_alive) = self.buffers.take().vortex_expect("copy is pending");
-        tracking_result.map_err(|err| {
-            VortexError::external(err).with_context("Failed to track CUDA copy source read")
-        })?;
+        if let Some(err) = self.tracking_error.take() {
+            return Err(
+                VortexError::external(err).with_context("Failed to track CUDA copy source read")
+            );
+        }
 
         // SAFETY: The successful callback confirms `cuMemcpyDtoHAsync_v2` fully initialized
         // the buffer. Both allocations have remained alive until this point.
@@ -408,6 +409,9 @@ impl PendingHostCopy {
 
 impl Drop for PendingHostCopy {
     fn drop(&mut self) {
+        if let Some(err) = self.tracking_error.take() {
+            error!(error = ?err, "Unreturned error tracking CUDA copy source read");
+        }
         let Some((host_buffer, allocation)) = self.buffers.take() else {
             return;
         };
@@ -494,14 +498,15 @@ impl DeviceBuffer for CudaDeviceBuffer {
             .result()
             .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
         }
-        let pending_copy = PendingHostCopy {
+        let mut pending_copy = PendingHostCopy {
             buffers: Some((host_buffer, Arc::clone(&self.allocation))),
+            tracking_error: None,
         };
         // Tracking can fail after the copy was enqueued. Do not return that error until the
         // callback has completed, while retaining both allocations even on cancellation.
-        let tracking_result = record_read.finish();
+        pending_copy.tracking_error = record_read.finish().err();
 
-        Ok(Box::pin(pending_copy.finish(len, tracking_result)))
+        Ok(Box::pin(pending_copy.finish(len)))
     }
 
     /// Slices the CUDA device buffer to a subrange.
@@ -615,19 +620,17 @@ mod tests {
     async fn host_copy_completion_returns_tracking_error() -> VortexResult<()> {
         let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let buffer = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
+        // Inject only the tracking result, not a GPU fault. A zero-byte completion still
+        // takes the real callback path before returning the original driver error.
+        let tracking_error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
         let pending_copy = PendingHostCopy {
             buffers: Some((
                 ByteBufferMut::with_capacity(0),
                 Arc::clone(&buffer.allocation),
             )),
+            tracking_error: Some(tracking_error),
         };
-        // Inject only the tracking result, not a GPU fault. A zero-byte completion still
-        // takes the real callback path before returning the original driver error.
-        let tracking_error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
-        let error = pending_copy
-            .finish(0, Err(tracking_error))
-            .await
-            .unwrap_err();
+        let error = pending_copy.finish(0).await.unwrap_err();
         assert_eq!(
             error
                 .source()

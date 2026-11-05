@@ -471,7 +471,11 @@ impl MaterializedPlan {
                 .chain([plan_read_record]),
         )
         .map_err(|e| vortex_err!("dynamic dispatch buffer tracking: {e}"));
-        launch_result?;
+        launch_result.inspect_err(|_| {
+            if let Err(error) = &finish_result {
+                tracing::error!(%error, "Failed to track dynamic dispatch buffers after launch failure");
+            }
+        })?;
         finish_result?;
 
         let output = CudaDeviceBuffer::new(output)?;
@@ -749,7 +753,11 @@ mod tests {
         let finish_result = record_plan
             .finish()
             .map_err(|e| vortex_err!("dynamic dispatch plan tracking: {e}"));
-        launch_result?;
+        launch_result.inspect_err(|_| {
+            if let Err(error) = &finish_result {
+                tracing::error!(%error, "Failed to track dynamic dispatch plan after launch failure");
+            }
+        })?;
         finish_result?;
 
         cuda_ctx

@@ -175,7 +175,11 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         record_d_num_selected,
     ])
     .map_err(|e| vortex_err!("CUB filter buffer tracking: {e}"));
-    launch_result?;
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB filter buffers after launch failure");
+        }
+    })?;
     finish_result?;
 
     // Wrap the device buffer of outputs back up into a BufferHandle.

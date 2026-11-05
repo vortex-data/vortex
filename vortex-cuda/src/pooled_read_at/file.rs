@@ -420,7 +420,11 @@ impl MappedFile {
         let finish_result = write
             .finish()
             .map_err(|error| vortex_err!("Failed to track mapped copy output: {error}"));
-        copy_result?;
+        copy_result.inspect_err(|_| {
+            if let Err(error) = &finish_result {
+                tracing::error!(%error, "Failed to track mapped copy output after copy failure");
+            }
+        })?;
         finish_result?;
         Ok(output)
     }

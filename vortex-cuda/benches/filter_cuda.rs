@@ -130,7 +130,13 @@ async fn run_filter_timed<T: CubFilterable + DeviceRepr>(
         record_d_temp,
         record_d_num_selected,
     ]);
-    launch.map_err(|e| vortex_err!("Filter kernel execution failed: {e}"))?;
+    launch
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track filter buffer access after launch failure");
+            }
+        })
+        .map_err(|e| vortex_err!("Filter kernel execution failed: {e}"))?;
     completion.map_err(|e| vortex_err!("Failed to track filter buffer access: {e}"))?;
 
     let end_event = ctx

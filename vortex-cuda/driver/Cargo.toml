@@ -31,3 +31,6 @@ parking_lot = { workspace = true }
 smallvec = { workspace = true }
 tracing = { workspace = true, features = ["std"] }
 vortex-array = { workspace = true, optional = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

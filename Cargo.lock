@@ -11766,6 +11766,7 @@ dependencies = [
  "parking_lot",
  "smallvec",
  "tracing",
+ "tracing-subscriber",
  "vortex-array",
 ]
 

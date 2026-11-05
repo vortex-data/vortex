@@ -46,7 +46,7 @@ use smallvec::SmallVec;
 
 use crate::DriverError;
 use crate::context::CudaContext;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::repr::DeviceRepr;
 use crate::repr::ValidAsZeroBits;
@@ -265,9 +265,11 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let recorded = self.after(owner, stream, kind);
-        if recorded.is_err() {
-            // If this fails too, the context is broken and its work does not complete.
-            let _ = log_result("wait after access recording failure", stream.synchronize());
+        // If recovery fails too, the context is broken and its work does not complete.
+        if recorded.is_err()
+            && let Err(error) = stream.synchronize()
+        {
+            log_error("wait after access recording failure", error);
         }
         recorded
     }
@@ -354,49 +356,44 @@ impl<'a> SyncOnDrop<'a> {
         }
     }
 
-    /// Performs the pending cleanup, logging and returning any error.
+    /// Performs the pending cleanup, returning any error without logging it.
     ///
     /// The guard is disarmed before cleanup, so dropping it does not retry failed cleanup.
-    #[track_caller]
     pub fn finish(mut self) -> Result<(), DriverError> {
         self.complete()
     }
 
     /// Finishes every guard, returning the first error, if any.
     ///
-    /// Later guards still finish after a failure, and each failure is logged.
-    #[track_caller]
+    /// Later guards still finish after a failure, and only their errors are logged.
     pub fn finish_all(guards: impl IntoIterator<Item = Self>) -> Result<(), DriverError> {
         let mut result = Ok(());
         for guard in guards {
             let finished = guard.finish();
             if result.is_ok() {
                 result = finished;
+            } else if let Err(error) = finished {
+                log_error("finish additional guard", error);
             }
         }
         result
     }
 
-    #[track_caller]
     fn complete(&mut self) -> Result<(), DriverError> {
         match std::mem::replace(&mut self.pending, Pending::None) {
             Pending::None => Ok(()),
-            Pending::Access(access, owner, stream, kind) => log_result(
-                "finish device access",
-                access.after_or_wait(owner, stream, kind),
-            ),
-            Pending::Event(event, stream) => log_result(
-                "record event on guard completion",
-                stream
-                    .bind()
-                    .and_then(|()| stream.record_raw(event.cu_event())),
-            ),
+            Pending::Access(access, owner, stream, kind) => {
+                access.after_or_wait(owner, stream, kind)
+            }
+            Pending::Event(event, stream) => stream
+                .bind()
+                .and_then(|()| stream.record_raw(event.cu_event())),
             Pending::Wait(stream) => {
                 // If this fails, the context is broken and its copies do not complete.
-                log_result("wait on guard completion", stream.synchronize())
+                stream.synchronize()
             }
             #[cfg(test)]
-            Pending::Cleanup(cleanup) => log_result("test guard cleanup", cleanup()),
+            Pending::Cleanup(cleanup) => cleanup(),
         }
     }
 
@@ -411,7 +408,9 @@ impl<'a> SyncOnDrop<'a> {
 
 impl Drop for SyncOnDrop<'_> {
     fn drop(&mut self) {
-        let _ = self.complete();
+        if let Err(error) = self.complete() {
+            log_error("finish guard on drop", error);
+        }
     }
 }
 
@@ -460,13 +459,13 @@ impl<T> Drop for CudaSlice<T> {
     fn drop(&mut self) {
         let context = self.stream.context();
         // If ordering fails, other streams may still access the memory: leak it instead.
-        if log_result(
-            "order device allocation free",
-            self.access.before_free(&self.stream),
-        )
-        .is_ok()
-        {
-            let _ = log_result("free device allocation", self.stream.free_raw(self.pointer));
+        match self.access.before_free(&self.stream) {
+            Ok(()) => {
+                if let Err(error) = self.stream.free_raw(self.pointer) {
+                    log_error("free device allocation", error);
+                }
+            }
+            Err(error) => log_error("order device allocation free", error),
         }
         self.access.release(context);
     }
@@ -1202,7 +1201,11 @@ impl CudaStream {
         let (pointer, record) = target.device_ptr_mut(self)?;
         let result = self.memset_d8_raw(pointer, 0, bytes);
         let finished = record.finish();
-        result?;
+        result.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish device access after memset", error);
+            }
+        })?;
         finished
     }
 
@@ -1236,7 +1239,11 @@ impl CudaStream {
         // SAFETY: The guard keeps the source borrowed until the copy no longer reads it.
         let result = unsafe { self.memcpy_htod_async(source, target) };
         let finished = record_source.finish();
-        result?;
+        result.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish host access after host-to-device copy", error);
+            }
+        })?;
         finished
     }
 
@@ -1272,7 +1279,11 @@ impl CudaStream {
             .result()
         });
         let finished = record.finish();
-        result?;
+        result.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish device access after host-to-device copy", error);
+            }
+        })?;
         finished
     }
 
@@ -1296,9 +1307,27 @@ impl CudaStream {
             }
             .result()
         });
-        let finished = SyncOnDrop::finish_all([record, SyncOnDrop::wait_for(self)]);
-        result?;
-        finished?;
+        let finished = record.finish();
+        let waited = if result.is_ok() && finished.is_ok() {
+            // SAFETY: The copy and access recording left this stream's context current.
+            unsafe { sys::cuStreamSynchronize(self.cu_stream()) }.result()
+        } else {
+            self.synchronize()
+        };
+        result.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish device access after device-to-host copy", error);
+            }
+            if let Err(error) = waited {
+                log_error("wait for device-to-host copy", error);
+            }
+        })?;
+        finished.inspect_err(|_| {
+            if let Err(error) = waited {
+                log_error("wait for device-to-host copy", error);
+            }
+        })?;
+        waited?;
         // SAFETY: The successful copy and wait initialized all `source.len()` elements.
         unsafe { target.set_len(source.len()) };
         Ok(target)
@@ -1332,14 +1361,30 @@ impl CudaStream {
             }
             .result()
         });
-        let waited = SyncOnDrop::wait_for(self).finish();
+        let waited = if result.is_ok() {
+            // SAFETY: The copy left this stream's context current.
+            unsafe { sys::cuStreamSynchronize(self.cu_stream()) }.result()
+        } else {
+            self.synchronize()
+        };
         if waited.is_ok() {
             // Avoid a duplicate same-stream wait, but preserve other waits and recording guards.
             record_target.disarm_wait_for(self);
         }
         let finished = SyncOnDrop::finish_all([record_source, record_target]);
-        result?;
-        waited?;
+        result.inspect_err(|_| {
+            if let Err(error) = waited {
+                log_error("wait for device-to-host copy", error);
+            }
+            if let Err(error) = finished {
+                log_error("finish accesses after device-to-host copy", error);
+            }
+        })?;
+        waited.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish accesses after device-to-host copy", error);
+            }
+        })?;
         finished
     }
 
@@ -1362,7 +1407,11 @@ impl CudaStream {
             unsafe { sys::cuMemcpyDtoDAsync_v2(target, source, bytes, self.cu_stream()) }.result()
         });
         let finished = SyncOnDrop::finish_all([record_source, record_target]);
-        result?;
+        result.inspect_err(|_| {
+            if let Err(error) = finished {
+                log_error("finish accesses after device-to-device copy", error);
+            }
+        })?;
         finished
     }
 
@@ -1383,9 +1432,10 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+    use crate::tests::capture_logs;
 
     #[test]
-    fn finish_returns_error_without_retrying_on_drop() {
+    fn finish_returns_error_without_logging_or_retrying_on_drop() {
         let calls = Cell::new(0);
         let error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
         let mut cleanup = || {
@@ -1395,16 +1445,18 @@ mod tests {
         let guard = SyncOnDrop {
             pending: Pending::Cleanup(&mut cleanup),
         };
-        assert_eq!(guard.finish(), Err(error));
+        let (result, logs) = capture_logs(|| guard.finish());
+        assert_eq!(result, Err(error));
         assert_eq!(calls.get(), 1);
+        assert!(logs.is_empty(), "{logs}");
     }
 
     #[test]
-    fn finish_all_finishes_every_guard_and_returns_first_error() {
+    fn finish_all_finishes_every_guard_and_logs_only_later_errors() {
         let first = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
         let second = DriverError(sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY);
         let calls = &Cell::new(0);
-        let mut cleanups = [Ok(()), Err(first), Err(second), Ok(())].map(|result| {
+        let mut cleanups = [Ok(()), Err(first), Err(second), Err(second), Ok(())].map(|result| {
             move || {
                 calls.set(calls.get() + 1);
                 result
@@ -1417,22 +1469,83 @@ mod tests {
                 pending: Pending::Cleanup(cleanup),
             })
             .inspect(|_| visited += 1);
-        assert_eq!(SyncOnDrop::finish_all(guards), Err(first));
-        assert_eq!(visited, 4);
-        assert_eq!(calls.get(), 4);
+        let (result, logs) = capture_logs(|| SyncOnDrop::finish_all(guards));
+        assert_eq!(result, Err(first));
+        assert_eq!(visited, 5);
+        assert_eq!(calls.get(), 5);
+        assert_eq!(logs.lines().count(), 2, "{logs}");
+        for line in logs.lines() {
+            assert!(line.contains("CUDA operation failed"), "{logs}");
+            assert!(
+                line.contains("operation=\"finish additional guard\""),
+                "{logs}"
+            );
+            assert!(line.contains("error="), "{logs}");
+            assert!(!line.contains("location="), "{logs}");
+        }
     }
 
     #[test]
-    fn drop_runs_failed_cleanup_once() {
+    fn finish_all_returns_single_error_without_logging() {
+        let error = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
+        let mut cleanup = || Err(error);
+        let (result, logs) = capture_logs(|| {
+            SyncOnDrop::finish_all([
+                SyncOnDrop::none(),
+                SyncOnDrop {
+                    pending: Pending::Cleanup(&mut cleanup),
+                },
+                SyncOnDrop::none(),
+            ])
+        });
+        assert_eq!(result, Err(error));
+        assert!(logs.is_empty(), "{logs}");
+    }
+
+    #[test]
+    fn drop_logs_failed_cleanup_once() {
         let calls = Cell::new(0);
         let mut cleanup = || {
             calls.set(calls.get() + 1);
             Err(DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE))
         };
-        drop(SyncOnDrop {
-            pending: Pending::Cleanup(&mut cleanup),
+        let ((), logs) = capture_logs(|| {
+            drop(SyncOnDrop {
+                pending: Pending::Cleanup(&mut cleanup),
+            });
         });
         assert_eq!(calls.get(), 1);
+        assert_eq!(logs.lines().count(), 1, "{logs}");
+        assert!(logs.contains("CUDA operation failed"), "{logs}");
+        assert!(
+            logs.contains("operation=\"finish guard on drop\""),
+            "{logs}"
+        );
+        assert!(logs.contains("error="), "{logs}");
+        assert!(!logs.contains("location="), "{logs}");
+    }
+
+    #[test]
+    fn successful_guard_completion_does_not_log() -> Result<(), DriverError> {
+        let (result, logs) = capture_logs(|| {
+            let mut cleanup = || Ok(());
+            drop(SyncOnDrop {
+                pending: Pending::Cleanup(&mut cleanup),
+            });
+            SyncOnDrop {
+                pending: Pending::Cleanup(&mut cleanup),
+            }
+            .finish()?;
+            SyncOnDrop::finish_all([
+                SyncOnDrop::none(),
+                SyncOnDrop {
+                    pending: Pending::Cleanup(&mut cleanup),
+                },
+            ])
+        });
+        result?;
+        assert!(logs.is_empty(), "{logs}");
+        Ok(())
     }
 
     // Run under Compute Sanitizer to also catch API errors from pageable-pointer probing.

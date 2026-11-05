@@ -325,7 +325,11 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     ]))
     .map_err(|e| vortex_err!("nvcomp decompression buffer tracking: {e}"));
     drop(frame_views);
-    launch_result?;
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track nvcomp decompression buffers after launch failure");
+        }
+    })?;
     finish_result?;
 
     // Unconditionally copy back to the host as Zstd arrays are fully

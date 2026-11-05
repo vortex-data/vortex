@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::DriverError;
 use crate::context::CudaContext;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::sys;
 use crate::sys::CUresult;
 
@@ -33,12 +33,13 @@ impl std::fmt::Debug for CudaModule {
 
 impl Drop for CudaModule {
     fn drop(&mut self) {
-        let _ = log_result("binding context to unload module", self.context.bind_to_thread());
+        if let Err(error) = self.context.bind_to_thread() {
+            log_error("binding context to unload module", error);
+        }
         // SAFETY: Unloaded once, after every function referencing it was dropped.
-        let _ = log_result(
-            "unloading CUDA module",
-            unsafe { sys::cuModuleUnload(self.module) }.result(),
-        );
+        if let Err(error) = unsafe { sys::cuModuleUnload(self.module) }.result() {
+            log_error("unloading CUDA module", error);
+        }
     }
 }
 

@@ -76,7 +76,11 @@ pub(crate) fn onpair_batch_offsets(
     });
     let finish_result = SyncOnDrop::finish_all([record_status, record_offsets, record_temp])
         .map_err(|err| vortex_err!("CUB onpair buffer tracking: {err}"));
-    launch_result?;
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB onpair buffers after launch failure");
+        }
+    })?;
     finish_result?;
 
     Ok(chunk_offsets)
@@ -118,7 +122,11 @@ pub(crate) fn exclusive_sum_i32(
     });
     let finish_result = SyncOnDrop::finish_all([record_input, record_output, record_temp])
         .map_err(|err| vortex_err!("CUB exclusive sum buffer tracking: {err}"));
-    launch_result?;
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB exclusive sum buffers after launch failure");
+        }
+    })?;
     finish_result?;
 
     Ok(output)

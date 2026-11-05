@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::DriverError;
 use crate::context::CudaContext;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::stream::CudaStream;
 use crate::sys;
 
@@ -32,12 +32,13 @@ impl std::fmt::Debug for CudaEvent {
 
 impl Drop for CudaEvent {
     fn drop(&mut self) {
-        let _ = log_result("binding context to destroy event", self.context.bind_to_thread());
+        if let Err(error) = self.context.bind_to_thread() {
+            log_error("binding context to destroy event", error);
+        }
         // SAFETY: Owned events are destroyed once; pending work completes regardless.
-        let _ = log_result(
-            "destroying CUDA event",
-            unsafe { sys::cuEventDestroy_v2(self.event) }.result(),
-        );
+        if let Err(error) = unsafe { sys::cuEventDestroy_v2(self.event) }.result() {
+            log_error("destroying CUDA event", error);
+        }
     }
 }
 

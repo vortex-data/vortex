@@ -11,7 +11,8 @@
 //!
 //! Operations return errors directly. Finish access guards with [`SyncOnDrop::finish`] to
 //! receive tracking errors; dropping a guard still performs cleanup but only logs failures.
-//! Destructor failures are reported through `tracing`, not stored for a later caller. CUDA's
+//! Primary errors are returned without logging. Destructor failures and secondary errors that
+//! cannot be returned are reported through `tracing`, not stored for a later caller. CUDA's
 //! asynchronous device errors can still surface at a later driver call or synchronization.
 //!
 //! [`sys`] exposes the CUDA bindings. Resource-specific modules provide Rust wrappers;

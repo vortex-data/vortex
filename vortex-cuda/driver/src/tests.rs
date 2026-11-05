@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::io;
+use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use crate::CudaContext;
 use crate::CudaStream;
@@ -12,10 +16,40 @@ use crate::DriverError;
 use crate::HostSlice;
 use crate::SyncOnDrop;
 use crate::device;
+use crate::error::log_error;
 use crate::mem_pool;
 use crate::memory;
 use crate::sys;
 use crate::sys::CUmemPool_attribute as PoolAttr;
+
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+impl Write for LogBuffer {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+pub(crate) fn capture_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
+    let buffer = LogBuffer::default();
+    let writer = buffer.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::ERROR)
+        .without_time()
+        .with_ansi(false)
+        .with_target(false)
+        .with_writer(move || writer.clone())
+        .finish();
+    let result = tracing::subscriber::with_default(subscriber, f);
+    let output = String::from_utf8(buffer.0.lock().clone()).expect("UTF-8 logs");
+    (result, output)
+}
 
 /// A context and two streams, or `None` without a CUDA driver or device.
 ///
@@ -89,7 +123,11 @@ fn cross_stream_reads_follow_writes() -> Result<(), DriverError> {
             let result =
                 unsafe { sys::cuMemsetD8Async(pointer, round, bytes, writer.cu_stream()) }.result();
             let finished = record.finish();
-            result?;
+            result.inspect_err(|_| {
+                if let Err(error) = finished {
+                    log_error("finish device access after test memset", error);
+                }
+            })?;
             finished?;
         }
         let tail = reader.clone_dtoh(&device.slice((64 << 20) - 16..))?;

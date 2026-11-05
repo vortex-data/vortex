@@ -89,8 +89,22 @@ fn transfer_mix_timed(
         Ok(())
     };
     let completion = SyncOnDrop::finish_all([record_src, record_dst, record_memset]);
-    copy.expect("enqueue device copy");
-    memset.expect("enqueue device memset");
+    copy.inspect_err(|_| {
+        if let Err(error) = &memset {
+            tracing::error!(%error, "Failed to enqueue device memset after copy failure");
+        }
+        if let Err(error) = &completion {
+            tracing::error!(%error, "Failed to track transfer buffer access after copy failure");
+        }
+    })
+    .expect("enqueue device copy");
+    memset
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track transfer buffer access after memset failure");
+            }
+        })
+        .expect("enqueue device memset");
     completion.expect("track transfer buffer access");
 
     let end_in = in_stream

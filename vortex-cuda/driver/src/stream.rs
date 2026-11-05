@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 
 use crate::DriverError;
 use crate::context::CudaContext;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::sys;
 use crate::sys::CUresult;
@@ -55,12 +55,13 @@ impl Eq for CudaStream {}
 impl Drop for CudaStream {
     fn drop(&mut self) {
         if self.owned {
-            let _ = log_result("binding context to destroy stream", self.bind());
+            if let Err(error) = self.bind() {
+                log_error("binding context to destroy stream", error);
+            }
             // SAFETY: Owned streams are destroyed exactly once; queued work still completes.
-            let _ = log_result(
-                "destroying CUDA stream",
-                unsafe { sys::cuStreamDestroy_v2(self.stream) }.result(),
-            );
+            if let Err(error) = unsafe { sys::cuStreamDestroy_v2(self.stream) }.result() {
+                log_error("destroying CUDA stream", error);
+            }
         }
     }
 }

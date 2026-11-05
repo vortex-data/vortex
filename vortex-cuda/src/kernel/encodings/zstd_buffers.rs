@@ -170,7 +170,11 @@ async fn decode_zstd_buffers(
     ]))
     .map_err(|e| vortex_err!("nvcomp decompression buffer tracking: {e}"));
     drop(frame_views);
-    launch_result?;
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track nvcomp decompression buffers after launch failure");
+        }
+    })?;
     finish_result?;
 
     validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;

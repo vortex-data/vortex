@@ -146,7 +146,13 @@ fn run_timed<T: DeviceRepr + NativePType>(
 
     let launch = unsafe { launch_builder.launch(config) };
     let completion = record_plan.finish();
-    launch.map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
+    launch
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track device plan access after launch failure");
+            }
+        })
+        .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
     completion.map_err(|e| vortex_err!("Failed to track device plan access: {e}"))?;
 
     let stream = cuda_ctx.stream();

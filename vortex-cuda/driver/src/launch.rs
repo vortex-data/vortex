@@ -6,7 +6,7 @@
 use std::ffi::c_void;
 
 use crate::DriverError;
-use crate::error::log_result;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::memory::AccessKind;
 use crate::memory::ArgAccess;
@@ -187,25 +187,26 @@ impl LaunchArgs<'_> {
         }
         .result()?;
         // The kernel is already queued: no failure may skip tracking any of its accesses.
-        let end = log_result(
-            "record kernel end event",
-            self.timing
-                .map(|flags| self.stream.record_event(Some(flags)))
-                .transpose(),
-        );
+        let end = self
+            .timing
+            .map(|flags| self.stream.record_event(Some(flags)))
+            .transpose();
         let mut tracked = Ok(());
         for access in &self.accesses {
-            let result = log_result(
-                "finish kernel argument access",
-                access
-                    .access
-                    .after_or_wait(access.owner, self.stream, access.kind),
-            );
+            let result = access
+                .access
+                .after_or_wait(access.owner, self.stream, access.kind);
             if tracked.is_ok() {
                 tracked = result;
+            } else if let Err(error) = result {
+                log_error("finish additional kernel argument access", error);
             }
         }
-        tracked?;
+        tracked.inspect_err(|_| {
+            if let Err(error) = &end {
+                log_error("record kernel end event", *error);
+            }
+        })?;
         Ok(start.zip(end?))
     }
 }

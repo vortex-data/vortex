@@ -125,7 +125,13 @@ async fn execute_zstd_kernel(
         record_temp,
         record_statuses,
     ]);
-    launch.map_err(|e| vortex_err!("nvcomp decompress_async failed: {e}"))?;
+    launch
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track ZSTD buffer access after launch failure");
+            }
+        })
+        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {e}"))?;
     completion.map_err(|e| vortex_err!("Failed to track ZSTD buffer access: {e}"))?;
 
     let end_event = ctx
