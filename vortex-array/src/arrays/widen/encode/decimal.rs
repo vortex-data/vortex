@@ -30,6 +30,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArraySlots;
 use crate::arrays::DecimalArray;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalArrayExt;
@@ -99,9 +100,9 @@ impl WidenArray {
     /// We reuse buffers at the selected width and convert other widths without rescaling.
     /// A narrowing copy writes zeros in null slots. A reused buffer keeps its null slots.
     ///
-    /// Scanning and conversion use CPU kernels, so noncanonical buffers are brought to the host.
-    /// Their validity **must** already be executable on the host because these kernels need a mask
-    /// to exclude null payloads.
+    /// The scan and the conversion run on the CPU, and the scan reads the validity to skip null
+    /// slots. A CUDA read can leave the values and the validity in device memory, so we copy both
+    /// to the host first, and the result stays there.
     ///
     /// Readers and decoders may already know the range. For noncanonical storage, `known_range`
     /// lets us reuse it:
@@ -151,6 +152,7 @@ impl WidenArray {
         }
 
         let values = values.try_into_host_sync()?;
+        let validity = validity_to_host(validity)?;
         let mask = validity.execute_mask(len, ctx)?;
         match_each_decimal_value_type!(values_type, |T| {
             let values = Buffer::<T>::from_byte_buffer(values);
@@ -158,6 +160,46 @@ impl WidenArray {
             widen_or_canonical(values, validity, &mask, range, decimal_dtype)
         })
     }
+}
+
+/// Returns `validity` with every buffer of its array copied to the host.
+fn validity_to_host(validity: Validity) -> VortexResult<Validity> {
+    match validity {
+        Validity::Array(array) => Ok(Validity::Array(array_to_host(array)?)),
+        Validity::NonNullable | Validity::AllValid | Validity::AllInvalid => Ok(validity),
+    }
+}
+
+/// Returns `array` with the same encoding and every buffer of its tree on the host.
+///
+/// # Errors
+///
+/// Returns an error if a copy to the host fails, or if an encoding with a device buffer cannot
+/// replace its buffers.
+fn array_to_host(array: ArrayRef) -> VortexResult<ArrayRef> {
+    if array.is_host() {
+        return Ok(array);
+    }
+
+    let slots = array
+        .slots()
+        .iter()
+        .map(|slot| slot.clone().map(array_to_host).transpose())
+        .collect::<VortexResult<ArraySlots>>()?;
+    // SAFETY: each slot holds the same values, and only the placement of its buffers changes.
+    let array = unsafe { array.with_slots(slots) }?;
+
+    let buffers = array.buffer_handles();
+    if buffers.iter().all(BufferHandle::is_on_host) {
+        return Ok(array);
+    }
+
+    let buffers = buffers
+        .into_iter()
+        .map(|buffer| Ok(BufferHandle::new_host(buffer.try_into_host_sync()?)))
+        .collect::<VortexResult<Vec<_>>>()?;
+    // SAFETY: each buffer is a host copy of the same bytes, so only the placement changes.
+    unsafe { array.with_buffers(buffers) }
 }
 
 /// Chooses child precision from a valid-value range and the parent scale.
