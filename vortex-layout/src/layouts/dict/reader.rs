@@ -364,8 +364,7 @@ impl LayoutReader for DictReader {
                 let full = self.values_array();
                 let session = self.session.clone();
                 return Ok(async move {
-                    let (source, codes) =
-                        try_join!(source.map_err(VortexError::from), codes_eval)?;
+                    let (source, codes) = try_join!(source.map_err(VortexError::from), codes_eval)?;
                     let mut ctx = session.create_execution_ctx();
                     let codes = codes.execute::<PrimitiveArray>(&mut ctx)?;
                     let array = match pages.take(&source, &codes, &mut ctx)? {
@@ -415,6 +414,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
@@ -422,6 +423,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::dict::dict_encode;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
@@ -447,11 +449,13 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::dict::reader::DictReader;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
@@ -505,6 +509,91 @@ mod tests {
             .await
             .unwrap();
         (layout, segments)
+    }
+
+    /// A sparse projection decodes only the pages of dictionary values that its codes hit.
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
+    #[test]
+    fn sparse_projection_decodes_only_hit_pages() {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let strings = (0..8192)
+                .map(|i| format!("not inlined {i:08}"))
+                .collect::<Vec<_>>();
+            let row_count = strings.len() * 2;
+            let array = VarBinArray::from_iter(
+                (0..row_count).map(|i| Some(strings[i % strings.len()].as_str())),
+                DType::Utf8(Nullability::NonNullable),
+            )
+            .into_array();
+            // Always choose dictionary encoding, which the default compressor may not.
+            let probe = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                Ok(
+                    dict_encode(&chunk.clone().execute::<Canonical>(ctx)?.into_array(), ctx)?
+                        .into_array(),
+                )
+            };
+            let strategy = DictStrategy::new(
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                DictLayoutOptions::default(),
+                Arc::new(probe),
+            );
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let layout = strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    SequentialStreamAdapter::new(
+                        array.dtype().clone(),
+                        array.to_array_stream().sequenced(ptr),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+            assert!(layout.encoding_id() == LayoutId::new("vortex.dict"));
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
+
+            let rows = [5, 4000, 4001];
+            let expression = root().bind(reader.dtype()).unwrap();
+            let actual = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expression,
+                    MaskFuture::ready(Mask::from_indices(row_count, rows)),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+            let expected = VarBinArray::from_iter(
+                rows.iter().map(|&i| Some(strings[i].as_str())),
+                DType::Utf8(Nullability::NonNullable),
+            );
+            assert_arrays_eq!(actual, expected, &mut ctx);
+
+            let pages = reader
+                .as_any()
+                .downcast_ref::<DictReader>()
+                .unwrap()
+                .pages
+                .as_ref()
+                .expect("8192 values should be paged");
+            assert!(
+                (1..=rows.len()).contains(&pages.decoded_pages())
+                    && pages.decoded_pages() < pages.len(),
+                "decoded {} of {} pages",
+                pages.decoded_pages(),
+                pages.len()
+            );
+        })
     }
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]

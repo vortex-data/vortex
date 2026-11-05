@@ -28,13 +28,23 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
-/// Number of values per page, or `0` to always decode the values whole.
+/// Values per page when `VORTEX_DICT_PAGE_SIZE` is unset.
+const DEFAULT_PAGE_SIZE: usize = 1024;
+
+/// Number of values per page, a power of two, or `0` to always decode the values whole.
+///
+/// Read from `VORTEX_DICT_PAGE_SIZE`, rounded up to a power of two.
 pub(super) static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
     std::env::var("VORTEX_DICT_PAGE_SIZE")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&size| size > 0)
-        .map_or(0, usize::next_power_of_two)
+        .map_or(DEFAULT_PAGE_SIZE, |size| {
+            if size == 0 {
+                0
+            } else {
+                size.next_power_of_two()
+            }
+        })
 });
 
 /// Paged decoding is used only when at most `1 / MAX_HIT_DENOMINATOR` of the pages are hit;
@@ -55,10 +65,9 @@ pub(super) struct DictPages {
 
 impl Drop for DictPages {
     fn drop(&mut self) {
-        let decoded = self.pages.iter().filter(|p| p.get().is_some()).count();
         tracing::debug!(
             pages = self.pages.len(),
-            decoded,
+            decoded = self.decoded_pages(),
             len = self.len,
             "dict pages dropped"
         );
@@ -70,8 +79,20 @@ impl DictPages {
         Arc::new(Self {
             page_size,
             len,
-            pages: (0..len.div_ceil(page_size)).map(|_| OnceLock::new()).collect(),
+            pages: (0..len.div_ceil(page_size))
+                .map(|_| OnceLock::new())
+                .collect(),
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.pages.len()
+    }
+
+    /// How many pages have been decoded so far.
+    pub(super) fn decoded_pages(&self) -> usize {
+        self.pages.iter().filter(|p| p.get().is_some()).count()
     }
 
     fn page(
@@ -131,10 +152,7 @@ impl DictPages {
         }
 
         let new_codes = match_each_integer_ptype!(codes.ptype(), |C| {
-            PrimitiveArray::new(
-                remap(codes.as_slice::<C>(), shift, &rank),
-                validity,
-            )
+            PrimitiveArray::new(remap(codes.as_slice::<C>(), shift, &rank), validity)
         });
 
         let pages = hit
