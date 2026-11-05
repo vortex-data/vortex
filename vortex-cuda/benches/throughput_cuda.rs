@@ -59,9 +59,7 @@ fn transfer_mix_timed(
         .device_alloc::<u32>((output_bytes / size_of::<u32>()).max(1))
         .unwrap();
 
-    let (src_ptr, record_src) = dtod_src
-        .device_ptr(&in_stream)
-        .expect("access copy source");
+    let (src_ptr, record_src) = dtod_src.device_ptr(&in_stream).expect("access copy source");
     let (dst_ptr, record_dst) = dtod_dst
         .device_ptr_mut(&in_stream)
         .expect("access copy destination");

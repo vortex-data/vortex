@@ -419,7 +419,10 @@ impl Drop for PendingHostCopy {
         // synchronization must run even when access tracking returned an error.
         if let Err(err) = allocation.stream().synchronize() {
             error!(error = ?err, "Failed to wait for CUDA host copy; retaining in-flight buffers");
-            // Without confirmed completion neither allocation is safe to free.
+            #[allow(
+                clippy::mem_forget,
+                reason = "without confirmed DMA completion, freeing either buffer risks use-after-free"
+            )]
             mem::forget((host_buffer, allocation));
         }
     }

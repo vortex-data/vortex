@@ -265,9 +265,7 @@ fn host_copies_check_copied_slices() -> Result<(), DriverError> {
     let upload =
         std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_htod(&host, &mut device)));
     assert!(upload.is_err());
-    let download =
-        std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_dtoh(&device, &mut host)));
-    download.expect("download must not panic")?;
+    stream.memcpy_dtoh(&device, &mut host)?;
     assert_eq!(host.0, [0, 7, 7, 7]);
     Ok(())
 }
