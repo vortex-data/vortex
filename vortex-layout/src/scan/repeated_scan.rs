@@ -3,6 +3,7 @@
 
 use std::cmp;
 use std::iter;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::task::Poll;
@@ -61,8 +62,8 @@ pub struct RepeatedScan<A> {
     selection: Selection,
     /// The natural splits of the file.
     splits: Splits,
-    /// The number of splits to make progress on concurrently **per-thread**.
-    concurrency: usize,
+    /// How many splits to make progress on at once.
+    concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: MapFn<A>,
     /// Maximal number of rows to read (after filtering).
@@ -136,7 +137,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         row_range: Option<Range<u64>>,
         selection: Selection,
         splits: Splits,
-        concurrency: usize,
+        concurrency: SplitConcurrency,
         map_fn: MapFn<A>,
         limit: Option<ScanLimit>,
         dtype: DType,
@@ -240,7 +241,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let concurrency = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let concurrency = self.concurrency.splits_in_flight();
         let handle = self.session.handle();
         let ordered = self.ordered;
         let ctx = self.task_context();
@@ -383,6 +384,23 @@ fn stop_on_error<T: Send + 'static>(
     .boxed()
 }
 
+/// How many splits a scan makes progress on at once: `per_worker` for each worker thread, as
+/// [`get_available_parallelism`] counts them, and at most `max` in all when that is set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SplitConcurrency {
+    pub(crate) per_worker: usize,
+    pub(crate) max: Option<NonZeroUsize>,
+}
+
+impl SplitConcurrency {
+    fn splits_in_flight(self) -> usize {
+        let scaled = self
+            .per_worker
+            .saturating_mul(get_available_parallelism().unwrap_or(1));
+        self.max.map_or(scaled, |max| scaled.min(max.get()))
+    }
+}
+
 /// Run up to `concurrency` futures of `tasks` at once, in order when `ordered` is set.
 fn buffer<T: Send + 'static>(
     tasks: impl Stream<Item = impl Future<Output = T> + Send + 'static> + Send + 'static,
@@ -407,6 +425,7 @@ fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Opt
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::task::Poll;
 
@@ -419,9 +438,19 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
 
+    use super::SplitConcurrency;
     use super::limit_rows;
     use super::stop_on_error;
     use crate::scan::limit::RowLimit;
+
+    #[test]
+    fn split_cap_handles_oversized_per_worker_concurrency() {
+        let concurrency = SplitConcurrency {
+            per_worker: usize::MAX,
+            max: NonZeroUsize::new(1),
+        };
+        assert_eq!(concurrency.splits_in_flight(), 1);
+    }
 
     #[rstest]
     #[case::whole_array(4)]

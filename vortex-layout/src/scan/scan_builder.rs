@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -39,6 +40,7 @@ use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::repeated_scan::RepeatedScan;
+use crate::scan::repeated_scan::SplitConcurrency;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
@@ -71,7 +73,7 @@ pub struct ScanBuilder<A> {
     /// uses them instead of walking the layout.
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
-    concurrency: usize,
+    concurrency: SplitConcurrency,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -98,7 +100,10 @@ impl ScanBuilder<ArrayRef> {
             natural_splits: None,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
-            concurrency: 4,
+            concurrency: SplitConcurrency {
+                per_worker: 4,
+                max: None,
+            },
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             limit: None,
@@ -222,14 +227,31 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
-        self.concurrency
+        self.concurrency.per_worker
+    }
+
+    /// Returns the most row splits in progress at once, in all, if a bound is set.
+    pub fn max_splits_in_flight(&self) -> Option<NonZeroUsize> {
+        self.concurrency.max
     }
 
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
-        self.concurrency = concurrency;
+        self.concurrency.per_worker = concurrency;
+        self
+    }
+
+    /// Bound the row splits in progress at once to `max` in all, whatever the per-worker
+    /// concurrency and the machine's core count. `None` removes the bound. A filtered, limited
+    /// scan may hold one more trimmed array per split while it is mapped.
+    ///
+    /// Each split in progress holds the decoded chunks of every column it overlaps, so a scan
+    /// that runs alongside others, such as one task of several on a machine, can set this to
+    /// reduce memory held by concurrent decoding. This does not cap total memory or I/O read-ahead.
+    pub fn with_some_max_splits_in_flight(mut self, max: Option<NonZeroUsize>) -> Self {
+        self.concurrency.max = max;
         self
     }
 
