@@ -235,11 +235,15 @@ impl VTable for Dict {
             if !codes.validity()?.definitely_all_null() {
                 // Decode the children without taking values to the full row count. The
                 // variable-binary builders gather directly through these dictionary codes.
-                let values = array
-                    .values()
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_array();
+                let values = if array.values().is::<AnyCanonical>() {
+                    array.values().clone()
+                } else {
+                    array
+                        .values()
+                        .clone()
+                        .execute::<Canonical>(ctx)?
+                        .into_array()
+                };
                 let values = values.as_::<AnyCanonical>();
                 let codes = codes.as_view();
                 if let CanonicalView::VarBinView(values) = values
