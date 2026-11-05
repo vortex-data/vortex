@@ -55,13 +55,6 @@ pub(crate) const MIN_ROWS_PER_CHUNK: usize = ROW_BLOCK_SIZE / 8;
 /// into, so a scan that is one of an engine's partitions keeps several chunks in flight.
 const MIN_CHUNKS_PER_SCAN: u64 = 8;
 
-/// Whether `row_count` rows of `bytes` are so wide that a row block holds more than a chunk's
-/// bytes, so chunks, and the partitions an engine cuts, fall on a grid finer than row blocks.
-pub(crate) fn wide_rows(row_count: u64, bytes: u64) -> bool {
-    row_count > 0
-        && TARGET_BYTES_PER_CHUNK / bytes.div_ceil(row_count).max(1) < ROW_BLOCK_SIZE as u64
-}
-
 /// The rows of a chunk of a scan of `scan_rows` rows that reads `bytes` over a file of
 /// `row_count` rows: whole row blocks of about [`TARGET_BYTES_PER_CHUNK`], at most `max_rows`.
 ///

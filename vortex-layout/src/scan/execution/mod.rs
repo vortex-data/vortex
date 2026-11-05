@@ -42,7 +42,6 @@ pub(crate) use self::chunk::rows_for_bytes;
 pub(crate) use self::chunk::rows_per_chunk;
 #[cfg(test)]
 pub(crate) use self::chunk::scan_chunks;
-pub(crate) use self::chunk::wide_rows;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;

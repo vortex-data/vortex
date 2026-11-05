@@ -59,29 +59,21 @@ pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::plan_bytes;
 use crate::scan::execution::rows_for_bytes;
 use crate::scan::execution::rows_per_chunk;
-use crate::scan::execution::wide_rows;
 use crate::scan::v2::cache::BytesKey;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
-/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned. A
-/// file whose rows are so wide that a block holds more than a chunk's bytes is cut on the finer
-/// grid its chunks use, or most of an engine's partitions of a file of few blocks would be empty.
+/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned.
 pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) -> Range<u64> {
-    let grid = if wide_rows(row_count, file_size) {
-        MIN_ROWS_PER_CHUNK
-    } else {
-        ROW_BLOCK_SIZE
-    } as u64;
     let row = |byte: u64| -> u64 {
         if byte >= file_size {
             return row_count;
         }
         let row = u128::from(byte) * u128::from(row_count) / u128::from(file_size);
         let row = u64::try_from(row).vortex_expect("a row of the file fits u64");
-        row / grid * grid
+        row / ROW_BLOCK_SIZE as u64 * ROW_BLOCK_SIZE as u64
     };
     let start = row(bytes.start);
     start..row(bytes.end).max(start)
@@ -184,6 +176,7 @@ impl ScanBuilder {
             None => cache.insert_root(file.layout.new_plan()?),
         };
         let row_count = root.row_count();
+        let lists = reads_lists(root.dtype(), &self.projection, self.filter.as_ref())?;
         let filtered_chunk_rows = self
             .filter
             .as_ref()
@@ -219,10 +212,10 @@ impl ScanBuilder {
             .row_range
             .as_ref()
             .map_or(row_count, |rows| rows.end - rows.start);
-        // Finding the bytes builds every plan the scan could read, which a scan this short, one
-        // chunk whatever its size, does not need.
+        // Only a scan that reads lists is sized by its bytes. Finding them builds every plan the
+        // scan could read, which a scan this short, one chunk whatever its size, does not need.
         let rows_by_bytes = |max_rows: usize| -> VortexResult<usize> {
-            if scan_rows <= MIN_ROWS_PER_CHUNK as u64 {
+            if !lists || scan_rows <= MIN_ROWS_PER_CHUNK as u64 {
                 return Ok(max_rows);
             }
             let projection_key = BytesKey::Projection(PlanByPtr(projection.clone()));
@@ -263,6 +256,32 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+/// Whether a field `projection` or `filter` reads holds a list. A list layout emits a chunk's
+/// lists only once all their elements have arrived, and a row block of lists can hold many
+/// segments of elements, so such a scan's chunks are sized by the bytes they read.
+fn reads_lists(
+    dtype: &DType,
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+) -> VortexResult<bool> {
+    fn has_list(dtype: &DType) -> bool {
+        match dtype {
+            DType::List(..) => true,
+            DType::Struct(fields, _) => fields.fields().any(|field| has_list(&field)),
+            _ => false,
+        }
+    }
+    let mut fields = referenced_field_paths(projection)?;
+    if let Some(filter) = filter {
+        fields.extend(referenced_field_paths(filter)?);
+    }
+    Ok(fields.into_iter().any(|field| {
+        field
+            .resolve(dtype.clone())
+            .is_some_and(|dtype| has_list(&dtype))
+    }))
 }
 
 fn filtered_rows_per_chunk(

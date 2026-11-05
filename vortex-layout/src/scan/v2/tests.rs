@@ -78,7 +78,6 @@ use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
-use crate::scan::execution::MIN_ROWS_PER_CHUNK;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
 use crate::scan::execution::rows_for_bytes;
@@ -1005,33 +1004,37 @@ fn partition_rows_tile_the_file_on_row_blocks() {
     );
 }
 
-/// A file whose rows are wider than a row block's bytes is cut on its chunks' finer grid, so a
-/// file of few blocks still gives every partition rows.
-#[test]
-fn partition_rows_of_wide_rows_tile_a_finer_grid() {
-    let row_count = 100_000u64;
-    let file_size = row_count * 16 * 1024;
-    let parts = 18u64;
-    let rows: Vec<_> = (0..parts)
-        .map(|part| {
-            super::partition_row_range(
-                file_size * part / parts..file_size * (part + 1) / parts,
-                file_size,
-                row_count,
-            )
-        })
-        .collect();
-    assert_eq!(rows[0].start, 0);
-    assert_eq!(rows[rows.len() - 1].end, row_count);
-    for pair in rows.windows(2) {
-        assert_eq!(pair[0].end, pair[1].start);
-        assert_eq!(pair[0].end % MIN_ROWS_PER_CHUNK as u64, 0);
-    }
-    assert!(rows.iter().all(|rows| !rows.is_empty()));
+/// Only a scan that reads a list, through the projection or the filter, is sized by its bytes.
+#[rstest]
+#[case::list(get_item("lists", root()), None, true)]
+#[case::nested(get_item("nested", root()), None, true)]
+#[case::whole_row(root(), None, true)]
+#[case::list_filter(
+    get_item("ints", root()),
+    Some(is_null(get_item("lists", root()))),
+    true
+)]
+#[case::no_list(
+    get_item("ints", root()),
+    Some(is_null(get_item("strings", root()))),
+    false
+)]
+fn only_list_scans_are_sized_by_bytes(
+    #[case] projection: Expression,
+    #[case] filter: Option<Expression>,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let dtype = table_chunk(0)?.dtype().clone();
+    let filter = filter.map(|filter| filter.bind(&dtype)).transpose()?;
+    assert_eq!(
+        super::reads_lists(&dtype, &projection.bind(&dtype)?, filter.as_ref())?,
+        expected
+    );
+    Ok(())
 }
 
-/// Chunks hold about a chunk's bytes in whole row blocks, and rows wider than a block's bytes are
-/// cut finer, into several chunks of the scan.
+/// Chunks of a list scan hold about a chunk's bytes in whole row blocks, and rows wider than a
+/// block's bytes are cut finer, into several chunks of the scan.
 #[rstest]
 #[case::narrow(100_000, 100_000, 100, 65_536)]
 #[case::wide(100_000, 5_555, 16 * 1024, 1_024)]
