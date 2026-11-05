@@ -9,17 +9,25 @@
 //!
 //! Device memory orders its accesses across streams automatically, paying for driver calls
 //! only when an access crosses streams; see [`CudaSlice`].
+//!
+//! [`sys`] exposes the CUDA bindings. Resource-specific modules provide Rust wrappers;
+//! the managed types own handles and enforce lifetimes and stream ordering.
 
 mod context;
+pub mod device;
+mod error;
+pub mod event;
 mod launch;
-mod memory;
+pub mod mem_pool;
+pub mod memory;
 mod module;
 mod repr;
-pub mod result;
-mod stream;
+pub mod stream;
 pub mod sys;
 
 pub use context::CudaContext;
+pub use error::DriverError;
+pub use event::CudaEvent;
 pub use launch::LaunchArgs;
 pub use launch::LaunchConfig;
 pub use launch::PushKernelArg;
@@ -35,8 +43,6 @@ pub use module::CudaFunction;
 pub use module::CudaModule;
 pub use repr::DeviceRepr;
 pub use repr::ValidAsZeroBits;
-pub use result::DriverError;
-pub use stream::CudaEvent;
 pub use stream::CudaStream;
 
 #[cfg(test)]

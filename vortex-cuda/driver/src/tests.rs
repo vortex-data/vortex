@@ -11,7 +11,8 @@ use crate::DevicePtrMut;
 use crate::DriverError;
 use crate::HostSlice;
 use crate::SyncOnDrop;
-use crate::result;
+use crate::mem_pool;
+use crate::memory;
 use crate::sys;
 use crate::sys::CUmemPool_attribute as PoolAttr;
 
@@ -261,7 +262,7 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     };
     let len = 1 << 20;
     // SAFETY: The context is current after `streams`, and the memory is freed below.
-    let pointer = unsafe { result::malloc_host(len, 0) }?;
+    let pointer = unsafe { memory::malloc_host(len, 0) }?;
     // SAFETY: The allocation holds `len` bytes, initialized below.
     let host = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<u8>(), len) };
     host.fill(1);
@@ -272,7 +273,7 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     stream.memcpy_dtoh(&device, host)?;
     assert!(host.iter().all(|byte| *byte == 1));
     // SAFETY: The copies accessing the memory completed.
-    unsafe { result::free_host(pointer) }?;
+    unsafe { memory::free_host(pointer) }?;
     context.check_err()
 }
 
@@ -291,7 +292,7 @@ fn pool_attribute(
 ) -> Result<u64, DriverError> {
     let mut value = 0u64;
     // SAFETY: These tests pass live pools and attributes with u64 values.
-    unsafe { result::mem_pool::get_attribute(pool, attr, (&raw mut value).cast()) }?;
+    unsafe { mem_pool::get_attribute(pool, attr, (&raw mut value).cast()) }?;
     Ok(value)
 }
 
@@ -332,46 +333,62 @@ fn retaining_pool_keeps_freed_memory() -> Result<(), DriverError> {
 }
 
 #[test]
-fn allocations_use_device_pool_after_override() -> Result<(), DriverError> {
-    let Some(stream) = pooled_stream() else {
+fn borrowed_pool_is_isolated_and_not_destroyed_with_context() -> Result<(), DriverError> {
+    let Some(default_stream) = pooled_stream() else {
         return Ok(());
     };
-    let context = stream.context();
-    let owned = context.mem_pool();
-    // SAFETY: The device's pool outlives the context and its allocations.
-    let device_pool = unsafe { result::device::get_mem_pool(context.cu_device()) }?;
-    // SAFETY: As above.
-    unsafe { context.use_mem_pool(device_pool) };
-    assert_eq!(context.mem_pool(), device_pool);
+    let default_context = default_stream.context();
+    let default_pool = default_context.mem_pool();
+    let host = CudaContext::new(0)?;
+    let host_pool = host.mem_pool();
+    assert!(!host_pool.is_null());
+    assert_ne!(host_pool, default_pool);
+    // SAFETY: `host` owns a pool for device 0 and outlives the borrower and its synchronized frees.
+    let borrowed = unsafe { CudaContext::new_with_mem_pool(0, host_pool) }?;
+    assert_eq!(borrowed.cu_ctx(), default_context.cu_ctx());
+    assert_eq!(borrowed.mem_pool(), host_pool);
+    assert_eq!(default_context.mem_pool(), default_pool);
 
+    let stream = borrowed.new_stream()?;
     let device = stream.alloc_zeros::<u32>(1024)?;
     stream.synchronize()?;
-    let used = pool_attribute(owned, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?;
-    assert_eq!(used, 0);
+    let used = PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT;
+    assert!(pool_attribute(host_pool, used)? > 0);
+    assert_eq!(pool_attribute(default_pool, used)?, 0);
+
     drop(device);
-    stream.synchronize()
+    stream.synchronize()?;
+    drop(stream);
+    drop(borrowed);
+    assert_eq!(pool_attribute(host_pool, used)?, 0);
+    assert!(pool_attribute(host_pool, PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT)? > 0);
+
+    let device = default_stream.alloc_zeros::<u32>(1024)?;
+    default_stream.synchronize()?;
+    assert!(pool_attribute(default_pool, used)? > 0);
+    assert_eq!(pool_attribute(host_pool, used)?, 0);
+    drop(device);
+    default_stream.synchronize()
 }
 
 #[test]
-fn allocations_return_to_owned_pool_after_reset() -> Result<(), DriverError> {
-    let Some(stream) = pooled_stream() else {
+fn null_pool_uses_device_pool_without_changing_other_contexts() -> Result<(), DriverError> {
+    let Some(default_stream) = pooled_stream() else {
         return Ok(());
     };
-    let context = stream.context();
-    let owned = context.mem_pool();
-    // SAFETY: The device's pool outlives the context and its allocations.
-    let device_pool = unsafe { result::device::get_mem_pool(context.cu_device()) }?;
-    // SAFETY: As above.
-    unsafe { context.use_mem_pool(device_pool) };
-    assert_eq!(context.mem_pool(), device_pool);
-    // SAFETY: Null restores the context's owned pool.
-    unsafe { context.use_mem_pool(std::ptr::null_mut()) };
-    assert_eq!(context.mem_pool(), owned);
+    let default_pool = default_stream.context().mem_pool();
+    // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
+    let context = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }?;
+    assert!(context.mem_pool().is_null());
+    assert_eq!(default_stream.context().mem_pool(), default_pool);
 
+    let stream = context.new_stream()?;
     let device = stream.alloc_zeros::<u32>(1024)?;
     stream.synchronize()?;
-    let used = pool_attribute(owned, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?;
-    assert!(used > 0);
+    assert_eq!(
+        pool_attribute(default_pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?,
+        0
+    );
     drop(device);
     stream.synchronize()
 }

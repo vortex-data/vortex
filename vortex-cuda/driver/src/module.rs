@@ -6,8 +6,8 @@
 use std::ffi::CString;
 use std::sync::Arc;
 
+use crate::DriverError;
 use crate::context::CudaContext;
-use crate::result::DriverError;
 use crate::sys;
 use crate::sys::CUresult;
 

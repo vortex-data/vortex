@@ -21,7 +21,7 @@ use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::ValidAsZeroBits;
-use vortex_cuda_driver::result::stream;
+use vortex_cuda_driver::stream;
 use vortex_cuda_driver::sys::CUresult;
 use vortex_cuda_driver::sys::CUstream;
 

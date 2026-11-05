@@ -101,7 +101,8 @@ impl CudaSession {
     /// Creates a CUDA session with an explicit context and default stream pool capacity.
     ///
     /// Uses the supplied context as-is, bypassing default CUDA context sharing. Prefer
-    /// [`Self::try_default`] to share the default context and its device memory pool.
+    /// [`Self::try_default`] to share the default context and its device memory pool. For a
+    /// host-owned pool, supply a context created with [`CudaContext::new_with_mem_pool`].
     pub fn with_context(context: Arc<CudaContext>) -> Self {
         let stream_pool = Arc::new(VortexCudaStreamPool::new(
             Arc::clone(&context),
@@ -164,8 +165,10 @@ impl CudaSession {
     /// are released when the last owner drops, including streams and buffers that outlive their
     /// sessions. A later session initializes a new context. Initialization failures are not cached.
     ///
-    /// Context-level state, including errors and memory pool overrides, is shared. Use
-    /// [`Self::with_context`] with an independently created context when that state must be isolated.
+    /// The wrapper's deferred errors and memory pool are shared. Use [`Self::with_context`] with
+    /// a separate wrapper for independent allocation policy. Separate wrappers created with
+    /// [`CudaContext::new`] still use the same native primary context; use
+    /// [`CudaContext::new_non_primary`] when a separate native context is required.
     ///
     /// Unlike [`Default::default`], this returns an error instead of panicking when CUDA cannot be
     /// initialized.

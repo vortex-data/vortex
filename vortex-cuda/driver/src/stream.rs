@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Streams and events.
+//! Streams and stream operations on raw handles.
 
+use std::ffi::c_void;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use crate::DriverError;
 use crate::context::CudaContext;
-use crate::result::DriverError;
+use crate::event::CudaEvent;
 use crate::sys;
+use crate::sys::CUresult;
 
 /// A process-unique stream identity: stream handles can be reused after a stream is destroyed,
 /// so access tracking never compares raw handles.
@@ -236,98 +239,58 @@ impl CudaStream {
     }
 }
 
-/// A marker in a stream's work that other streams and the host can wait for.
-pub struct CudaEvent {
+/// The (least, greatest) stream priorities of the current context.
+pub fn get_priority_range() -> Result<(i32, i32), DriverError> {
+    let (mut least, mut greatest) = (0, 0);
+    // SAFETY: The driver writes both values.
+    unsafe { sys::cuCtxGetStreamPriorityRange(&raw mut least, &raw mut greatest) }.result()?;
+    Ok((least, greatest))
+}
+
+/// Makes `stream` wait for the work recorded in `event`.
+///
+/// # Safety
+///
+/// Both handles must be valid and belong to the current context.
+pub unsafe fn wait_event(
+    stream: sys::CUstream,
     event: sys::CUevent,
-    context: Arc<CudaContext>,
+    flags: sys::CUevent_wait_flags,
+) -> Result<(), DriverError> {
+    // SAFETY: Under the caller's guarantees.
+    unsafe { sys::cuStreamWaitEvent(stream, event, flags.0) }.result()
 }
 
-// SAFETY: Event handles are usable from any thread.
-unsafe impl Send for CudaEvent {}
-// SAFETY: As above.
-unsafe impl Sync for CudaEvent {}
-
-impl std::fmt::Debug for CudaEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CudaEvent")
-            .field("event", &self.event)
-            .finish()
-    }
+/// Enqueues a host function on `stream`.
+///
+/// # Safety
+///
+/// `stream` must be valid, and `function` must be safe to call once with `argument` from a
+/// driver thread, without making CUDA calls.
+pub unsafe fn launch_host_function(
+    stream: sys::CUstream,
+    function: unsafe extern "C" fn(*mut c_void),
+    argument: *mut c_void,
+) -> Result<(), DriverError> {
+    // SAFETY: Under the caller's guarantees.
+    unsafe { sys::cuLaunchHostFunc(stream, Some(function), argument) }.result()
 }
 
-impl Drop for CudaEvent {
-    fn drop(&mut self) {
-        self.context.record_err(self.context.make_current());
-        // SAFETY: Owned events are destroyed once; pending work completes regardless.
-        self.context
-            .record_err(unsafe { sys::cuEventDestroy_v2(self.event) }.result());
-    }
-}
-
-impl CudaEvent {
-    pub(crate) fn create(
-        context: &Arc<CudaContext>,
-        flags: sys::CUevent_flags,
-    ) -> Result<Self, DriverError> {
-        context.bind_to_thread()?;
-        let mut event = std::ptr::null_mut();
-        // SAFETY: The context is current; the driver writes the new event.
-        unsafe { sys::cuEventCreate(&raw mut event, flags.0) }.result()?;
-        Ok(Self {
-            event,
-            context: Arc::clone(context),
-        })
-    }
-
-    /// The raw event handle; do not destroy it.
-    pub fn cu_event(&self) -> sys::CUevent {
-        self.event
-    }
-
-    /// The event's context.
-    pub fn context(&self) -> &Arc<CudaContext> {
-        &self.context
-    }
-
-    /// Records the work queued on `stream` so far; earlier waits are unaffected.
-    pub fn record(&self, stream: &CudaStream) -> Result<(), DriverError> {
-        stream.bind()?;
-        stream.record_raw(self.event)
-    }
-
-    /// Blocks until the recorded work completes.
-    ///
-    /// Unlike most operations, this leaves errors recorded elsewhere in the context in place,
-    /// so that dropping a host buffer can wait for its own transfers despite them.
-    pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.context.make_current()?;
-        // SAFETY: The event is valid for this object's lifetime.
-        unsafe { sys::cuEventSynchronize(self.event) }.result()
-    }
-
-    /// Whether the recorded work completed; errors count as incomplete.
-    pub fn is_complete(&self) -> bool {
-        matches!(self.try_is_complete(), Ok(true))
-    }
-
-    /// Whether the recorded work completed, without waiting.
-    pub fn try_is_complete(&self) -> Result<bool, DriverError> {
-        // SAFETY: The event is valid for this object's lifetime.
-        match unsafe { sys::cuEventQuery(self.event) } {
-            sys::CUresult::CUDA_SUCCESS => Ok(true),
-            sys::CUresult::CUDA_ERROR_NOT_READY => Ok(false),
-            error => Err(DriverError(error)),
-        }
-    }
-
-    /// Milliseconds from this event to `end`, after both complete.
-    pub fn elapsed_ms(&self, end: &Self) -> Result<f32, DriverError> {
-        self.synchronize()?;
-        end.synchronize()?;
-        let mut milliseconds = 0.0;
-        // SAFETY: Both events completed and were created with timing.
-        unsafe { sys::cuEventElapsedTime(&raw mut milliseconds, self.event, end.event) }
-            .result()?;
-        Ok(milliseconds)
-    }
+/// Enqueues `callback` on `stream` with the status of the preceding work.
+///
+/// After successful registration, the driver calls it exactly once, even after a device
+/// error. Unlike a host function, it is not skipped on error, so it can reclaim resources
+/// owned through `argument`.
+///
+/// # Safety
+///
+/// `stream` must be valid, and `callback` must be safe to call once with `argument` from a
+/// driver thread, without making CUDA calls.
+pub unsafe fn add_callback(
+    stream: sys::CUstream,
+    callback: unsafe extern "C" fn(sys::CUstream, CUresult, *mut c_void),
+    argument: *mut c_void,
+) -> Result<(), DriverError> {
+    // SAFETY: Under the caller's guarantees; the flags are reserved and must be zero.
+    unsafe { sys::cuStreamAddCallback(stream, Some(callback), argument, 0) }.result()
 }

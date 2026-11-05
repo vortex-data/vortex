@@ -20,7 +20,9 @@ use vortex_cuda_driver::CudaContext;
 use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::HostSlice;
 use vortex_cuda_driver::SyncOnDrop;
-use vortex_cuda_driver::result;
+use vortex_cuda_driver::device;
+use vortex_cuda_driver::mem_pool;
+use vortex_cuda_driver::memory;
 use vortex_cuda_driver::sys;
 use vortex_cuda_driver::sys::CU_MEMHOSTALLOC_WRITECOMBINED;
 use vortex_cuda_driver::sys::CUmemPool_attribute_enum;
@@ -68,7 +70,7 @@ struct CudaHostBuffer {
 impl CudaHostBuffer {
     fn alloc(ctx: &Arc<CudaContext>, len: usize, flags: u32) -> Self {
         ctx.bind_to_thread().expect("bind cuda context");
-        let ptr = unsafe { result::malloc_host(len, flags) }.expect("allocate cuda host buffer");
+        let ptr = unsafe { memory::malloc_host(len, flags) }.expect("allocate cuda host buffer");
         Self {
             ctx: Arc::clone(ctx),
             ptr: ptr.cast(),
@@ -111,14 +113,14 @@ impl Drop for CudaHostBuffer {
     fn drop(&mut self) {
         self.ctx.record_err(self.ctx.bind_to_thread());
         self.ctx
-            .record_err(unsafe { result::free_host(self.ptr.cast()) });
+            .record_err(unsafe { memory::free_host(self.ptr.cast()) });
     }
 }
 
 fn device_mem_pool_release_threshold(pool: sys::CUmemoryPool) -> u64 {
     let mut threshold = 0_u64;
     unsafe {
-        result::mem_pool::get_attribute(
+        mem_pool::get_attribute(
             pool,
             CUmemPool_attribute_enum::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
             (&raw mut threshold).cast(),
@@ -131,7 +133,7 @@ fn device_mem_pool_release_threshold(pool: sys::CUmemoryPool) -> u64 {
 fn set_device_mem_pool_release_threshold(pool: sys::CUmemoryPool, threshold: u64) {
     let mut threshold = threshold;
     unsafe {
-        result::mem_pool::set_attribute(
+        mem_pool::set_attribute(
             pool,
             CUmemPool_attribute_enum::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
             (&raw mut threshold).cast(),
@@ -141,8 +143,8 @@ fn set_device_mem_pool_release_threshold(pool: sys::CUmemoryPool, threshold: u64
 }
 
 fn cuda_default_mem_pool() -> sys::CUmemoryPool {
-    let device = result::device::get(0).expect("cuda device");
-    unsafe { result::device::get_mem_pool(device) }.expect("cuda device memory pool")
+    let device = device::get(0).expect("cuda device");
+    unsafe { device::get_mem_pool(device) }.expect("cuda device memory pool")
 }
 
 // The CUDA default mempool setting is shared across this benchmark process.
@@ -186,9 +188,9 @@ fn benchmark_core_primitives(c: &mut Criterion) {
         BenchmarkId::new("default_pool", BUFFER_SIZE_NAME),
         &BUFFER_SIZE,
         |b, &size| {
-            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
-            // SAFETY: The device's pool outlives the benchmark's allocations.
-            unsafe { cuda_ctx.use_mem_pool(cuda_default_mem_pool()) };
+            // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
+            let cuda_ctx = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }
+                .expect("cuda ctx");
             let stream = cuda_ctx.new_stream().expect("cuda stream");
 
             // Seed the pool so the timed loop measures reuse after free+sync.
@@ -217,12 +219,12 @@ fn benchmark_core_primitives(c: &mut Criterion) {
         BenchmarkId::new("default_pool_75pct_threshold", BUFFER_SIZE_NAME),
         &BUFFER_SIZE,
         |b, &size| {
-            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+            // SAFETY: Null selects the device-managed pool, with no borrowed handle to keep alive.
+            let cuda_ctx = unsafe { CudaContext::new_with_mem_pool(0, std::ptr::null_mut()) }
+                .expect("cuda ctx");
             let stream = cuda_ctx.new_stream().expect("cuda stream");
 
             let pool = cuda_default_mem_pool();
-            // SAFETY: The device's pool outlives the benchmark's allocations.
-            unsafe { cuda_ctx.use_mem_pool(pool) };
             let _release_threshold_guard =
                 ThresholdGuard::set(pool, high_device_mem_pool_release_threshold(&cuda_ctx));
 

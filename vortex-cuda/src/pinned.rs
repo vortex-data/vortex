@@ -17,7 +17,8 @@ use vortex::utils::aliases::hash_map::HashMap;
 use vortex_cuda_driver::CudaContext;
 use vortex_cuda_driver::CudaEvent;
 use vortex_cuda_driver::CudaViewMut;
-use vortex_cuda_driver::result;
+use vortex_cuda_driver::DriverError;
+use vortex_cuda_driver::memory;
 use vortex_cuda_driver::sys::CUevent_flags;
 
 use crate::CudaDeviceBuffer;
@@ -64,7 +65,7 @@ impl PinnedByteBuffer {
         ctx.bind_to_thread()
             .map_err(|e| vortex_err!("failed to bind pinned host buffer context: {e}"))?;
         // Keep file-I/O staging cacheable: write-combined pinned memory makes CPU reads expensive.
-        let ptr = unsafe { result::malloc_host(capacity, 0) }
+        let ptr = unsafe { memory::malloc_host(capacity, 0) }
             .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
             .cast::<u8>();
         vortex_ensure!(!ptr.is_null(), "CUDA returned a null pinned host buffer");
@@ -98,7 +99,7 @@ impl Drop for PinnedByteBuffer {
             context.record_err::<()>(Err(error));
             return;
         }
-        context.record_err(unsafe { result::free_host(self.ptr.cast()) });
+        context.record_err(unsafe { memory::free_host(self.ptr.cast()) });
     }
 }
 
@@ -351,7 +352,7 @@ impl PooledPinnedBuffer {
     fn retain_after_transfer(
         mut self,
         stream: &VortexCudaStream,
-        completion: Result<(), result::DriverError>,
+        completion: Result<(), DriverError>,
     ) -> VortexResult<()> {
         if let Err(error) = completion {
             // A failed record can leave an old event behind after DMA was already submitted.
@@ -394,6 +395,7 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex_cuda_driver::CudaContext;
     use vortex_cuda_driver::CudaSlice;
+    use vortex_cuda_driver::stream;
     use vortex_cuda_driver::sys::cudaError_enum;
 
     use super::*;
@@ -606,7 +608,7 @@ mod tests {
         let data = Box::into_raw(Box::new(receiver));
         // SAFETY: The stream is live; the callback owns data on successful registration.
         unsafe {
-            result::stream::launch_host_function(stream.cu_stream(), wait, data.cast()).map_err(
+            stream::launch_host_function(stream.cu_stream(), wait, data.cast()).map_err(
                 |error| {
                     drop(Box::from_raw(data));
                     vortex_err!("Failed to block test stream: {error}")
@@ -675,9 +677,8 @@ mod tests {
         submit_to_bucket(pinned, &stream, &mut first)?;
         let pinned = pool.get(len)?;
         // Consumed by wait -> bind_to_thread -> check_err; the error text checks that path.
-        pool.ctx.record_err::<()>(Err(result::DriverError(
-            cudaError_enum::CUDA_ERROR_INVALID_VALUE,
-        )));
+        pool.ctx
+            .record_err::<()>(Err(DriverError(cudaError_enum::CUDA_ERROR_INVALID_VALUE)));
         let error = pinned
             .copy_to_device(&other, 0..len, &mut second.slice_mut(..))
             .expect_err("pending wait must fail before submission");
@@ -710,9 +711,7 @@ mod tests {
         }
         let result = pinned.retain_after_transfer(
             &stream,
-            Err(result::DriverError(
-                cudaError_enum::CUDA_ERROR_INVALID_VALUE,
-            )),
+            Err(DriverError(cudaError_enum::CUDA_ERROR_INVALID_VALUE)),
         );
         assert!(result.is_err());
         assert!(pool.inflight.lock().is_empty());
