@@ -44,10 +44,13 @@ use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::ScalarUDF;
+use datafusion_expr::physical_planning_context::ScalarSubqueryResults;
+use datafusion_expr::physical_planning_context::SubqueryIndex;
 use datafusion_functions::core::coalesce::CoalesceFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
+use datafusion_physical_expr::scalar_subquery::ScalarSubqueryExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
@@ -67,6 +70,8 @@ use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
 
+use super::rewrite::PendingSubquery;
+use super::rewrite::substitute_scalar_subqueries;
 use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
@@ -2417,4 +2422,72 @@ fn test_fallible_boolean_rhs_is_residual(
     expr.evaluate(&batch)?;
     assert!(!converts(&expr, &batch.schema())?);
     Ok(())
+}
+
+fn scalar_subquery(value: Option<ScalarValue>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let results = ScalarSubqueryResults::new(1);
+    if let Some(value) = value {
+        results.set(SubqueryIndex::new(0), value)?;
+    }
+    Ok(Arc::new(ScalarSubqueryExpr::new(
+        DataType::Int64,
+        true,
+        SubqueryIndex::new(0),
+        results,
+    )))
+}
+
+/// `CAST(a AS Int64) >= (SELECT ...)`, the shape of TPC-DS Q54's date filter.
+fn subquery_predicate(subquery: Arc<dyn PhysicalExpr>) -> Arc<dyn PhysicalExpr> {
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            DataType::Int64,
+            None,
+        )),
+        DFOperator::GtEq,
+        subquery,
+    ))
+}
+
+#[rstest]
+#[case::resolved(Some(ScalarValue::Int64(Some(2))), PendingSubquery::Keep, Some(ScalarValue::Int64(Some(2))))]
+#[case::resolved_null(Some(ScalarValue::Int64(None)), PendingSubquery::Keep, Some(ScalarValue::Int64(None)))]
+#[case::pending_kept(None, PendingSubquery::Keep, None)]
+#[case::pending_placeholder(None, PendingSubquery::Placeholder, Some(ScalarValue::Int64(Some(0))))]
+fn test_substitute_scalar_subqueries(
+    #[case] value: Option<ScalarValue>,
+    #[case] pending: PendingSubquery,
+    #[case] expected: Option<ScalarValue>,
+) -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let predicate = subquery_predicate(scalar_subquery(value)?);
+    assert!(!converts(&predicate, &schema)?);
+
+    let substituted = substitute_scalar_subqueries(Arc::clone(&predicate), pending)?;
+    let binary = substituted
+        .downcast_ref::<df_expr::BinaryExpr>()
+        .ok_or_else(|| anyhow::anyhow!("Expected a binary expression"))?;
+    let literal = binary
+        .right()
+        .downcast_ref::<df_expr::Literal>()
+        .map(|literal| literal.value().clone());
+    assert_eq!(literal, expected);
+    assert_eq!(converts(&substituted, &schema)?, expected.is_some());
+    if expected.is_none() {
+        assert!(Arc::ptr_eq(&substituted, &predicate));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_substituted_scalar_subquery_matches_datafusion() -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3), None]))?;
+    let predicate = subquery_predicate(scalar_subquery(Some(ScalarValue::Int64(Some(2))))?);
+    let substituted = substitute_scalar_subqueries(Arc::clone(&predicate), PendingSubquery::Keep)?;
+    assert_eq!(
+        substituted.evaluate(&batch)?.into_array(batch.num_rows())?.as_ref(),
+        predicate.evaluate(&batch)?.into_array(batch.num_rows())?.as_ref(),
+    );
+    assert_native_matches(substituted, batch)
 }

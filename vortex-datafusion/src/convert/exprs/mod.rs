@@ -863,5 +863,6 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> DFResult<Option<&Arc<dy
     }
 }
 
+pub(crate) mod rewrite;
 #[cfg(test)]
 mod tests;

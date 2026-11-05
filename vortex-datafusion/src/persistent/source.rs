@@ -48,6 +48,8 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::convert::exprs::rewrite::PendingSubquery;
+use crate::convert::exprs::rewrite::substitute_scalar_subqueries;
 use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
@@ -532,7 +534,15 @@ impl FileSource for VortexSource {
                     Ok(PushedDownPredicate::unsupported(expr))
                 } else if self
                     .expression_converter
-                    .try_convert(&expr, self.table_schema.table_schema())?
+                    // Scalar subqueries run after planning; the opener substitutes their values,
+                    // or evaluates the conjunct in DataFusion if the result does not convert.
+                    .try_convert(
+                        &substitute_scalar_subqueries(
+                            Arc::clone(&expr),
+                            PendingSubquery::Placeholder,
+                        )?,
+                        self.table_schema.table_schema(),
+                    )?
                     .is_some()
                 {
                     Ok(PushedDownPredicate::supported(expr))
