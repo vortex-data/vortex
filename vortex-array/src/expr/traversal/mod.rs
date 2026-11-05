@@ -9,19 +9,21 @@ mod fold;
 mod visitor;
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 pub use fold::FoldDownContext;
 pub use fold::FoldUp;
 pub use fold::NodeFolderContext;
+use smallvec::SmallVec;
+use smallvec::smallvec;
 pub use visitor::pre_order_visit_down;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 
 /// Signal to control a traversal's flow
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraversalOrder {
     /// In a top-down traversal, skip visiting the children of the current node.
     /// In the bottom-up phase of the traversal, skip the next step. Either skipping the children of the node,
@@ -125,72 +127,201 @@ pub trait NodeRewriter: Sized {
     }
 }
 
+/// A tree node that the traversals in this module walk.
+///
+/// Every traversal here keeps its own stack of frames instead of recursing, so a tree deeper than
+/// the thread's stack allows, such as a chain of thousands of nested expressions, still walks.
 pub trait Node: Sized + Clone {
-    /// Walk the node's children by applying `f` to them.
-    ///
-    /// This is a lower level API that other functions rely on for their implementation.
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        f: F,
-    ) -> VortexResult<TraversalOrder>;
+    /// The node's children, in slot order.
+    fn node_children(&self) -> &[Self];
 
-    /// Rewrite the node's children by applying `f` to them.
-    ///
-    /// This is a lower level API that other functions rely on for their implementation.
-    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Self>>;
+    /// Rebuild this node with new children, one per slot.
+    fn with_node_children(self, children: Vec<Self>) -> VortexResult<Self>;
+}
 
-    /// This is a lower level API that other functions rely on for their implementation.
-    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T;
+/// A node whose children are being rewritten.
+struct RewriteFrame<T> {
+    node: T,
+    changed: bool,
+    next_child: usize,
+    /// The rewritten children so far. Stays `None` until a child actually changes, so untouched
+    /// subtrees are never rebuilt.
+    rewritten: Option<Vec<T>>,
+    /// The order the last rewritten child returned.
+    order: TraversalOrder,
+}
 
-    /// This is a lower level API that other functions rely on for their implementation.
-    fn children_count(&self) -> usize;
+impl<T: Node> RewriteFrame<T> {
+    fn new(down: Transformed<T>) -> Self {
+        Self {
+            node: down.value,
+            changed: down.changed,
+            next_child: 0,
+            rewritten: None,
+            order: TraversalOrder::Continue,
+        }
+    }
+
+    /// The next child to rewrite, if any remain.
+    fn next_child(&mut self) -> Option<T> {
+        let child = self.node.node_children().get(self.next_child)?.clone();
+        self.next_child += 1;
+        Some(child)
+    }
+
+    /// Take the result of the child that `next_child` handed out last.
+    fn absorb(&mut self, child: Transformed<T>) {
+        let index = self.next_child - 1;
+        self.changed |= child.changed;
+        self.order = child.order;
+        if child.changed && self.rewritten.is_none() {
+            self.rewritten = Some(self.node.node_children()[..index].to_vec());
+        }
+        if let Some(rewritten) = &mut self.rewritten {
+            rewritten.push(child.value);
+        }
+        if self.order == TraversalOrder::Stop {
+            // The remaining siblings are left as they are.
+            if let Some(rewritten) = &mut self.rewritten {
+                rewritten.extend_from_slice(&self.node.node_children()[self.next_child..]);
+            }
+            self.next_child = self.node.node_children().len();
+        }
+    }
+
+    fn finish(self) -> VortexResult<Transformed<T>> {
+        Ok(match self.rewritten {
+            Some(children) => Transformed {
+                value: self.node.with_node_children(children)?,
+                order: self.order,
+                changed: true,
+            },
+            None => Transformed {
+                value: self.node,
+                order: self.order,
+                changed: self.changed,
+            },
+        })
+    }
+}
+
+/// The frames of a bottom-up fold: a node, the next child to visit, and the children's results.
+type FoldUpStack<'a, T, R> = SmallVec<[(&'a T, usize, SmallVec<[R; 4]>); 8]>;
+
+/// A node whose children are being folded.
+struct FoldFrame<T, C, R> {
+    node: T,
+    ctx: C,
+    next_child: usize,
+    results: Vec<R>,
 }
 
 pub trait NodeExt: Node {
     /// Walk the tree in pre-order (top-down) way, rewriting it as it goes.
+    ///
+    /// `visit_down` sees each node before its children and `visit_up` after them. A `Skip` from
+    /// `visit_down` leaves the children alone but still visits the node on the way up. A `Stop`
+    /// ends the walk: the remaining nodes are left as they are and no ancestor is visited on the
+    /// way up.
     fn rewrite<R: NodeRewriter<NodeTy = Self>>(
         self,
         rewriter: &mut R,
     ) -> VortexResult<Transformed<Self>> {
-        let mut transformed = rewriter.visit_down(self)?;
+        let mut stack: Vec<RewriteFrame<Self>> = Vec::new();
+        let mut pending = Some(self);
+        // The result of the subtree finished last, waiting for its parent frame.
+        let mut finished: Option<Transformed<Self>> = None;
 
-        let transformed = match transformed.order {
-            TraversalOrder::Stop => Ok(transformed),
-            TraversalOrder::Skip => {
-                transformed.order = TraversalOrder::Continue;
-                Ok(transformed)
+        loop {
+            if let Some(node) = pending.take() {
+                let down = rewriter.visit_down(node)?;
+                match down.order {
+                    TraversalOrder::Stop => finished = Some(down),
+                    TraversalOrder::Skip => {
+                        let mut up = rewriter.visit_up(down.value)?;
+                        up.changed |= down.changed;
+                        finished = Some(up);
+                    }
+                    TraversalOrder::Continue => stack.push(RewriteFrame::new(down)),
+                }
             }
-            TraversalOrder::Continue => transformed
-                .value
-                .map_children(|c| c.rewrite(rewriter))
-                .map(|mut t| {
-                    t.changed |= transformed.changed;
-                    t
-                }),
-        }?;
 
-        match transformed.order {
-            TraversalOrder::Stop | TraversalOrder::Skip => Ok(transformed),
-            TraversalOrder::Continue => {
-                let mut up_rewrite = rewriter.visit_up(transformed.value)?;
-                up_rewrite.changed |= transformed.changed;
-                Ok(up_rewrite)
+            if let Some(result) = finished.take() {
+                let Some(frame) = stack.last_mut() else {
+                    return Ok(result);
+                };
+                frame.absorb(result);
             }
+
+            let frame = stack
+                .last_mut()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            if let Some(child) = frame.next_child() {
+                pending = Some(child);
+                continue;
+            }
+
+            let frame = stack
+                .pop()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            let transformed = frame.finish()?;
+            finished = Some(match transformed.order {
+                TraversalOrder::Stop | TraversalOrder::Skip => transformed,
+                TraversalOrder::Continue => {
+                    let mut up = rewriter.visit_up(transformed.value)?;
+                    up.changed |= transformed.changed;
+                    up
+                }
+            });
         }
     }
 
     /// A pre-order (top-down) traversal.
+    ///
+    /// `visit_down` sees each node before its children and `visit_up` after them. A `Skip` from
+    /// `visit_down` leaves the children alone but still visits the node on the way up. A `Stop`
+    /// from either ends the walk without visiting any ancestor on the way up.
     fn accept<'a, V: NodeVisitor<'a, NodeTy = Self>>(
         &'a self,
         visitor: &mut V,
     ) -> VortexResult<TraversalOrder> {
-        visitor
-            .visit_down(self)?
-            .visit_children(|| self.apply_children(|c| c.accept(visitor)))?
-            .visit_parent(|| visitor.visit_up(self))
+        let mut stack: Vec<(&'a Self, usize)> = Vec::new();
+        let mut pending = Some(self);
+        let mut finished: Option<TraversalOrder> = None;
+
+        loop {
+            if let Some(node) = pending.take() {
+                match visitor.visit_down(node)? {
+                    TraversalOrder::Stop => finished = Some(TraversalOrder::Stop),
+                    TraversalOrder::Skip => finished = Some(visitor.visit_up(node)?),
+                    TraversalOrder::Continue => stack.push((node, 0)),
+                }
+            }
+
+            if let Some(order) = finished.take() {
+                if stack.is_empty() {
+                    return Ok(order);
+                }
+                if order == TraversalOrder::Stop {
+                    stack.pop();
+                    finished = Some(TraversalOrder::Stop);
+                    continue;
+                }
+            }
+
+            let (node, next_child) = stack
+                .last_mut()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            let node: &'a Self = node;
+            if let Some(child) = node.node_children().get(*next_child) {
+                *next_child += 1;
+                pending = Some(child);
+                continue;
+            }
+
+            stack.pop();
+            finished = Some(visitor.visit_up(node)?);
+        }
     }
 
     /// A pre-order transformation
@@ -207,41 +338,95 @@ pub trait NodeExt: Node {
     }
 
     /// applies the `NodeFolderContext` to the Node tree, with an initial `Context`.
+    ///
+    /// A `Stop` from any node ends the fold with that result, without visiting any ancestor on
+    /// the way up.
     fn fold_context<R, F: NodeFolderContext<NodeTy = Self, Result = R>>(
         self,
         ctx: &F::Context,
         folder: &mut F,
     ) -> VortexResult<FoldUp<R>> {
-        let transformed = folder.visit_down(ctx, &self)?;
-        let ctx = match transformed {
-            FoldDownContext::Continue(ctx) => ctx,
-            FoldDownContext::Skip(r) => return Ok(FoldUp::Continue(r)),
-            FoldDownContext::Stop(r) => return Ok(FoldUp::Stop(r)),
-        };
+        let mut stack: Vec<FoldFrame<Self, F::Context, R>> = Vec::new();
+        let mut pending = Some(self);
+        let mut finished: Option<FoldUp<R>> = None;
 
-        let mut children = Vec::with_capacity(self.children_count());
-        let mut stop_result = None;
-        self.iter_children(|children_iter| -> VortexResult<()> {
-            for c in children_iter {
-                let t = c.clone().fold_context(&ctx, folder)?;
-                match t {
-                    FoldUp::Stop(r) => {
-                        stop_result = Some(r);
-                        return Ok(());
+        loop {
+            if let Some(node) = pending.take() {
+                let parent_ctx = stack.last().map_or(ctx, |frame| &frame.ctx);
+                match folder.visit_down(parent_ctx, &node)? {
+                    FoldDownContext::Continue(child_ctx) => {
+                        let results = Vec::with_capacity(node.node_children().len());
+                        stack.push(FoldFrame {
+                            node,
+                            ctx: child_ctx,
+                            next_child: 0,
+                            results,
+                        });
                     }
-                    FoldUp::Continue(r) => {
-                        children.push(r);
-                    }
+                    FoldDownContext::Skip(result) => finished = Some(FoldUp::Continue(result)),
+                    FoldDownContext::Stop(result) => finished = Some(FoldUp::Stop(result)),
                 }
             }
-            Ok(())
-        })?;
 
-        if let Some(result) = stop_result {
-            return Ok(FoldUp::Stop(result));
+            if let Some(result) = finished.take() {
+                let Some(frame) = stack.last_mut() else {
+                    return Ok(result);
+                };
+                match result {
+                    FoldUp::Stop(result) => return Ok(FoldUp::Stop(result)),
+                    FoldUp::Continue(result) => frame.results.push(result),
+                }
+            }
+
+            let frame = stack
+                .last_mut()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            if let Some(child) = frame.node.node_children().get(frame.next_child) {
+                frame.next_child += 1;
+                pending = Some(child.clone());
+                continue;
+            }
+
+            let frame = stack
+                .pop()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            finished = Some(folder.visit_up(frame.node, &frame.ctx, frame.results)?);
         }
+    }
 
-        folder.visit_up(self, &ctx, children)
+    /// Fold the tree bottom-up: `f` sees each node with the results of its children in slot
+    /// order, and the root's result is returned.
+    fn fold_up<'a, R>(
+        &'a self,
+        mut f: impl FnMut(&'a Self, SmallVec<[R; 4]>) -> VortexResult<R>,
+    ) -> VortexResult<R> {
+        let mut stack: FoldUpStack<'a, Self, R> =
+            smallvec![(self, 0, SmallVec::with_capacity(self.node_children().len()))];
+
+        loop {
+            let (node, next_child, _) = stack
+                .last_mut()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            let node: &'a Self = node;
+            if let Some(child) = node.node_children().get(*next_child) {
+                *next_child += 1;
+                stack.push((
+                    child,
+                    0,
+                    SmallVec::with_capacity(child.node_children().len()),
+                ));
+                continue;
+            }
+
+            let (node, _, results) = stack
+                .pop()
+                .vortex_expect("a frame is on the stack until its subtree is finished");
+            let result = f(node, results)?;
+            match stack.last_mut() {
+                Some((_, _, parent_results)) => parent_results.push(result),
+                None => return Ok(result),
+            }
+        }
     }
 }
 
@@ -264,286 +449,23 @@ where
     }
 }
 
-/// A container holding a [`Node`]'s children, which a function can be applied (or mapped) to.
-///
-/// The trait is also implemented to container types in order to make implementing [`Node::map_children`]
-/// and [`Node::apply_children`] easier.
-pub trait NodeContainer<'a, T: 'a>: Sized {
-    /// Applies `f` to all elements of the container, accepting them by reference
-    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        f: F,
-    ) -> VortexResult<TraversalOrder>;
-
-    /// Consumes all the children of the node, replacing them with the result of `f`.
-    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Self>>;
-}
-
-pub trait NodeRefContainer<'a, T: 'a>: Sized {
-    fn apply_ref_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &self,
-        f: F,
-    ) -> VortexResult<TraversalOrder>;
-}
-
-impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeRefContainer<'a, T> for &'a [C] {
-    fn apply_ref_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        let mut order = TraversalOrder::Continue;
-
-        for c in *self {
-            order = c.apply_elements(&mut f)?;
-            match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => {}
-                TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
-            }
-        }
-
-        Ok(order)
-    }
-}
-
-impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Box<C> {
-    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        f: F,
-    ) -> VortexResult<TraversalOrder> {
-        self.as_ref().apply_elements(f)
-    }
-
-    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Box<C>>> {
-        Ok((*self).map_elements(f)?.map(Box::new))
-    }
-}
-
-impl<'a, T, C> NodeContainer<'a, T> for Arc<C>
-where
-    T: 'a,
-    C: NodeContainer<'a, T> + Clone,
-{
-    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        f: F,
-    ) -> VortexResult<TraversalOrder> {
-        self.as_ref().apply_elements(f)
-    }
-
-    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Arc<C>>> {
-        Ok(Arc::unwrap_or_clone(self).map_elements(f)?.map(Arc::new))
-    }
-}
-
-impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for [C; 2] {
-    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        let [lhs, rhs] = self;
-        match lhs.apply_elements(&mut f)? {
-            TraversalOrder::Skip | TraversalOrder::Continue => rhs.apply_elements(&mut f),
-            TraversalOrder::Stop => Ok(TraversalOrder::Stop),
-        }
-    }
-
-    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
-        self,
-        mut f: F,
-    ) -> VortexResult<Transformed<[C; 2]>> {
-        let [lhs, rhs] = self;
-        let transformed = lhs.map_elements(&mut f)?;
-        match transformed.order {
-            TraversalOrder::Skip | TraversalOrder::Continue => {
-                let mut t = rhs.map_elements(&mut f)?;
-                t.changed |= transformed.changed;
-                Ok(t.map(|new_lhs| [new_lhs, transformed.value]))
-            }
-            TraversalOrder::Stop => Ok(transformed.map(|new_lhs| [new_lhs, rhs])),
-        }
-    }
-}
-
-impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Vec<C> {
-    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        let mut order = TraversalOrder::Continue;
-
-        for c in self {
-            order = c.apply_elements(&mut f)?;
-            match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => {}
-                TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
-            }
-        }
-
-        Ok(order)
-    }
-
-    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
-        self,
-        mut f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        let mut order = TraversalOrder::Continue;
-        let mut changed = false;
-
-        let value = self
-            .into_iter()
-            .map(|c| match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => {
-                    c.map_elements(&mut f).map(|result| {
-                        order = result.order;
-                        changed |= result.changed;
-                        result.value
-                    })
-                }
-                TraversalOrder::Stop => Ok(c),
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        Ok(Transformed {
-            value,
-            order,
-            changed,
-        })
-    }
-}
-
-impl<'a> NodeContainer<'a, Self> for Expression {
-    fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        f(self)
-    }
-
-    fn map_elements<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        mut f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        f(self)
-    }
-}
-
 impl Node for Expression {
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        self.children().apply_ref_elements(&mut f)
+    fn node_children(&self) -> &[Self] {
+        Expression::children(self)
     }
 
-    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        let transformed = self.children().to_vec().map_elements(f)?;
-
-        if transformed.changed {
-            Ok(Transformed {
-                value: self.with_children(transformed.value)?,
-                order: transformed.order,
-                changed: true,
-            })
-        } else {
-            Ok(Transformed::no(self))
-        }
-    }
-
-    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        f(&mut self.children().iter())
-    }
-
-    fn children_count(&self) -> usize {
-        self.children().len()
+    fn with_node_children(self, children: Vec<Self>) -> VortexResult<Self> {
+        Expression::with_children(self, children)
     }
 }
 
 impl Node for BoundExpression {
-    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
-        &'a self,
-        mut f: F,
-    ) -> VortexResult<TraversalOrder> {
-        let BoundExpression::Scalar { children, .. } = self else {
-            return Ok(TraversalOrder::Continue);
-        };
-
-        for child in children.iter() {
-            match f(child)? {
-                TraversalOrder::Continue | TraversalOrder::Skip => {}
-                TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
-            }
-        }
-
-        Ok(TraversalOrder::Continue)
+    fn node_children(&self) -> &[Self] {
+        BoundExpression::children(self)
     }
 
-    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
-        self,
-        mut f: F,
-    ) -> VortexResult<Transformed<Self>> {
-        let BoundExpression::Scalar { children, .. } = &self else {
-            return Ok(Transformed::no(self));
-        };
-
-        let mut order = TraversalOrder::Continue;
-        // Stays `None` until a child actually changes. Most nodes of a rewritten tree are
-        // untouched.
-        let mut rewritten: Option<Vec<Self>> = None;
-
-        for (index, child) in children.iter().enumerate() {
-            let value = match order {
-                TraversalOrder::Continue | TraversalOrder::Skip => {
-                    let result = f(child.clone())?;
-                    order = result.order;
-                    if result.changed && rewritten.is_none() {
-                        let mut prefix = Vec::with_capacity(children.len());
-                        prefix.extend_from_slice(&children[..index]);
-                        rewritten = Some(prefix);
-                    }
-                    result.value
-                }
-                TraversalOrder::Stop => child.clone(),
-            };
-
-            if let Some(rewritten) = &mut rewritten {
-                rewritten.push(value);
-            }
-        }
-
-        match rewritten {
-            Some(rewritten) => Ok(Transformed {
-                value: self.with_children(rewritten)?,
-                order,
-                changed: true,
-            }),
-            None => Ok(Transformed::no(self)),
-        }
-    }
-
-    fn iter_children<T>(&self, f: impl FnOnce(&mut dyn Iterator<Item = &Self>) -> T) -> T {
-        match self {
-            BoundExpression::Scalar { children, .. } => f(&mut children.iter()),
-            BoundExpression::Root { .. } => f(&mut std::iter::empty()),
-        }
-    }
-
-    fn children_count(&self) -> usize {
-        match self {
-            BoundExpression::Scalar { children, .. } => children.len(),
-            BoundExpression::Root { .. } => 0,
-        }
+    fn with_node_children(self, children: Vec<Self>) -> VortexResult<Self> {
+        BoundExpression::with_children(self, children)
     }
 }
 

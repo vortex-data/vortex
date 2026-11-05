@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::SmallVec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -12,60 +11,48 @@ use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::expression::unbound_variable;
+use crate::expr::traversal::NodeExt;
 use crate::scalar_fn::fns::literal::Literal;
 
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
     pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
-        let BoundExpression::Scalar {
-            scalar_fn,
-            children,
-            ..
-        } = expr
-        else {
-            return Ok(self);
-        };
-
-        if let Some(scalar) = scalar_fn.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
-        }
-
         let len = self.len();
-        let children = children
-            .iter()
-            .map(|child| self.clone().apply_bound(child))
-            .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
+        expr.fold_up(|node, children| {
+            let BoundExpression::Scalar { scalar_fn, .. } = node else {
+                return Ok(self.clone());
+            };
 
-        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
+            if let Some(scalar) = scalar_fn.as_opt::<Literal>() {
+                return Ok(ConstantArray::new(scalar.clone(), len).into_array());
+            }
+
+            Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
+        })
     }
 
     /// Apply the expression to this array, producing a new array in constant time.
     pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
-        // If the expression is a root, return self.
-        if expr.is_root() {
-            return Ok(self);
-        }
-        if let Expression::Variable(name) = expr {
-            return Err(unbound_variable(name));
-        }
-
-        // Manually convert literals to ConstantArray.
-        if let Some(scalar) = expr.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
-        }
-
-        // Otherwise, collect the child arrays.
         let len = self.len();
-        let children = expr
-            .children()
-            .iter()
-            .map(|e| self.clone().apply(e))
-            .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
+        expr.fold_up(|node, children| {
+            // The scope root is the array itself.
+            if node.is_root() {
+                return Ok(self.clone());
+            }
+            if let Expression::Variable(name) = node {
+                return Err(unbound_variable(name));
+            }
 
-        // And wrap the scalar function up in an array.
-        let scalar_fn = expr
-            .as_scalar()
-            .vortex_expect("leaves and literals were handled above, so this is a scalar node");
-        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
+            // Manually convert literals to ConstantArray.
+            if let Some(scalar) = node.as_opt::<Literal>() {
+                return Ok(ConstantArray::new(scalar.clone(), len).into_array());
+            }
+
+            // Otherwise wrap the scalar function up in an array over the child arrays.
+            let scalar_fn = node
+                .as_scalar()
+                .vortex_expect("leaves and literals were handled above, so this is a scalar node");
+            Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
+        })
     }
 }

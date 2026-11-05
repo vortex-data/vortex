@@ -315,6 +315,55 @@ pub fn bound_nested_case_when(
         .vortex_expect("case expressions must have boolean conditions and matching branch dtypes")
 }
 
+/// Creates a COALESCE expression: the first non-null value of `values` per row.
+///
+/// The result is one flat n-ary CASE WHEN, so the tree depth stays at one however many values
+/// there are. Prefer this over folding `case_when(is_null(acc), value, acc)` over the values,
+/// which nests one level per value and walks and executes `acc` twice per level.
+///
+/// `CASE WHEN is_not_null(v_0) THEN v_0 ... WHEN is_not_null(v_{n-2}) THEN v_{n-2} ELSE v_{n-1} END`
+///
+/// The last value is the ELSE branch. The result dtype follows CASE WHEN: it is nullable when any
+/// value is nullable. A single value is returned as is.
+///
+/// # Panics
+///
+/// Panics when `values` is empty.
+pub fn coalesce(values: impl IntoIterator<Item = Expression>) -> Expression {
+    let mut values: Vec<Expression> = values.into_iter().collect();
+    let Some(else_value) = values.pop() else {
+        vortex_panic!("coalesce requires at least one value");
+    };
+    if values.is_empty() {
+        return else_value;
+    }
+    let pairs = values
+        .into_iter()
+        .map(|value| (is_not_null(value.clone()), value))
+        .collect();
+    nested_case_when(pairs, Some(else_value))
+}
+
+/// Creates a bound COALESCE expression. See [`coalesce`].
+///
+/// # Panics
+///
+/// Panics when `values` is empty.
+pub fn bound_coalesce(values: impl IntoIterator<Item = BoundExpression>) -> BoundExpression {
+    let mut values: Vec<BoundExpression> = values.into_iter().collect();
+    let Some(else_value) = values.pop() else {
+        vortex_panic!("coalesce requires at least one value");
+    };
+    if values.is_empty() {
+        return else_value;
+    }
+    let pairs = values
+        .into_iter()
+        .map(|value| (bound_is_not_null(value.clone()), value))
+        .collect();
+    bound_nested_case_when(pairs, Some(else_value))
+}
+
 // ---- Binary operators ----
 
 /// Creates a binary expression with the given operator.
@@ -1504,6 +1553,7 @@ pub mod bound {
     pub use super::bound_case_when_no_else as case_when_no_else;
     pub use super::bound_cast as cast;
     pub use super::bound_checked_add as checked_add;
+    pub use super::bound_coalesce as coalesce;
     pub use super::bound_col as col;
     pub use super::bound_dynamic as dynamic;
     pub use super::bound_dynamic_expression as dynamic_expression;

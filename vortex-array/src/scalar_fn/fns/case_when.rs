@@ -478,6 +478,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use smallvec::SmallVec;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
@@ -502,6 +503,7 @@ mod tests {
     use crate::expr::Expression;
     use crate::expr::case_when;
     use crate::expr::case_when_no_else;
+    use crate::expr::coalesce;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
@@ -513,6 +515,7 @@ mod tests {
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::expr::traversal::NodeExt;
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::VecExecutionArgs;
@@ -1597,6 +1600,103 @@ mod tests {
             ),
             Nullability::NonNullable,
         )
+    }
+
+    /// Three nullable i64 columns, each non-null on its own rows, plus a row null everywhere.
+    fn coalesce_sources() -> VortexResult<ArrayRef> {
+        Ok(StructArray::try_from_iter([
+            (
+                "a",
+                PrimitiveArray::from_option_iter([Some(1i64), None, None, None]).into_array(),
+            ),
+            (
+                "b",
+                PrimitiveArray::from_option_iter([Some(10i64), Some(20), None, None]).into_array(),
+            ),
+            (
+                "c",
+                PrimitiveArray::from_option_iter([None, None, Some(300i64), None]).into_array(),
+            ),
+        ])?
+        .into_array())
+    }
+
+    #[test]
+    fn coalesce_is_one_flat_case_when() -> VortexResult<()> {
+        let expr = coalesce([col("a"), col("b"), col("c")]);
+        let options = expr.as_::<CaseWhen>();
+        assert_eq!(options.num_when_then_pairs, 2);
+        assert!(options.has_else);
+        assert_eq!(expr.children().len(), 5);
+        // The depth does not grow with the number of values.
+        let wide = coalesce((0..1000).map(|i| col(format!("c{i}"))));
+        assert_eq!(wide.as_::<CaseWhen>().num_when_then_pairs, 999);
+        assert_eq!(depth(&wide), depth(&expr));
+        Ok(())
+    }
+
+    fn depth(expr: &Expression) -> usize {
+        expr.fold_up(|_, children: SmallVec<[usize; 4]>| {
+            Ok(children.into_iter().max().unwrap_or(0) + 1)
+        })
+        .vortex_expect("depth")
+    }
+
+    #[test]
+    fn coalesce_single_value_is_the_value() {
+        assert_eq!(coalesce([col("a")]), col("a"));
+    }
+
+    #[test]
+    fn coalesce_dtype_follows_case_when() -> VortexResult<()> {
+        let scope = nullable_i64_scope(&["a", "b"]);
+        // A nullable value makes the result nullable, even as a THEN branch guarded by
+        // `is_not_null`: the CASE WHEN dtype rule unions the branch dtypes.
+        let nullable = coalesce([col("a"), lit(0i64)]).bind(&scope)?;
+        assert_eq!(
+            nullable.dtype(),
+            &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        let non_nullable = coalesce([lit(1i64), lit(0i64)]).bind(&scope)?;
+        assert_eq!(
+            non_nullable.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn coalesce_matches_the_nested_fold() -> VortexResult<()> {
+        let sources = coalesce_sources()?;
+        let flat = coalesce([col("a"), col("b"), col("c")]);
+        // The left-nested fold `coalesce` replaces: earlier sources win.
+        let nested = [col("a"), col("b"), col("c")]
+            .into_iter()
+            .reduce(|acc, value| case_when(is_null(acc.clone()), value, acc))
+            .vortex_expect("three sources");
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let flat_result = sources
+            .clone()
+            .apply(&flat)?
+            .execute::<Canonical>(&mut ctx)?;
+        let nested_result = sources.apply(&nested)?.execute::<Canonical>(&mut ctx)?;
+        assert_arrays_eq!(
+            flat_result,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(20), Some(300), None]),
+            &mut ctx
+        );
+        assert_arrays_eq!(flat_result, nested_result, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn coalesce_round_trips_through_proto() -> VortexResult<()> {
+        let expr = coalesce([col("a"), col("b"), col("c"), lit(0i64)]);
+        let proto = expr.serialize_proto()?;
+        let decoded = pb::Expr::decode(proto.encode_to_vec().as_slice())?;
+        assert_eq!(Expression::from_proto(&decoded, &SESSION)?, expr);
+        Ok(())
     }
 
     #[test]

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::Cell;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -16,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::drop_guard::DropDepthGuard;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::display::DisplayTreeExpr;
@@ -281,34 +281,6 @@ impl Display for Expression {
     }
 }
 
-// Switch to iterative cleanup after this many recursive drops.
-const MAX_DROP_DEPTH: u32 = 32;
-
-thread_local! {
-    static DROP_DEPTH: Cell<u32> = const { Cell::new(0) };
-}
-
-// Increments the thread-local drop depth until the guard is dropped.
-struct DropDepthGuard;
-
-impl DropDepthGuard {
-    fn enter() -> Option<Self> {
-        DROP_DEPTH.with(|depth| {
-            let current = depth.get();
-            (current < MAX_DROP_DEPTH).then(|| {
-                depth.set(current + 1);
-                Self
-            })
-        })
-    }
-}
-
-impl Drop for DropDepthGuard {
-    fn drop(&mut self) {
-        DROP_DEPTH.with(|depth| depth.set(depth.get() - 1));
-    }
-}
-
 impl Drop for Expression {
     fn drop(&mut self) {
         let Self::Scalar { children, .. } = self else {
@@ -342,9 +314,29 @@ impl Drop for Expression {
 mod tests {
     use std::thread;
 
+    use vortex_session::VortexSession;
+
     use super::*;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::and;
+    use crate::expr::case_when;
+    use crate::expr::gt;
     use crate::expr::lit;
     use crate::expr::not;
+    use crate::expr::root;
+    use crate::expr::traversal::NodeExt;
+    use crate::expr::traversal::Transformed;
+    use crate::expr::traversal::TraversalOrder;
+    use crate::expr::traversal::pre_order_visit_down;
+    use crate::scalar_fn::fns::case_when::CaseWhen;
+    use crate::scalar_fn::fns::literal::Literal;
 
     fn deep_expression(depth: usize) -> Expression {
         let mut expr = lit(true);
@@ -369,6 +361,100 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    /// A left-nested chain `case_when(root > k, k, previous)`, `depth` levels deep, with no
+    /// shared subtrees so every walk is linear in the depth.
+    fn deep_case_when_chain(depth: usize) -> Expression {
+        let mut expr = lit(0i32);
+        for level in 1..=depth {
+            let level = i32::try_from(level).vortex_expect("depth fits in i32");
+            expr = case_when(gt(root(), lit(level)), lit(level), expr);
+        }
+        expr
+    }
+
+    fn run_on_small_stack(
+        name: &'static str,
+        f: impl FnOnce() -> VortexResult<()> + Send + 'static,
+    ) {
+        const STACK_SIZE: usize = 2 << 20;
+        let worker = thread::Builder::new()
+            .name(name.to_string())
+            .stack_size(STACK_SIZE)
+            .spawn(f)
+            .vortex_expect("spawn");
+        let Ok(result) = worker.join() else {
+            panic!("{name}: a tree of depth {DEEP} exhausted a {STACK_SIZE} byte stack");
+        };
+        result.vortex_expect("the walk over a deep tree failed");
+    }
+
+    const DEEP: usize = 100_000;
+
+    #[test]
+    fn deep_expression_binds_within_a_small_stack() {
+        run_on_small_stack("bind", || {
+            let bound = deep_case_when_chain(DEEP)
+                .bind(&DType::Primitive(PType::I32, Nullability::NonNullable))?;
+            assert_eq!(
+                bound.dtype(),
+                &DType::Primitive(PType::I32, Nullability::NonNullable)
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn deep_expression_walks_within_a_small_stack() {
+        run_on_small_stack("walk", || {
+            let expr = deep_case_when_chain(DEEP);
+
+            let mut literals = 0usize;
+            pre_order_visit_down(&expr, |node| {
+                literals += usize::from(node.is::<Literal>());
+                Ok(TraversalOrder::Continue)
+            })?;
+            // One literal per level for the branch, one per condition, and the innermost one.
+            assert_eq!(literals, 2 * DEEP + 1);
+
+            let rewritten = expr.transform_down(|node| {
+                Ok(if node.is::<Literal>() {
+                    Transformed::yes(lit(1i32))
+                } else {
+                    Transformed::no(node)
+                })
+            })?;
+            assert!(rewritten.changed);
+            assert!(rewritten.value.contains::<CaseWhen>()?);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn deep_expression_applies_within_a_small_stack() {
+        run_on_small_stack("apply", || {
+            let expr = deep_case_when_chain(DEEP);
+            let array = PrimitiveArray::from_iter([0i32, 1, 2]).into_array();
+            let applied = array.apply(&expr)?;
+            assert_eq!(applied.len(), 3);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn deep_and_chain_executes_within_a_small_stack() {
+        run_on_small_stack("execute", || {
+            let mut expr = root();
+            for _ in 0..DEEP {
+                expr = and(expr, root());
+            }
+            let array = BoolArray::from_iter([true, false, true]).into_array();
+            let mut ctx = VortexSession::empty().create_execution_ctx();
+            let result = array.apply(&expr)?.execute::<BoolArray>(&mut ctx)?;
+            assert_arrays_eq!(result, BoolArray::from_iter([true, false, true]), &mut ctx);
+            Ok(())
+        });
     }
 
     #[test]
