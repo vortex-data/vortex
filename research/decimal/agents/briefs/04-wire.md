@@ -305,6 +305,11 @@ PR merges after October 2026.
 
 ### WR3: A `Narrow` scheme in the compressor
 
+Superseded in part on 2026-11-05: the scheme narrows only integers, and DecimalByteParts is the only
+scheme that narrows decimals (D33). The decimal parts of this brief, which are the decimal goal,
+the CD3, CD4, and CD7 dependencies, and `WidenArray::encode_decimal`, no longer apply. The rest of
+the text is kept as the record of the earlier design.
+
 This brief needs a design pass before a coding agent starts. Two questions are still open: which
 arrays the scheme may narrow (deferred, D27), and how the scheme fits the `AlwaysUse` contract and
 the cascade budget (D33). The facts below are the input for that pass.

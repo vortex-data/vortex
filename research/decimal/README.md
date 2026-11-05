@@ -41,8 +41,8 @@ canonical decimal encoding.
   canonical array of its own dtype. One compressor scheme builds it from the canonical array, so v1
   file contents stay the same.
 - Decided: `vortex.widen` stays in memory until the maintainer decides to write it. Then it
-  enters one preview edition together with DecimalByteParts with lower parts. Only then does a
-  decimal `Narrow` scheme narrow the decimal type first. Default writers use `core`, so until both
+  enters one preview edition together with DecimalByteParts with lower parts. DecimalByteParts is
+  the only scheme that narrows decimals (D33). Default writers use `core`, so until both
   formats enter `core`, they write wide decimals with values above 64 bits as plain `i256` arrays.
 - Decided: the bar of no compute regression applies to the final state. A DecimalByteParts array
   keeps its narrow MSP in memory, and sum, min, and max run on the MSP.

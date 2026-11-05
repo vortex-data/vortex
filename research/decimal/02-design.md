@@ -354,12 +354,11 @@ The compressor has one DBP scheme (decided, D17):
 - The scheme is not temporary. Writers whose edition does not permit `vortex.widen` need it. These
   include default writers until `vortex.widen` enters `core`, and writers that select an older
   edition.
-- When an edition permits `vortex.widen`, a `Narrow` scheme runs first and narrows the decimal type
-  (decided, D33). It is a real scheme at first. Its design settles its precedence with the DBP
-  scheme, which returns `AlwaysUse`, and the cascade level that it uses. The DBP scheme then
-  compresses the child. So the compressor writes a `Widen` of dtype `Decimal(p, s)` over a DBP
-  child of dtype `Decimal(p', s)`. DBP already narrows its own MSP (decided, D16), so the design
-  of WR3 also settles whether a decimal `Widen` above DBP still helps.
+- DBP is the only scheme that narrows decimals (decided, D33). The `Narrow` scheme of WR3
+  narrows only integers. A DBP MSP that is an integer `Widen` reads with no scan and can narrow
+  next to lower parts, while a narrow decimal node reads through the scan of D40, so a decimal
+  `Narrow` scheme would only add a worse path. Floats work the same way: ALP turns them into
+  integers, and the integer schemes do the rest.
 - For precision 39 to 76 with values that need more than 64 bits, the compressor uses the
   lower-parts form when an edition permits it. Otherwise, it writes a plain `i256` array. Today it
   writes a plain `i128` array, which D3 forbids.

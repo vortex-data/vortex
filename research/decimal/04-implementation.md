@@ -88,7 +88,7 @@ planning review on 2026-10-23.
 | CD8c | Remove the code for mixed decimal widths | CD8a | Medium |
 | WR1 | `vortex.widen` wire format for integers and decimals | WD1, CD3, CD4, CD8a | Medium |
 | WR2 | One preview edition with `vortex.widen` and DecimalByteParts v2 | WR1, CD5, CD7 | Small |
-| WR3 | A `Narrow` scheme in the compressor (needs a design pass) | WR1, WR2, WD1, WD5, CD3, CD4, CD7 | Large |
+| WR3 | An integer `Narrow` scheme in the compressor (needs a design pass). DecimalByteParts is the only decimal narrowing (D33) | WR1, WR2, WD1, WD5 | Large |
 
 Later work: LT1 puts both formats into `core` and decides the end of the serialization
 workaround. LT2, the range pass in DecimalByteParts decoding that returns a `Widen`, is dropped,
@@ -235,8 +235,7 @@ which publishes the CD2 fixtures, also gates CD5 and CD6, so CD2 is worth landin
 ## Deferred
 
 - Which arrays the compressor narrows (D27). The WR3 design pass decides it, together with the
-  precedence between the `Narrow` scheme and the DecimalByteParts scheme and the cascade level
-  (D33).
+  cascade level (D33).
 - Other members of the preview edition. WR2 adds only `vortex.widen` and
   `vortex.decimal_byte_parts.v2`.
 - Arrow import options for invalid decimal values (D13). The import fails, and the error names

@@ -220,10 +220,9 @@ in-memory change (decided, D11). It holds three parts:
 - The `vortex.widen` wire format for integers and decimals (decided, D8). This is the second part
   of PR #10333.
 - One new preview edition that permits `vortex.widen` and DecimalByteParts with lower parts.
-- A `Narrow` scheme that narrows the decimal type first, for writers that select that edition. It
-  runs before the DecimalByteParts scheme, which then compresses the child (decided, D33). Its
-  design pass settles which arrays it narrows (decided, D27), its precedence with the
-  DecimalByteParts scheme, and its cascade level.
+- A `Narrow` scheme for integers, for writers that select that edition. DecimalByteParts is the
+  only scheme that narrows decimals (decided, D33). Its design pass settles which arrays it
+  narrows (decided, D27) and its cascade level.
 
 Later, both formats enter `core` together.
 
@@ -235,7 +234,7 @@ width until a consumer needs the canonical array (decided, D16). This holds for 
 | Wave | Work |
 | --- | --- |
 | 0, independent | Strict enum decoding, the DecimalByteParts nullability fix, N1, the integer `Widen` in memory followed by the `encode_values` PR, and the decimal benchmarks and fixtures |
-| 1, one canonical form | N11 as two changes (D11). The in-memory change holds the width owner, N28 for decimals, DecimalByteParts decoding, the read plugin, the DecimalByteParts scheme on the canonical array and the strict `try_new`, each as its own PR. The wire change holds the `vortex.widen` wire format, the preview edition with DecimalByteParts lower parts, and the decimal `Narrow` scheme |
+| 1, one canonical form | N11 as two changes (D11). The in-memory change holds the width owner, N28 for decimals, DecimalByteParts decoding, the read plugin, the DecimalByteParts scheme on the canonical array and the strict `try_new`, each as its own PR. The wire change holds the `vortex.widen` wire format, the preview edition with DecimalByteParts lower parts, and the integer `Narrow` scheme |
 | 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N3, then N2 and N4, with the decimal rules as acceptance tests. N21 `Duration` and `Interval` after N1 and N4. N23 engine plugins |
 | 3, new types | N9 wide integers, user-visible only behind an edition (recommendation DQ5). N10 edition gates and the protobuf `oneof`. N17 FixedSizeBinary, after DQ7. N5 array validation |
 | 4, decimal kernels | N12 for precision 19 to 76. N13 rules over the view, which delete most decimal kernels. N14, which is optional. N18 and N27 |
