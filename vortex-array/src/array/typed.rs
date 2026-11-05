@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::drop_guard::DropDepthGuard;
 use crate::dtype::DType;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
@@ -47,10 +48,67 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
-    pub(crate) slots: ArraySlots,
+    pub(crate) slots: Slots,
     pub(crate) stats: ArrayStats,
     pub(crate) optimized: OptimizedState,
     pub(crate) data: D, // must be last for unsized coercion
+}
+
+/// The children of an array node, in slot order.
+///
+/// Drops iteratively, so a lazy tree deeper than the thread's stack allows, such as a chain of
+/// thousands of nested scalar functions, still drops. A child that another owner holds is left to
+/// that owner, so only uniquely held subtrees are walked here.
+#[derive(Default)]
+pub(crate) struct Slots(ArraySlots);
+
+impl Slots {
+    pub(crate) fn into_inner(mut self) -> ArraySlots {
+        std::mem::take(&mut self.0)
+    }
+}
+
+impl From<ArraySlots> for Slots {
+    fn from(slots: ArraySlots) -> Self {
+        Self(slots)
+    }
+}
+
+impl Deref for Slots {
+    type Target = ArraySlots;
+
+    fn deref(&self) -> &ArraySlots {
+        &self.0
+    }
+}
+
+impl DerefMut for Slots {
+    fn deref_mut(&mut self) -> &mut ArraySlots {
+        &mut self.0
+    }
+}
+
+impl Drop for Slots {
+    fn drop(&mut self) {
+        if self.0.iter().all(Option::is_none) {
+            return;
+        }
+
+        let mut to_drop = std::mem::take(&mut self.0);
+        match DropDepthGuard::enter() {
+            Some(_guard) => drop(to_drop),
+            None => {
+                while let Some(slot) = to_drop.pop() {
+                    let Some(mut child) = slot else {
+                        continue;
+                    };
+                    if let Some(mut grandchildren) = child.take_slots_if_unique() {
+                        to_drop.append(&mut grandchildren);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Construction parameters for typed arrays.
@@ -173,7 +231,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
                     len,
                     encoding_id,
                     dtype,
-                    slots,
+                    slots: slots.into(),
                     stats,
                     optimized: OptimizedState::default(),
                     data: ArrayData { vtable, data },
@@ -356,7 +414,7 @@ impl<V: VTable> Array<V> {
                 dtype: store.dtype,
                 len: store.len,
                 data: store.data.data,
-                slots: store.slots,
+                slots: store.slots.into_inner(),
             }),
             Err(typed_arc) => Err(Self {
                 inner: ArrayRef::from_inner(typed_arc),
