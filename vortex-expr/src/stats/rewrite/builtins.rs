@@ -23,6 +23,7 @@ use vortex_array::expr::bound::gt_eq;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::bound::lt;
 use vortex_array::expr::bound::lt_eq;
+use vortex_array::expr::bound::not;
 use vortex_array::expr::bound::or;
 use vortex_array::expr::bound::or_collect;
 use vortex_array::expr::stats::Stat;
@@ -52,6 +53,8 @@ use vortex_session::VortexSession;
 
 use crate::stats::bound::stat;
 use crate::stats::rewrite::StatsRewriteRule;
+use crate::stats::rewrite::any_in_range::AnyInRange;
+use crate::stats::rewrite::any_in_range::AnyInRangeOptions;
 use crate::stats::rewrite::dynamic_expression::StatsProof;
 use crate::stats::rewrite::dynamic_expression::dynamic_stats_proof;
 use crate::stats::rewrite::falsify;
@@ -521,9 +524,10 @@ impl StatsRewriteRule for ListContainsAllNonNanStatsRewrite {
     }
 }
 
-/// Lists with more elements falsify `needle IN list` with the bounds of the list rather than
-/// with a test per element, which keeps the pruning expression, and its evaluation per zone,
-/// small for the large lists of dynamic join filters.
+/// Lists with more distinct elements falsify `needle IN list` with a binary search of the sorted
+/// list per zone rather than with a test per element, which keeps the pruning expression small
+/// for the large lists of dynamic join filters while still pruning zones that fall between two
+/// elements.
 const MAX_LIST_ELEMENT_FALSIFICATIONS: usize = 16;
 
 /// The smallest and largest non-null elements, or `None` when there are none or two elements
@@ -571,25 +575,58 @@ fn list_contains_falsify<P: NonNanProof>(
         return Ok(None);
     };
 
-    let value_predicate = if elements.len() > MAX_LIST_ELEMENT_FALSIFICATIONS
-        && let Some((low, high)) = non_null_bounds(&elements)
-    {
-        Some(or(
-            lt(value_max, lit(low.clone())),
-            gt(value_min, lit(high.clone())),
-        ))
+    let value_predicate = if elements.len() > MAX_LIST_ELEMENT_FALSIFICATIONS {
+        large_list_falsifier(&elements, value_min, value_max)?
     } else {
-        and_collect(elements.iter().map(|value| {
-            or(
-                lt(value_max.clone(), lit(value.clone())),
-                gt(value_min.clone(), lit(value.clone())),
-            )
-        }))
+        element_falsifiers(&elements, &value_min, &value_max)
     };
     value_predicate
         .map(|value_predicate| with_non_nan_guards::<P>([needle], value_predicate))
         .transpose()
         .map(Option::flatten)
+}
+
+/// `needle` lies outside `[value_min, value_max]` for every element, one test per element.
+fn element_falsifiers(
+    elements: &[Scalar],
+    value_min: &BoundExpression,
+    value_max: &BoundExpression,
+) -> Option<BoundExpression> {
+    and_collect(elements.iter().map(|value| {
+        or(
+            lt(value_max.clone(), lit(value.clone())),
+            gt(value_min.clone(), lit(value.clone())),
+        )
+    }))
+}
+
+/// Falsifies membership in a large list with a binary search per zone over the list, sorted
+/// once here, so the predicate stays a single node however long the list is.
+fn large_list_falsifier(
+    elements: &[Scalar],
+    value_min: BoundExpression,
+    value_max: BoundExpression,
+) -> VortexResult<Option<BoundExpression>> {
+    let options = AnyInRangeOptions::try_new(elements).filter(|options| {
+        value_min
+            .dtype()
+            .eq_ignore_nullability(options.values()[0].dtype())
+    });
+    Ok(match options {
+        Some(options) if options.values().len() <= MAX_LIST_ELEMENT_FALSIFICATIONS => {
+            element_falsifiers(options.values(), &value_min, &value_max)
+        }
+        Some(options) => Some(not(
+            AnyInRange.try_new_bound_expr(options, [value_min, value_max])?
+        )),
+        None => match non_null_bounds(elements) {
+            Some((low, high)) => Some(or(
+                lt(value_max, lit(low.clone())),
+                gt(value_min, lit(high.clone())),
+            )),
+            None => element_falsifiers(elements, &value_min, &value_max),
+        },
+    })
 }
 
 #[derive(Debug)]
@@ -872,6 +909,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::lt_eq;
+    use vortex_array::expr::not;
     use vortex_array::expr::or;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
@@ -892,6 +930,8 @@ mod tests {
     use crate::stats::expr::StatOptions;
     use crate::stats::rewrite::BoundExpressionPruneExt;
     use crate::stats::rewrite::StatsRewriteRule;
+    use crate::stats::rewrite::any_in_range::AnyInRange;
+    use crate::stats::rewrite::any_in_range::AnyInRangeOptions;
     use crate::stats::session::StatsSessionExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -1210,28 +1250,100 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn rewrites_large_list_contains_falsifier_to_bounds() -> VortexResult<()> {
-        let list = Scalar::list(
+    fn any_in_range_falsifier(needle: Expression, elements: &[Scalar]) -> Expression {
+        let options = AnyInRangeOptions::try_new(elements).expect("elements should be ordered");
+        not(AnyInRange.new_expr(
+            options,
+            [stat(needle.clone(), Stat::Min), stat(needle, Stat::Max)],
+        ))
+    }
+
+    fn i32_list(elements: Vec<Scalar>) -> Scalar {
+        Scalar::list(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            (0..20)
-                .rev()
-                .map(|value| Scalar::from(Some(value)))
-                .chain([Scalar::null(DType::Primitive(
-                    PType::I32,
-                    Nullability::Nullable,
-                ))])
-                .collect(),
+            elements,
             Nullability::NonNullable,
-        );
-        let expr = list_contains(lit(list), col("a"));
+        )
+    }
+
+    #[test]
+    fn rewrites_large_list_contains_falsifier_to_sorted_search() -> VortexResult<()> {
+        let elements: Vec<Scalar> = (0..20)
+            .rev()
+            .map(|value| Scalar::from(Some(value * 3)))
+            .chain([Scalar::null(DType::Primitive(
+                PType::I32,
+                Nullability::Nullable,
+            ))])
+            .collect();
+        let expr = list_contains(lit(i32_list(elements.clone())), col("a"));
 
         assert_rewrite_eq!(
             falsify(&expr)?,
-            Some(or(
-                lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(0i32)))),
-                gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(19i32)))),
+            Some(any_in_range_falsifier(col("a"), &elements))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_large_list_with_few_distinct_elements_per_element() -> VortexResult<()> {
+        let elements: Vec<Scalar> = (0..20).map(|value| Scalar::from(Some(value % 2))).collect();
+        let expr = list_contains(lit(i32_list(elements)), col("a"));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(and(
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(0i32)))),
+                    gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(0i32)))),
+                ),
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(Scalar::from(Some(1i32)))),
+                    gt(stat(col("a"), Stat::Min), lit(Scalar::from(Some(1i32)))),
+                ),
             ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_large_float_list_contains_falsifier_with_nan_guards() -> VortexResult<()> {
+        let elements: Vec<Scalar> = (0..20u8)
+            .map(|value| Scalar::from(f32::from(value)))
+            .chain([Scalar::from(f32::NAN)])
+            .collect();
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::F32, Nullability::NonNullable)),
+            elements.clone(),
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(lit(list), col("f"));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(nan_guarded(
+                col("f"),
+                any_in_range_falsifier(col("f"), &elements)
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_large_string_list_contains_falsifier() -> VortexResult<()> {
+        let elements: Vec<Scalar> = (0..20)
+            .map(|value| Scalar::from(format!("key-{value:02}").as_str()))
+            .collect();
+        let list = Scalar::list(
+            Arc::new(DType::Utf8(Nullability::NonNullable)),
+            elements.clone(),
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(lit(list), col("s"));
+
+        assert_rewrite_eq!(
+            falsify(&expr)?,
+            Some(any_in_range_falsifier(col("s"), &elements))
         );
         Ok(())
     }

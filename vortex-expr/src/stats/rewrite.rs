@@ -19,6 +19,7 @@ use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::stats::session::StatsSessionExt;
 
+mod any_in_range;
 mod builtins;
 mod dynamic_expression;
 #[cfg(test)]
