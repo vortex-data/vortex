@@ -77,6 +77,7 @@ impl TakeExecute for OnPair {
                     taken_codes.offsets().clone(),
                     uncompressed_lengths,
                     validity,
+                    array.token_frequencies().cloned(),
                 )
             }
             .into_array(),

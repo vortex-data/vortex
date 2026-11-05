@@ -34,6 +34,7 @@ impl SliceReduce for OnPair {
                     codes_offsets,
                     uncompressed_lengths,
                     validity,
+                    array.token_frequencies().cloned(),
                 )
             }
             .into_array(),

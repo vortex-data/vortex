@@ -31,6 +31,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
@@ -96,6 +97,21 @@ pub struct OnPairMetadata {
     /// PType of the `codes_offsets` slot child.
     #[prost(enumeration = "PType", tag = "7")]
     pub(crate) codes_offsets_ptype: i32,
+    /// Which optional index slot children are present, one bit each, from
+    /// [`index_bit`]. Every index is a single child, serialized after validity
+    /// in bit order. An index never changes what the array decodes to, so a
+    /// reader skips the children of bits it does not know.
+    #[prost(uint64, tag = "8")]
+    pub(crate) indexes: u64,
+}
+
+/// Slot of the first optional index. Index slots come after every other slot,
+/// so they are serialized last, in slot order.
+const FIRST_INDEX_SLOT: usize = OnPairSlots::VALIDITY + 1;
+
+/// The [`OnPairMetadata::indexes`] bit of the index in `slot`.
+pub(crate) const fn index_bit(slot: usize) -> u64 {
+    1 << (slot - FIRST_INDEX_SLOT)
 }
 
 impl OnPairMetadata {
@@ -106,6 +122,9 @@ impl OnPairMetadata {
     }
 }
 
+/// Children of an OnPair array. Optional index slots, such as
+/// `token_frequencies`, come after every other slot: their metadata bits are
+/// numbered from the first slot after validity.
 #[array_slots(OnPair)]
 pub struct OnPairSlots {
     /// Dictionary-offset child, with length `dict_size + 1`. The cascading
@@ -129,6 +148,16 @@ pub struct OnPairSlots {
     /// Optional validity child for the outer string column.
     #[slot(4)]
     pub validity: Option<ArrayRef>,
+    /// Optional token frequencies of `codes`, as `dict_size + 1` non-nullable
+    /// `u32` prefix sums (see `onpair::search::index::TokenFrequencyIndex`). Written only when the
+    /// compressor is asked for it; substring LIKE patterns are pushed down
+    /// only on arrays that carry it.
+    ///
+    /// The counts only guide the search plan, so they stay attached when
+    /// slice, filter or take change the codes: stale counts can make a search
+    /// slower, never wrong.
+    #[slot(5)]
+    pub token_frequencies: Option<ArrayRef>,
 }
 
 /// Immutable storage for a materialised OnPair dictionary.
@@ -369,6 +398,35 @@ impl OnPair {
                 codes_offsets,
                 uncompressed_lengths,
                 validity,
+                None,
+            )
+        })
+    }
+
+    /// Attach `token_frequencies`, the prefix sums of how often each dictionary
+    /// token occurs in `array`'s codes, as built by
+    /// [`onpair_token_frequencies`](crate::onpair_token_frequencies). Replaces
+    /// any token frequencies `array` already carries.
+    ///
+    /// # Errors
+    /// If `token_frequencies` is not a non-nullable `u32` array with one value
+    /// per dictionary offset.
+    pub fn with_token_frequencies(
+        array: OnPairArray,
+        token_frequencies: ArrayRef,
+    ) -> VortexResult<OnPairArray> {
+        validate_token_frequencies(array.dict_offsets(), &token_frequencies)?;
+        let data = array.data().clone();
+        Ok(unsafe {
+            Self::new_unchecked(
+                array.dtype().clone(),
+                data,
+                array.dict_offsets().clone(),
+                array.codes().clone(),
+                array.codes_offsets().clone(),
+                array.uncompressed_lengths().clone(),
+                array.array_validity(),
+                Some(token_frequencies),
             )
         })
     }
@@ -378,9 +436,11 @@ impl OnPair {
     ///
     /// # Safety
     /// The parts must satisfy the same invariants [`try_new`](Self::try_new)
-    /// checks. If `data`'s dictionary cell is populated (or shared with a live
-    /// array), `dict_offsets` must hold the same logical offsets the dictionary
-    /// was built from.
+    /// and [`with_token_frequencies`](Self::with_token_frequencies) check. If
+    /// `data`'s dictionary cell is populated (or shared with a live array),
+    /// `dict_offsets` must hold the same logical offsets the dictionary was
+    /// built from.
+    #[expect(clippy::too_many_arguments)]
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         data: OnPairData,
@@ -389,6 +449,7 @@ impl OnPair {
         codes_offsets: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
+        token_frequencies: Option<ArrayRef>,
     ) -> OnPairArray {
         let len = uncompressed_lengths.len();
         let slots = OnPairSlots {
@@ -397,10 +458,29 @@ impl OnPair {
             codes_offsets,
             uncompressed_lengths,
             validity: validity_to_child(&validity, len),
+            token_frequencies,
         }
         .into_slots();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(OnPair, dtype, len, data, slots)) }
     }
+}
+
+fn validate_token_frequencies(
+    dict_offsets: &ArrayRef,
+    token_frequencies: &ArrayRef,
+) -> VortexResult<()> {
+    let expected = DType::Primitive(PType::U32, Nullability::NonNullable);
+    vortex_ensure!(
+        token_frequencies.dtype() == &expected,
+        "token_frequencies must be {expected}, found {}",
+        token_frequencies.dtype()
+    );
+    vortex_ensure_eq!(
+        token_frequencies.len(),
+        dict_offsets.len(),
+        "token_frequencies must have one value per dictionary offset"
+    );
+    Ok(())
 }
 
 fn validate_parts(
@@ -464,6 +544,9 @@ impl VTable for OnPair {
         )?;
         if s.uncompressed_lengths.len() != len {
             vortex_bail!("uncompressed_lengths must have same len as outer array");
+        }
+        if let Some(token_frequencies) = s.token_frequencies {
+            validate_token_frequencies(s.dict_offsets, token_frequencies)?;
         }
         Ok(())
     }

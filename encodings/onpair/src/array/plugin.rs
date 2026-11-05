@@ -25,10 +25,12 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::OnPair;
+use crate::array::FIRST_INDEX_SLOT;
 use crate::array::OnPairArraySlotsExt;
 use crate::array::OnPairData;
 use crate::array::OnPairMetadata;
 use crate::array::OnPairSlots;
+use crate::array::index_bit;
 
 impl ArrayPlugin for OnPair {
     fn id(&self) -> ArrayId {
@@ -49,6 +51,11 @@ impl ArrayPlugin for OnPair {
         let dict_size = u32::try_from(array.dict_offsets().len().saturating_sub(1))
             .map_err(|_| vortex_err!("OnPair dict_size exceeds u32"))?;
         let codes_len = array.codes().len() as u64;
+        // One bit per present index slot, so the bits always match the
+        // children written.
+        let indexes = (FIRST_INDEX_SLOT..OnPairSlots::COUNT)
+            .filter(|&slot| array.slots()[slot].is_some())
+            .fold(0, |bits, slot| bits | index_bit(slot));
         let metadata = OnPairMetadata {
             uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
             dict_size,
@@ -56,6 +63,7 @@ impl ArrayPlugin for OnPair {
             dict_offsets_ptype: array.dict_offsets().dtype().as_ptype().into(),
             codes_ptype: array.codes().dtype().as_ptype().into(),
             codes_offsets_ptype: array.codes_offsets().dtype().as_ptype().into(),
+            indexes,
         }
         .encode_to_vec();
         Ok(Some(ArraySerialization::from_array(
@@ -128,11 +136,42 @@ impl ArrayPlugin for OnPair {
             &DType::Primitive(uncompressed_ptype, Nullability::NonNullable),
             len,
         )?;
-        let validity = match children.len() {
-            4 => Validity::from(dtype.nullability()),
-            5 => Validity::Array(children.get(4, &Validity::DTYPE, len)?),
-            other => vortex_bail!("Expected 4 or 5 children, got {other}"),
+        // Absent slots are not serialized: the four required children come
+        // first, then validity when present, then one child per index bit.
+        let required = OnPairSlots::VALIDITY + metadata.indexes.count_ones() as usize;
+        let has_validity = match children.len().checked_sub(required) {
+            Some(0) => false,
+            Some(1) => true,
+            _ => vortex_bail!(
+                "Expected {required} or {} children, got {}",
+                required + 1,
+                children.len()
+            ),
         };
+        let validity = if has_validity {
+            Validity::Array(children.get(OnPairSlots::VALIDITY, &Validity::DTYPE, len)?)
+        } else {
+            Validity::from(dtype.nullability())
+        };
+        // The child of the index in `slot`, after validity and the indexes of
+        // lower bits.
+        let index_child = |slot: usize| {
+            let bit = index_bit(slot);
+            (metadata.indexes & bit != 0).then(|| {
+                OnPairSlots::VALIDITY
+                    + usize::from(has_validity)
+                    + (metadata.indexes & (bit - 1)).count_ones() as usize
+            })
+        };
+        let token_frequencies = index_child(OnPairSlots::TOKEN_FREQUENCIES)
+            .map(|child| {
+                children.get(
+                    child,
+                    &DType::Primitive(PType::U32, Nullability::NonNullable),
+                    dict_offsets_len,
+                )
+            })
+            .transpose()?;
 
         let data = OnPairData::new(buffers[0].clone());
         let slots = OnPairSlots {
@@ -141,6 +180,7 @@ impl ArrayPlugin for OnPair {
             codes_offsets,
             uncompressed_lengths,
             validity: validity_to_child(&validity, len),
+            token_frequencies,
         }
         .into_slots();
         Ok(Array::try_from_parts(ArrayParts::new(
