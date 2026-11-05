@@ -16,6 +16,7 @@
 //! any other partial state, so a chunk whose columns have no codes emits each of its rows with a
 //! count of one instead.
 
+use std::any::Any;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
@@ -27,17 +28,21 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::TransformedResult;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_datasource::source::OpenArgs;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
 use datafusion_expr::Volatility;
 use datafusion_physical_expr::EquivalenceProperties;
+use datafusion_physical_expr::Partitioning;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::expressions::BinaryExpr;
@@ -48,17 +53,15 @@ use datafusion_physical_expr::expressions::IsNotNullExpr;
 use datafusion_physical_expr::expressions::IsNullExpr;
 use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::expressions::NotExpr;
+use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_optimizer::PhysicalOptimizerRule;
-use datafusion_physical_plan::DisplayAs;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::ExecutionPlan;
-use datafusion_physical_plan::ExecutionPlanProperties;
 use datafusion_physical_plan::InputOrderMode;
-use datafusion_physical_plan::PlanProperties;
 use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::aggregates::AggregateMode;
-use datafusion_physical_plan::execution_plan::ChildrenPropertiesMode;
-use datafusion_physical_plan::execution_plan::ReplaceChildrenOptions;
+use datafusion_physical_plan::execution_plan::SchedulingType;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
@@ -80,6 +83,7 @@ use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::VortexSource;
+use crate::VortexTableOptions;
 
 /// A physical optimizer rule that pushes the partial stage of a `COUNT(*)` into the Vortex scan
 /// beneath it.
@@ -106,8 +110,15 @@ impl PhysicalOptimizerRule for VortexCountByPushdown {
     fn optimize(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
+        if config
+            .extensions
+            .get::<VortexTableOptions>()
+            .is_some_and(|options| !options.count_by_pushdown)
+        {
+            return Ok(plan);
+        }
         plan.transform_down(|node| {
             Ok(match push_down_count_by(&node) {
                 Some(pushed) => Transformed::yes(pushed),
@@ -207,7 +218,7 @@ fn push_down_count_by(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Execution
     let scan = aggregate.input().downcast_ref::<DataSourceExec>()?;
     let config = scan.data_source().downcast_ref::<FileScanConfig>()?;
     let source = config.file_source.downcast_ref::<VortexSource>()?;
-    if config.limit.is_some() {
+    if config.limit.is_some() || !source.options().count_by_pushdown {
         return None;
     }
 
@@ -219,11 +230,12 @@ fn push_down_count_by(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Execution
             .map(|(expr, _)| Arc::clone(expr))
             .collect(),
     };
-    let schema = aggregate.schema();
     let mut config = config.clone();
     config.file_source = Arc::new(source.clone().with_count_by(Arc::new(count_by)));
-    let scan: Arc<dyn ExecutionPlan> = DataSourceExec::from_data_source(config);
-    Some(Arc::new(VortexCountByExec::new(scan, schema)))
+    Some(DataSourceExec::from_data_source(VortexCountBySource::new(
+        config,
+        aggregate.schema(),
+    )))
 }
 
 /// Whether a scanned column of this type can have codes: a string or binary column that may be
@@ -260,93 +272,97 @@ fn is_deterministic(expr: &Arc<dyn PhysicalExpr>) -> bool {
 
 /// The partial aggregate a Vortex scan computes for [`VortexCountByPushdown`].
 ///
-/// It runs the scan it wraps, whose source emits the partial aggregate's rows, and presents them
-/// with the partial aggregate's schema.
-#[derive(Debug)]
-pub struct VortexCountByExec {
-    input: Arc<dyn ExecutionPlan>,
+/// A [`DataSource`] over the Vortex [`FileScanConfig`] whose source emits the partial aggregate's
+/// rows. It declares the partial aggregate's schema, so the [`DataSourceExec`] it backs describes
+/// the batches it produces, and it declines the projection, filter, sort and limit pushdowns that
+/// would apply to the file's columns rather than to its output.
+#[derive(Debug, Clone)]
+pub struct VortexCountBySource {
+    config: FileScanConfig,
     schema: SchemaRef,
-    properties: Arc<PlanProperties>,
 }
 
-impl VortexCountByExec {
-    fn new(input: Arc<dyn ExecutionPlan>, schema: SchemaRef) -> Self {
-        let properties = PlanProperties::new(
-            EquivalenceProperties::new(Arc::clone(&schema)),
-            input.output_partitioning().clone(),
-            input.pipeline_behavior(),
-            input.boundedness(),
-        );
-        Self {
-            input,
-            schema,
-            properties: Arc::new(properties),
-        }
+impl VortexCountBySource {
+    fn new(config: FileScanConfig, schema: SchemaRef) -> Self {
+        Self { config, schema }
+    }
+
+    /// Restates a scan stream's batches under the partial aggregate's schema.
+    fn restate(&self, stream: SendableRecordBatchStream) -> SendableRecordBatchStream {
+        Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(&self.schema),
+            stream,
+        ))
     }
 }
 
-impl DisplayAs for VortexCountByExec {
-    fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
+impl DataSource for VortexCountBySource {
+    fn open(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> DFResult<SendableRecordBatchStream> {
+        Ok(self.restate(self.config.open(partition, context)?))
+    }
+
+    fn open_with_args(&self, args: OpenArgs) -> DFResult<SendableRecordBatchStream> {
+        Ok(self.restate(self.config.open_with_args(args)?))
+    }
+
+    fn create_sibling_state(&self, config: &ConfigOptions) -> Option<Arc<dyn Any + Send + Sync>> {
+        self.config.create_sibling_state(config)
+    }
+
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         let fields = self.schema.fields();
         let keys = fields[..fields.len() - 1]
             .iter()
             .map(|field| field.name().as_str())
             .collect::<Vec<_>>();
-        write!(f, "VortexCountByExec: gby=[{}]", keys.join(", "))
-    }
-}
-
-impl ExecutionPlan for VortexCountByExec {
-    fn name(&self) -> &'static str {
-        "VortexCountByExec"
+        write!(f, "VortexCountBy: gby=[{}], ", keys.join(", "))?;
+        self.config.fmt_as(t, f)
     }
 
-    fn properties(&self) -> &Arc<PlanProperties> {
-        &self.properties
+    fn output_partitioning(&self) -> Partitioning {
+        self.config.output_partitioning()
     }
 
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![&self.input]
+    fn eq_properties(&self) -> EquivalenceProperties {
+        EquivalenceProperties::new(Arc::clone(&self.schema))
+    }
+
+    fn scheduling_type(&self) -> SchedulingType {
+        self.config.scheduling_type()
+    }
+
+    fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Arc<Statistics>> {
+        Ok(Arc::new(Statistics::new_unknown(&self.schema)))
+    }
+
+    fn with_fetch(&self, _limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
+        None
+    }
+
+    fn fetch(&self) -> Option<usize> {
+        None
+    }
+
+    fn metrics(&self) -> ExecutionPlanMetricsSet {
+        self.config.metrics()
+    }
+
+    fn try_swapping_with_projection(
+        &self,
+        _projection: &ProjectionExprs,
+    ) -> DFResult<Option<Arc<dyn DataSource>>> {
+        Ok(None)
     }
 
     fn apply_expressions(
         &self,
-        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
+        f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> DFResult<TreeNodeRecursion>,
     ) -> DFResult<TreeNodeRecursion> {
-        Ok(TreeNodeRecursion::Continue)
-    }
-
-    fn replace_children(
-        self: Arc<Self>,
-        mut children: Vec<Arc<dyn ExecutionPlan>>,
-        _options: ReplaceChildrenOptions,
-    ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(Self::new(
-            children.remove(0),
-            Arc::clone(&self.schema),
-        )))
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        self.replace_children(
-            children,
-            ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
-        )
-    }
-
-    fn execute(
-        &self,
-        partition: usize,
-        context: Arc<TaskContext>,
-    ) -> DFResult<SendableRecordBatchStream> {
-        let stream = self.input.execute(partition, context)?;
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            Arc::clone(&self.schema),
-            stream,
-        )))
+        self.config.apply_expressions(f)
     }
 }
 

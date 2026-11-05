@@ -40,13 +40,26 @@ use vortex::session::VortexSession;
 
 use super::CountBy;
 use super::count_chunk;
+use super::count_rows;
 use crate::VortexCountByPushdown;
 use crate::VortexFormatFactory;
 
 fn session(store: &Arc<InMemory>, count_by: bool) -> SessionContext {
+    session_with_config(
+        store,
+        count_by,
+        SessionConfig::new().with_target_partitions(4),
+    )
+}
+
+fn session_with_config(
+    store: &Arc<InMemory>,
+    count_by: bool,
+    config: SessionConfig,
+) -> SessionContext {
     let factory = Arc::new(VortexFormatFactory::new());
     let mut builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::new().with_target_partitions(4))
+        .with_config(config)
         .with_default_features()
         .with_table_factory(
             factory.get_ext().to_uppercase(),
@@ -66,7 +79,8 @@ fn session(store: &Arc<InMemory>, count_by: bool) -> SessionContext {
 }
 
 const CREATE_HITS: &str = "CREATE EXTERNAL TABLE hits \
-    (url VARCHAR NOT NULL, referer VARCHAR, source SMALLINT NOT NULL, width INT NOT NULL) \
+    (url VARCHAR NOT NULL, referer VARCHAR, source SMALLINT NOT NULL, width INT NOT NULL, \
+    opt INT, score DOUBLE NOT NULL) \
     STORED AS vortex LOCATION '/hits/'";
 
 /// Writes two files of rows with few distinct strings, so the writer dictionary-encodes them.
@@ -81,7 +95,9 @@ async fn write_hits(store: &Arc<InMemory>) -> anyhow::Result<()> {
                     CASE WHEN value % 11 = 0 THEN NULL \
                         ELSE 'https://ref.example/' || CAST(value % 40 AS VARCHAR) END, \
                     CAST(value % 5 AS SMALLINT), \
-                    CAST(value % 1000 AS INT) \
+                    CAST(value % 1000 AS INT), \
+                    CASE WHEN value % 3 = 0 THEN NULL ELSE CAST(value % 7 AS INT) END, \
+                    CAST(value % 10 AS DOUBLE) / 2 \
                 FROM generate_series({offset}, {} ) AS t(value)",
                 offset + 49_999
             ))
@@ -131,6 +147,41 @@ async fn run(ctx: &SessionContext, sql: &str) -> anyhow::Result<(String, String)
     "SELECT url, SUM(width) AS s FROM hits GROUP BY url ORDER BY url",
     false
 )]
+#[case::filter_above_scan(
+    "SELECT source, COUNT(*) AS c FROM hits WHERE width % 3 = 0 GROUP BY source ORDER BY source",
+    false
+)]
+#[case::nullable_integer_key(
+    "SELECT opt, COUNT(*) AS c FROM hits GROUP BY opt ORDER BY opt NULLS FIRST",
+    true
+)]
+#[case::float_key(
+    "SELECT score, COUNT(*) AS c FROM hits GROUP BY score ORDER BY score",
+    false
+)]
+#[case::count_of_column(
+    "SELECT source, COUNT(referer) AS c FROM hits GROUP BY source ORDER BY source",
+    false
+)]
+#[case::count_distinct(
+    "SELECT source, COUNT(DISTINCT url) AS c FROM hits GROUP BY source ORDER BY source",
+    false
+)]
+#[case::count_filter(
+    "SELECT source, COUNT(*) FILTER (WHERE width > 500) AS c FROM hits GROUP BY source \
+     ORDER BY source",
+    false
+)]
+#[case::rollup(
+    "SELECT source, url, COUNT(*) AS c FROM hits GROUP BY ROLLUP (source, url) \
+     ORDER BY source NULLS FIRST, url NULLS FIRST",
+    false
+)]
+#[case::volatile_key(
+    "SELECT source + CAST(random() * 0 AS SMALLINT) AS k, COUNT(*) AS c FROM hits GROUP BY 1 \
+     ORDER BY k",
+    false
+)]
 #[tokio::test]
 async fn count_by_matches_datafusion(
     #[case] sql: &str,
@@ -147,8 +198,83 @@ async fn count_by_matches_datafusion(
     actual.sql(CREATE_HITS).await?;
     let (plan, actual) = run(&actual, sql).await?;
 
-    assert_eq!(plan.contains("VortexCountByExec"), pushed_down, "{plan}");
+    assert_eq!(plan.contains("VortexCountBy:"), pushed_down, "{plan}");
     assert_eq!(actual, expected);
+    Ok(())
+}
+
+/// A file split across partitions counts each part's rows once.
+#[tokio::test]
+async fn count_by_matches_datafusion_over_split_files() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new());
+    write_hits(&store).await?;
+    let sql = "SELECT url, source, COUNT(*) AS c FROM hits GROUP BY url, source \
+               ORDER BY url, source";
+    let split = || {
+        SessionConfig::new()
+            .with_target_partitions(8)
+            .with_repartition_file_scans(true)
+            .with_repartition_file_min_size(0)
+    };
+
+    let expected = session_with_config(&store, false, split());
+    expected.sql(CREATE_HITS).await?;
+    let (_, expected) = run(&expected, sql).await?;
+
+    let actual = session_with_config(&store, true, split());
+    actual.sql(CREATE_HITS).await?;
+    let (plan, actual) = run(&actual, sql).await?;
+
+    assert!(plan.contains("VortexCountBy:"), "{plan}");
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
+/// Rows a residual filter kept after the scan each count once, as the grouping expressions'
+/// values over them.
+#[test]
+fn count_rows_counts_each_row_once() -> anyhow::Result<()> {
+    let scan_schema = Arc::new(Schema::new(vec![Field::new(
+        "source",
+        DataType::Int16,
+        false,
+    )]));
+    let rows = RecordBatch::try_new(
+        Arc::clone(&scan_schema),
+        vec![Arc::new(Int16Array::from(vec![3, 1, 3]))],
+    )?;
+    let count_by = CountBy {
+        schema: Arc::new(Schema::new(vec![
+            Field::new("source", DataType::Int16, false),
+            Field::new("count", DataType::Int64, false),
+        ])),
+        group_by: vec![Arc::new(Column::new("source", 0))],
+    };
+
+    let expected = RecordBatch::try_new(
+        Arc::clone(&count_by.schema),
+        vec![
+            Arc::new(Int16Array::from(vec![3, 1, 3])),
+            Arc::new(Int64Array::from(vec![1, 1, 1])),
+        ],
+    )?;
+    assert_eq!(count_rows(&rows, &count_by)?, expected);
+    Ok(())
+}
+
+/// A table can opt out of the pushdown.
+#[tokio::test]
+async fn count_by_pushdown_can_be_disabled_per_table() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new());
+    write_hits(&store).await?;
+    let ctx = session(&store, true);
+    ctx.sql(&CREATE_HITS.replace(
+        "STORED AS vortex",
+        "STORED AS vortex OPTIONS (count_by_pushdown 'false')",
+    ))
+    .await?;
+    let (plan, _) = run(&ctx, "SELECT url, COUNT(*) AS c FROM hits GROUP BY url").await?;
+    assert!(!plan.contains("VortexCountBy:"), "{plan}");
     Ok(())
 }
 
