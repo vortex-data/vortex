@@ -63,6 +63,9 @@ pub struct RepeatedScan<A> {
     splits: Splits,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
+    /// The number of splits to make progress on concurrently across all threads, overriding
+    /// `concurrency` when set.
+    total_concurrency: Option<usize>,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: MapFn<A>,
     /// Maximal number of rows to read (after filtering).
@@ -137,6 +140,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         selection: Selection,
         splits: Splits,
         concurrency: usize,
+        total_concurrency: Option<usize>,
         map_fn: MapFn<A>,
         limit: Option<ScanLimit>,
         dtype: DType,
@@ -151,6 +155,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             selection,
             splits,
             concurrency,
+            total_concurrency,
             map_fn,
             limit,
             dtype,
@@ -240,7 +245,9 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let concurrency = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let concurrency = self
+            .total_concurrency
+            .unwrap_or_else(|| self.concurrency * get_available_parallelism().unwrap_or(1));
         let handle = self.session.handle();
         let ordered = self.ordered;
         let ctx = self.task_context();

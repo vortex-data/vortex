@@ -4,6 +4,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use parking_lot::Mutex;
@@ -47,6 +49,20 @@ pub fn session_with_handle(handle: Handle) -> VortexSession {
 
 pub static SCAN_SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
 
+/// Counts the projections of a [`TestLayoutReader`] that are running at once.
+#[derive(Debug, Default)]
+pub struct InFlight {
+    current: AtomicUsize,
+    max: AtomicUsize,
+}
+
+impl InFlight {
+    /// The most projections that were running at once.
+    pub fn max(&self) -> usize {
+        self.max.load(Ordering::SeqCst)
+    }
+}
+
 /// A configurable [`LayoutReader`] test double producing `base + row` for every selected row.
 ///
 /// `split_size` controls the split layout (`None` is a single split), `keep_row` filters rows, and
@@ -66,6 +82,7 @@ pub struct TestLayoutReader {
     fail_projection: bool,
     projection_masks: Option<Arc<Mutex<Vec<usize>>>>,
     filter_exprs: Option<Arc<Mutex<Vec<BoundExpression>>>>,
+    in_flight: Option<Arc<InFlight>>,
 }
 
 impl TestLayoutReader {
@@ -82,6 +99,7 @@ impl TestLayoutReader {
             fail_projection: false,
             projection_masks: None,
             filter_exprs: None,
+            in_flight: None,
         }
     }
 
@@ -113,6 +131,13 @@ impl TestLayoutReader {
 
     pub fn with_filter_exprs(mut self, filter_exprs: Arc<Mutex<Vec<BoundExpression>>>) -> Self {
         self.filter_exprs = Some(filter_exprs);
+        self
+    }
+
+    /// Track running projections in `in_flight`. Each projection yields to the executor once, so
+    /// every split the scan admits starts before the first one finishes.
+    pub fn with_in_flight(mut self, in_flight: Arc<InFlight>) -> Self {
+        self.in_flight = Some(in_flight);
         self
     }
 
@@ -213,9 +238,26 @@ impl LayoutReader for TestLayoutReader {
         let base = self.base;
         let projection_masks = self.projection_masks.clone();
         let fail = self.fail_projection || (self.fail_first_projection && row_range.start == 0);
+        let in_flight = self.in_flight.clone();
 
         Ok(Box::pin(async move {
             let mask = mask.await?;
+            if let Some(in_flight) = in_flight {
+                let current = in_flight.current.fetch_add(1, Ordering::SeqCst) + 1;
+                in_flight.max.fetch_max(current, Ordering::SeqCst);
+                let mut yielded = false;
+                futures::future::poll_fn(|cx| {
+                    if yielded {
+                        Poll::Ready(())
+                    } else {
+                        yielded = true;
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                })
+                .await;
+                in_flight.current.fetch_sub(1, Ordering::SeqCst);
+            }
             if let Some(projection_masks) = projection_masks {
                 projection_masks.lock().push(mask.true_count());
             }

@@ -72,6 +72,9 @@ pub struct ScanBuilder<A> {
     natural_splits: Option<Arc<[u64]>>,
     /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
+    /// The number of splits to make progress on concurrently across all threads, overriding
+    /// `concurrency` when set.
+    total_concurrency: Option<usize>,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -99,6 +102,7 @@ impl ScanBuilder<ArrayRef> {
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
+            total_concurrency: None,
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             limit: None,
@@ -233,6 +237,22 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Returns the row-split concurrency across all worker threads, if one was set.
+    pub fn total_concurrency(&self) -> Option<usize> {
+        self.total_concurrency
+    }
+
+    /// The number of row splits to make progress on concurrently across all worker threads,
+    /// overriding the per-thread [`concurrency`](Self::with_concurrency). Must be greater than 0.
+    ///
+    /// This bounds how many splits are fetched and decoded ahead of the consumer, and so the
+    /// memory a scan holds in flight, independently of the number of worker threads.
+    pub fn with_total_concurrency(mut self, concurrency: usize) -> Self {
+        assert!(concurrency > 0);
+        self.total_concurrency = Some(concurrency);
+        self
+    }
+
     /// Add or clear the metrics registry used by scan execution.
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
         self.metrics_registry = metrics;
@@ -293,6 +313,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             split_by: self.split_by,
             natural_splits: self.natural_splits,
             concurrency: self.concurrency,
+            total_concurrency: self.total_concurrency,
             metrics_registry: self.metrics_registry,
             limit: self.limit,
             row_offset: self.row_offset,
@@ -357,6 +378,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.selection,
             splits,
             self.concurrency,
+            self.total_concurrency,
             self.map_fn,
             self.limit,
             dtype,
@@ -521,6 +543,7 @@ mod test {
     use crate::RowSplits;
     use crate::SplitRange;
     use crate::scan::limit::RowLimit;
+    use crate::scan::test::InFlight;
     use crate::scan::test::SCAN_SESSION;
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
@@ -1016,6 +1039,31 @@ mod test {
         drain_runtime(&runtime);
 
         assert_eq!(rows, expected_rows);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::one(1)]
+    #[case::three(3)]
+    fn total_concurrency_caps_splits_in_flight(#[case] concurrency: usize) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let in_flight = Arc::new(InFlight::default());
+        let reader = Arc::new(
+            TestLayoutReader::new(8)
+                .with_split_size(1)
+                .with_in_flight(Arc::clone(&in_flight)),
+        );
+
+        let values = collect_scan_values(
+            ScanBuilder::new(session, reader)
+                .with_total_concurrency(concurrency)
+                .into_iter(&runtime)?,
+        )?;
+        drain_runtime(&runtime);
+
+        assert_eq!(values, (0..8).collect::<Vec<_>>());
+        assert_eq!(in_flight.max(), concurrency);
         Ok(())
     }
 
