@@ -4,10 +4,14 @@
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::BoundLambda;
+use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::not;
+use vortex_array::expr::bound::pack;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -64,6 +68,9 @@ pub(super) fn get_necessary_bound_list_children(expr: &BoundExpression) -> ListC
 pub(super) struct ElementsSplit {
     /// Evaluated by the elements reader, once per element.
     pub(super) elements: BoundExpression,
+    /// When `elements` packs several values per element, their names. The lists are then a struct
+    /// with one list per name, all sharing the offsets and validity.
+    pub(super) fields: Option<FieldNames>,
     /// The expression over the lists.
     pub(super) outer: BoundExpression,
     /// Whether nothing in `elements` can fail. A fallible one must not see the elements of null
@@ -76,66 +83,91 @@ impl ElementsSplit {
     pub(super) fn whole_elements(element_dtype: &DType, expr: &BoundExpression) -> Self {
         Self {
             elements: BoundExpression::new_root(element_dtype.clone()),
+            fields: None,
             outer: expr.clone(),
             infallible: true,
         }
     }
 }
 
-/// Split an expression that reads the list only through one `list_transform($, λ)` into what the
-/// elements reader evaluates and the expression over the lists of its values.
+/// Split an expression that reads the list through `list_transform($, λ)` into what the elements
+/// reader evaluates and the expression over the lists of its values.
 ///
-/// The elements reader evaluates λ's body, so it reads only the element fields the body uses.
-/// The body is bound over its inputs, `{x: element}`, and stepping into `x` puts it over the
-/// elements. Several distinct lambdas, or the list also read whole (anything but its validity and
-/// lengths), read whole elements.
+/// The elements reader evaluates each distinct λ's body, so it reads only the element fields the
+/// bodies use. λ's body is bound over its inputs, `{x: element}`, and stepping into `x` puts it
+/// over the elements. When the list is also read whole (anything but its validity and lengths),
+/// the elements reader reads the elements too. With one value per element the lists are over it;
+/// with more, the elements reader packs them, and the lists are a struct with one list per value.
 pub(super) fn split_list_transform(expr: &BoundExpression) -> VortexResult<Option<ElementsSplit>> {
     let mut lambdas = Vec::new();
     let mut whole = ListChildrenNeeded::Validity;
     let mut list_dtype = None;
     collect_list_uses(expr, &mut lambdas, &mut whole, &mut list_dtype);
-    let Some(DType::List(_, nullability)) = list_dtype else {
+    let Some(DType::List(element_dtype, nullability)) = list_dtype else {
         return Ok(None);
     };
-    let [lambda] = lambdas.as_slice() else {
-        return Ok(None);
+
+    let infallible = lambdas.iter().all(BoundLambda::is_infallible);
+    let mut values = lambdas
+        .iter()
+        .map(|lambda| {
+            let param = Item::Field(lambda.params().names()[0].clone());
+            let element = lambda
+                .params()
+                .field_by_index(0)
+                .vortex_expect("list_transform's lambda takes the element");
+            step_into_struct_field(lambda.body().clone(), &param, element)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let whole_index = if whole == ListChildrenNeeded::All {
+        values.push(BoundExpression::new_root(element_dtype.as_ref().clone()));
+        values.len() - 1
+    } else {
+        0
     };
-    if whole == ListChildrenNeeded::All {
-        return Ok(None);
-    }
 
-    let param = Item::Field(lambda.params().names()[0].clone());
-    let element = lambda
-        .params()
-        .field_by_index(0)
-        .vortex_expect("list_transform's lambda takes the element");
-    let elements = step_into_struct_field(lambda.body().clone(), &param, element)?;
-    let lists = BoundExpression::new_root(DType::List(
-        Arc::new(elements.dtype().clone()),
-        nullability,
-    ));
+    let list_of =
+        |value: &BoundExpression| DType::List(Arc::new(value.dtype().clone()), nullability);
+    let (elements, fields, lists) = if let [value] = values.as_slice() {
+        let lists = BoundExpression::new_root(list_of(value));
+        (value.clone(), None, vec![lists])
+    } else {
+        let names: FieldNames = (0..values.len()).map(|index| index.to_string()).collect();
+        let lists_dtype = DType::Struct(
+            StructFields::new(names.clone(), values.iter().map(list_of).collect()),
+            Nullability::NonNullable,
+        );
+        let lists = names
+            .iter()
+            .map(|name| get_item(name.clone(), BoundExpression::new_root(lists_dtype.clone())))
+            .collect();
+        let elements = pack(names.iter().cloned().zip(values), Nullability::NonNullable);
+        (elements, Some(names), lists)
+    };
 
-    // Every `list_transform($, λ)` is this lambda, and any other `$` is under `is_null` or
-    // `list_length`, which the lists of λ's values answer alike.
     let outer = expr
         .clone()
         .transform_down(|node| {
-            Ok(if list_transform_lambda(&node).is_some() || node.is_root() {
-                Transformed {
-                    value: lists.clone(),
+            let index = match list_transform_lambda(&node) {
+                Some(lambda) => lambdas.iter().position(|found| found == lambda),
+                None => node.is_root().then_some(whole_index),
+            };
+            Ok(match index {
+                Some(index) => Transformed {
+                    value: lists[index].clone(),
                     changed: true,
                     order: TraversalOrder::Skip,
-                }
-            } else {
-                Transformed::no(node)
+                },
+                None => Transformed::no(node),
             })
         })?
         .into_inner();
 
     Ok(Some(ElementsSplit {
         elements,
+        fields,
         outer,
-        infallible: lambda.is_infallible(),
+        infallible,
     }))
 }
 
