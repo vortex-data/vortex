@@ -35,12 +35,19 @@ def _targets(shard: dict[str, object]) -> set[str]:
     return set(re.findall(r"--bench (\S+)", str(shard["build-args"])))
 
 
+def _packages(shard: dict[str, object]) -> set[str]:
+    return set(re.findall(r"-p (\S+)", str(shard["build-args"])))
+
+
 def test_every_target_lands_in_exactly_one_shard_under_the_cap():
     counts = shards.load_counts()
     plan = shards.plan(counts, durations=shards.load_durations())
-    seen = [name for shard in plan for name in _targets(shard)]
-    assert sorted(seen) == sorted({name for _, name in counts})
-    assert len(seen) == len(set(seen))
+    # Cargo builds `--bench <name>` in every selected package that has it, so a target name shared
+    # by two packages must not make a shard build the other package's target again.
+    for target in counts:
+        package, name = target
+        built_by = [s["shard"] for s in plan if package in _packages(s) and name in _targets(s)]
+        assert len(built_by) == 1, f"{package}::{name} is built by shards {built_by}"
     assert all(shard["benchmarks"] <= shards.CAP for shard in plan)
     assert sum(shard["benchmarks"] for shard in plan) == sum(counts.values())
 
@@ -152,6 +159,61 @@ def test_plan_is_deterministic():
 def test_counts_file_covers_every_discovered_target():
     known = shards.load_counts()
     assert set(shards.discover_targets()) <= set(known), "regenerate scripts/codspeed_bench_counts.json"
+
+
+def _write_package(root: Path, path: str, name: str, benches: list[str]) -> None:
+    manifest = f'[package]\nname = "{name}"\n'
+    manifest += "".join(f'\n[[bench]]\nname = "{bench}"\n' for bench in benches)
+    (root / path).mkdir(parents=True)
+    (root / path / "Cargo.toml").write_text(manifest)
+
+
+def test_discovery_includes_every_benchmark_package_that_is_not_excluded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n')
+    _write_package(tmp_path, "crates/new", "new-package", ["fast", "slow"])
+    _write_package(tmp_path, "crates/gpu", "gpu-package", ["kernel"])
+    _write_package(tmp_path, "crates/plain", "plain-package", [])
+    monkeypatch.setattr(shards, "EXCLUDED_PACKAGES", {"gpu-package": "needs a GPU"})
+    monkeypatch.setattr(shards, "PACKAGE_FEATURES", {})
+
+    assert shards.discover_targets(tmp_path) == [("new-package", "fast"), ("new-package", "slow")]
+
+
+def test_discovery_rejects_target_names_shared_across_packages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n')
+    _write_package(tmp_path, "crates/a", "a-package", ["probe"])
+    _write_package(tmp_path, "crates/b", "b-package", ["probe"])
+    monkeypatch.setattr(shards, "EXCLUDED_PACKAGES", {})
+    monkeypatch.setattr(shards, "PACKAGE_FEATURES", {})
+
+    with pytest.raises(SystemExit, match="unique"):
+        shards.discover_targets(tmp_path)
+
+
+@pytest.mark.parametrize("table", ["EXCLUDED_PACKAGES", "PACKAGE_FEATURES"])
+def test_discovery_rejects_entries_for_packages_without_benchmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, table: str
+):
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/*"]\n')
+    _write_package(tmp_path, "crates/plain", "plain-package", [])
+    monkeypatch.setattr(shards, "EXCLUDED_PACKAGES", {})
+    monkeypatch.setattr(shards, "PACKAGE_FEATURES", {})
+    monkeypatch.setattr(shards, table, {"plain-package": ()})
+
+    with pytest.raises(SystemExit, match="plain-package"):
+        shards.discover_targets(tmp_path)
+
+
+def test_counts_from_logs_skip_excluded_packages(tmp_path: Path):
+    log = tmp_path / "job.txt"
+    log.write_text(
+        "2026-01-01T00:00:00.0Z Running vortex-cuda dict_cuda\n"
+        "2026-01-01T00:00:00.0Z Measured: vortex-cuda/benches/dict_cuda.rs::a\n"
+        "2026-01-01T00:00:00.0Z Done running dict_cuda\n"
+    )
+    assert shards.counts_from_logs([log]) == {}
 
 
 def test_counts_from_logs(tmp_path: Path):

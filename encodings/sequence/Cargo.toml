@@ -30,7 +30,8 @@ rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
 
 [[bench]]
-name = "probe"
+name = "sequence_probe"
+path = "benches/probe.rs"
 harness = false
 
 [lints]
