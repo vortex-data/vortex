@@ -295,7 +295,6 @@ mod tests {
 
     use parking_lot::Mutex;
     use rstest::rstest;
-    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_err;
     use vortex_cuda_driver::CudaContext;
@@ -376,7 +375,7 @@ mod tests {
             });
             barrier.wait();
             let context = get_or_init_default_context(&cache)?;
-            let other = worker.join().vortex_expect("context worker panicked")?;
+            let other = worker.join().expect("context worker panicked")?;
             assert!(Arc::ptr_eq(&context, &other));
             Ok(())
         })
