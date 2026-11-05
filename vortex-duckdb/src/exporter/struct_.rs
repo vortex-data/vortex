@@ -61,12 +61,6 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn preferred_batch_len(&self, offset: usize, max_len: usize) -> usize {
-        self.children
-            .iter()
-            .fold(max_len, |len, child| child.preferred_batch_len(offset, len))
-    }
-
     fn export(
         &self,
         offset: usize,

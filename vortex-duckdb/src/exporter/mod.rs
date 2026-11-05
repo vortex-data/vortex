@@ -42,7 +42,6 @@ use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::ReusableDict;
@@ -107,17 +106,7 @@ impl ArrayExporter {
         }
 
         let position = self.array_len - self.remaining;
-        let mut chunk_len = duckdb_vector_size().min(self.remaining);
-        if !zero_projection {
-            for field in &self.fields {
-                chunk_len = field.preferred_batch_len(position, chunk_len);
-            }
-        }
-        vortex_ensure!(
-            chunk_len > 0,
-            "column exporter returned zero rows for non-empty export"
-        );
-
+        let chunk_len = duckdb_vector_size().min(self.remaining);
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
@@ -168,12 +157,11 @@ impl ArrayExporter {
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
 pub trait ColumnExporter: 'static {
-    /// Preferred number of rows to export next, capped by `max_len`.
+    /// The dictionary parts of this exporter, if it exports DuckDB dictionary vectors.
     ///
-    /// Exporters that preserve physical structure can use this to keep a DuckDB vector inside a
-    /// natural boundary, such as a chunked-array child boundary.
-    fn preferred_batch_len(&self, _offset: usize, max_len: usize) -> usize {
-        max_len
+    /// A chunked exporter uses them to export a range across chunks as one dictionary vector.
+    fn as_dictionary(&self) -> Option<&dyn DictionaryParts> {
+        None
     }
 
     /// Export the given range of data from the Vortex array to the DuckDB vector.
@@ -184,6 +172,18 @@ pub trait ColumnExporter: 'static {
         vector: &mut VectorRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
+}
+
+/// The values and codes of an exporter that emits DuckDB dictionary vectors.
+pub trait DictionaryParts {
+    /// The DuckDB vector of the dictionary values.
+    fn values(&self) -> &ReusableDict;
+
+    /// The identity of the Vortex values array. Exporters with the same key share `values`.
+    fn values_key(&self) -> usize;
+
+    /// Write the codes of rows `offset..offset + codes.len()` into `codes`.
+    fn write_codes(&self, offset: usize, codes: &mut [u32]);
 }
 
 fn new_array_exporter(

@@ -21,6 +21,7 @@ use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
+use crate::exporter::DictionaryParts;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::cached_values_dict;
@@ -30,6 +31,7 @@ use crate::exporter::new_array_exporter;
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values: ReusableDict,
+    values_key: usize,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
 }
@@ -118,13 +120,35 @@ pub(crate) fn new_exporter_with_flatten(
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values: reusable_dict,
+            values_key,
             codes,
             codes_type: PhantomData::<I>,
         }))
     })
 }
 
+impl<I: IntegerPType + AsPrimitive<u32>> DictionaryParts for DictExporter<I> {
+    fn values(&self) -> &ReusableDict {
+        &self.values
+    }
+
+    fn values_key(&self) -> usize {
+        self.values_key
+    }
+
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) {
+        let src = &self.codes.as_slice::<I>()[offset..offset + codes.len()];
+        for (dst, src) in codes.iter_mut().zip(src) {
+            *dst = src.as_();
+        }
+    }
+}
+
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
+    fn as_dictionary(&self) -> Option<&dyn DictionaryParts> {
+        Some(self)
+    }
+
     fn export(
         &self,
         offset: usize,
@@ -132,16 +156,9 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
-        let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
-        for (dst, src) in mut_sel_vec.iter_mut().zip(
-            self.codes.as_slice::<I>()[offset..offset + len]
-                .iter()
-                .map(|v| v.as_()),
-        ) {
-            *dst = src
-        }
+        // SAFETY: the selection vector has capacity for `len` entries, and all of them are written.
+        self.write_codes(offset, unsafe { sel_vec.as_slice_mut(len) });
 
         vector.reuse_dictionary(&self.values, &sel_vec, len);
 
