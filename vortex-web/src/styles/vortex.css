@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 6cb5a6c437e776cb0355da2be1c2ce8108b28103a79be5460f91d9589d88d4ff */
+   sha256 2c127dfaaa89f41be802873f63b809d29cb889e0c901862b4fad5e4b8ea45b41 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -283,12 +283,17 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 }
 
 /* The footer: the same on every surface. The LF mark, the small print, the project's links, and the
-   theme switch, over one solid line rule. */
+   theme switch, over one solid line rule. It takes the header's column: --page-max, centred, with
+   its rule. The site and bench draw it inside their page frame; the docs and the Explorer have
+   none (Will, 5 Nov 2026: "the footer width should match the header width"). */
 .vx-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-16) var(--space-24);
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
   padding: var(--space-16) var(--page-pad);
   border-top: 1px solid var(--line);
   font: 400 11px/1.5 var(--font-mono);
@@ -367,8 +372,10 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 
 /* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
    column between the header and the footer) leaves, and centres its text in it. With the mark it
-   takes the homepage hero's two columns, and stacks below 1100px as the hero does. */
-.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); padding: var(--space-32) var(--page-pad); }
+   takes the homepage hero's two columns, and stacks below 1100px as the hero does. It takes the
+   header's column (--page-max, centred), so the docs' 404, which has no page frame, matches the
+   site's (Will, 5 Nov 2026). */
+.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); width: 100%; max-width: var(--page-max); margin-inline: auto; padding: var(--space-32) var(--page-pad); }
 .vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
 .vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
 .vx-status-text > * { margin: 0; }

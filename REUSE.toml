@@ -13,10 +13,10 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
-# The docs theme's Geist Mono is Google Fonts' Latin subset of the font, under the SIL Open Font
-# License.
+# The docs theme's Geist and Geist Mono are Google Fonts' Latin subsets of the fonts, under the SIL
+# Open Font License.
 [[annotations]]
-path = "docs/_static/fonts/geist-mono-latin.woff2"
+path = ["docs/_static/fonts/geist-latin.woff2", "docs/_static/fonts/geist-mono-latin.woff2"]
 precedence = "override"
 SPDX-FileCopyrightText = "2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"
 SPDX-License-Identifier = "OFL-1.1"
