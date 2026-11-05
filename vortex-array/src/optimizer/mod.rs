@@ -121,14 +121,6 @@ pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
     array.optimized_state().mark_optimized();
 }
 
-/// Clears the optimized mark of `array`, whose child the executor replaced.
-///
-/// The executor puts an executed child back in place, which keeps the parent's mark. The rules of
-/// the parent can match the child's new encoding, so the parent must be optimized again.
-pub(crate) fn mark_unoptimized(array: &ArrayRef) {
-    array.optimized_state().0.store(false, Ordering::Relaxed);
-}
-
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
