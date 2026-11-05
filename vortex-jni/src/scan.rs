@@ -366,11 +366,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                 handle.spawn(async move {
                     let chunk = chunk?;
                     let mut ctx = session.create_execution_ctx();
-                    let arrow = session.arrow().execute_arrow(
-                        chunk,
-                        Some(target.as_ref()),
-                        &mut ctx,
-                    )?;
+                    let arrow =
+                        session
+                            .arrow()
+                            .execute_arrow(chunk, Some(target.as_ref()), &mut ctx)?;
                     rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
                 })
             })
@@ -378,11 +377,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
 
         // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
         // rather than the per-core queue of `block_on_stream_thread_safe`.
-        let iter = RUNTIME
-            .block_on_stream_prefetch(batches)
-            .map(|result: VortexResult<RecordBatch>| {
-                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
-            });
+        let iter =
+            RUNTIME
+                .block_on_stream_prefetch(batches)
+                .map(|result: VortexResult<RecordBatch>| {
+                    result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+                });
 
         let reader = RecordBatchIteratorAdapter::new(iter, schema);
         let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));
