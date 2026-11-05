@@ -11,10 +11,10 @@ use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 
+use crate::DriverError;
+use crate::device;
+use crate::event::CudaEvent;
 use crate::module::CudaModule;
-use crate::result;
-use crate::result::DriverError;
-use crate::stream::CudaEvent;
 use crate::stream::CudaStream;
 use crate::sys;
 use crate::sys::CUresult;
@@ -101,13 +101,13 @@ impl CudaContext {
     /// Query capabilities before retaining or creating a context, so a query failure cannot
     /// leak it. After acquisition, `wrap` establishes ownership before binding can fail.
     fn device(ordinal: usize) -> Result<(sys::CUdevice, bool), DriverError> {
-        result::init()?;
-        let device = result::device::get(
+        device::init()?;
+        let device = device::get(
             i32::try_from(ordinal).map_err(|_| DriverError(CUresult::CUDA_ERROR_INVALID_VALUE))?,
         )?;
         // SAFETY: `device` is valid.
         let pools = unsafe {
-            result::device::get_attribute(
+            device::get_attribute(
                 device,
                 sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED,
             )
@@ -138,8 +138,8 @@ impl CudaContext {
 
     /// The number of devices.
     pub fn device_count() -> Result<i32, DriverError> {
-        result::init()?;
-        result::device::get_count()
+        device::init()?;
+        device::get_count()
     }
 
     /// The device ordinal.
@@ -176,7 +176,7 @@ impl CudaContext {
     /// A device attribute.
     pub fn attribute(&self, attribute: sys::CUdevice_attribute) -> Result<i32, DriverError> {
         // SAFETY: The device handle is valid for the context's lifetime.
-        unsafe { result::device::get_attribute(self.device, attribute) }
+        unsafe { device::get_attribute(self.device, attribute) }
     }
 
     /// The device's free and total memory in bytes.

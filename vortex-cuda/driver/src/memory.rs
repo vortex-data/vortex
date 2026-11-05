@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Device allocations, their views, and stream ordering between their accesses.
+//! Host memory allocation, copies, and device allocations with stream-ordered access tracking.
 //!
 //! Every allocation tracks which streams accessed it, so work on one stream never uses memory
 //! before another stream's earlier write to it completes, and memory is never freed or
@@ -33,7 +33,9 @@
 )]
 
 use std::ffi::c_uint;
+use std::ffi::c_void;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
@@ -41,14 +43,51 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use smallvec::SmallVec;
 
+use crate::DriverError;
 use crate::context::CudaContext;
+use crate::event::CudaEvent;
 use crate::repr::DeviceRepr;
 use crate::repr::ValidAsZeroBits;
-use crate::result::DriverError;
-use crate::stream::CudaEvent;
 use crate::stream::CudaStream;
 use crate::stream::StreamId;
 use crate::sys;
+
+/// Allocates `bytes` of page-locked host memory with the given `cuMemHostAlloc` flags.
+///
+/// # Safety
+///
+/// A CUDA context must be current; the memory is uninitialized.
+pub unsafe fn malloc_host(bytes: usize, flags: c_uint) -> Result<*mut c_void, DriverError> {
+    let mut pointer = MaybeUninit::uninit();
+    // SAFETY: The driver writes the allocation into `pointer` on success.
+    unsafe { sys::cuMemHostAlloc(pointer.as_mut_ptr(), bytes, flags) }.result()?;
+    // SAFETY: Initialized by the successful call.
+    Ok(unsafe { pointer.assume_init() })
+}
+
+/// Frees memory allocated by [`malloc_host`].
+///
+/// # Safety
+///
+/// `pointer` must come from [`malloc_host`] and no pending copy may still use it.
+pub unsafe fn free_host(pointer: *mut c_void) -> Result<(), DriverError> {
+    // SAFETY: Under the caller's guarantees.
+    unsafe { sys::cuMemFreeHost(pointer) }.result()
+}
+
+/// Synchronously copies `target.len()` elements from device memory at `source`.
+///
+/// # Safety
+///
+/// `source` must address at least `size_of_val(target)` readable device bytes.
+pub unsafe fn memcpy_dtoh_sync<T>(
+    target: &mut [T],
+    source: sys::CUdeviceptr,
+) -> Result<(), DriverError> {
+    // SAFETY: Under the caller's guarantees; `target` is writable for its whole size.
+    unsafe { sys::cuMemcpyDtoH_v2(target.as_mut_ptr().cast(), source, size_of_val(target)) }
+        .result()
+}
 
 /// An event recorded on a stream after an access, owned by the access state.
 #[derive(Clone, Copy)]
@@ -1291,7 +1330,7 @@ mod tests {
         drop(guard);
 
         // SAFETY: The context is current, and the allocation is freed below.
-        let pointer = unsafe { crate::result::malloc_host(16, 0) }?;
+        let pointer = unsafe { crate::memory::malloc_host(16, 0) }?;
         // SAFETY: The allocation holds 16 writable bytes, initialized before creating the slice.
         let pinned = unsafe {
             pointer.cast::<u8>().write_bytes(0, 16);
@@ -1301,7 +1340,7 @@ mod tests {
         let waits = matches!(guard.pending, Pending::Wait(waiting) if waiting.id() == stream.id());
         drop(guard);
         // SAFETY: No work or guard accesses the allocation anymore.
-        unsafe { crate::result::free_host(pointer) }?;
+        unsafe { crate::memory::free_host(pointer) }?;
         assert!(waits);
         context.check_err()
     }

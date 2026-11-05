@@ -259,7 +259,7 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     };
     let len = 1 << 20;
     // SAFETY: The context is current after `streams`, and the memory is freed below.
-    let pointer = unsafe { crate::result::malloc_host(len, 0) }?;
+    let pointer = unsafe { crate::memory::malloc_host(len, 0) }?;
     // SAFETY: The allocation holds `len` bytes, initialized below.
     let host = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<u8>(), len) };
     host.fill(1);
@@ -270,6 +270,6 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     stream.memcpy_dtoh(&device, host)?;
     assert!(host.iter().all(|byte| *byte == 1));
     // SAFETY: The copies accessing the memory completed.
-    unsafe { crate::result::free_host(pointer) }?;
+    unsafe { crate::memory::free_host(pointer) }?;
     context.check_err()
 }

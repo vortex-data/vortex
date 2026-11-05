@@ -543,7 +543,8 @@ mod tests {
     use vortex_cuda::arrow::release_device_array;
     use vortex_cuda::arrow::release_schema;
     use vortex_cuda_driver::CudaContext;
-    use vortex_cuda_driver::result;
+    use vortex_cuda_driver::event;
+    use vortex_cuda_driver::memory;
     use vortex_cuda_driver::sys::CUevent;
     use vortex_cuda_macros::cuda_not_available;
     use vortex_cuda_macros::test as cuda_test;
@@ -780,7 +781,7 @@ mod tests {
         let buffers = unsafe { std::slice::from_raw_parts(array.buffers, 2) };
         let mut values = vec![T::default(); offset + len];
         // SAFETY: The synchronized data buffer contains offset + len values of T and remains live.
-        unsafe { result::memcpy_dtoh_sync(&mut values, buffers[1] as u64) }
+        unsafe { memory::memcpy_dtoh_sync(&mut values, buffers[1] as u64) }
             .map_err(|error| vortex_err!("copying Arrow values: {error}"))?;
 
         let validity = if buffers[0].is_null() {
@@ -792,7 +793,7 @@ mod tests {
         } else {
             let mut bytes = vec![0u8; (offset + len).div_ceil(8)];
             // SAFETY: The synchronized bitmap covers offset + len bits and remains live.
-            unsafe { result::memcpy_dtoh_sync(&mut bytes, buffers[0] as u64) }
+            unsafe { memory::memcpy_dtoh_sync(&mut bytes, buffers[0] as u64) }
                 .map_err(|error| vortex_err!("copying Arrow validity: {error}"))?;
             let bits = BitBuffer::new_with_offset(ByteBuffer::from(bytes), len, offset);
             assert_eq!(array.null_count, i64::try_from(len - bits.true_count())?);
@@ -817,7 +818,7 @@ mod tests {
             .map_err(|error| vortex_err!("binding Arrow device context: {error}"))?;
         if !array.sync_event.is_null() {
             // SAFETY: Arrow's CUDA sync_event points to a live event handle owned by this batch.
-            unsafe { result::event::synchronize(*array.sync_event.cast::<CUevent>()) }
+            unsafe { event::synchronize(*array.sync_event.cast::<CUevent>()) }
                 .map_err(|error| vortex_err!("waiting for Arrow device batch: {error}"))?;
         }
         Ok(context)
