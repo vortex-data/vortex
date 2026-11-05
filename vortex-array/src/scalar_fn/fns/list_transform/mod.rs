@@ -73,6 +73,11 @@ impl ScalarFnVTable for ListTransform {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn arity(&self, _options: &ListTransformOptions) -> Arity {
         Arity::Exact(1)
     }

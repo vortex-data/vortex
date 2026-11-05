@@ -57,6 +57,11 @@ impl ScalarFnVTable for Select {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {

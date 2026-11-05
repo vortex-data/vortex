@@ -31,6 +31,11 @@ impl ScalarFnVTable for RowIdx {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn arity(&self, _options: &Self::Options) -> Arity {
         Arity::Exact(0)
     }

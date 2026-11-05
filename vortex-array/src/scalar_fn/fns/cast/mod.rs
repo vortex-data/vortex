@@ -73,6 +73,11 @@ impl ScalarFnVTable for Cast {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {

@@ -52,6 +52,11 @@ impl ScalarFnVTable for Merge {
         *ID
     }
 
+    #[inline]
+    fn static_id() -> Option<ScalarFnId> {
+        Some(Self.id())
+    }
+
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(match instance {
             DuplicateHandling::RightMost => vec![0x00],
