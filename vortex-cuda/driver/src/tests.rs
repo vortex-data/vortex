@@ -11,7 +11,11 @@ use crate::DevicePtrMut;
 use crate::DriverError;
 use crate::HostSlice;
 use crate::SyncOnDrop;
+use crate::device;
+use crate::mem_pool;
+use crate::memory;
 use crate::sys;
+use crate::sys::CUmemPool_attribute as PoolAttr;
 
 /// A context and two streams, or `None` without a CUDA driver or device.
 ///
@@ -259,7 +263,7 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     };
     let len = 1 << 20;
     // SAFETY: The context is current after `streams`, and the memory is freed below.
-    let pointer = unsafe { crate::memory::malloc_host(len, 0) }?;
+    let pointer = unsafe { memory::malloc_host(len, 0) }?;
     // SAFETY: The allocation holds `len` bytes, initialized below.
     let host = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<u8>(), len) };
     host.fill(1);
@@ -270,6 +274,102 @@ fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError>
     stream.memcpy_dtoh(&device, host)?;
     assert!(host.iter().all(|byte| *byte == 1));
     // SAFETY: The copies accessing the memory completed.
-    unsafe { crate::memory::free_host(pointer) }?;
+    unsafe { memory::free_host(pointer) }?;
     context.check_err()
+}
+
+fn pooled_stream() -> Option<Arc<CudaStream>> {
+    let (context, stream, _) = streams()?;
+    if !context.has_async_alloc() {
+        return None;
+    }
+    assert!(!context.mem_pool().is_null());
+    Some(stream)
+}
+
+fn pool_attribute(
+    pool: sys::CUmemoryPool,
+    attr: sys::CUmemPool_attribute,
+) -> Result<u64, DriverError> {
+    let mut value = 0u64;
+    // SAFETY: These tests pass live pools and attributes with u64 values.
+    unsafe { mem_pool::get_attribute(pool, attr, (&raw mut value).cast()) }?;
+    Ok(value)
+}
+
+#[test]
+fn retaining_pool_threshold_is_half_device_memory() -> Result<(), DriverError> {
+    let Some(stream) = pooled_stream() else {
+        return Ok(());
+    };
+    let context = stream.context();
+    let threshold = pool_attribute(
+        context.mem_pool(),
+        sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+    )?;
+    let mut total = 0;
+    // SAFETY: The context keeps the device valid; the driver writes its memory size.
+    unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, context.cu_device()) }.result()?;
+    assert_eq!(threshold, total as u64 / 2);
+    Ok(())
+}
+
+#[test]
+fn retaining_pool_keeps_freed_memory() -> Result<(), DriverError> {
+    let Some(stream) = pooled_stream() else {
+        return Ok(());
+    };
+    let pool = stream.context().mem_pool();
+    let used = PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT;
+    let reserved = PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT;
+    let device = stream.alloc_zeros::<u32>(1024)?;
+    stream.synchronize()?;
+    assert!(pool_attribute(pool, used)? > 0);
+
+    drop(device);
+    stream.synchronize()?;
+    assert_eq!(pool_attribute(pool, used)?, 0);
+    assert!(pool_attribute(pool, reserved)? > 0);
+    Ok(())
+}
+
+#[test]
+fn streams_share_retaining_pool_without_changing_device_pool() -> Result<(), DriverError> {
+    let Some(first) = pooled_stream() else {
+        return Ok(());
+    };
+    let context = first.context();
+    let pool = context.mem_pool();
+    // SAFETY: The context keeps the device valid.
+    let device_pool = unsafe { device::get_mem_pool(context.cu_device()) }?;
+    assert_ne!(pool, device_pool);
+    let threshold = pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?;
+    let second = context.new_stream()?;
+    assert_eq!(second.context().mem_pool(), pool);
+
+    let a = first.alloc_zeros::<u32>(1024)?;
+    let b = second.alloc_zeros::<u32>(1024)?;
+    first.synchronize()?;
+    second.synchronize()?;
+    assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)? >= 8192);
+    drop(a);
+    drop(b);
+    first.synchronize()?;
+    second.synchronize()?;
+    assert_eq!(
+        pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_USED_MEM_CURRENT)?,
+        0
+    );
+    assert!(pool_attribute(pool, PoolAttr::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT)? > 0);
+    assert_eq!(context.mem_pool(), pool);
+    // SAFETY: The context still keeps the device valid.
+    assert_eq!(
+        unsafe { device::get_mem_pool(context.cu_device()) }?,
+        device_pool
+    );
+    assert_eq!(
+        pool_attribute(device_pool, PoolAttr::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD)?,
+        threshold
+    );
+    Ok(())
 }
