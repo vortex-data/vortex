@@ -48,8 +48,9 @@ impl Matcher for AnyArray {
 /// only its own vtable carries it. Otherwise the concrete vtable's `TypeId` decides, because other
 /// encoding IDs are not guaranteed unique per vtable. `type_id` caches that virtual call across
 /// several checks of the same array.
+#[doc(hidden)]
 #[inline]
-pub(crate) fn vtable_matches<V: VTable>(
+pub fn vtable_matches<V: VTable>(
     array: &ArrayRef,
     id: ArrayId,
     type_id: &mut Option<TypeId>,
@@ -63,6 +64,28 @@ pub(crate) fn vtable_matches<V: VTable>(
         }
     }
     *type_id.get_or_insert_with(|| array.vtable_type_id()) == TypeId::of::<V>()
+}
+
+/// Whether an array's concrete vtable is any of the listed vtables.
+///
+/// Prefer this to chaining `array.is::<A>() || array.is::<B>()`: the encoding ID is read once,
+/// members with a static encoding ID are rejected without a virtual call, and at most one virtual
+/// call reads the concrete vtable's `TypeId`.
+///
+/// ```
+/// # use vortex_array::{IntoArray, is_any_vtable};
+/// # use vortex_array::arrays::{Constant, ConstantArray, Null};
+/// let array = ConstantArray::new(1i32, 3).into_array();
+/// assert!(is_any_vtable!(&array, Constant, Null));
+/// ```
+#[macro_export]
+macro_rules! is_any_vtable {
+    ($array:expr, $($vtable:ty),+ $(,)?) => {{
+        let array: &$crate::ArrayRef = $array;
+        let id = array.encoding_id();
+        let mut type_id = None;
+        $($crate::matcher::vtable_matches::<$vtable>(array, id, &mut type_id))||+
+    }};
 }
 
 /// Defines a [`Matcher`] for a fixed set of array vtables and the enum of typed views it returns.
@@ -91,9 +114,7 @@ macro_rules! vtable_set_matcher {
 
             #[inline]
             fn matches(array: &$crate::ArrayRef) -> bool {
-                let id = array.encoding_id();
-                let mut type_id = None;
-                $($crate::matcher::vtable_matches::<$vtable>(array, id, &mut type_id))||+
+                $crate::is_any_vtable!(array, $($vtable),+)
             }
 
             #[inline]

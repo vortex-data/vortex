@@ -18,6 +18,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::is_any_vtable;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -33,7 +34,7 @@ impl Matcher for ArrowDictExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
+        is_any_vtable!(array, Dict, Constant).then_some(array)
     }
 }
 

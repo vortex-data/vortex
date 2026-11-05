@@ -38,7 +38,7 @@ impl BetweenReduce for Widen {
 
         // Each compare of a `Widen` with a constant or another `Widen` runs the compare kernel of
         // `Widen`. Any other bound declines, so that `Between` decodes the `Widen` once.
-        let is_operand = |bound: &ArrayRef| bound.is::<Constant>() || bound.is::<Widen>();
+        let is_operand = |bound: &ArrayRef| crate::is_any_vtable!(bound, Constant, Widen);
         if !is_operand(lower) || !is_operand(upper) {
             return Ok(None);
         }
