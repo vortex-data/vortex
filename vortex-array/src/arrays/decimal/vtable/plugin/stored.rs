@@ -34,6 +34,8 @@ pub(super) struct StoredDecimal {
     pub(super) decimal_dtype: DecimalDType,
     /// The stored width of `values`.
     pub(super) values_type: DecimalType,
+    /// The row count supplied by the containing format, which `values` and `validity` match.
+    len: usize,
     /// One `values_type` integer per row, aligned to its width, in host or device memory.
     pub(super) values: BufferHandle,
     /// The validity, with one entry per row and the nullability of the dtype.
@@ -62,7 +64,7 @@ impl StoredDecimal {
         let values_type = DecimalMetadata::decode(metadata)?.get_values_type()?;
         let values = fixed_width::single_buffer(buffers)?;
 
-        // NB: every later read takes the row count from the buffer, so a buffer of another length
+        // NB: a legacy read takes the row count from the buffer, so a buffer of another length
         // must fail here. A read that returns another row count panics at the length assert of
         // the deserializer.
         let byte_len = len.checked_mul(values_type.byte_width()).ok_or_else(|| {
@@ -84,6 +86,7 @@ impl StoredDecimal {
         Ok(Self {
             decimal_dtype,
             values_type,
+            len,
             values,
             validity,
         })
@@ -105,10 +108,9 @@ impl StoredDecimal {
     /// with the same buffer.
     pub(super) fn into_array_parts(self) -> VortexResult<ArrayParts<Decimal>> {
         let dtype = DType::Decimal(self.decimal_dtype, self.validity.nullability());
-        let len = self.values.len() / self.values_type.byte_width();
-        let slots = DecimalData::make_slots(&self.validity, len);
+        let slots = DecimalData::make_slots(&self.validity, self.len);
         let data = DecimalData::try_new_handle(self.values, self.values_type, self.decimal_dtype)?;
 
-        Ok(ArrayParts::new(Decimal, dtype, len, data, slots))
+        Ok(ArrayParts::new(Decimal, dtype, self.len, data, slots))
     }
 }
