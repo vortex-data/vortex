@@ -389,7 +389,7 @@ fn selected_mask(selection: &Selection, range: &Range<u64>) -> Option<RowMask> {
 fn can_prune_file(ctx: &TaskContext) -> VortexResult<bool> {
     ctx.count::<true>(ScanCounters::attempt_file_scan);
     if let Some(filter) = &ctx.filter
-        && filter.can_prune_file_any(ctx.reader.as_ref())?
+        && filter.can_prune_file(ctx.reader.as_ref())?
     {
         ctx.count::<true>(ScanCounters::prune_file);
         return Ok(true);

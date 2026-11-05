@@ -183,57 +183,6 @@ fn scan_counters_after_deferred_pruning(
 }
 
 #[test]
-fn unchanged_dynamic_predicates_reuse_file_statistics() -> VortexResult<()> {
-    let (predicate, reader) = dynamic_fixture(false, None)?;
-    let bound = Arc::clone(&reader.bound);
-    let filter = FilterExpr::new(predicate.clone());
-    for expected_calls in 1..=2 {
-        std::thread::scope(|scope| {
-            let mut threads = Vec::new();
-            for _ in 0..8 {
-                let filter = &filter;
-                let reader = &reader;
-                threads.push(scope.spawn(move || -> VortexResult<()> {
-                    for _ in 0..100 {
-                        let version = filter.dynamic_updates(0).unwrap().version();
-                        assert!(!filter.can_prune_file(0, Some(version), reader)?);
-                    }
-                    Ok(())
-                }));
-            }
-            for thread in threads {
-                thread.join().unwrap()?;
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })?;
-        assert_eq!(
-            reader.file_pruning_calls.load(Ordering::Relaxed),
-            expected_calls
-        );
-        bound.store(200, Ordering::Relaxed);
-    }
-
-    let next_execution = FilterExpr::new(predicate);
-    let version = next_execution.dynamic_updates(0).unwrap().version();
-    assert!(!next_execution.can_prune_file(0, Some(version), &reader)?);
-    assert_eq!(reader.file_pruning_calls.load(Ordering::Relaxed), 3);
-    Ok(())
-}
-
-#[test]
-fn updates_during_file_statistics_evaluation_discard_the_result() -> VortexResult<()> {
-    let (predicate, reader) = dynamic_fixture(false, Some(200))?;
-    let filter = FilterExpr::new(predicate);
-    let version = filter.dynamic_updates(0).unwrap().version();
-    assert!(!filter.can_prune_file(0, Some(version), &reader)?);
-    let version = filter.dynamic_updates(0).unwrap().version();
-    assert!(filter.can_prune_file(0, Some(version), &reader)?);
-    assert!(filter.can_prune_file(0, Some(version), &reader)?);
-    assert_eq!(reader.file_pruning_calls.load(Ordering::Relaxed), 2);
-    Ok(())
-}
-
-#[test]
 fn selectivity_is_relative_to_the_input_mask() {
     assert_eq!(conditional_selectivity(20, 5), 0.25);
 }

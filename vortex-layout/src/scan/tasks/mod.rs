@@ -112,8 +112,15 @@ fn build_filter_mask<const TRACK_COUNTERS: bool>(
             // We will re-run the pruning later if the version has changed in the meantime.
             *version = filter.dynamic_updates(idx).map(|du| du.version());
 
-            mask = prune_conjunct::<TRACK_COUNTERS>(&ctx, filter, idx, *version, &row_range, mask)
-                .await?;
+            mask = prune_conjunct::<TRACK_COUNTERS>(
+                &ctx,
+                filter,
+                idx,
+                version.is_some(),
+                &row_range,
+                mask,
+            )
+            .await?;
             if mask.all_false() {
                 return Ok(mask);
             }
@@ -133,9 +140,8 @@ fn build_filter_mask<const TRACK_COUNTERS: bool>(
             {
                 // The dynamic expression has been updated, re-run the pruning.
                 dynamic_versions[idx] = Some(dv);
-                mask =
-                    prune_conjunct::<TRACK_COUNTERS>(&ctx, filter, idx, Some(dv), &row_range, mask)
-                        .await?;
+                mask = prune_conjunct::<TRACK_COUNTERS>(&ctx, filter, idx, true, &row_range, mask)
+                    .await?;
                 if mask.all_false() {
                     return Ok(mask);
                 }
@@ -167,19 +173,19 @@ async fn prune_conjunct<const TRACK_COUNTERS: bool>(
     ctx: &TaskContext,
     filter: &FilterExpr,
     idx: usize,
-    dynamic_version: Option<u64>,
+    dynamic: bool,
     row_range: &Range<u64>,
     mask: Mask,
 ) -> VortexResult<Mask> {
+    let conjunct = &filter.conjuncts()[idx];
+
     // Static conjuncts are checked against whole-file statistics once per execution.
-    if dynamic_version.is_some()
-        && filter.can_prune_file(idx, dynamic_version, ctx.reader.as_ref())?
-    {
+    // The reader caches the proof for each dynamic version.
+    if dynamic && ctx.reader.can_prune_file(conjunct)? {
         ctx.count::<TRACK_COUNTERS>(ScanCounters::prune_file);
         return Ok(Mask::new_false(mask.len()));
     }
 
-    let conjunct = &filter.conjuncts()[idx];
     let conjunct_mask = ctx
         .reader
         .split_pruning_evaluation(row_range, conjunct, mask.clone())?
