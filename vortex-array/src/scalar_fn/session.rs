@@ -36,6 +36,7 @@ use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
+use crate::scalar_fn::fns::string::StringFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::zip::Zip;
 
@@ -91,6 +92,11 @@ impl Default for ScalarFnSession {
         this.register(ReplaceTimeZone);
         this.register(Select);
         this.register(StatFn);
+        this.register(StringFn::Lower);
+        this.register(StringFn::Strpos);
+        this.register(StringFn::Strpos64);
+        this.register(StringFn::StartsWith);
+        this.register(StringFn::EndsWith);
         this.register(VariantGet);
         this.register(Zip);
 
