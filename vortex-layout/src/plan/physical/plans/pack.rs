@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
-use std::iter;
 use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
@@ -48,20 +47,25 @@ use crate::plan::physical::operators::empty_struct;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 
 /// Assembles a struct from a validity slot followed by one slot per field.
 ///
-/// The slots match those of a struct array and a struct layout: slot
-/// [`VALIDITY_SLOT`](Self::VALIDITY_SLOT) holds the validity, present exactly when the struct is
-/// nullable, and field `i` is in slot `FIELDS_OFFSET + i`.
+/// The slots match those of a struct array and a struct layout; see [`PackSlots`].
 #[derive(Clone, Debug)]
 pub struct Pack;
 
-impl Pack {
-    /// The slot holding struct validity, absent when the struct is non-nullable.
-    pub const VALIDITY_SLOT: usize = 0;
-    /// The slot of field zero; field `i` is in slot `FIELDS_OFFSET + i`.
-    pub const FIELDS_OFFSET: usize = 1;
+/// The child slots of a [`Pack`] plan.
+///
+/// Field `i` is in slot [`FIELD_PLANS_OFFSET`](Self::FIELD_PLANS_OFFSET)` + i`.
+#[plan_slots(Pack)]
+pub struct PackSlots {
+    /// The plan producing struct validity, present exactly when the struct is nullable.
+    #[slot(0)]
+    pub validity: Option<PlanRef>,
+    /// The plans producing the struct fields, in field order.
+    #[slot(1..)]
+    pub field_plans: Vec<PlanRef>,
 }
 
 /// Operator-specific struct assembly data.
@@ -149,9 +153,11 @@ impl PackPlan {
         field_plans: Vec<PlanRef>,
         validity: Option<PlanRef>,
     ) -> Self {
-        let slots = iter::once(validity)
-            .chain(field_plans.into_iter().map(Some))
-            .collect();
+        let slots = PackSlots {
+            validity,
+            field_plans,
+        }
+        .into_slots();
         // SAFETY: The caller guarantees the same slot invariants required by this constructor.
         unsafe { Self::from_slots_unchecked(fields, nullability, row_count, slots) }
     }
@@ -166,16 +172,6 @@ impl PackPlan {
     /// Returns the number of struct fields, excluding any validity child.
     pub fn nfields(&self) -> usize {
         self.fields().nfields()
-    }
-
-    /// Returns the plan producing struct validity, if the struct is nullable.
-    pub fn validity(&self) -> VortexResult<Option<PlanRef>> {
-        self.slot(Pack::VALIDITY_SLOT)
-    }
-
-    /// Returns the plan producing field `index`.
-    pub fn field(&self, index: usize) -> VortexResult<PlanRef> {
-        self.slot_required(Pack::FIELDS_OFFSET + index)
     }
 }
 
@@ -198,27 +194,38 @@ impl PlanVTable for Pack {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Pack", Pack::FIELDS_OFFSET + plan.nfields())?;
-        match (plan.dtype().is_nullable(), slots.get(Pack::VALIDITY_SLOT)?) {
+        let PackSlotsView {
+            validity,
+            field_plans,
+        } = PackSlotsView::try_from_slots(slots)?;
+        if field_plans.len() != plan.nfields() {
+            vortex_bail!(
+                "Pack expects {} field children but got {}",
+                plan.nfields(),
+                field_plans.len()
+            );
+        }
+        match (plan.dtype().is_nullable(), validity) {
             (true, Some(validity)) => validate_validity_child(plan.row_count(), validity)?,
             (false, None) => {}
             (true, None) => vortex_bail!("Nullable Pack has no validity child"),
             (false, Some(_)) => vortex_bail!("Non-nullable Pack has a validity child"),
         }
-        for (index, field_dtype) in plan.fields().fields().enumerate() {
-            let child = slots.required(Pack::FIELDS_OFFSET + index)?;
-            validate_field_child(index, &field_dtype, plan.row_count(), child)?;
+        for (index, (field_dtype, child)) in
+            plan.fields().fields().zip(field_plans.iter()).enumerate()
+        {
+            validate_field_child(index, &field_dtype, plan.row_count(), child?)?;
         }
         Ok(())
     }
 
     fn slot_name(plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
-        if slot == Pack::VALIDITY_SLOT {
-            return Cow::Borrowed("validity");
+        if slot < PackSlots::FIXED_COUNT {
+            return PackSlots::slot_name(slot);
         }
         let name = plan
             .fields()
-            .field_name(slot - Pack::FIELDS_OFFSET)
+            .field_name(slot - PackSlots::FIELD_PLANS_OFFSET)
             .vortex_expect("Pack slot index out of bounds");
         Cow::Borrowed(name.as_ref())
     }
@@ -511,7 +518,7 @@ fn field_name(fields: &StructFields, index: usize) -> VortexResult<FieldName> {
 }
 
 fn field_plan(plan: &Plan<Pack>, index: usize) -> VortexResult<PlanRef> {
-    plan.field(index)
+    plan.field_plans().get(index).cloned()
 }
 
 fn expanded_struct_root(

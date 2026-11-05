@@ -72,6 +72,94 @@ impl fmt::Debug for LazyPlanRef {
     }
 }
 
+/// A borrowed run of plan slots that are all present, such as the variadic tail of a
+/// [`plan_slots`](crate::plan::physical::plan_slots) struct.
+///
+/// Each slot is built on first access.
+#[derive(Clone, Copy)]
+pub struct PlanSlotSlice<'a> {
+    slots: &'a [Option<LazyPlanRef>],
+    name: &'static str,
+}
+
+impl<'a> PlanSlotSlice<'a> {
+    /// Wraps a run of slots that validation guarantees are all present.
+    ///
+    /// `name` names the run in errors when a slot is unexpectedly absent.
+    pub fn new(slots: &'a [Option<LazyPlanRef>], name: &'static str) -> Self {
+        Self { slots, name }
+    }
+
+    /// Wraps a run of slots, or errors when any slot is absent. Builds no slot.
+    pub fn try_new(slots: &'a [Option<LazyPlanRef>], name: &'static str) -> VortexResult<Self> {
+        if let Some(index) = slots.iter().position(Option::is_none) {
+            vortex_bail!("Plan slot {name}[{index}] is absent");
+        }
+        Ok(Self::new(slots, name))
+    }
+
+    /// The number of slots in the run.
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Returns `true` if the run contains no slots.
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// Returns the plan in slot `index` of the run, building it on first access. Errors when
+    /// `index` is out of bounds or the slot is absent.
+    pub fn get(&self, index: usize) -> VortexResult<&'a PlanRef> {
+        self.lazy(index)?.get()
+    }
+
+    /// Returns the possibly unbuilt slot `index` of the run without building it.
+    pub fn lazy(&self, index: usize) -> VortexResult<&'a LazyPlanRef> {
+        match self.slots.get(index) {
+            Some(Some(lazy)) => Ok(lazy),
+            Some(None) => vortex_bail!("Plan slot {}[{index}] is absent", self.name),
+            None => vortex_bail!(
+                "Plan slot {}[{index}] is out of bounds for {} slots",
+                self.name,
+                self.slots.len()
+            ),
+        }
+    }
+
+    /// The plans of the run in order, building each as it is visited.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = VortexResult<&'a PlanRef>> + use<'a> {
+        let name = self.name;
+        self.slots
+            .iter()
+            .enumerate()
+            .map(move |(index, slot)| match slot {
+                Some(lazy) => lazy.get(),
+                None => vortex_bail!("Plan slot {name}[{index}] is absent"),
+            })
+    }
+
+    /// The possibly unbuilt slots of the run, without building any.
+    pub fn as_slots(&self) -> &'a [Option<LazyPlanRef>] {
+        self.slots
+    }
+
+    /// Builds every slot of the run and clones the plans into an owned `Vec`.
+    pub fn to_vec(&self) -> VortexResult<Vec<PlanRef>> {
+        self.iter().map(|plan| plan.cloned()).collect()
+    }
+}
+
+impl fmt::Debug for PlanSlotSlice<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PlanSlotSlice")
+            .field("name", &self.name)
+            .field("len", &self.slots.len())
+            .finish()
+    }
+}
+
 /// The fixed-position child slots of a plan.
 ///
 /// Each operator defines what every slot position holds. A `None` slot is an absent child, such
@@ -156,14 +244,6 @@ impl PlanSlots {
     /// child is the `i`-th present slot.
     pub fn children(&self) -> impl Iterator<Item = VortexResult<&PlanRef>> + '_ {
         self.present().map(|(_, lazy)| lazy.get())
-    }
-
-    /// Returns an error when there are not exactly `expected` slots.
-    pub(crate) fn check_len(&self, name: &str, expected: usize) -> VortexResult<()> {
-        if self.0.len() != expected {
-            vortex_bail!("{name} expects {expected} slots but got {}", self.0.len());
-        }
-        Ok(())
     }
 }
 

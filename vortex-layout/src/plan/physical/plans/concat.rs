@@ -28,6 +28,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 use crate::plan::physical::pipeline::overlapping;
+use crate::plan::physical::plan_slots;
 use crate::plan::physical::selection::selected_slice;
 
 /// Concatenates its children row-wise.
@@ -42,6 +43,14 @@ pub struct ConcatData {
 
 /// A plan that concatenates its children row-wise.
 pub type ConcatPlan = Plan<Concat>;
+
+/// The child slots of a [`Concat`] plan: one per chunk, in row order.
+#[plan_slots(Concat)]
+pub struct ConcatSlots {
+    /// The concatenated chunks.
+    #[slot(0..)]
+    pub chunks: Vec<PlanRef>,
+}
 
 impl ConcatPlan {
     /// Creates a concatenation from potentially unbuilt slots, one per chunk, without
@@ -88,7 +97,12 @@ impl ConcatPlan {
         }
         // SAFETY: Child dtypes and the checked cumulative row metadata were validated above.
         Ok(unsafe {
-            Self::from_slots_unchecked(dtype, row_count, row_offsets.into(), children.into())
+            Self::from_slots_unchecked(
+                dtype,
+                row_count,
+                row_offsets.into(),
+                ConcatSlots { chunks: children }.into_slots(),
+            )
         })
     }
 
@@ -106,7 +120,8 @@ impl ConcatPlan {
     ) -> Self {
         let map = Arc::new(map);
         let slots = self
-            .slots()
+            .chunks()
+            .as_slots()
             .iter()
             .map(|slot| {
                 let chunk = slot.clone()?;
@@ -151,12 +166,19 @@ impl PlanVTable for Concat {
         slots: &PlanSlots,
         data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Concat", plan.slots().len())?;
+        let chunks = ConcatSlotsView::try_from_slots(slots)?.chunks;
+        if chunks.len() != plan.chunks().len() {
+            vortex_bail!(
+                "Concat expects {} slots but got {}",
+                plan.chunks().len(),
+                chunks.len()
+            );
+        }
 
-        let mut row_offsets = Vec::with_capacity(slots.len());
+        let mut row_offsets = Vec::with_capacity(chunks.len());
         let mut row_count = 0u64;
-        for index in 0..slots.len() {
-            let child = slots.required(index)?;
+        for child in chunks.iter() {
+            let child = child?;
             if child.dtype() != plan.dtype() {
                 vortex_bail!(
                     "Concat child dtype {} does not match {}",
@@ -180,7 +202,7 @@ impl PlanVTable for Concat {
     }
 
     fn slot_name(_plan: &Plan<Self>, slot: usize) -> Cow<'_, str> {
-        Cow::Owned(format!("chunks[{slot}]"))
+        ConcatSlots::slot_name(slot)
     }
 
     fn compile(
@@ -203,9 +225,9 @@ impl PlanVTable for Concat {
             ) else {
                 continue;
             };
-            let chunk = plan.slot_required(index)?;
+            let chunk = plan.chunks().get(index)?;
             if let Some(chain) = compiler.compile(
-                &chunk,
+                chunk,
                 rows.start + span.start as u64 - start..rows.start + span.end as u64 - start,
                 &local_mask,
             )? {

@@ -18,9 +18,18 @@ use super::PlanRef;
 use super::PlanVTable;
 use super::pipeline::Chain;
 use super::pipeline::Compiler;
+use super::plan_slots;
 
 #[derive(Clone, Debug)]
 struct Selected;
+
+/// The child slots of a [`Selected`] plan.
+#[plan_slots(Selected)]
+struct SelectedSlots {
+    /// The plan whose rows are selected.
+    #[slot(0)]
+    child: PlanRef,
+}
 
 #[derive(Clone, Debug)]
 struct SelectedData {
@@ -38,7 +47,7 @@ pub(crate) fn selected(plan: PlanRef, rows: Range<u64>, mask: Mask) -> PlanRef {
         vtable: Selected,
         dtype: plan.dtype().clone(),
         row_count: plan.row_count(),
-        slots: [plan].into(),
+        slots: SelectedSlots { child: plan }.into_slots(),
         data: SelectedData { rows, mask },
     }
     .into_typed()
@@ -69,7 +78,7 @@ impl PlanVTable for Selected {
         if mask.all_false() {
             return Ok(None);
         }
-        compiler.compile(&plan.slot_required(0)?, rows, &mask)
+        compiler.compile(plan.child()?, rows, &mask)
     }
 }
 

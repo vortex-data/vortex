@@ -13,7 +13,6 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -32,6 +31,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
+use crate::plan::physical::plan_slots;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -45,6 +45,14 @@ pub struct EvalData {
 
 /// A plan that applies an expression to its child.
 pub type EvalPlan = Plan<Eval>;
+
+/// The child slots of an [`Eval`] plan.
+#[plan_slots(Eval)]
+pub struct EvalSlots {
+    /// The plan supplying the expression root.
+    #[slot(0)]
+    pub child: PlanRef,
+}
 
 impl EvalPlan {
     /// Creates an evaluation of `expression`, which must be bound to the child's dtype.
@@ -65,7 +73,7 @@ impl EvalPlan {
             vtable: Eval,
             dtype: expression.dtype().clone(),
             row_count: child.row_count(),
-            slots: [child].into(),
+            slots: EvalSlots { child }.into_slots(),
             data: EvalData { expression },
         }
         .into_typed()
@@ -74,11 +82,6 @@ impl EvalPlan {
     /// Returns the expression evaluated by this plan.
     pub fn expression(&self) -> &BoundExpression {
         &self.data().expression
-    }
-
-    /// Returns the child plan supplying the expression root.
-    pub fn child_plan(&self) -> VortexResult<PlanRef> {
-        self.slot_required(0)
     }
 }
 
@@ -105,8 +108,7 @@ impl PlanVTable for Eval {
         slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        slots.check_len("Eval", 1)?;
-        let child = slots.required(0)?;
+        let child = EvalSlotsView::try_from_slots(slots)?.child;
         validate_expression_child(plan.expression(), child)?;
         if child.row_count() != plan.row_count() {
             vortex_error::vortex_bail!(
@@ -119,11 +121,7 @@ impl PlanVTable for Eval {
     }
 
     fn slot_name(_plan: &Plan<Self>, index: usize) -> Cow<'_, str> {
-        if index == 0 {
-            Cow::Borrowed("child")
-        } else {
-            Cow::Owned(format!("slot[{index}]"))
-        }
+        EvalSlots::slot_name(index)
     }
 
     fn compile(
@@ -132,7 +130,7 @@ impl PlanVTable for Eval {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
-        let chain = compiler.compile(&plan.child_plan()?, rows, mask)?;
+        let chain = compiler.compile(plan.child()?, rows, mask)?;
         Ok(chain.map(|chain| chain.with(EvalStage::new(plan.expression().clone()))))
     }
 }
@@ -154,7 +152,7 @@ pub(crate) struct EvalIdentityRule;
 impl PlanReduceRule<Eval> for EvalIdentityRule {
     fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
         if plan.expression().is_root() {
-            Ok(Some(plan.child_plan()?))
+            Ok(Some(plan.child()?.clone()))
         } else {
             Ok(None)
         }
@@ -186,7 +184,7 @@ impl PlanParentReduceRule<Eval> for EvalEvalRule {
         })?;
         // We want to fold repeated expressions like ($.a).b -> $.a.b.
         let expr = expr.into_inner().optimize()?;
-        let plan = EvalPlan::try_new(expr, child.child_plan()?)?;
+        let plan = EvalPlan::try_new(expr, child.child()?.clone())?;
         Ok(Some(plan.into_plan()))
     }
 }
@@ -207,8 +205,7 @@ impl PlanReduceRule<Eval> for EvalPackRule {
         };
         let fields = StructFields::new(expr.names.clone(), vec![child_expr.dtype().clone()]);
 
-        let child_plan = plan.slot(0)?.vortex_expect("no child plan");
-        let child_plan = EvalPlan::try_new(child_expr.clone(), child_plan)?.into_plan();
+        let child_plan = EvalPlan::try_new(child_expr.clone(), plan.child()?.clone())?.into_plan();
 
         let plan = PackPlan::try_new(
             fields,

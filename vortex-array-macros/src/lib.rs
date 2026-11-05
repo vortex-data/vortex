@@ -21,8 +21,35 @@ use syn::parse::ParseStream;
 use syn::parse_macro_input;
 use syn::spanned::Spanned;
 
+mod plan_slots;
+
 /// Name of the per-field attribute that pins a field to a slot index.
 const SLOT_ATTR: &str = "slot";
+
+/// Which slot macro is expanding, which fixes the child reference type its fields hold.
+#[derive(Clone, Copy)]
+enum SlotKind {
+    Array,
+    Plan,
+}
+
+impl SlotKind {
+    /// The attribute name, for error messages.
+    fn macro_name(self) -> &'static str {
+        match self {
+            Self::Array => "#[array_slots]",
+            Self::Plan => "#[plan_slots]",
+        }
+    }
+
+    /// The name of the child reference type a slot field holds.
+    fn ref_ty(self) -> &'static str {
+        match self {
+            Self::Array => "ArrayRef",
+            Self::Plan => "PlanRef",
+        }
+    }
+}
 
 /// Generate slot index constants, a borrowed view struct, and a typed ext trait
 /// from a slot struct definition.
@@ -104,6 +131,8 @@ const SLOT_ATTR: &str = "slot";
 ///
 /// - Fixed fields use `#[slot(N)]`, where `N` is the exact index of the slot.
 /// - A variadic tail uses `#[slot(N..)]`, where `N` is the index its first slot occupies.
+/// - Either form may add `name = "..."`, e.g. `#[slot(0, name = "data")]`, to give the slot a
+///   display name other than the field name. The name appears in `NAMES` and `slot_name`.
 ///
 /// The annotations are validated at compile time: the fixed indices must cover
 /// `0..FIXED_COUNT` exactly — no duplicates and no gaps — and a variadic tail must start
@@ -187,6 +216,83 @@ pub fn array_slots(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
+/// Generate slot index constants, a borrowed view struct, and a typed ext trait for the
+/// child slots of a physical plan operator in `vortex-layout`.
+///
+/// This is the plan counterpart of [`macro@array_slots`]: fields are `PlanRef` (required slot),
+/// `Option<PlanRef>` (optional slot), or `Vec<PlanRef>` (variadic tail of required slots), and
+/// each carries a `#[slot(N)]` or `#[slot(N..)]` attribute with the same validation rules.
+/// `#[slot(N, name = "..")]` sets a display name other than the field name.
+///
+/// Plan slots may be built lazily, so every access that builds a child is fallible.
+///
+/// # Example
+///
+/// ```ignore
+/// #[plan_slots(Take)]
+/// pub struct TakeSlots {
+///     #[slot(0)]
+///     pub codes: PlanRef,
+///     #[slot(1)]
+///     pub values: PlanRef,
+/// }
+/// ```
+///
+/// # Generated output
+///
+/// ```ignore
+/// impl TakeSlots {
+///     pub const CODES: usize = 0;
+///     pub const VALUES: usize = 1;
+///     pub const COUNT: usize = 2;
+///     pub const NAMES: [&'static str; 2] = ["codes", "values"];
+///
+///     /// Display name of the slot at `idx`.
+///     pub fn slot_name(idx: usize) -> Cow<'static, str> { ... }
+///
+///     /// Convert into built plan slots in storage order.
+///     pub fn into_slots(self) -> PlanSlots { ... }
+/// }
+///
+/// pub struct TakeSlotsView<'a> {
+///     pub codes: &'a PlanRef,
+///     pub values: &'a PlanRef,
+/// }
+///
+/// impl<'a> TakeSlotsView<'a> {
+///     /// Checks the slot count and the presence of every required slot, building each fixed
+///     /// slot.
+///     pub fn try_from_slots(slots: &'a PlanSlots) -> VortexResult<Self> { ... }
+///     pub fn to_owned(&self) -> VortexResult<TakeSlots> { ... }
+/// }
+///
+/// pub trait TakePlanSlotsExt {
+///     fn codes(&self) -> VortexResult<&PlanRef>;
+///     fn values(&self) -> VortexResult<&PlanRef>;
+///     fn slots_view(&self) -> VortexResult<TakeSlotsView<'_>>;
+/// }
+///
+/// impl TakePlanSlotsExt for Plan<Take> { ... }
+/// ```
+///
+/// An optional slot's accessor returns `VortexResult<Option<&PlanRef>>`. A variadic tail's view
+/// field and accessor are a `PlanSlotSlice`, which builds each slot on access. With a tail, the
+/// struct has `<TAIL>_OFFSET`, `FIXED_COUNT`, and `FIXED_NAMES` in place of `COUNT` and `NAMES`,
+/// and tail slot `i` is named `"<tail>[i]"`.
+///
+/// The generated code refers to `::vortex_layout` and `::vortex_error`, so both must be
+/// resolvable where the macro is used.
+#[proc_macro_attribute]
+pub fn plan_slots(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let vtable = parse_macro_input!(attr as Path);
+    let item_struct = parse_macro_input!(item as ItemStruct);
+
+    match plan_slots::expand_plan_slots(vtable, item_struct) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
 fn expand_array_slots(
     encoding: Path,
     item_struct: ItemStruct,
@@ -221,11 +327,11 @@ fn expand_array_slots(
 
     let field_specs = fields
         .iter()
-        .map(|field| SlotField::new(field, &struct_ident))
+        .map(|field| SlotField::new(field, &struct_ident, SlotKind::Array))
         .collect::<syn::Result<Vec<_>>>()?;
 
     // The `#[slot(..)]` annotations, not the declaration order, define storage order.
-    let (fixed_specs, tail_spec) = partition_by_slot_index(&field_specs)?;
+    let (fixed_specs, tail_spec) = partition_by_slot_index(&field_specs, SlotKind::Array)?;
 
     let idx_consts = fixed_specs.iter().copied().map(SlotField::idx_const);
     let view_fields = field_specs.iter().map(SlotField::view_field);
@@ -295,6 +401,7 @@ fn expand_array_slots(
 /// tail, validating that the annotated indices describe a complete, gap-free layout.
 fn partition_by_slot_index(
     field_specs: &[SlotField],
+    kind: SlotKind,
 ) -> syn::Result<(Vec<&SlotField>, Option<&SlotField>)> {
     let mut fixed_specs = Vec::with_capacity(field_specs.len());
     let mut tail_spec: Option<&SlotField> = None;
@@ -305,8 +412,8 @@ fn partition_by_slot_index(
                 return Err(syn::Error::new(
                     spec.index_span,
                     format!(
-                        "#[array_slots] allows at most one variadic tail, but `{}` is already \
-                         declared as one",
+                        "{} allows at most one variadic tail, but `{}` is already declared as one",
+                        kind.macro_name(),
                         previous.slot_name
                     ),
                 ));
@@ -329,7 +436,8 @@ fn partition_by_slot_index(
             syn::Error::new(
                 spec.index_span,
                 format!(
-                    "#[array_slots] slot index {} is claimed by both `{}` and `{}`",
+                    "{} slot index {} is claimed by both `{}` and `{}`",
+                    kind.macro_name(),
                     spec.index,
                     fixed_specs[expected - 1].slot_name,
                     spec.slot_name
@@ -339,8 +447,9 @@ fn partition_by_slot_index(
             syn::Error::new(
                 spec.index_span,
                 format!(
-                    "#[array_slots] no field claims slot index {expected}; fixed slot indices \
-                     must cover 0..{} without gaps",
+                    "{} no field claims slot index {expected}; fixed slot indices must cover \
+                     0..{} without gaps",
+                    kind.macro_name(),
                     fixed_specs.len()
                 ),
             )
@@ -353,8 +462,9 @@ fn partition_by_slot_index(
         return Err(syn::Error::new(
             tail.index_span,
             format!(
-                "#[array_slots] variadic tail `{}` must start at slot index {}, immediately after \
-                 the {} fixed slot(s), but is annotated `#[slot({}..)]`",
+                "{} variadic tail `{}` must start at slot index {}, immediately after the {} \
+                 fixed slot(s), but is annotated `#[slot({}..)]`",
+                kind.macro_name(),
                 tail.slot_name,
                 fixed_specs.len(),
                 fixed_specs.len(),
@@ -484,6 +594,7 @@ struct SlotField {
     field_ident: Ident,
     field_vis: Visibility,
     const_ident: Ident,
+    /// The display name: the `name = ".."` override, or else the field name.
     slot_name: String,
     slot_type: SlotFieldType,
     index: usize,
@@ -493,21 +604,22 @@ struct SlotField {
 }
 
 impl SlotField {
-    fn new(field: &Field, struct_ident: &Ident) -> syn::Result<Self> {
+    fn new(field: &Field, struct_ident: &Ident, kind: SlotKind) -> syn::Result<Self> {
         let field_ident = field
             .ident
             .clone()
             .ok_or_else(|| syn::Error::new(field.span(), "slot fields must be named"))?;
         let field_name = ident_name(&field_ident);
-        let slot_type = SlotFieldType::from_syn_type(&field.ty)?;
-        let annotation = SlotIndexAttr::from_field(field, &field_name)?;
+        let slot_type = SlotFieldType::from_syn_type(&field.ty, kind)?;
+        let annotation = SlotIndexAttr::from_field(field, &field_name, kind)?;
+        let ref_ty = kind.ref_ty();
 
         match (slot_type, annotation.variadic) {
             (SlotFieldType::VariadicTail, false) => {
                 return Err(syn::Error::new(
                     annotation.span,
                     format!(
-                        "`{field_name}` is a variadic `Vec<ArrayRef>` tail, so it must be \
+                        "`{field_name}` is a variadic `Vec<{ref_ty}>` tail, so it must be \
                          annotated `#[slot({}..)]`",
                         annotation.index
                     ),
@@ -517,7 +629,7 @@ impl SlotField {
                 return Err(syn::Error::new(
                     annotation.span,
                     format!(
-                        "`#[slot(N..)]` declares a variadic `Vec<ArrayRef>` tail; `{field_name}` \
+                        "`#[slot(N..)]` declares a variadic `Vec<{ref_ty}>` tail; `{field_name}` \
                          occupies a single slot, so annotate it `#[slot({})]`",
                         annotation.index
                     ),
@@ -537,11 +649,16 @@ impl SlotField {
             field.span(),
         );
 
+        let slot_name = annotation
+            .name
+            .as_ref()
+            .map_or(field_name, syn::LitStr::value);
+
         Ok(Self {
             field_ident,
             field_vis: field.vis.clone(),
             const_ident,
-            slot_name: field_name,
+            slot_name,
             slot_type,
             index: annotation.index,
             index_span: annotation.span,
@@ -685,16 +802,19 @@ impl SlotField {
     }
 }
 
-/// A parsed `#[slot(N)]` or `#[slot(N..)]` field annotation.
+/// A parsed `#[slot(N)]` or `#[slot(N..)]` field annotation, with an optional
+/// `name = ".."` display name.
 struct SlotIndexAttr {
     index: usize,
     /// Whether the trailing `..` was present, marking a variadic tail.
     variadic: bool,
+    /// The display name override.
+    name: Option<syn::LitStr>,
     span: Span,
 }
 
 impl SlotIndexAttr {
-    fn from_field(field: &Field, field_name: &str) -> syn::Result<Self> {
+    fn from_field(field: &Field, field_name: &str, kind: SlotKind) -> syn::Result<Self> {
         let mut annotation = None;
         for attr in &field.attrs {
             if !attr.path().is_ident(SLOT_ATTR) {
@@ -713,9 +833,10 @@ impl SlotIndexAttr {
             syn::Error::new(
                 field.span(),
                 format!(
-                    "`{field_name}` is missing a `#[slot(N)]` attribute; every field of an \
-                     `#[array_slots]` struct must pin itself to a slot index so that reordering \
-                     field declarations cannot change the slot layout"
+                    "`{field_name}` is missing a `#[slot(N)]` attribute; every field of a `{}` \
+                     struct must pin itself to a slot index so that reordering field \
+                     declarations cannot change the slot layout",
+                    kind.macro_name()
                 ),
             )
         })
@@ -730,13 +851,26 @@ impl Parse for SlotIndexAttr {
         if variadic {
             input.parse::<Token![..]>()?;
         }
+        let mut name = None;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let key: Ident = input.parse()?;
+            if key != "name" {
+                return Err(syn::Error::new(key.span(), "expected `name = \"..\"`"));
+            }
+            input.parse::<Token![=]>()?;
+            name = Some(input.parse::<syn::LitStr>()?);
+        }
         if !input.is_empty() {
-            return Err(input.error("expected `#[slot(N)]` or `#[slot(N..)]`"));
+            return Err(input.error(
+                "expected `#[slot(N)]` or `#[slot(N..)]`, optionally followed by `, name = \"..\"`",
+            ));
         }
 
         Ok(Self {
             index,
             variadic,
+            name,
             span: literal.span(),
         })
     }
@@ -750,26 +884,30 @@ enum SlotFieldType {
 }
 
 impl SlotFieldType {
-    fn from_syn_type(ty: &Type) -> syn::Result<Self> {
-        if is_array_ref_type(ty) {
+    fn from_syn_type(ty: &Type, kind: SlotKind) -> syn::Result<Self> {
+        let ref_ty = kind.ref_ty();
+        if is_ref_type(ty, ref_ty) {
             return Ok(Self::Required);
         }
 
         if let Some(inner_ty) = wrapper_inner_type(ty, "Option")
-            && is_array_ref_type(inner_ty)
+            && is_ref_type(inner_ty, ref_ty)
         {
             return Ok(Self::Optional);
         }
 
         if let Some(inner_ty) = wrapper_inner_type(ty, "Vec")
-            && is_array_ref_type(inner_ty)
+            && is_ref_type(inner_ty, ref_ty)
         {
             return Ok(Self::VariadicTail);
         }
 
         Err(syn::Error::new(
             ty.span(),
-            "#[array_slots] fields must be ArrayRef, Option<ArrayRef>, or Vec<ArrayRef>",
+            format!(
+                "{} fields must be {ref_ty}, Option<{ref_ty}>, or Vec<{ref_ty}>",
+                kind.macro_name()
+            ),
         ))
     }
 
@@ -782,7 +920,7 @@ impl SlotFieldType {
     }
 }
 
-fn is_array_ref_type(ty: &Type) -> bool {
+fn is_ref_type(ty: &Type, ref_ty: &str) -> bool {
     matches!(
         ty,
         Type::Path(type_path)
@@ -791,7 +929,7 @@ fn is_array_ref_type(ty: &Type) -> bool {
                     .path
                     .segments
                     .last()
-                    .is_some_and(|segment| segment.ident == "ArrayRef")
+                    .is_some_and(|segment| segment.ident == ref_ty)
     )
 }
 
