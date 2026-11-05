@@ -5,7 +5,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -436,10 +435,8 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         );
         let encoding_id = self.vtable.id();
         let stats = this.statistics().share_existing();
-        let uninit = Arc::new_uninit();
-
-        // SAFETY: `uninit` is new.
-        let store = unsafe { ArrayInner::init_arc(uninit, parts, encoding_id, stats) };
+        // SAFETY: we intentionally skip validation, see above.
+        let store = unsafe { ArrayInner::new_brc(parts, encoding_id, stats) };
 
         ArrayRef::from_inner(store)
     }

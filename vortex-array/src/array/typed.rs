@@ -13,10 +13,11 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
-use std::mem::MaybeUninit;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
+
+use biasedrc::Brc;
 
 use vortex_error::VortexResult;
 
@@ -25,6 +26,7 @@ use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayId;
+use crate::array::DynArrayData;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
@@ -40,8 +42,8 @@ use crate::validity::Validity;
 /// Stores common metadata (len, dtype, encoding_id, slots, stats) together with the
 /// encoding-specific `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
 ///
-/// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
-/// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
+/// `ArrayRef` stores `Brc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
+/// Metadata is accessed via `self.0.*` (a normal struct field read through the Brc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
 pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
@@ -51,6 +53,12 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) stats: ArrayStats,
     pub(crate) optimized: OptimizedState,
     pub(crate) data: D, // must be last for unsized coercion
+}
+
+// SAFETY: `ArrayInner<dyn DynArrayData>` is a struct whose only unsized field is its last field,
+// so its pointer metadata is exactly the metadata of `dyn DynArrayData`: a vtable pointer.
+unsafe impl ptr_meta::Pointee for ArrayInner<dyn DynArrayData> {
+    type Metadata = ptr_meta::DynMetadata<dyn DynArrayData>;
 }
 
 /// Construction parameters for typed arrays.
@@ -125,7 +133,7 @@ impl<V: VTable> TypedArrayRef<V> for Array<V> {}
 
 impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // =============================================================================
-// ArrayData<V> — the concrete type stored inside Arc<dyn DynArrayData>
+// ArrayData<V> — the concrete type stored inside Brc<ArrayInner<dyn DynArrayData>>
 // =============================================================================
 
 /// A VTable and its instance data, this can be type-erased to [`DynArrayData`](DynArrayData).
@@ -136,25 +144,21 @@ pub(crate) struct ArrayData<V: VTable> {
 }
 
 impl<V: VTable> ArrayInner<ArrayData<V>> {
-    /// Move the parts into an [`ArrayInner`] allocation that the caller made before.
+    /// Move the parts into a new [`Brc`] allocation.
     ///
-    /// `Arc::new` takes a complete value, so the compiler builds the value on the stack and then
-    /// copies it into the heap. The caller allocates `uninit` before it moves the parts into this
-    /// function. Because no call runs between the move and the write, the compiler copies each
-    /// part once, from the caller's `ArrayParts` into the heap.
+    /// `Brc::new_with` writes the value built by the closure straight into the heap allocation,
+    /// so the compiler copies each part once, from the caller's `ArrayParts` into the heap.
     ///
     /// # Safety
-    /// - `uninit` must be the only pointer to its allocation.
     /// - The parts must be logically consistent.
     /// - `encoding_id` must be the id of `parts.vtable`.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    pub(crate) unsafe fn init_arc(
-        uninit: Arc<MaybeUninit<Self>>,
+    pub(crate) unsafe fn new_brc(
         parts: ArrayParts<V>,
         encoding_id: ArrayId,
         stats: ArrayStats,
-    ) -> Arc<Self> {
+    ) -> Brc<Self> {
         let ArrayParts {
             vtable,
             dtype,
@@ -163,23 +167,15 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
             slots,
         } = parts;
 
-        // SAFETY: The caller made `uninit` and did not share it, thus no other pointer to it
-        // exists. We initialise all fields before `assume_init`.
-        unsafe {
-            Arc::as_ptr(&uninit)
-                .cast_mut()
-                .cast::<Self>()
-                .write(ArrayInner {
-                    len,
-                    encoding_id,
-                    dtype,
-                    slots,
-                    stats,
-                    optimized: OptimizedState::default(),
-                    data: ArrayData { vtable, data },
-                });
-            uninit.assume_init()
-        }
+        Brc::new_with(move || ArrayInner {
+            len,
+            encoding_id,
+            dtype,
+            slots,
+            stats,
+            optimized: OptimizedState::default(),
+            data: ArrayData { vtable, data },
+        })
     }
 }
 
@@ -247,10 +243,8 @@ impl<V: VTable> Array<V> {
 
         let encoding_id = new.vtable.id();
         let stats = ArrayStats::default();
-        let uninit = Arc::new_uninit();
-
-        // SAFETY: `uninit` is new. `validate` checked that the parts are consistent.
-        let store = unsafe { ArrayInner::init_arc(uninit, new, encoding_id, stats) };
+        // SAFETY: `validate` checked that the parts are consistent.
+        let store = unsafe { ArrayInner::new_brc(new, encoding_id, stats) };
 
         Ok(Self {
             inner: ArrayRef::from_inner(store),
@@ -266,10 +260,8 @@ impl<V: VTable> Array<V> {
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let encoding_id = new.vtable.id();
         let stats = ArrayStats::default();
-        let uninit = Arc::new_uninit();
-
-        // SAFETY: `uninit` is new. The caller guarantees that the parts are consistent.
-        let store = unsafe { ArrayInner::init_arc(uninit, new, encoding_id, stats) };
+        // SAFETY: The caller guarantees that the parts are consistent.
+        let store = unsafe { ArrayInner::new_brc(new, encoding_id, stats) };
 
         Self {
             inner: ArrayRef::from_inner(store),
@@ -350,7 +342,7 @@ impl<V: VTable> Array<V> {
         // SAFETY: Array<V> guarantees the inner is ArrayData<V>.
         let typed_arc = unsafe { inner.downcast_inner_unchecked::<V>() };
 
-        match Arc::try_unwrap(typed_arc) {
+        match Brc::try_unwrap(typed_arc) {
             Ok(store) => Ok(ArrayParts {
                 vtable: store.data.vtable,
                 dtype: store.dtype,

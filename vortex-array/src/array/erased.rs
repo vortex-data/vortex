@@ -8,7 +8,8 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::ptr;
-use std::sync::Arc;
+
+use biasedrc::Brc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -74,16 +75,22 @@ impl Iterator for DepthFirstArrayIterator {
 
 /// A reference-counted pointer to a type-erased array.
 ///
-/// Wraps `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
+/// Wraps `Brc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer using biased
+/// reference counting: clones and drops on the thread that allocated the array avoid atomic
+/// read-modify-write operations.
 /// Metadata (`len`, `dtype`, `encoding_id`) lives in `ArrayInner::meta` and is
 /// accessed as a normal struct field read — no vtable dispatch, no extra allocation.
 #[derive(Clone)]
-pub struct ArrayRef(Arc<ArrayInner<dyn DynArrayData>>);
+pub struct ArrayRef(Brc<ArrayInner<dyn DynArrayData>>);
 
 impl ArrayRef {
-    /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
-    pub(crate) fn from_inner<D: DynArrayData>(inner: Arc<ArrayInner<D>>) -> Self {
-        Self(inner)
+    /// Create from a `Brc<ArrayInner<D>>`, erasing `D` to `dyn DynArrayData`.
+    pub(crate) fn from_inner<D: DynArrayData>(inner: Brc<ArrayInner<D>>) -> Self {
+        // Stable Rust cannot coerce `Brc<T>` to `Brc<dyn Trait>`, so unsize the raw pointer.
+        let raw = Brc::into_raw(inner) as *const ArrayInner<dyn DynArrayData>;
+        // SAFETY: `raw` comes from `Brc::into_raw` and points to the same allocation; only its
+        // pointer metadata was added by the unsizing cast.
+        Self(unsafe { Brc::from_raw(raw) })
     }
 
     /// Returns a reference to the `dyn DynArrayData` inside the inner.
@@ -99,7 +106,7 @@ impl ArrayRef {
     #[allow(clippy::inline_always)]
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
-        let inner = Arc::get_mut(&mut self.0)?;
+        let inner = Brc::get_mut(&mut self.0)?;
         *inner.optimized.0.get_mut() = false;
         Some(inner)
     }
@@ -111,23 +118,26 @@ impl ArrayRef {
         &self.0.optimized
     }
 
-    /// Returns whether another owner holds this array too.
+    /// Returns whether another owner may hold this array too.
+    ///
+    /// Off the biased thread the count cannot always be determined, so this may report
+    /// `true` for an array that is in fact unique.
     pub(crate) fn is_shared(&self) -> bool {
-        Arc::strong_count(&self.0) > 1
+        !Brc::is_unique(&self.0)
     }
 
-    /// Returns the Arc::as_ptr().addr() of the underlying array.
+    /// Returns the `Brc::as_ptr().addr()` of the underlying array.
     /// This function is used in a couple of places, and we should migrate them to using array_eq.
     #[doc(hidden)]
     pub fn addr(&self) -> usize {
-        Arc::as_ptr(&self.0).addr()
+        Brc::as_ptr(&self.0).addr()
     }
 
     /// Downcast the inner to a concrete `ArrayInner<ArrayData<V>>`.
     ///
     /// Uses the same raw-pointer technique as `Arc::downcast`.
     #[allow(dead_code)]
-    pub(crate) fn downcast_inner<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
+    pub(crate) fn downcast_inner<V: VTable>(self) -> Result<Brc<ArrayInner<ArrayData<V>>>, Self> {
         // TODO(joe): can we use encoding id here?
         if self.0.data.as_any().is::<ArrayData<V>>() {
             Ok(unsafe { self.downcast_inner_unchecked() })
@@ -144,19 +154,19 @@ impl ArrayRef {
     #[inline(always)]
     pub(crate) unsafe fn downcast_inner_unchecked<V: VTable>(
         self,
-    ) -> Arc<ArrayInner<ArrayData<V>>> {
+    ) -> Brc<ArrayInner<ArrayData<V>>> {
         debug_assert!(self.0.data.as_any().is::<ArrayData<V>>());
-        // Recover the original concrete Arc. The fat pointer's data pointer is the
-        // same allocation that was originally `Arc<ArrayInner<ArrayData<V>>>` before
-        // unsized coercion to `Arc<ArrayInner<dyn DynArrayData>>`.
-        let raw = Arc::into_raw(self.0);
+        // Recover the original concrete Brc. The fat pointer's data pointer is the
+        // same allocation that was originally `Brc<ArrayInner<ArrayData<V>>>` before
+        // unsizing to `Brc<ArrayInner<dyn DynArrayData>>`.
+        let raw = Brc::into_raw(self.0);
         // # Safety all arrays are constructed in this way and type aliased.
-        unsafe { Arc::from_raw(raw.cast::<ArrayInner<ArrayData<V>>>()) }
+        unsafe { Brc::from_raw(raw.cast::<ArrayInner<ArrayData<V>>>()) }
     }
 
     /// Returns true if the two ArrayRefs point to the same allocation.
     pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
-        Arc::ptr_eq(&this.0, &other.0)
+        Brc::ptr_eq(&this.0, &other.0)
     }
 }
 
@@ -545,7 +555,7 @@ impl ArrayRef {
     /// callers must put the slot back (typically via [`Self::put_slot_unchecked`]) before the parent is
     /// returned from the execution loop.
     ///
-    /// When the `Arc` was shared this allocates a fresh parent.
+    /// When the `Brc` was shared this allocates a fresh parent.
     ///
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
@@ -561,7 +571,7 @@ impl ArrayRef {
             return Ok((self, child));
         }
 
-        // Arc is shared: clone the child out and build a fresh parent with slot_idx = None,
+        // Brc is shared: clone the child out and build a fresh parent with slot_idx = None,
         // bypassing encoding-level validation so the absent slot does not panic `V::validate`.
         let child = self.slots()[slot_idx]
             .as_ref()
@@ -577,7 +587,7 @@ impl ArrayRef {
         Ok((new_parent, child))
     }
 
-    /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
+    /// Puts an array into `slot_idx` by either, cloning the inner array if the Brc is not exclusive
     /// or replacing the slot in this `ArrayRef`.
     /// This is the mirror of [`Self::take_slot_unchecked`].
     ///
@@ -693,8 +703,8 @@ impl ArrayRef {
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // SAFETY: the Arc outlives the DynArrayData function call
+        let inner = Brc::as_ptr(&self.0);
+        // SAFETY: the Brc outlives the DynArrayData function call
         unsafe { (&*inner).data.execute(self, ctx) }
     }
 
@@ -707,10 +717,10 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
+        let inner = Brc::as_ptr(&self.0);
         // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
-        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
-        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
+        // duration of the call, so the pointee remains valid. Avoiding an extra `Brc` clone here
+        // preserves uniqueness so execute-time metadata cursors can use `Brc::get_mut`.
         unsafe { (&*inner).data.execute_unchecked(self, ctx) }
     }
 
