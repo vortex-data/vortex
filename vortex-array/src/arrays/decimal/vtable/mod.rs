@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Decimal`] vtable and the two readers of the `vortex.decimal` wire form.
+//! The [`Decimal`] vtable and the plugin that owns its wire form.
 //!
-//! [`Decimal`] reads only nodes at the canonical width of their precision, and [`DecimalPlugin`]
-//! also reads legacy nodes at any other width. Both readers validate a node with [`StoredDecimal`]
-//! first.
+//! The vtable does not serialize or deserialize. [`DecimalPlugin`] reads and writes the
+//! `vortex.decimal` wire form, including legacy nodes.
 
 mod kernel;
 mod operations;
@@ -13,19 +12,14 @@ mod operations;
 mod plugin;
 pub use plugin::DecimalPlugin;
 
-mod stored;
-use stored::StoredDecimal;
-
 mod validity;
 
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -46,7 +40,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
@@ -56,28 +49,6 @@ pub type DecimalArray = Array<Decimal>;
 
 pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
-}
-
-/// Metadata for the existing `vortex.decimal` wire representation.
-#[derive(prost::Message)]
-pub struct DecimalMetadata {
-    /// Stored [`DecimalType`] discriminant, retained for wire compatibility.
-    ///
-    /// The legacy format records the actual width separately from the logical dtype. Readers
-    /// need this field even when the in-memory representation uses canonical decimal leaves.
-    #[prost(int32, tag = "1")]
-    pub(super) values_type: i32,
-}
-
-impl DecimalMetadata {
-    fn get_values_type(&self) -> VortexResult<DecimalType> {
-        DecimalType::try_from(self.values_type).map_err(|_| {
-            vortex_err!(
-                "DecimalMetadata values_type must be a known DecimalType, got {}",
-                self.values_type
-            )
-        })
-    }
 }
 
 impl ArrayHash for DecimalData {
@@ -133,15 +104,10 @@ impl VTable for Decimal {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
+        _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DecimalMetadata {
-                values_type: array.values_type() as i32,
-            }
-            .encode_to_vec(),
-        ))
+        Ok(None)
     }
 
     fn validate(
@@ -174,22 +140,14 @@ impl VTable for Decimal {
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let stored = StoredDecimal::deserialize(dtype, len, metadata, buffers, children)?;
-        vortex_ensure_eq!(
-            stored.values_type,
-            stored.decimal_dtype.canonical_values_type(),
-            "Decimal reads only the canonical width of {}, and DecimalPlugin reads legacy widths",
-            stored.decimal_dtype,
-        );
-
-        stored.into_array_parts()
+        vortex_bail!("Decimal deserialization requires DecimalPlugin")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -220,8 +178,9 @@ impl VTable for Decimal {
     }
 }
 
+/// The vtable of [`DecimalArray`].
+///
+/// This vtable does not serialize or deserialize. A session **must** register [`DecimalPlugin`]
+/// in its place to read or write decimal arrays.
 #[derive(Clone, Debug)]
 pub struct Decimal;
-
-#[cfg(test)]
-mod tests;

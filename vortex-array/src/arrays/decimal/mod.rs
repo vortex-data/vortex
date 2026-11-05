@@ -3,8 +3,9 @@
 
 //! Decimal arrays whose logical precision determines their canonical integer width.
 //!
-//! The [`Decimal`] vtable reads only nodes at the canonical width. [`DecimalPlugin`] also reads
-//! legacy `vortex.decimal` nodes at any other width, as the canonical array or as a [`Widen`].
+//! [`DecimalPlugin`] reads and writes the `vortex.decimal` wire form in place of the [`Decimal`]
+//! vtable. It reads a legacy node, stored at another width, as the canonical array or as a
+//! [`Widen`].
 //!
 //! [`Widen`]: crate::arrays::Widen
 

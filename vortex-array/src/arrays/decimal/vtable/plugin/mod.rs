@@ -3,19 +3,24 @@
 
 //! Serde for `vortex.decimal` nodes, including legacy nodes.
 //!
-//! [`StoredDecimal::is_legacy`] defines a legacy node. [`Decimal`] rejects legacy nodes, and
-//! [`DecimalPlugin`] reads them as the canonical array or a [`Widen`].
+//! [`StoredDecimal::is_legacy`] defines a legacy node, which [`DecimalPlugin`] reads as the
+//! canonical array or a [`Widen`].
 //!
 //! Each legacy read scans the valid values once, because the deserializer attaches stored
 //! statistics only after the plugin returns. This cost is not limited to old files, because IPC
 //! and writes without a compressor still write a decimal `Widen` as a legacy node.
 
+mod stored;
+
+use prost::Message;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use self::stored::StoredDecimal;
 use super::Decimal;
-use super::StoredDecimal;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -28,17 +33,20 @@ use crate::array::VTable;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalDataParts;
+use crate::dtype::DecimalType;
 use crate::expr::stats::Precision;
 
-/// Reads every `vortex.decimal` node as the canonical decimal array or a decimal [`Widen`].
+/// Writes a [`DecimalArray`] as a `vortex.decimal` node, and reads every such node as the
+/// canonical decimal array or a decimal [`Widen`].
 ///
 /// A canonical node keeps its buffer without a copy or a scan, so the buffer can stay on a device,
 /// and its valid values are trusted to fit the precision. A legacy node goes through
 /// [`WidenArray::from_stored_decimal`], which copies it to the host to scan its valid values.
 ///
-/// The default [`ArraySession`] registers this plugin in place of [`Decimal`], and the plugin
-/// writes arrays as [`Decimal`] does.
+/// The [`Decimal`] vtable does not serialize or deserialize, so the default [`ArraySession`]
+/// registers this plugin in its place.
 ///
+/// [`DecimalArray`]: super::DecimalArray
 /// [`ArraySession`]: crate::session::ArraySession
 #[derive(Clone, Debug)]
 pub struct DecimalPlugin;
@@ -59,9 +67,23 @@ impl ArrayPlugin for DecimalPlugin {
     fn serialize(
         &self,
         array: &ArrayRef,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<ArraySerialization>> {
-        ArrayPlugin::serialize(&Decimal, array, session)
+        let Some(decimal) = array.as_opt::<Decimal>() else {
+            vortex_bail!(
+                "DecimalPlugin serializes only Decimal arrays, got {}",
+                array.encoding_id()
+            );
+        };
+        let metadata = DecimalMetadata {
+            values_type: decimal.values_type() as i32,
+        };
+
+        Ok(Some(ArraySerialization::from_array(
+            self.id(),
+            array,
+            metadata.encode_to_vec(),
+        )))
     }
 
     fn deserialize(
@@ -106,6 +128,28 @@ impl ArrayPlugin for DecimalPlugin {
 
     fn is_supported_encoding(&self, id: &ArrayId) -> bool {
         *id == VTable::id(&Decimal) || *id == VTable::id(&Widen)
+    }
+}
+
+/// The metadata of a `vortex.decimal` node.
+#[derive(prost::Message)]
+struct DecimalMetadata {
+    /// The [`DecimalType`] discriminant of the stored width.
+    ///
+    /// The width is recorded apart from the dtype, because a legacy node can store a width other
+    /// than the canonical width of its precision.
+    #[prost(int32, tag = "1")]
+    values_type: i32,
+}
+
+impl DecimalMetadata {
+    fn get_values_type(&self) -> VortexResult<DecimalType> {
+        DecimalType::try_from(self.values_type).map_err(|_| {
+            vortex_err!(
+                "DecimalMetadata values_type must be a known DecimalType, got {}",
+                self.values_type
+            )
+        })
     }
 }
 

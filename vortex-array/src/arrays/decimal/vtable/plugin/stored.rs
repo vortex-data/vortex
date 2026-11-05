@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Validation of decimal wire nodes before either reader constructs an array in memory.
+//! Validation of a `vortex.decimal` node before [`DecimalPlugin`] constructs an array in memory.
 //!
-//! Both [`Decimal`] and [`DecimalPlugin`] validate a node here first, so a malformed row count or
-//! buffer layout returns an error instead of failing an assert later.
+//! A malformed row count or buffer layout returns an error here instead of failing an assert
+//! later.
 //!
 //! [`DecimalPlugin`]: super::DecimalPlugin
 
@@ -14,9 +14,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
-use super::Decimal;
 use super::DecimalMetadata;
 use crate::ArrayParts;
+use crate::arrays::Decimal;
 use crate::arrays::decimal::DecimalData;
 use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::buffer::BufferHandle;
@@ -101,8 +101,8 @@ impl StoredDecimal {
         self.values_type != self.decimal_dtype.canonical_values_type()
     }
 
-    /// Returns the parts of a [`DecimalArray`](super::DecimalArray) at the stored width, with the
-    /// same buffer.
+    /// Returns the parts of a [`DecimalArray`](crate::arrays::DecimalArray) at the stored width,
+    /// with the same buffer.
     pub(super) fn into_array_parts(self) -> VortexResult<ArrayParts<Decimal>> {
         let dtype = DType::Decimal(self.decimal_dtype, self.validity.nullability());
         let len = self.values.len() / self.values_type.byte_width();

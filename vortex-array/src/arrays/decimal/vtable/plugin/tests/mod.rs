@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Reads of canonical and legacy `vortex.decimal` nodes.
+//! Serde of canonical and legacy `vortex.decimal` nodes.
 //!
 //! Hand-built nodes cover legacy widths without constructing invalid decimal arrays. Their raw
 //! slots include nonzero null payloads, and absent validity denotes a non-nullable node.
@@ -15,11 +15,13 @@ use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use super::DecimalMetadata;
 use super::DecimalPlugin;
 use crate::ArrayContext;
 use crate::ArrayRef;
@@ -27,13 +29,11 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array::ArrayDeserialization;
 use crate::array::ArrayPlugin;
-use crate::array::VTable;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Widen;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::decimal::vtable::DecimalMetadata;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
@@ -42,6 +42,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
+use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
@@ -96,6 +97,22 @@ fn deserialize(
     let parts = ArrayDeserialization::new(id, dtype, len, metadata, buffers, &children);
 
     DecimalPlugin.deserialize(parts, &SESSION)
+}
+
+/// Serializes `array` through the session, then decodes it with the dtype `dtype`.
+fn serialize_and_decode(array: &ArrayRef, dtype: &DType) -> VortexResult<ArrayRef> {
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+
+    SerializedArray::try_from(bytes.freeze())?.decode(
+        dtype,
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    )
 }
 
 fn metadata(values_type: DecimalType) -> Vec<u8> {
@@ -222,6 +239,23 @@ fn reads_node_at_any_width(
     Ok(())
 }
 
+#[rstest]
+#[case::first_unused(6)]
+#[case::negative(-1)]
+#[case::max(i32::MAX)]
+fn unknown_values_type_fails(#[case] raw: i32) -> VortexResult<()> {
+    let dtype = DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable);
+    let metadata = DecimalMetadata { values_type: raw }.encode_to_vec();
+    let values = BufferHandle::new_host(ByteBuffer::zeroed(4));
+
+    let result = deserialize(&dtype, 4, &metadata, &[values], &[]);
+
+    let expected = format!("DecimalMetadata values_type must be a known DecimalType, got {raw}");
+    assert!(result.is_err_and(|error| error.to_string().contains(&expected)));
+
+    Ok(())
+}
+
 /// Wire length and alignment must be checked before reading the stored integers.
 #[rstest]
 #[case::short_buffer(18, DecimalType::I32, 4, stored_values(DecimalType::I32, &[1, 2, 3]),
@@ -271,26 +305,52 @@ fn invalid_validity_children_fail(
     Ok(())
 }
 
-#[test]
-fn decimal_vtable_rejects_legacy_node() -> VortexResult<()> {
-    let dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable);
-    let buffers = [stored_values(DecimalType::I16, &[1, 2])];
-    let children: Vec<ArrayRef> = Vec::new();
+#[rstest]
+#[case::i32_nullable(
+    DecimalArray::new(
+        buffer![1_234_567i32, 0, -9_999_999],
+        DecimalDType::new(7, 3),
+        Validity::from_iter([true, false, true]),
+    ),
+    DecimalType::I32
+)]
+#[case::i8(
+    DecimalArray::from_iter([1i8, -2, 3], DecimalDType::new(2, 0)),
+    DecimalType::I8
+)]
+#[case::i16(
+    DecimalArray::from_iter([1i16, -2, 3], DecimalDType::new(4, 0)),
+    DecimalType::I16
+)]
+#[case::i32(
+    DecimalArray::from_iter([1i32, -2, 3], DecimalDType::new(9, 2)),
+    DecimalType::I32
+)]
+#[case::i64(
+    DecimalArray::from_iter([1i64, -2, 3], DecimalDType::new(18, 2)),
+    DecimalType::I64
+)]
+#[case::i128(
+    DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(38, 2)),
+    DecimalType::I128
+)]
+#[case::i256(
+    DecimalArray::from_iter(
+        [i256::from_i128(1), i256::from_i128(-2), i256::from_i128(3)],
+        DecimalDType::new(76, 2),
+    ),
+    DecimalType::I256
+)]
+fn round_trips_each_values_type(
+    #[case] array: DecimalArray,
+    #[case] values_type: DecimalType,
+) -> VortexResult<()> {
+    let array = array.into_array();
 
-    let result = VTable::deserialize(
-        &Decimal,
-        &dtype,
-        2,
-        &metadata(DecimalType::I16),
-        &buffers,
-        &children,
-        &SESSION,
-    );
+    let decoded = serialize_and_decode(&array, array.dtype())?;
 
-    assert!(result.is_err_and(|error| {
-        let message = error.to_string();
-        message.contains("DecimalPlugin") && message.contains("left: i16")
-    }));
+    assert_eq!(decoded.as_::<Decimal>().values_type(), values_type);
+    assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -306,17 +366,9 @@ fn decode_legacy_node_through_serialized_array() -> VortexResult<()> {
     let written = canonical_reference(DecimalDType::new(2, 0), &values, None)?.into_array();
     let read_dtype = DecimalDType::new(10, 0);
 
-    let array_ctx = ArrayContext::empty();
-    let mut bytes = ByteBufferMut::empty();
-    for buffer in written.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
-        bytes.extend_from_slice(buffer.as_ref());
-    }
-
-    let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
+    let decoded = serialize_and_decode(
+        &written,
         &DType::Decimal(read_dtype, Nullability::NonNullable),
-        written.len(),
-        &ReadContext::new(array_ctx.to_ids()),
-        &SESSION,
     )?;
 
     assert!(decoded.is::<Widen>());
