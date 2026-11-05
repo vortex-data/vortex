@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::Array as _;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
@@ -15,40 +16,41 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-/// Build a Vortex run-end array from an Arrow [`RunArray`] and its imported values slice.
+/// Build a Vortex run-end array from an Arrow [`RunArray`].
 ///
-/// The caller imports `array.values_slice()` separately, so extension metadata on the values
-/// field reaches the session's import plugins.
+/// `import_values` converts the Arrow values of the runs that intersect the logical range. The
+/// caller supplies it, so extension metadata on the values field reaches the session's import
+/// plugins. This function slices both children from one physical run range, so the ends and the
+/// values cannot drift apart.
 pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
     array: &RunArray<R>,
-    values: ArrayRef,
+    import_values: impl FnOnce(ArrowArrayRef) -> VortexResult<ArrayRef>,
 ) -> VortexResult<ArrayRef>
 where
     R::Native: NativePType,
 {
-    let first = array.get_start_physical_index();
-    let len = if array.is_empty() {
-        0
+    // Arrow slices a RunArray by adjusting the logical offset and length while keeping the full
+    // children, so keep only the physical runs that intersect the logical range.
+    let (first, len, offset) = if array.is_empty() {
+        (0, 0, 0)
     } else {
-        array.get_end_physical_index() - first + 1
+        let first = array.get_start_physical_index();
+        let len = array.get_end_physical_index() - first + 1;
+        (first, len, array.run_ends().offset())
     };
+
     let ends_buf =
         Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().slice(first, len));
     let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
         .reinterpret_cast(R::Native::PTYPE.to_unsigned())
         .into_array();
+    let values = import_values(array.values().slice(first, len))?;
 
     vortex_ensure_eq!(
         ends.len(),
         values.len(),
         "Arrow run-end array must have one value per run end"
     );
-
-    let offset = if array.is_empty() {
-        0
-    } else {
-        array.run_ends().offset()
-    };
 
     // SAFETY: Arrow guarantees positive, strictly increasing run ends that cover the logical range.
     // The unsigned cast preserves those values. The slice retains all intersecting runs,

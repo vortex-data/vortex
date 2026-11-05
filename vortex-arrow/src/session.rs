@@ -829,8 +829,9 @@ impl ArrowSession {
             .as_any()
             .downcast_ref::<RunArray<R>>()
             .ok_or_else(|| vortex_err!("expected an Arrow RunArray, got {}", array.data_type()))?;
-        let values = self.from_arrow_array_inner(run_array.values_slice(), values_field)?;
-        run_end_from_arrow(run_array, values)
+        run_end_from_arrow(run_array, |values| {
+            self.from_arrow_array_inner(values, values_field)
+        })
     }
 
     /// Decode an Arrow dictionary array into a [`DictArray`], importing its values with `field`'s

@@ -12,13 +12,13 @@ use arrow_array::builder::MapBuilder;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute as _;
-use vortex_array::array_session;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrowSession;
 use crate::convert::from_arrow_dyn;
@@ -53,21 +53,24 @@ fn test_sliced_map_imports_only_its_entries(
         }
         Ok(builder.finish())
     };
+
     let sliced = import(
         Arc::new(maps(0..1000)?.slice(start, len)),
         nullable,
         use_session,
     )?;
+
     let rows = i32::try_from(start)?..i32::try_from(start + len)?;
     let fresh = import(Arc::new(maps(rows)?), nullable, use_session)?;
-    // Empty nullable arrays can use a constant validity marker.
-    if len != 0 || !nullable {
-        assert_eq!(sliced.nbytes(), fresh.nbytes());
-    }
+
+    assert_eq!(sliced.nbytes(), fresh.nbytes());
+
     let map = sliced.as_::<Map>();
     let entries = map.entries().as_::<ListView>();
     assert_eq!(entries.elements().len(), len * 2);
-    let mut ctx = array_session().create_execution_ctx();
+
+    let mut ctx = VortexSession::empty().create_execution_ctx();
     assert_arrays_eq!(sliced, fresh, &mut ctx);
+
     Ok(())
 }
