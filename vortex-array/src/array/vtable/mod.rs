@@ -78,6 +78,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns the ID of the array.
     fn id(&self) -> ArrayId;
 
+    /// Returns the ID shared by every instance of this vtable, or `None` if instances report
+    /// different IDs.
+    ///
+    /// Matchers compare it against the array's inline encoding ID to reject other encodings
+    /// without a virtual call. When it is `Some`, it must equal [`id`](Self::id) for every
+    /// instance.
+    fn static_id() -> Option<ArrayId> {
+        None
+    }
+
     /// Validates that externally supplied logical metadata matches the array data.
     ///
     /// This is called by [`Array::try_from_parts`](crate::Array::try_from_parts) before the array
