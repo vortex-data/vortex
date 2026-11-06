@@ -6,10 +6,13 @@ use std::sync::LazyLock;
 use rstest::fixture;
 use rstest::rstest;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
+use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -19,7 +22,11 @@ use crate::arrays::varbin::offsets_tile_utf8;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
+use crate::serde::SerializeOptions;
+use crate::serde::SerializedArray;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -145,4 +152,64 @@ fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
     );
 
     assert!(result.is_err());
+}
+
+/// Sets statistics that say `offsets` are sorted and in the range `0..=max`.
+fn forge_offsets_statistics(offsets: &ArrayRef, max: i32) {
+    offsets.statistics().set(Stat::IsSorted, Precision::exact(true));
+    offsets.statistics().set(Stat::Min, Precision::exact(0i32));
+    offsets.statistics().set(Stat::Max, Precision::exact(max));
+}
+
+#[test]
+fn try_new_ignores_forged_offsets_statistics() {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = Buffer::copy_from("abcd".as_bytes());
+    let offsets = buffer![0i32, 1000, 2].into_array();
+    forge_offsets_statistics(&offsets, 4);
+
+    let result = VarBinArray::try_new(
+        offsets,
+        values,
+        DType::Binary(Nullability::NonNullable),
+        Validity::NonNullable,
+        &mut ctx,
+    );
+
+    assert!(result.is_err_and(|err| err.to_string().contains("sorted")));
+}
+
+#[test]
+fn decode_rejects_offsets_with_forged_statistics() -> VortexResult<()> {
+    let dtype = DType::Binary(Nullability::NonNullable);
+    let offsets = buffer![0i32, 1000, 2].into_array();
+    forge_offsets_statistics(&offsets, 4);
+
+    // SAFETY: the offsets are not valid on purpose. The test only serializes this array.
+    let array = unsafe {
+        VarBinArray::new_unchecked(
+            offsets,
+            Buffer::copy_from("abcd".as_bytes()),
+            dtype.clone(),
+            Validity::NonNullable,
+        )
+    }
+    .into_array();
+
+    let array_ctx = ArrayContext::empty();
+    let mut blob = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        blob.extend_from_slice(buffer.as_ref());
+    }
+    let serialized = SerializedArray::try_from(blob.freeze())?;
+
+    let result = serialized.decode(
+        &dtype,
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    );
+
+    assert!(result.is_err_and(|err| err.to_string().contains("sorted")));
+    Ok(())
 }
