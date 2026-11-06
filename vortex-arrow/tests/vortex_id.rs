@@ -19,8 +19,6 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -46,6 +44,7 @@ use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::Datum;
+use vortex_arrow::ext_metadata::EXTENSION_METADATA_ENCODING_KEY;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -140,26 +139,35 @@ fn tagged_timestamps() -> VortexResult<ArrayRef> {
     tagged_array(0xff, timestamps()?)
 }
 
-/// Build an Arrow field of type `storage` by hand, with the extension metadata of `ext_dtype`. A
-/// caller does this to export the storage of a type that has its own Arrow type.
+/// The field from [`ArrowSession::to_arrow_storage_field`] for `ext_dtype`, with the Arrow type
+/// `storage`.
 fn field_with_ext_metadata(
     name: &str,
     storage: DataType,
     ext_dtype: &ExtDTypeRef,
 ) -> VortexResult<Field> {
-    let id = ext_dtype.id().to_string();
-    let metadata = BASE64_STANDARD.encode(ext_dtype.serialize_metadata()?);
-    let field_metadata = [
-        (EXTENSION_TYPE_NAME_KEY.to_owned(), id),
-        (EXTENSION_TYPE_METADATA_KEY.to_owned(), metadata),
-    ];
-    let field = Field::new(name, storage, ext_dtype.is_nullable());
+    let field = SESSION.arrow().to_arrow_storage_field(name, ext_dtype)?;
 
-    Ok(field.with_metadata(field_metadata.into()))
+    Ok(field.with_data_type(storage))
+}
+
+/// An Arrow field of type `Int64` that names [`Tagged`], plus the given field metadata.
+fn tagged_int64_field(metadata: &[(&str, &str)]) -> Field {
+    let mut field = Field::new("t", DataType::Int64, true);
+    field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_NAME_KEY.to_owned(), "test.tagged".to_owned());
+    field.metadata_mut().extend(
+        metadata
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned())),
+    );
+
+    field
 }
 
 #[test]
-fn export_field_holds_vortex_id_and_base64_metadata() -> VortexResult<()> {
+fn export_field_holds_vortex_id_and_marked_base64_metadata() -> VortexResult<()> {
     let field = SESSION
         .arrow()
         .to_arrow_field("t", tagged_i64s(0xff)?.dtype())?;
@@ -169,6 +177,10 @@ fn export_field_holds_vortex_id_and_base64_metadata() -> VortexResult<()> {
         [
             (EXTENSION_TYPE_NAME_KEY.to_owned(), "test.tagged".to_owned()),
             (EXTENSION_TYPE_METADATA_KEY.to_owned(), "/w==".to_owned()),
+            (
+                EXTENSION_METADATA_ENCODING_KEY.to_owned(),
+                "base64".to_owned(),
+            ),
         ]
         .into(),
     );
@@ -318,6 +330,21 @@ fn unknown_vortex_id_imports_as_storage() -> VortexResult<()> {
     Ok(())
 }
 
+/// Metadata without the encoding key is its own UTF-8 bytes, as other producers of these fields
+/// write it.
+#[test]
+fn unmarked_metadata_imports_as_its_text() -> VortexResult<()> {
+    let field = tagged_int64_field(&[(EXTENSION_TYPE_METADATA_KEY, "x")]);
+    let expected = tagged(b'x', DType::Primitive(PType::I64, Nullability::Nullable))?;
+
+    assert_eq!(
+        SESSION.arrow().from_arrow_field(&field)?,
+        DType::Extension(expected)
+    );
+
+    Ok(())
+}
+
 /// A dictionary imports as a [`Dict`] whose values have the extension type, which matches what the
 /// importer plugins produce.
 #[test]
@@ -346,23 +373,27 @@ fn dictionary_values_keep_the_extension_type() -> VortexResult<()> {
 }
 
 /// If the extension name of a field is a known Vortex ID, its metadata must be valid for that type.
-/// A missing `ARROW:extension:metadata` means empty metadata, which [`Tagged`] rejects.
+/// A missing `ARROW:extension:metadata` means empty metadata, and unmarked metadata is its own
+/// text. [`Tagged`] rejects both here, because neither is one byte.
 #[rstest]
-#[case::not_base64(Some("%"), "must carry base64 extension metadata")]
-#[case::missing(None, "Tagged metadata must be one byte, got []")]
+#[case::not_base64(
+    &[(EXTENSION_TYPE_METADATA_KEY, "%"), (EXTENSION_METADATA_ENCODING_KEY, "base64")],
+    "must carry base64 extension metadata"
+)]
+#[case::unknown_encoding(
+    &[(EXTENSION_TYPE_METADATA_KEY, "ff"), (EXTENSION_METADATA_ENCODING_KEY, "hex")],
+    r#"must have the extension metadata encoding "base64", got "hex""#
+)]
+#[case::missing(&[], "Tagged metadata must be one byte, got []")]
+#[case::unmarked_base64(
+    &[(EXTENSION_TYPE_METADATA_KEY, "/w==")],
+    "Tagged metadata must be one byte, got [47, 119, 61, 61]"
+)]
 fn import_rejects_bad_metadata(
-    #[case] metadata: Option<&str>,
+    #[case] metadata: &[(&str, &str)],
     #[case] message: &str,
 ) -> VortexResult<()> {
-    let mut field = Field::new("t", DataType::Int64, true);
-    field
-        .metadata_mut()
-        .insert(EXTENSION_TYPE_NAME_KEY.to_owned(), "test.tagged".to_owned());
-    if let Some(metadata) = metadata {
-        field
-            .metadata_mut()
-            .insert(EXTENSION_TYPE_METADATA_KEY.to_owned(), metadata.to_owned());
-    }
+    let field = tagged_int64_field(metadata);
 
     let err = SESSION
         .arrow()

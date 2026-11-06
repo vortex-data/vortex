@@ -25,6 +25,7 @@ pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;
+pub mod ext_metadata;
 mod iter;
 mod null_buffer;
 mod options;
