@@ -3,8 +3,7 @@
 
 //! The [`Decimal`] vtable and the plugin that owns its wire form.
 //!
-//! The vtable does not serialize or deserialize. [`DecimalPlugin`] reads and writes the
-//! `vortex.decimal` wire form, including legacy nodes.
+//! [`DecimalPlugin`] reads and writes the `vortex.decimal` wire form, including legacy nodes.
 
 mod kernel;
 mod operations;
@@ -160,7 +159,6 @@ impl VTable for Decimal {
 
 /// The vtable of [`DecimalArray`].
 ///
-/// This vtable does not serialize or deserialize. A session **must** register [`DecimalPlugin`]
-/// in its place to read or write decimal arrays.
+/// A session **must** register [`DecimalPlugin`] to read or write decimal arrays.
 #[derive(Clone, Debug)]
 pub struct Decimal;

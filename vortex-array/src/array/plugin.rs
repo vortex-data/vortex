@@ -132,7 +132,10 @@ pub trait ArrayPlugin: 'static + Send + Sync {
 
     /// Serialize `array` to its wire representation.
     ///
-    /// This function is called only for arrays whose in-memory encoding matches [`id`](Self::id).
+    /// The session calls this only for arrays whose in-memory encoding matches [`id`](Self::id).
+    /// Implementations in this crate check that as well, so a direct caller gets an error rather
+    /// than a panic from the downcast.
+    ///
     /// The returned ID must be declared by [`write_ids`](Self::write_ids). Return
     /// `Ok(None)` when the array cannot be serialized.
     fn serialize(
@@ -143,7 +146,9 @@ pub trait ArrayPlugin: 'static + Send + Sync {
 
     /// Deserialize one recognized wire representation into the current in-memory array.
     ///
-    /// `serialized_id` identifies the exact representation encountered on disk. The returned
+    /// `serialized_id` identifies the exact representation encountered on disk. The session only
+    /// routes IDs from [`read_ids`](Self::read_ids) here; implementations in this crate check it as
+    /// well, so a direct caller gets an error rather than a misread array. The returned
     /// array does not necessarily have to use this plugin's in-memory ID; this supports legacy
     /// representations that are normalized into another current in-memory array. Implementations
     /// must validate the contract of that exact ID rather than accepting every form understood by
