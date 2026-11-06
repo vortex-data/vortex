@@ -188,9 +188,6 @@ const FILE_MAPPINGS_CACHED_MAX: usize = 64;
 /// on other threads wait for that lock while holding the driver's: on NDS-H SF10 Q10, every
 /// thread stalled for the first ~2 ms of each query. Reusing the mapping also keeps its page
 /// tables filled, so hot scans skip most of the fill work.
-///
-/// Each cached mapping retains a file descriptor for deletion checks, so the cache can
-/// retain up to 64 descriptors between scans.
 static FILE_MAPPINGS: LazyLock<Mutex<FileMappingCache>> =
     LazyLock::new(|| Mutex::new(VecDeque::with_capacity(FILE_MAPPINGS_CACHED_MAX + 1)));
 
@@ -226,8 +223,6 @@ impl FileVersion {
 /// Unmapped when the last reference drops, only after every user's copies have drained.
 struct FileMapping {
     mapping: Mmap,
-    /// The mapped file, kept to notice its deletion.
-    file: File,
 }
 
 impl FileMapping {
@@ -236,10 +231,6 @@ impl FileMapping {
     fn open(file: &File) -> VortexResult<Option<Arc<Self>>> {
         let version = FileVersion::of(file)?;
         let mut mappings = FILE_MAPPINGS.lock();
-        let deleted = take_deleted(&mut mappings);
-        if !deleted.is_empty() {
-            release_in_background(Box::new(move || drop(deleted)));
-        }
         if let Some(index) = mappings.iter().position(|(cached, _)| *cached == version) {
             let entry = mappings.remove(index).vortex_expect("index is in bounds");
             let mapping = Arc::clone(&entry.1);
@@ -256,10 +247,7 @@ impl FileMapping {
                 return Ok(None);
             }
         };
-        let mapping = Arc::new(Self {
-            mapping,
-            file: file.try_clone()?,
-        });
+        let mapping = Arc::new(Self { mapping });
         mappings.push_back((version, Arc::clone(&mapping)));
         if mappings.len() > FILE_MAPPINGS_CACHED_MAX
             && let Some((_, evicted)) = mappings.pop_front()
@@ -273,28 +261,6 @@ impl FileMapping {
     fn mapping(&self) -> &Mmap {
         &self.mapping
     }
-
-    /// Whether the mapped file was deleted, whose disk space the mapping keeps allocated.
-    fn is_deleted(&self) -> bool {
-        // If the file cannot be checked, keep the mapping, which stays usable.
-        self.file
-            .metadata()
-            .is_ok_and(|metadata| metadata.nlink() == 0)
-    }
-}
-
-/// Removes the cached mappings of deleted files, which would keep their disk space allocated.
-fn take_deleted(mappings: &mut FileMappingCache) -> Vec<Arc<FileMapping>> {
-    let mut deleted = Vec::new();
-    mappings.retain(|(_, mapping)| {
-        if mapping.is_deleted() {
-            deleted.push(Arc::clone(mapping));
-            false
-        } else {
-            true
-        }
-    });
-    deleted
 }
 
 /// Waits until the release thread has run every release queued so far.
@@ -514,9 +480,6 @@ impl Drop for MappedFile {
                 return;
             }
             drop(file);
-            // The file may have been deleted while this reader used it.
-            let deleted = take_deleted(&mut FILE_MAPPINGS.lock());
-            drop(deleted);
         }));
     }
 }
