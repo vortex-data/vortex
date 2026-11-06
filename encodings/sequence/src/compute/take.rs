@@ -135,7 +135,6 @@ mod test {
 
     use hegel::TestCase;
     use hegel::generators as gs;
-    use num_traits::PrimInt;
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
@@ -310,37 +309,26 @@ mod test {
 
     fn check_take<P>(tc: &TestCase) -> VortexResult<()>
     where
-        P: NativePType + PrimInt + gs::Integer + Into<PValue> + 'static,
+        P: NativePType + gs::Integer + Into<PValue> + 'static,
     {
         let mut ctx = SESSION.create_execution_ctx();
+        let base: P = tc.draw(gs::integers());
+        let multiplier: i64 = tc.draw(gs::integers());
         let len: usize = tc.draw(gs::integers().min_value(1).max_value(MAX_LEN));
-
-        // The base stays within a quarter of the range around its middle, and the steps span at
-        // most one more quarter, thus every value fits `P`.
-        let two = P::one() + P::one();
-        let quarter = P::max_value() / (two + two);
-        let middle = P::min_value() / two + P::max_value() / two;
-        let base: P = tc.draw(
-            gs::integers()
-                .min_value(middle - quarter)
-                .max_value(middle + quarter),
-        );
-        let max_step = (quarter / num_traits::cast::<usize, P>(len).vortex_expect("len fits P"))
-            .to_i64()
-            .vortex_expect("step fits i64");
-        let multiplier: i64 = tc.draw(gs::integers().min_value(-max_step).max_value(max_step));
-        let sequence = Sequence::try_new(
+        let Ok(sequence) = Sequence::try_new(
             base.into(),
             PValue::from(multiplier),
             P::PTYPE,
             Nullability::NonNullable,
             len,
-        )?
-        .into_array();
+        ) else {
+            tc.reject()
+        };
+        let sequence = sequence.into_array();
 
-        let indices: Vec<u8> = tc.draw(
-            gs::vecs(gs::integers::<u8>().max_value(u8::try_from(len - 1)?)).max_size(MAX_LEN),
-        );
+        let indices: Vec<u8> = tc.draw(gs::vecs(
+            gs::integers::<u8>().max_value(u8::try_from(len - 1)?),
+        ));
         let index_ptype = tc.draw(gs::sampled_from(&INDEX_PTYPES));
         let indices = match_each_integer_ptype!(index_ptype, |I| {
             Buffer::<I>::from_iter(
