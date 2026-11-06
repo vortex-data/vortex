@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex_cuda_driver::stream::launch_host_function;
 
 use super::*;
 use crate::CudaSessionExt;
@@ -525,6 +526,85 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     drop(cache);
     assert!(mapping.upgrade().is_none());
     assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
+/// A mapping removed from the cache while a reader uses it is unmapped when releasing cached
+/// mappings returns after that reader closed, as cold-cache eviction needs.
+#[crate::test]
+async fn uncached_mappings_are_unmapped_before_release_returns() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    // Remove the cache's reference while the reader still holds the mapping.
+    FILE_MAPPINGS.lock().clear();
+    drop(reader);
+    release_file_mappings();
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    assert!(!maps.contains(&*file.path().to_string_lossy()));
+    Ok(())
+}
+
+/// Pauses cleanup until the returned sender drops, including on test failure.
+fn pause_releases() -> mpsc::Sender<()> {
+    let (resume, held) = mpsc::channel();
+    MAPPED_RELEASE_QUEUE
+        .as_ref()
+        .expect("release worker started")
+        .send(Box::new(move || {
+            let _ = held.recv();
+        }))
+        .expect("release worker stopped");
+    resume
+}
+
+/// Blocks later stream work until the returned sender drops, including on test failure.
+fn block_stream(stream: &VortexCudaStream) -> VortexResult<mpsc::Sender<()>> {
+    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
+        // SAFETY: Successful registration transfers the boxed receiver to this callback.
+        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
+        let _ = blocked.recv();
+    }
+
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("{e}"))?;
+    let (unblock, blocked) = mpsc::channel::<()>();
+    let data = Box::into_raw(Box::new(blocked));
+    // SAFETY: The stream is live; the receiver lives until the callback runs or registration fails.
+    if let Err(error) = unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) } {
+        // SAFETY: Registration failed, so the callback did not take ownership.
+        drop(unsafe { Box::from_raw(data) });
+        return Err(vortex_err!("{error}"));
+    }
+    Ok(unblock)
+}
+
+/// A closed reader's release completes while later work on its stream is still blocked.
+#[crate::test]
+async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let stream = reader.stream.clone();
+    // Delay cleanup until later stream work is queued, so a stream-wide wait would block.
+    let resume = pause_releases();
+    drop(reader);
+    let unblock = block_stream(&stream)?;
+
+    let (done, released) = mpsc::channel();
+    release_in_background(Box::new(move || {
+        let _ = done.send(());
+    }));
+    drop(resume);
+    released
+        .recv_timeout(WAIT)
+        .expect("reader release blocked on later stream work");
+    drop(unblock);
     Ok(())
 }
 
