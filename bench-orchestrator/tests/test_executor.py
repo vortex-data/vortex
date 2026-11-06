@@ -48,7 +48,7 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
 
 
 def test_scan_v1_benchmarks_are_explicit() -> None:
-    assert BENCHMARK_SCAN_V1 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN}
+    assert BENCHMARK_SCAN_V1 == {Benchmark.POLARSIGNALS, Benchmark.STATPOPGEN, Benchmark.TPCH_NESTED}
 
 
 @pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])

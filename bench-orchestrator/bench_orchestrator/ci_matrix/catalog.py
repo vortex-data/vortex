@@ -20,7 +20,7 @@ PRESETS = {
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
     "pr-all": "The union of the pr, pr-compact and pr-full matrices (action/bench-all).",
     "pr-full": "Every regular SQL benchmark at full PR target coverage (action/bench-sql-extended).",
-    "nightly": "Large-scale SF=100 TPC-H on NVMe and S3, and SF=10/100 TPC-DS on NVMe and S3, at default targets.",
+    "nightly": "SF=100 TPC-H and nested TPC-H, and SF=10/100 TPC-DS, on NVMe and S3 at default targets.",
 }
 
 # Reusable target coverage
@@ -303,6 +303,34 @@ BENCHMARKS = (
             "pr-full": JOB_DUCKDB,
             "develop": JOB_DUCKDB,
         },
+    ),
+    BenchmarkCase(
+        id="tpch-nested-nvme",
+        benchmark=Benchmark.TPCH_NESTED,
+        name="Nested TPC-H SF=1 on NVME",
+        scale_factor=1.0,
+        iterations=10,
+        runs={
+            "pr-full": FULL_PR,
+            "develop": FULL_LOCAL,
+        },
+    ),
+    BenchmarkCase(
+        id="tpch-nested-nvme",
+        benchmark=Benchmark.TPCH_NESTED,
+        name="Nested TPC-H on NVME",
+        scale_factor=100,
+        runs={"nightly": DEFAULT},
+    ),
+    BenchmarkCase(
+        id="tpch-nested-s3",
+        benchmark=Benchmark.TPCH_NESTED,
+        name="Nested TPC-H on S3",
+        storage=Storage.S3,
+        scale_factor=100,
+        local_dir="vortex-bench/data/tpch-nested/100.0/list",
+        remote_key="tpch-nested/100.0/list",
+        runs={"nightly": DEFAULT},
     ),
     BenchmarkCase(
         id="vortex-queries",

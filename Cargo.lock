@@ -11484,6 +11484,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array 59.3.2",
+ "arrow-buffer 59.3.2",
  "arrow-cast 59.3.2",
  "arrow-ipc 59.3.2",
  "arrow-schema 59.3.2",
