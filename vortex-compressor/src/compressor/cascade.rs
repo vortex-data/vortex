@@ -354,7 +354,7 @@ impl CascadingCompressor {
 /// The bytes `array`'s rows use once canonical, read from the exact statistic the writer caches
 /// on each chunk and computed otherwise. A dtype that cannot be measured, such as variant, is
 /// sized by the bytes it holds.
-pub(super) fn exact_uncompressed_size(
+pub(crate) fn exact_uncompressed_size(
     array: &ArrayRef,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
