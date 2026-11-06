@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/disk=large/tag=fuzz-build', github.run_id, inputs.runner)
+          && format('runs-on={0}/region=us-east-1/runner={1}/disk=large/tag=fuzz-build', github.run_id, inputs.runner)
           || 'ubuntu-latest' }}
     outputs:
       artifact_name: ${{ steps.artifact.outputs.name }}

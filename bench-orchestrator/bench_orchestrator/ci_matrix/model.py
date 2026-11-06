@@ -39,6 +39,12 @@ class BenchmarkCase:
     iterations: int | None = None
     local_dir: str | None = None
     remote_key: str | None = None
+    dataset_dir: str | None = None
+
+    @property
+    def data_dir_name(self) -> str:
+        """Return the directory under ``vortex-bench/data`` holding this benchmark's data."""
+        return self.dataset_dir or self.subcommand
 
     @property
     def subcommand(self) -> str:

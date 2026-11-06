@@ -17,7 +17,6 @@ use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -46,7 +45,7 @@ pub(crate) fn accumulate_decimal(
         .as_decimal_opt()
         .vortex_expect("decimal sum result dtype");
 
-    let values_type = DecimalType::smallest_decimal_value_type(dtype);
+    let values_type = dtype.canonical_values_type();
     match_each_decimal_value_type!(d.values_type(), |T| {
         match_each_decimal_value_type!(values_type, |I| {
             let initial: I = value

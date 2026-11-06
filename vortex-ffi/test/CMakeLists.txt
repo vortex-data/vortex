@@ -24,6 +24,14 @@ target_compile_options(vortex_ffi_test PRIVATE -Wall -Wextra -Wpedantic)
 if(VORTEX_WARNINGS_AS_ERRORS)
     target_compile_options(vortex_ffi_test PRIVATE -Werror)
 endif()
+
+# Catch2 test macros expand to __COUNTER__, which newer clang flags as a C2y extension under
+# -Wpedantic. Check the positive flag: GCC accepts unknown -Wno-* flags without a diagnostic.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wc2y-extensions VORTEX_HAS_WC2Y_EXTENSIONS)
+if(VORTEX_HAS_WC2Y_EXTENSIONS)
+    target_compile_options(vortex_ffi_test PRIVATE -Wno-c2y-extensions)
+endif()
 target_link_libraries(vortex_ffi_test PRIVATE
     Vortex::ffi
     Catch2::Catch2WithMain

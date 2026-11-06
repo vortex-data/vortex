@@ -29,6 +29,7 @@ use vortex_cub::filter::cudaStream_t;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
 use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::SyncOnDrop;
 
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
@@ -126,7 +127,9 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
     let d_input_view = d_input_cuda.as_view::<T>();
-    let (d_input_ptr, record_d_input) = d_input_view.device_ptr(stream);
+    let (d_input_ptr, record_d_input) = d_input_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("CUB filter input pointer: {e}"))?;
 
     // Downcast to get device pointer.
     let d_packed_cuda = d_flags
@@ -135,14 +138,22 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for packed flags"))?;
     let d_packed_view = d_packed_cuda.as_view::<u8>();
-    let (d_packed_ptr, record_d_packed) = d_packed_view.device_ptr(stream);
+    let (d_packed_ptr, record_d_packed) = d_packed_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("CUB filter flags pointer: {e}"))?;
 
-    let (d_temp_ptr, record_d_temp) = d_temp.device_ptr_mut(stream);
-    let (d_output_ptr, record_d_output) = d_output.device_ptr_mut(stream);
-    let (d_num_selected_ptr, record_d_num_selected) = d_num_selected.device_ptr_mut(stream);
+    let (d_temp_ptr, record_d_temp) = d_temp
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("CUB filter temporary buffer pointer: {e}"))?;
+    let (d_output_ptr, record_d_output) = d_output
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("CUB filter output pointer: {e}"))?;
+    let (d_num_selected_ptr, record_d_num_selected) = d_num_selected
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("CUB filter selected count pointer: {e}"))?;
 
     // CUB uses TransformInputIterator internally to read bits on-the-fly.
-    ctx.launch_external(output_len, || unsafe {
+    let launch_result = ctx.launch_external(output_len, || unsafe {
         T::filter_bitmask(
             d_temp_ptr as *mut c_void,
             temp_bytes,
@@ -155,17 +166,24 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
             stream_ptr,
         )
         .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))
-    })?;
-    drop((
+    });
+    let finish_result = SyncOnDrop::finish_all([
         record_d_input,
         record_d_packed,
         record_d_temp,
         record_d_output,
         record_d_num_selected,
-    ));
+    ])
+    .map_err(|e| vortex_err!("CUB filter buffer tracking: {e}"));
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB filter buffers after launch failure");
+        }
+    })?;
+    finish_result?;
 
     // Wrap the device buffer of outputs back up into a BufferHandle.
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         d_output,
-    ))))
+    )?)))
 }

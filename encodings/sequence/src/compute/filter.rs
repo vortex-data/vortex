@@ -9,6 +9,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -22,12 +23,18 @@ impl FilterKernel for Sequence {
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = Validity::from(array.dtype().nullability());
         match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
             let (base, multiplier) = array.wrapping_parts::<O>()?;
-            Ok(Some(filter_impl(base, multiplier, mask, validity)))
+            Ok(Some(filter_impl(
+                base,
+                multiplier,
+                mask,
+                validity,
+                ctx.allocator(),
+            )))
         })
     }
 }
@@ -37,11 +44,12 @@ fn filter_impl<O: SequenceValue>(
     multiplier: O,
     mask: &Mask,
     validity: Validity,
+    allocator: &BufferAllocatorRef,
 ) -> ArrayRef {
     let mask_values = mask
         .values()
         .vortex_expect("FilterKernel precondition: mask is Mask::Values");
-    let mut buffer = BufferMut::<O>::with_capacity(mask_values.true_count());
+    let mut buffer = BufferMut::<O>::with_capacity_in(mask_values.true_count(), allocator.clone());
     buffer.extend(
         mask_values
             .indices()

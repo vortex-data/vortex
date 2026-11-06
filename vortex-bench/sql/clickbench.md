@@ -28,3 +28,6 @@ pushdown and zone-map-style pruning on a subset of the queries. See
 vx-bench run clickbench --engine datafusion,duckdb --format parquet,vortex
 vx-bench run clickbench-sorted --engine datafusion,duckdb --format parquet,vortex
 ```
+
+`--opt files=N` runs the partitioned dataset's first N files (of 100, about 1M rows each)
+from its own data directory. The known per-query row counts are checked only at 100 files.

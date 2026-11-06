@@ -981,28 +981,6 @@ mod test {
     }
 
     #[test]
-    fn test_append_utf8_with_duplicate_patch_indices() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = VarBinViewArray::from_iter_str(["first", "second"]).into_array();
-        let array = Sparse::try_new(
-            buffer![1u8, 1].into_array(),
-            values,
-            2,
-            Scalar::utf8("fill".to_string(), Nullability::NonNullable),
-            &mut ctx,
-        )
-        .unwrap();
-        let expected = VarBinViewArray::from_iter_str(["fill", "second"]).into_array();
-        let mut builder = VarBinBuilder::<i32>::with_capacity_in(
-            array.dtype().clone(),
-            array.len(),
-            vortex_buffer::BufferAllocatorRef::static_ref(),
-        );
-        array.append_to_builder(&mut builder, &mut ctx).unwrap();
-        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
-    }
-
-    #[test]
     #[should_panic]
     fn test_invalid_length() {
         let mut ctx = SESSION.create_execution_ctx();

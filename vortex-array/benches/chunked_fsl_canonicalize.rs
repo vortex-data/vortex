@@ -20,6 +20,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -36,13 +37,13 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 /// Number of lists in each chunk.
-const LISTS_PER_CHUNK: usize = 1_000;
+const LISTS_PER_CHUNK: usize = 128;
 
 /// Number of chunks in the source array.
 const NUM_CHUNKS: &[usize] = &[2, 8, 32];
 
 /// Fixed size list lengths (elements per list).
-const LIST_SIZES: &[usize] = &[16, 256, 1024];
+const LIST_SIZES: &[usize] = &[16, 256];
 
 /// Creates a `FixedSizeListArray` with the given list size and number of lists.
 fn create_fsl(list_size: usize, num_lists: usize) -> FixedSizeListArray {
@@ -67,6 +68,7 @@ fn create_chunked_fsl(list_size: usize, num_chunks: usize) -> ChunkedArray {
 #[divan::bench(args = NUM_CHUNKS, consts = LIST_SIZES)]
 fn canonicalize<const LIST_SIZE: usize>(bencher: Bencher, num_chunks: usize) {
     let chunked = create_chunked_fsl(LIST_SIZE, num_chunks).into_array();
+    mark_optimized(&chunked, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))

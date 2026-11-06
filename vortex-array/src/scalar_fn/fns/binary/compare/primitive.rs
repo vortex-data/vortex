@@ -168,6 +168,12 @@ fn collect_zip_bits_dispatch<T: NativePType>(
     f: impl Fn(T, T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    if matches!(T::PTYPE, PType::I64 | PType::U64 | PType::F64) {
+        // Fill-and-pack improves wide array pairs on NEON. Constants keep their existing loop.
+        return collect_zip_bits_wide(lhs, rhs, f, allocator);
+    }
+
     if matches!(T::PTYPE, PType::I8 | PType::U8 | PType::F32) {
         collect_zip_bits_narrow(lhs, rhs, f, allocator)
     } else {
@@ -210,4 +216,24 @@ fn collect_zip_bits_narrow<T: Copy>(
             collect_bool_word(left_tail.len(), |i| f(left_tail[i], right_tail[i]));
     }
     bit_buffer_from_words(words, lhs.len())
+}
+
+/// Keep the predicate free of bounds checks so NEON can fuse comparison and bitmap packing.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn collect_zip_bits_wide<T: Copy>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    assert_eq!(lhs.len(), rhs.len());
+    BitBuffer::collect_bool_multiversioned_in(
+        lhs.len(),
+        |index| {
+            // SAFETY: the collector calls with `index < lhs.len()`, and the slice lengths match.
+            let (lhs, rhs) = unsafe { (*lhs.get_unchecked(index), *rhs.get_unchecked(index)) };
+            f(lhs, rhs)
+        },
+        allocator.clone(),
+    )
 }

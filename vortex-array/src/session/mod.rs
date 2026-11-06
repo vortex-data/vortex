@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Session registries for array readers and writers.
+//!
+//! Writers are keyed by in-memory encoding IDs, while readers are keyed by wire IDs. Keeping the
+//! registries separate lets a writer reuse another encoding's wire form without replacing its
+//! reader.
+
 use std::any::Any;
 use std::sync::Arc;
 
@@ -21,7 +27,6 @@ use crate::array::ArraySerialization;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
-use crate::arrays::Decimal;
 use crate::arrays::Dict;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
@@ -32,11 +37,14 @@ use crate::arrays::Masked;
 use crate::arrays::Null;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
+use crate::arrays::RunEnd;
 use crate::arrays::Struct;
 use crate::arrays::Union;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::arrays::decimal::DecimalPlugin;
+use crate::arrays::widen::WidenPlugin;
 
 /// Registry of array encodings.
 pub type ArrayRegistry = ArcSwapMap<Id, ArrayPluginRef>;
@@ -61,14 +69,14 @@ impl ArraySession {
         &self.registry
     }
 
-    /// Register an in-memory array plugin and all of its recognized serialized IDs.
+    /// Register an in-memory array writer and its declared wire readers.
     ///
     /// This replaces any serializer with the same in-memory ID and any deserializer registered
-    /// under one of [`ArrayPlugin::serialized_ids`].
+    /// under one of [`ArrayPlugin::read_ids`].
     pub fn register<P: ArrayPlugin>(&self, plugin: P) {
         let plugin = Arc::new(plugin) as ArrayPluginRef;
         self.serializers.insert(plugin.id(), Arc::clone(&plugin));
-        for serialized_id in plugin.serialized_ids() {
+        for serialized_id in plugin.read_ids() {
             self.registry.insert(serialized_id, Arc::clone(&plugin));
         }
     }
@@ -89,7 +97,7 @@ impl Default for ArraySession {
         this.register(Null);
         this.register(Bool);
         this.register(Primitive);
-        this.register(Decimal);
+        this.register(DecimalPlugin);
         this.register(VarBinView);
         this.register(ListView);
         this.register(Map);
@@ -106,7 +114,9 @@ impl Default for ArraySession {
         this.register(List);
         this.register(Masked);
         this.register(PiecewiseSequence);
+        this.register(RunEnd);
         this.register(VarBin);
+        this.register(WidenPlugin);
 
         this
     }
@@ -142,9 +152,7 @@ pub trait ArraySessionExt: SessionExt {
             return Ok(None);
         };
         vortex_ensure!(
-            plugin
-                .serialized_ids()
-                .contains(&serialization.serialized_id),
+            plugin.write_ids().contains(&serialization.serialized_id),
             "array serializer {} produced undeclared serialized ID {}",
             array.encoding_id(),
             serialization.serialized_id,
@@ -156,27 +164,4 @@ pub trait ArraySessionExt: SessionExt {
 impl<S: SessionExt> ArraySessionExt for S {}
 
 #[cfg(test)]
-mod tests {
-    use vortex_session::VortexSession;
-
-    use crate::ArrayVTable;
-    use crate::arrays::Bool;
-    use crate::session::ArraySession;
-    use crate::session::ArraySessionExt;
-
-    #[test]
-    fn array_session_default_registers_encodings() {
-        let session = VortexSession::empty().with::<ArraySession>();
-
-        assert!(session.arrays().registry().contains_key(&Bool.id()));
-        assert!(session.arrays().serializer(&Bool.id()).is_some());
-    }
-
-    #[test]
-    fn empty_array_session_registers_no_encodings() {
-        let session = VortexSession::empty().with_some(ArraySession::empty());
-
-        assert!(!session.arrays().registry().contains_key(&Bool.id()));
-        assert!(session.arrays().serializer(&Bool.id()).is_none());
-    }
-}
+mod tests;

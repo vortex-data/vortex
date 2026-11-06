@@ -102,6 +102,10 @@ pub mod primitive;
 pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;
 
+pub mod runend;
+pub use runend::RunEnd;
+pub use runend::RunEndArray;
+
 pub mod scalar_fn;
 pub use scalar_fn::ScalarFn;
 pub use scalar_fn::ScalarFnArray;
@@ -131,6 +135,10 @@ pub use variant::Variant;
 pub use variant::VariantArray;
 use vortex_session::VortexSession;
 
+pub mod widen;
+pub use widen::Widen;
+pub use widen::WidenArray;
+
 pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
     chunked::initialize(session);
@@ -145,10 +153,12 @@ pub(crate) fn initialize(session: &VortexSession) {
     null::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
+    runend::initialize(session);
     struct_::initialize(session);
     varbin::initialize(session);
     varbinview::initialize(session);
     variant::initialize(session);
+    widen::initialize(session);
 }
 
 #[cfg(feature = "arbitrary")]

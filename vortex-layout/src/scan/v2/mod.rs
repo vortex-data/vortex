@@ -13,16 +13,18 @@
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
+//! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
+//! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
 //! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
 //! serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
-//! zones, segment index, and dictionary values with every other scan of that file, like a cached
-//! layout reader does for V1 scans.
+//! zones, segment index, dictionary values, and recently read segments with every other scan of
+//! that file, like a cached layout reader does for V1 scans.
 
 mod cache;
 pub(crate) mod io;
+mod retain;
 #[cfg(test)]
 mod tests;
 
@@ -33,6 +35,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::analysis::referenced_field_paths;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -40,7 +43,6 @@ use vortex_session::VortexSession;
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
-use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
@@ -97,6 +99,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    skip_unselective_dynamic: bool,
 }
 
 impl ScanBuilder {
@@ -110,12 +113,18 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            skip_unselective_dynamic: false,
         }
     }
 
     /// The output dtype after projection.
     pub fn dtype(&self) -> &DType {
         self.projection.dtype()
+    }
+
+    /// The session the scan decodes and evaluates expressions with.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
     }
 
     /// Sets a projection bound against the file's dtype.
@@ -127,6 +136,18 @@ impl ScanBuilder {
     /// Evaluates a bound predicate before projecting the surviving rows.
     pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
         self.filter = filter;
+        self
+    }
+
+    /// Allows the scan to switch off a filter conjunct containing dynamic expressions once it has
+    /// kept almost every row on several consecutive chunks, skipping its zone pruning and its
+    /// evaluation until its dynamic values change.
+    ///
+    /// The scan may then return rows the conjunct would reject, so only enable this when the
+    /// dynamic expressions are hints whose producer applies them again, such as DataFusion's
+    /// TopK and hash-join dynamic filters. Off by default.
+    pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
+        self.skip_unselective_dynamic = skip;
         self
     }
 
@@ -161,17 +182,34 @@ impl ScanBuilder {
         let cache = file.cache.unwrap_or_default();
         let root = match cache.root() {
             Some(root) => root,
-            None => cache.insert_root(lower(&file.layout)?),
+            None => cache.insert_root(file.layout.new_plan()?),
         };
         let row_count = root.row_count();
+        let filtered_chunk_rows = self
+            .filter
+            .as_ref()
+            .map(|filter| filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
+            .transpose()?;
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
+                let skip = self.skip_unselective_dynamic;
                 match cache.filter_plans(&filter) {
-                    Some(plans) => Ok(plans),
+                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
+                    // A scan whose skipping differs from the cached plans' plans its own.
+                    Some(_) => Ok(Arc::new(FilterPlans::new(
+                        filter,
+                        &root,
+                        &self.session,
+                        skip,
+                    )?)),
                     None => {
-                        let plans =
-                            Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
+                        let plans = Arc::new(FilterPlans::new(
+                            filter.clone(),
+                            &root,
+                            &self.session,
+                            skip,
+                        )?);
                         Ok(cache.insert_filter_plans(filter, plans))
                     }
                 }
@@ -184,14 +222,14 @@ impl ScanBuilder {
             Some(plan) => plan,
             None => {
                 let plan = optimize(
-                    plan_row_idx_expression(self.projection.clone(), root)?,
+                    plan_row_idx_expression(self.projection.clone(), root, &self.session)?,
                     &self.session,
                 )?;
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
+            rows
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
@@ -206,7 +244,7 @@ impl ScanBuilder {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: file.segments,
+            segments: cache.retaining(file.segments),
             ranges,
             cache,
             locations: file.locations,
@@ -217,4 +255,26 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+fn filtered_rows_per_chunk(
+    dtype: &DType,
+    projection: &BoundExpression,
+    filter: &BoundExpression,
+) -> VortexResult<usize> {
+    let mut fields = referenced_field_paths(projection)?;
+    fields.extend(referenced_field_paths(filter)?);
+    let mut fields = fields.into_iter();
+    let first = fields.next();
+    // A scan of one fixed-width field is cheap enough that smaller chunks mainly add setup.
+    // Wider and variable-width scans need more chunks to avoid long tails on a few workers.
+    let narrow = fields.next().is_none()
+        && first
+            .and_then(|field| field.resolve(dtype.clone()))
+            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
+    Ok(if narrow {
+        128 * ROW_BLOCK_SIZE
+    } else {
+        FILTERED_ROWS_PER_CHUNK
+    })
 }

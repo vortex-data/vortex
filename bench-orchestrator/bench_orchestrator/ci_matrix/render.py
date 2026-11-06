@@ -42,6 +42,7 @@ def _matrix_entry(benchmark: BenchmarkCase, coverage: Coverage) -> dict[str, obj
         "id": benchmark.id,
         "subcommand": benchmark.subcommand,
         "name": benchmark.name,
+        "dataset_dir": benchmark.data_dir_name,
         "targets": [target.to_dict() for target in coverage.targets],
         "data_formats": [fmt.value for fmt in _data_formats(coverage)],
     }

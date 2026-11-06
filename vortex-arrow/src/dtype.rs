@@ -121,7 +121,8 @@ pub(crate) fn from_arrow_data_type(
             DType::Extension(Time::new(from_arrow_time_unit(*unit), nullability).erased())
         }
         DataType::Timestamp(unit, tz) => DType::Extension(
-            Timestamp::new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability).erased(),
+            Timestamp::try_new_with_tz(from_arrow_time_unit(*unit), tz.clone(), nullability)?
+                .erased(),
         ),
         DataType::List(e)
         | DataType::LargeList(e)
@@ -369,6 +370,12 @@ mod test {
                 FieldRef::from(Field::new("field_b", DataType::Utf8View, true)),
             ]))
         );
+    }
+
+    #[test]
+    fn test_reject_timestamp_invalid_timezone() {
+        let dtype = DataType::Timestamp(ArrowTimeUnit::Second, Some("Not/A/Timezone".into()));
+        assert!(from_arrow_data_type(&dtype, Nullability::Nullable).is_err());
     }
 
     #[rstest]

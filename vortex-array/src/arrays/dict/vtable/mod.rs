@@ -38,6 +38,7 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
@@ -229,30 +230,54 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if !array.is_empty()
-            && let (Some(codes), Some(values)) = (
-                array.codes().as_opt::<Primitive>(),
-                array.values().as_opt::<AnyCanonical>(),
-            )
-            && !codes.validity()?.definitely_all_null()
-        {
-            if let CanonicalView::VarBinView(values) = values
-                && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+        if !array.is_empty() {
+            let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+            if !codes.validity()?.definitely_all_null() {
+                let values = array.values();
+                if array.len() <= values.len() / 4
+                    && matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+                    && !values.is::<AnyCanonical>()
+                {
+                    // A sparse selection reaches the take kernel of the values, such as the OnPair
+                    // token-run gather, before the whole dictionary is decoded.
+                    // SAFETY: executing the codes keeps their values, dtype and length.
+                    let taken =
+                        unsafe { DictArray::new_unchecked(codes.into_array(), values.clone()) };
+                    let canonical = taken.into_array().execute::<Canonical>(ctx)?.into_array();
+                    return canonical.append_to_builder(builder, ctx);
+                }
+
+                // Decode the children without taking values to the full row count. The
+                // variable-binary builders gather directly through these dictionary codes.
+                let values = if array.values().is::<AnyCanonical>() {
+                    array.values().clone()
+                } else {
+                    array
+                        .values()
+                        .clone()
+                        .execute::<Canonical>(ctx)?
+                        .into_array()
+                };
+                let values = values.as_::<AnyCanonical>();
+                let codes = codes.as_view();
+                if let CanonicalView::VarBinView(values) = values
+                    && let Some(result) = match_each_varbin_builder!(builder, |builder| {
+                        let validity = array.validity()?.execute_mask(array.len(), ctx)?;
+                        append_dict_to_varbin(codes, values, validity, builder)
+                    })
+                {
+                    return result;
+                }
+                if let CanonicalView::VarBinView(values) = values
+                    && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+                {
                     let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                    append_dict_to_varbin(codes, values, validity, builder)
-                })
-            {
-                return result;
+                    return append_dict_to_varbinview(codes, values, validity, builder);
+                }
+                let canonical = take_canonical(values, codes, ctx)?.into_array();
+                canonical.append_to_builder(builder, ctx)?;
+                return Ok(());
             }
-            if let CanonicalView::VarBinView(values) = values
-                && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
-            {
-                let validity = array.validity()?.execute_mask(array.len(), ctx)?;
-                return append_dict_to_varbinview(codes, values, validity, builder);
-            }
-            let canonical = take_canonical(values, codes, ctx)?.into_array();
-            canonical.append_to_builder(builder, ctx)?;
-            return Ok(());
         }
 
         let canonical = array
@@ -319,6 +344,11 @@ where
     usize: AsPrimitive<O>,
 {
     let len = codes.as_ref().len();
+    vortex_ensure_eq!(
+        validity.len(),
+        len,
+        "Dictionary gather validity length mismatch"
+    );
 
     // Resolve the dictionary's storage once so that looking up a code is an O(1) read.
     let views = values.views();
@@ -347,7 +377,15 @@ where
             }
         };
 
-        builder.append_valid_slices(num_bytes, &validity, |row| view(row).bytes(&buffers))
+        builder.append_valid_slices(num_bytes, &validity, |row| {
+            // SAFETY: the byte-count pass checked every selected code against `views`, and
+            // append_valid_slices visits exactly those same rows. The slices and validity are
+            // immutable, and the length check above bounds every visited row within `codes`.
+            let value = unsafe {
+                views.get_unchecked(AsPrimitive::<usize>::as_(*codes.get_unchecked(row)))
+            };
+            value.bytes(&buffers)
+        })
     })
 }
 
@@ -368,6 +406,56 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
+
+    #[test]
+    fn dictionary_gather_rejects_mismatched_validity() -> VortexResult<()> {
+        let ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        let result = append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(3),
+            &mut builder,
+        );
+        assert!(result.is_err());
+        assert_eq!(builder.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn dictionary_gather_does_not_read_null_row_codes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255, 1]);
+        let values = VarBinViewArray::from_iter([Some("one"), Some("two")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::from_iter([true, false, true]),
+            &mut builder,
+        )?;
+        let expected =
+            VarBinViewArray::from_iter([Some("one"), None, Some("two")], DType::Utf8(Nullable));
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn dictionary_gather_checks_selected_codes_before_copy() {
+        let ctx = SESSION.create_execution_ctx();
+        let codes = PrimitiveArray::from_iter([0u8, 255]);
+        let values = VarBinViewArray::from_iter([Some("one")], DType::Utf8(Nullable));
+        let mut builder = VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), ctx.allocator());
+        drop(append_dict_to_varbin(
+            codes.as_view(),
+            values.as_view(),
+            Mask::new_true(2),
+            &mut builder,
+        ));
+    }
 
     #[test]
     fn append_to_builder_gathers_through_the_dictionary() -> VortexResult<()> {

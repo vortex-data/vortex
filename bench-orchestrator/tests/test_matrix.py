@@ -36,12 +36,15 @@ REGULAR_IDS = (
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
-PR_FULL_IDS = (*REGULAR_IDS[:-1], "job-nvme", "vortex-queries")
+DEVELOP_IDS = (*REGULAR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
+# TPC-DS SF=10 on NVMe runs in the PR presets and nightly, not on every develop commit.
+PR_IDS = (*REGULAR_IDS[:7], "tpcds-nvme-10", *REGULAR_IDS[7:])
+PR_FULL_IDS = (*PR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
 EXPECTED_IDS = {
-    "develop": REGULAR_IDS,
+    "develop": DEVELOP_IDS,
     "pr": tuple(
         benchmark_id
-        for benchmark_id in REGULAR_IDS
+        for benchmark_id in PR_IDS
         if benchmark_id
         not in {
             "clickbench-sorted-nvme",
@@ -65,6 +68,8 @@ EXPECTED_IDS = {
             for storage in ("nvme", "s3")
             for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
         ),
+        "tpch-nested-nvme",
+        "tpch-nested-s3",
     ),
 }
 
@@ -166,6 +171,13 @@ def test_resolver_rejects_duplicate_ids() -> None:
 
     with pytest.raises(ValueError, match="Duplicate benchmark ID 'clickbench-nvme'"):
         _ = render_matrix("develop", catalog)
+
+
+def test_matrix_entries_name_their_data_directory() -> None:
+    entries = {entry["id"]: entry for entry in render_matrix("develop", CATALOG)}
+
+    assert entries["clickbench-nvme"]["dataset_dir"] == "clickbench_partitioned"
+    assert entries["tpch-nvme"]["dataset_dir"] == "tpch"
 
 
 def test_matrix_command() -> None:

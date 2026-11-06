@@ -46,18 +46,18 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
             return Ok(None);
         }
 
-        let new_chunks: Vec<_> = array
-            .iter_chunks()
-            .map(|chunk| {
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
+        let chunks = array.iter_chunks().map(|chunk| {
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
+                .into_array()
+                .optimize()
+        });
+        chunks.process_results(|chunks| {
+            // SAFETY: applying the same scalar function gives every chunk the parent's dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(chunks, parent.dtype().clone(), array.nchunks())
                     .into_array()
-                    .optimize()
             })
-            .try_collect()?;
-
-        Ok(Some(
-            unsafe { ChunkedArray::new_unchecked(new_chunks, parent.dtype().clone()) }.into_array(),
-        ))
+        })
     }
 }
 
@@ -83,33 +83,33 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         }
 
         let mut offset = 0;
-        let new_chunks: Vec<_> = array
-            .iter_chunks()
-            .map(|chunk| {
-                let range = offset..offset + chunk.len();
-                offset += chunk.len();
-                // Each sibling is sliced to the chunk's rows, so that every chunk shares what the
-                // sibling shares rather than getting its own copy of the constant.
-                let new_children: Vec<_> = parent
-                    .iter_children()
-                    .enumerate()
-                    .map(|(idx, child)| {
-                        if idx == child_idx {
-                            Ok(chunk.clone())
-                        } else {
-                            child.slice(range.clone())
-                        }
-                    })
-                    .try_collect()?;
+        let chunks = array.iter_chunks().map(|chunk| {
+            let range = offset..offset + chunk.len();
+            offset += chunk.len();
+            // Each sibling is sliced to the chunk's rows, so that every chunk shares what the
+            // sibling shares rather than getting its own copy of the constant.
+            let new_children: Vec<_> = parent
+                .iter_children()
+                .enumerate()
+                .map(|(idx, child)| {
+                    if idx == child_idx {
+                        Ok(chunk.clone())
+                    } else {
+                        child.slice(range.clone())
+                    }
+                })
+                .try_collect()?;
 
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
+                .into_array()
+                .optimize()
+        });
+        chunks.process_results(|chunks| {
+            // SAFETY: applying the same scalar function gives every chunk the parent's dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(chunks, parent.dtype().clone(), array.nchunks())
                     .into_array()
-                    .optimize()
             })
-            .try_collect()?;
-
-        Ok(Some(
-            unsafe { ChunkedArray::new_unchecked(new_chunks, parent.dtype().clone()) }.into_array(),
-        ))
+        })
     }
 }

@@ -4,21 +4,31 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::BooleanArray;
 use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
+use arrow_array::Int8Array;
 use arrow_array::Int32Array;
+use arrow_array::Int64Array;
+use arrow_array::ListArray;
 use arrow_array::RecordBatch;
 use arrow_array::RunArray;
 use arrow_array::StringArray;
 use arrow_array::StructArray;
+use arrow_array::UInt8Array;
 use arrow_array::UInt32Array;
+use arrow_array::UInt64Array;
+use arrow_array::types::Float64Type;
 use arrow_array::types::Int32Type;
+use arrow_array::types::Int64Type;
 use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use datafusion::common::DFSchema;
 use datafusion::execution::context::ExecutionProps;
@@ -28,10 +38,12 @@ use datafusion::physical_expr::create_physical_expr;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::buffer::NullBuffer;
+use datafusion_common::arrow::buffer::OffsetBuffer;
 use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::datatypes::i256 as arrow_i256;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
+use datafusion_expr::HigherOrderUDF;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::ScalarUDF;
 use datafusion_functions::core::coalesce::CoalesceFunc;
@@ -103,6 +115,52 @@ fn array_length_expr(args: Vec<Arc<dyn PhysicalExpr>>, schema: &Schema) -> Arc<d
         )
         .unwrap(),
     )
+}
+
+/// Plans `array_sum(list)` as DataFusion does, casting the list to the `Float64` list type that
+/// `array_sum` coerces it to.
+fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let function = ScalarUDF::from(ArraySum::new());
+    let list_type = list.data_type(schema)?;
+    let coerced = function
+        .coerce_types(std::slice::from_ref(&list_type))?
+        .remove(0);
+    let list = if coerced == list_type {
+        list
+    } else {
+        Arc::new(df_expr::CastExpr::new(list, coerced, None))
+    };
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(function),
+        vec![list],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
+}
+
+/// Plans `array_transform(list, (param) -> body)` as DataFusion does: the parameter is the list's
+/// element field, numbered after the columns of `schema` and any enclosing lambda's parameters.
+fn array_transform_expr(
+    list: Arc<dyn PhysicalExpr>,
+    param: &str,
+    index: usize,
+    body: impl FnOnce(Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>>,
+    schema: &Schema,
+) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let (DataType::List(element) | DataType::LargeList(element)) = list.data_type(schema)? else {
+        return Err(exec_datafusion_err!("array_transform requires a list"));
+    };
+    let variable = Arc::new(df_expr::LambdaVariable::new(
+        index,
+        Arc::new(element.as_ref().clone().with_name(param)),
+    ));
+    let lambda = df_expr::LambdaExpr::try_new(vec![param.to_string()], body(variable)?)?;
+    Ok(Arc::new(HigherOrderFunctionExpr::try_new_with_schema(
+        Arc::new(HigherOrderUDF::new_from_impl(ArrayTransform::new())),
+        vec![list, Arc::new(lambda)],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
 }
 
 fn get_field_expr(
@@ -362,6 +420,33 @@ fn test_in_list_converts_to_set_lookup(#[values(false, true)] negated: bool) -> 
     let expected = if negated { not(membership) } else { membership };
 
     assert_eq!(convert(expr, &schema)?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_in_list_drops_repeated_elements() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(7), None, Some(1), Some(7), None, Some(1)]),
+        false,
+        &schema,
+    )?);
+    let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+    let list = Scalar::list(
+        element_dtype,
+        vec![
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Scalar::from(Some(1i32)),
+            Scalar::from(Some(7i32)),
+        ],
+        Nullability::NonNullable,
+    );
+
+    assert_eq!(
+        convert(expr, &schema)?,
+        vortex::expr::in_list(get_item("a", root()), lit(list))
+    );
     Ok(())
 }
 
@@ -709,6 +794,96 @@ fn test_literal_preserves_extension_metadata(
             )
         );
     }
+    Ok(())
+}
+
+#[rstest]
+#[case::comparison(false)]
+#[case::membership(true)]
+fn test_comparison_literal_metadata_is_not_replaced(
+    #[case] membership: bool,
+) -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), true);
+    field.try_with_extension_type(ArrowUuid)?;
+    let schema = Schema::new(vec![field.clone()]);
+    let value = ScalarValue::FixedSizeBinary(16, Some(b"0123456789abcdef".to_vec()));
+    let valid = Arc::new(df_expr::Literal::new_with_metadata(
+        value.clone(),
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    field.metadata_mut().insert(
+        "ARROW:extension:name".into(),
+        "unregistered.extension".into(),
+    );
+    let invalid = Arc::new(df_expr::Literal::new_with_metadata(
+        value,
+        Some(FieldMetadata::new_from_field(&field)),
+    )) as Arc<dyn PhysicalExpr>;
+    let column = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+    let predicate = if membership {
+        Arc::new(df_expr::InListExpr::try_new(
+            column,
+            vec![valid, invalid],
+            false,
+            &schema,
+        )?) as Arc<dyn PhysicalExpr>
+    } else {
+        Arc::new(df_expr::BinaryExpr::new(column, DFOperator::Eq, invalid))
+    };
+
+    assert!(!converts(&predicate, &schema)?);
+
+    Ok(())
+}
+
+#[test]
+fn test_comparison_inherits_complete_extension_metadata() -> anyhow::Result<()> {
+    let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    field.try_with_extension_type(ArrowUuid)?;
+    let bytes = *b"0123456789abcdef";
+    let values = FixedSizeBinaryArray::try_from_iter([bytes].into_iter())?;
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![field.clone()])),
+        vec![Arc::new(values)],
+    )?;
+
+    let mut literal_field = field;
+    literal_field.metadata_mut().remove(EXTENSION_TYPE_NAME_KEY);
+    literal_field.metadata_mut().insert(
+        EXTENSION_TYPE_METADATA_KEY.into(),
+        "unrelated payload".into(),
+    );
+    let literal = df_expr::Literal::new_with_metadata(
+        ScalarValue::FixedSizeBinary(16, Some(bytes.to_vec())),
+        Some(FieldMetadata::new_from_field(&literal_field)),
+    );
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("id", 0)),
+        DFOperator::Eq,
+        Arc::new(literal),
+    ));
+
+    assert_native_matches(predicate, batch)
+}
+
+#[test]
+fn test_comparison_literal_keeps_timestamp_units() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "ts",
+        DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+        true,
+    )]);
+    let predicate = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("ts", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::TimestampNanosecond(
+            Some(1_000_000),
+            None,
+        ))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert!(!converts(&predicate, &schema)?);
+
     Ok(())
 }
 
@@ -1439,6 +1614,77 @@ fn test_native_float_cast() -> anyhow::Result<()> {
 }
 
 #[rstest]
+#[case::bool_to_f64(
+    Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])),
+    DataType::Float64
+)]
+#[case::i8_to_f64(
+    Arc::new(Int8Array::from(vec![Some(i8::MIN), Some(i8::MAX), None])),
+    DataType::Float64
+)]
+#[case::i64_to_f64(
+    Arc::new(Int64Array::from(vec![Some(i64::MIN), Some(i64::MAX), Some((1 << 53) + 1), None])),
+    DataType::Float64
+)]
+#[case::u64_to_f64(
+    Arc::new(UInt64Array::from(vec![Some(u64::MAX), Some((1 << 53) + 1), None])),
+    DataType::Float64
+)]
+#[case::u8_to_i16(
+    Arc::new(UInt8Array::from(vec![Some(u8::MAX), Some(0), None])),
+    DataType::Int16
+)]
+#[case::u32_to_i64(
+    Arc::new(UInt32Array::from(vec![Some(u32::MAX), Some(0), None])),
+    DataType::Int64
+)]
+fn test_native_numeric_cast(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            target,
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
+fn test_native_list_cast_to_float64(
+    #[values(DataType::Boolean, DataType::Int32, DataType::Int64, DataType::UInt64)]
+    element: DataType,
+    #[values(false, true)] large: bool,
+) -> anyhow::Result<()> {
+    let list_type = |element: DataType| {
+        let item = Arc::new(Field::new("item", element, true));
+        if large {
+            DataType::LargeList(item)
+        } else {
+            DataType::List(item)
+        }
+    };
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(-1), None, Some((1 << 53) + 1)]),
+        Some(vec![]),
+        None,
+        Some(vec![Some(0), Some(1)]),
+    ]);
+    let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &list_type(element))?)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("xs", 0)),
+            list_type(DataType::Float64),
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
 #[case::narrow(DataType::Int8)]
 #[case::signedness(DataType::UInt32)]
 #[case::string(DataType::Utf8)]
@@ -1464,6 +1710,30 @@ fn test_cast_options_fall_back() -> DFResult<()> {
             safe: true,
             format_options: DEFAULT_FORMAT_OPTIONS,
         }),
+    ));
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+#[rstest]
+#[case::fixed_size_list(
+    DataType::new_fixed_size_list(DataType::Int32, 2, true),
+    DataType::new_list(DataType::Float64, true)
+)]
+#[case::non_nullable_elements(
+    DataType::new_list(DataType::Int32, true),
+    DataType::new_list(DataType::Float64, false)
+)]
+#[case::string_elements(
+    DataType::new_list(DataType::Utf8, true),
+    DataType::new_list(DataType::Float64, true)
+)]
+fn test_list_cast_falls_back(#[case] source: DataType, #[case] target: DataType) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("xs", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        target,
+        None,
     ));
     assert!(!converts(&expr, &schema)?);
     Ok(())
@@ -1987,6 +2257,209 @@ fn test_native_nested_list_length(
     } else {
         assert_native_matches(length, batch)
     }
+}
+
+#[rstest]
+fn test_native_array_sum(
+    #[values(DataType::Int64, DataType::Float64)] element: DataType,
+) -> anyhow::Result<()> {
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![]),
+        Some(vec![None, None]),
+        None,
+        Some(vec![Some(0), Some(3)]),
+        Some(vec![Some(i64::MAX), Some(i64::MAX)]),
+        Some(vec![Some(1 << 53), Some(1), Some(1)]),
+    ]);
+    let data_type = DataType::new_list(element, true);
+    let batch = RecordBatch::try_from_iter([("xs", cast(&lists, &data_type)?)])?;
+    let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &batch.schema())?;
+    assert_native_matches(expr, batch)
+}
+
+#[test]
+fn test_native_array_sum_nan() -> anyhow::Result<()> {
+    let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(vec![
+        Some(1.0),
+        Some(f64::NAN),
+    ])]);
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let converted = convert(
+        array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?,
+        &schema,
+    )?;
+    let session = VortexSession::default();
+    let sum = session
+        .arrow()
+        .from_arrow_record_batch(batch, &schema)?
+        .apply(&converted)?
+        .execute_scalar(0, &mut session.create_execution_ctx())?;
+    assert!(
+        sum.as_primitive()
+            .typed_value::<f64>()
+            .is_some_and(f64::is_nan)
+    );
+    Ok(())
+}
+
+/// `[[1, null, 2], [], [null, null], null, [0, 3]]` as the `xs` column.
+fn int_lists() -> anyhow::Result<RecordBatch> {
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![]),
+        Some(vec![None, None]),
+        None,
+        Some(vec![Some(0), Some(3)]),
+    ]);
+    Ok(RecordBatch::try_from_iter([(
+        "xs",
+        Arc::new(lists) as arrow_array::ArrayRef,
+    )])?)
+}
+
+fn is_not_null_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::IsNotNullExpr::new(x)))
+}
+
+fn eq_zero_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::BinaryExpr::new(
+        x,
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(0)))),
+    )))
+}
+
+fn plus_one_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::BinaryExpr::new(
+        x,
+        DFOperator::Plus,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(1)))),
+    )))
+}
+
+/// Builds a lambda body from its parameter.
+type LambdaBody = fn(Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>>;
+
+#[rstest]
+#[case::is_not_null(is_not_null_body)]
+#[case::eq(eq_zero_body)]
+#[case::plus(plus_one_body)]
+fn test_native_array_transform(
+    #[case] body: LambdaBody,
+    #[values(false, true)] summed: bool,
+) -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let xs = Arc::new(df_expr::Column::new("xs", 0));
+    let mut expr = array_transform_expr(xs, "x", 1, body, &schema)?;
+    if summed {
+        expr = array_sum_expr(expr, &schema)?;
+    }
+    assert_native_matches(expr, batch)
+}
+
+/// `100 / x` never sees the zero under a null list, as DataFusion drops the values under nulls.
+#[test]
+fn test_native_array_transform_skips_values_under_null_lists() -> anyhow::Result<()> {
+    let lists = ListArray::try_new(
+        Arc::new(Field::new("item", DataType::Int64, true)),
+        OffsetBuffer::from_lengths([2, 1, 1]),
+        Arc::new(Int64Array::from(vec![1, 2, 0, 4])),
+        Some(NullBuffer::from(vec![true, false, true])),
+    )?;
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        |x| {
+            Ok(Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(100)))),
+                DFOperator::Divide,
+                x,
+            )))
+        },
+        &schema,
+    )?;
+    expr.evaluate(&batch)?;
+    assert_native_matches(expr, batch)
+}
+
+/// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`, and the same with the
+/// inner parameter also named `x`, shadowing the outer one.
+#[rstest]
+#[case::distinct("y")]
+#[case::shadowed("x")]
+fn test_native_nested_array_transform(#[case] inner_param: &str) -> anyhow::Result<()> {
+    let inner = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None]),
+        Some(vec![]),
+        None,
+        Some(vec![Some(2)]),
+    ]);
+    let lists = ListArray::try_new(
+        Arc::new(Field::new("item", inner.data_type().clone(), true)),
+        OffsetBuffer::from_lengths([2, 0, 2]),
+        Arc::new(inner),
+        Some(NullBuffer::from(vec![true, true, false])),
+    )?;
+    let batch = RecordBatch::try_from_iter([("xss", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xss", 0)),
+        "x",
+        1,
+        |x| array_transform_expr(x, inner_param, 2, is_not_null_body, &schema),
+        &schema,
+    )?;
+    assert_native_matches(expr, batch)
+}
+
+/// A body may read only its own parameter: a column, even one named like the parameter, or an
+/// enclosing lambda's parameter keeps `array_transform` in DataFusion.
+#[rstest]
+#[case::column(false)]
+#[case::outer_parameter(true)]
+fn test_array_transform_reading_outside_falls_back(#[case] nested: bool) -> DFResult<()> {
+    let element = Field::new("item", DataType::Int64, true);
+    let schema = Schema::new(vec![
+        Field::new(
+            "xss",
+            DataType::new_list(DataType::new_list(DataType::Int64, true), true),
+            true,
+        ),
+        Field::new("xs", DataType::List(Arc::new(element)), true),
+        Field::new("x", DataType::Int64, true),
+    ]);
+    let plus_column = |x: Arc<dyn PhysicalExpr>| -> DFResult<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(df_expr::BinaryExpr::new(
+            x,
+            DFOperator::Plus,
+            Arc::new(df_expr::Column::new("x", 2)),
+        )))
+    };
+    let expr = if nested {
+        array_transform_expr(
+            Arc::new(df_expr::Column::new("xss", 0)),
+            "x",
+            3,
+            |x| array_transform_expr(Arc::clone(&x), "y", 4, |_| Ok(x), &schema),
+            &schema,
+        )?
+    } else {
+        array_transform_expr(
+            Arc::new(df_expr::Column::new("xs", 1)),
+            "x",
+            3,
+            plus_column,
+            &schema,
+        )?
+    };
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
 }
 
 #[test]

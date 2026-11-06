@@ -18,17 +18,22 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
-use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::OffsetBuilderPType;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::validity::Validity;
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -43,8 +48,21 @@ use crate::array::padded_symbol_table;
 /// FSST worst case: every input byte expands to an escape + literal (2x).
 const FSST_PER_BYTE_OVERHEAD: usize = 2;
 
-/// Starting capacity for the per-row `compress_into` scratch buffer; grown monotonically.
-const DEFAULT_BUFFER_LEN: usize = 1024 * 1024;
+/// Number of interleaved cursors for [`Compressor::compress_bulk_into`].
+///
+/// Apple Silicon has the most throughput at 8 cursors; more cursors spill the lane state out of
+/// registers. x86-64 has fewer registers, so it keeps the upstream default.
+#[cfg(target_arch = "x86_64")]
+const BULK_LANES: usize = Compressor::DEFAULT_BULK_LANES;
+#[cfg(not(target_arch = "x86_64"))]
+const BULK_LANES: usize = 8;
+
+/// Input bytes per [`Compressor::compress_bulk_into`] call. Small enough that the batch output
+/// stays in cache before it is copied out, and large enough to amortize the per-call setup.
+const BULK_BATCH_BYTES: usize = 256 * 1024;
+
+/// Upper bound on the rows per batch, so that runs of empty or null rows also flush.
+const BULK_BATCH_MAX_ROWS: usize = 16 * 1024;
 
 /// Compress a string array using FSST.
 ///
@@ -202,13 +220,9 @@ fn compress_views<O>(
 ) -> VortexResult<FSSTArray>
 where
     O: OffsetBuilderPType + 'static,
+    u64: AsPrimitive<O>,
 {
-    let mut sink = FsstSink::<O>::with_capacity(
-        DType::Binary(strings.dtype().nullability()),
-        strings.len(),
-        compressor,
-        ctx.allocator(),
-    );
+    let mut sink = FsstSink::<O>::with_capacity(strings.len(), compressor, ctx.allocator());
     let views = strings.views();
     let buffers = strings.data_buffers();
     match mask.bit_buffer() {
@@ -228,7 +242,7 @@ where
             }
         }
     }
-    sink.finish(strings.dtype().clone(), ctx)
+    sink.finish(strings.dtype().clone(), mask, ctx)
 }
 
 fn compress_varbin<O>(
@@ -240,19 +254,15 @@ fn compress_varbin<O>(
 ) -> VortexResult<FSSTArray>
 where
     O: OffsetBuilderPType + 'static,
+    u64: AsPrimitive<O>,
 {
-    let mut sink = FsstSink::<O>::with_capacity(
-        DType::Binary(strings.dtype().nullability()),
-        strings.len(),
-        compressor,
-        ctx.allocator(),
-    );
+    let mut sink = FsstSink::<O>::with_capacity(strings.len(), compressor, ctx.allocator());
     let bytes = strings.bytes().as_slice();
     match_each_integer_ptype!(offsets.ptype(), |I| {
         let off = offsets.as_slice::<I>();
         for_each_varbin_row(off, bytes, mask, |row| sink.emit(row));
     });
-    sink.finish(strings.dtype().clone(), ctx)
+    sink.finish(strings.dtype().clone(), mask, ctx)
 }
 
 /// Call `f` once per row of a `VarBinArray` with the row bytes or `None`.
@@ -282,59 +292,118 @@ where
     }
 }
 
-/// Per-row output state for an FSST compression pass.
-struct FsstSink<'c, O: OffsetBuilderPType + 'static> {
-    buffer: Vec<u8>,
-    builder: VarBinBuilder<O>,
+/// Output state for an FSST compression pass.
+///
+/// Rows are buffered and compressed in batches with [`Compressor::compress_bulk_into`], which
+/// interleaves several independent cursors to hide the symbol-table lookup latency.
+struct FsstSink<'a, 'c, O: OffsetBuilderPType + 'static> {
+    /// Rows of the pending batch. Null rows are empty.
+    rows: Vec<&'a [u8]>,
+    pending_bytes: usize,
+
+    /// Scratch output of one batch, reused across batches.
+    batch_codes: Vec<u8>,
+    batch_ends: Vec<u64>,
+
+    codes: ByteBufferMut,
+    codes_offsets: BufferMut<O>,
     uncompressed_lengths: BufferMut<i32>,
     compressor: &'c Compressor,
 }
 
-impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
+impl<'a, 'c, O> FsstSink<'a, 'c, O>
+where
+    O: OffsetBuilderPType + 'static,
+    u64: AsPrimitive<O>,
+{
     fn with_capacity(
-        dtype: DType,
         len: usize,
         compressor: &'c Compressor,
         allocator: &BufferAllocatorRef,
     ) -> Self {
+        let batch_rows = len.min(BULK_BATCH_MAX_ROWS);
+
+        let mut codes_offsets = BufferMut::with_capacity_in(len + 1, allocator.clone());
+        codes_offsets.push(O::zero());
+
         Self {
-            buffer: Vec::with_capacity(DEFAULT_BUFFER_LEN),
-            builder: VarBinBuilder::<O>::with_capacity_in(dtype, len, allocator),
+            rows: Vec::with_capacity(batch_rows),
+            pending_bytes: 0,
+            batch_codes: Vec::new(),
+            batch_ends: Vec::with_capacity(batch_rows),
+            codes: ByteBufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
+            codes_offsets,
             uncompressed_lengths: BufferMut::with_capacity_in(len, allocator.clone()),
             compressor,
         }
     }
 
     #[inline]
-    fn emit(&mut self, row: Option<&[u8]>) {
-        let Some(s) = row else {
-            self.builder.push_null();
-            self.uncompressed_lengths.push(0);
-            return;
-        };
-
+    fn emit(&mut self, row: Option<&'a [u8]>) {
         // A single row > i32::MAX (2 GiB) is not supported.
+        let s = row.unwrap_or_default();
         self.uncompressed_lengths.push(
             i32::try_from(s.len()).vortex_expect("per-row uncompressed length must fit in i32"),
         );
 
-        // `compress_into` writes into the spare capacity, so the buffer must be emptied first.
-        self.buffer.clear();
-        self.buffer.reserve(FSST_PER_BYTE_OVERHEAD * s.len());
+        self.rows.push(s);
+        self.pending_bytes += s.len();
 
-        // SAFETY: `self.buffer` has capacity for the FSST worst-case output of `s`.
-        let written = unsafe {
-            self.compressor
-                .compress_into(s, self.buffer.spare_capacity_mut())
-        };
-        // SAFETY: `compress_into` initialized the first `written` bytes.
-        unsafe { self.buffer.set_len(written) };
-
-        self.builder.append_value(&self.buffer);
+        if self.pending_bytes >= BULK_BATCH_BYTES || self.rows.len() >= BULK_BATCH_MAX_ROWS {
+            self.flush();
+        }
     }
 
-    fn finish(mut self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
-        let codes = self.builder.finish_into_varbin();
+    /// Compress the pending batch and append it to the output.
+    fn flush(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+
+        self.batch_codes.clear();
+        self.batch_ends.clear();
+        self.compressor.compress_bulk_into::<BULK_LANES>(
+            &self.rows,
+            &mut self.batch_codes,
+            &mut self.batch_ends,
+        );
+
+        // The batch ends are relative to the batch output. Shift them past the codes that
+        // earlier batches wrote.
+        let base = self.codes.len() as u64;
+        self.codes.extend_from_slice(&self.batch_codes);
+        self.codes_offsets
+            .extend(self.batch_ends.iter().map(|&end| (base + end).as_()));
+
+        self.rows.clear();
+        self.pending_bytes = 0;
+    }
+
+    fn finish(
+        mut self,
+        dtype: DType,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<FSSTArray> {
+        self.flush();
+
+        let codes_offsets = PrimitiveArray::new(self.codes_offsets.freeze(), Validity::NonNullable);
+        codes_offsets
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        let validity = Validity::from_mask(mask.clone(), dtype.nullability());
+
+        // SAFETY: the offsets start at zero, grow monotonically, and end at the length of the
+        // codes. The validity is the validity of the input, which has one entry per row.
+        let codes = unsafe {
+            VarBinArray::new_unchecked(
+                codes_offsets.into_array(),
+                self.codes.freeze(),
+                DType::Binary(dtype.nullability()),
+                validity,
+            )
+        };
+
         // Pad the symbol table here so that the array can hand it straight to a `Decompressor`
         // without copying.
         FSST::try_new_with_symbol_table(

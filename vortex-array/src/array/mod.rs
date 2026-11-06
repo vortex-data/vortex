@@ -502,7 +502,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_owned();
+        let stats = this.statistics().share_existing();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -521,7 +521,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result.array().statistics().set_iter(stats.into_iter());
+            result.array().statistics().transfer_from(&stats);
         }
 
         Ok(result)

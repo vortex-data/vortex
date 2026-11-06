@@ -18,6 +18,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_fastlanes::BitPackedData;
@@ -61,6 +62,7 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&packed, &SESSION).unwrap();
 
     let indices = (0..NUM_SELECTED_CHUNKS).flat_map(|chunk| {
         (0..selected_per_chunk)
@@ -69,19 +71,21 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
     (packed, Mask::from_indices(LEN, indices))
 }
 
-#[vortex_bench_support::cpu_features]
-#[divan::bench(args = [8, 64, 80])]
+// Batch short iterations to reduce variation in the fastest walltime sample.
+// The NEON cases still vary on unchanged code, so keep those measurements local.
+#[vortex_bench_support::cpu_features(exclude = ["neon"])]
+#[divan::bench(args = [64, 80], sample_size = 64)]
 fn filter(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, mask) = fixture(selected_per_chunk);
 
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| (mask.clone(), SESSION.create_execution_ctx()))
-        .bench_refs(|(mask, ctx)| {
+        .bench_values(|(mask, mut ctx)| {
             packed
-                .filter(mask.clone())
+                .filter(mask)
                 .unwrap()
-                .execute::<PrimitiveArray>(ctx)
+                .execute::<PrimitiveArray>(&mut ctx)
                 .unwrap()
         });
 }

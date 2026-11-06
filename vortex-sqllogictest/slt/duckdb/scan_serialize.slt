@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+SELECT (SELECT count(*) FROM read_vortex('${WORK_DIR}/none_*.vortex', allow_empty=true)) +
+       (SELECT count(*) FROM read_vortex('${WORK_DIR}/none_*.vortex', allow_empty=true));
+----
+0
+
+statement ok
+CREATE TABLE t(a INTEGER, b INTEGER);
+
+statement ok
+INSERT INTO t VALUES (1, 10), (2, 20), (3, 30), (4, 40), (5, 50);
+
+statement ok
+COPY t TO '${WORK_DIR}/cse.vortex';
+
+query I
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5
+UNION ALL
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5;
+----
+12
+12
+
+query TT
+EXPLAIN SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5
+UNION ALL
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5;
+----
+physical_plan ╭─ CTE ─────────────────────────────────╮
+│ CTE Name: __common_subplan_1          │
+│ Table Index: 15                       │
+│ Execution Mode: PIPELINE_DEPENDENT    │
+│ ~2 rows                               │
+╰───────────────────┬───────────────────╯
+                    ├──────────────────────────────╮
+╭─ Projection ──────┴───────────────────╮  ╭─ Union ───────╮
+│ Projections: CAST(sum(a) AS BIGINT)   │  ╰───────┬───────╯
+│ ~1 row                                │          ├──────────────────╮
+╰───────────────────┬───────────────────╯  ╭─ CTE Scan ────╮  ╭─ CTE Scan ────╮
+╭─ Read Vortex ─────┴───────────────────╮  │ CTE Index: 15 │  │ CTE Index: 15 │
+│ Function: Vortex Scan                 │  │ ~1 row        │  │ ~1 row        │
+│ Filters: ($.a > 2i32) or ($.b < 5i32) │  ╰───────────────╯  ╰───────────────╯
+│ Aggregations: sum(a)                  │
+│ ~1 row                                │
+╰───────────────────────────────────────╯
+
+query I
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5
+UNION ALL
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 25
+ORDER BY 1;
+----
+12
+15
+
+query TT
+EXPLAIN SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 5
+UNION ALL
+SELECT sum(a)::BIGINT FROM '${WORK_DIR}/cse.vortex' WHERE a > 2 OR b < 25;
+----
+physical_plan ╭─ Union ───────────────────────────────╮
+╰───────────────────┬───────────────────╯
+                    ├───────────────────────────────────────────╮
+╭─ Projection ──────┴───────────────────╮  ╭─ Projection ───────┴───────────────────╮
+│ Projections: CAST(sum(a) AS BIGINT)   │  │ Projections: CAST(sum(a) AS BIGINT)    │
+│ ~1 row                                │  │ ~1 row                                 │
+╰───────────────────┬───────────────────╯  ╰────────────────────┬───────────────────╯
+╭─ Read Vortex ─────┴───────────────────╮  ╭─ Read Vortex ──────┴───────────────────╮
+│ Function: Vortex Scan                 │  │ Function: Vortex Scan                  │
+│ Filters: ($.a > 2i32) or ($.b < 5i32) │  │ Filters: ($.a > 2i32) or ($.b < 25i32) │
+│ Aggregations: sum(a)                  │  │ Aggregations: sum(a)                   │
+│ ~1 row                                │  │ ~1 row                                 │
+╰───────────────────────────────────────╯  ╰────────────────────────────────────────╯

@@ -104,10 +104,8 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
         return false;
     }
 
-    inline unique_ptr<TableFunctionData> InitializeBindData(MultiFileBindData &,
-                                                            unique_ptr<BaseFileReaderOptions>) override {
-        return make_uniq<VortexBindData>();
-    }
+    unique_ptr<TableFunctionData> InitializeBindData(MultiFileBindData &,
+                                                     unique_ptr<BaseFileReaderOptions>) override;
 
     void BindReader(ClientContext &context,
                     vector<LogicalType> &types,

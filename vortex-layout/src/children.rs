@@ -17,6 +17,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutBuildContext;
+use crate::LayoutDeserialization;
 use crate::LayoutRef;
 use crate::flatbuffers::layout as fbl;
 use crate::layouts::foreign::new_foreign_layout;
@@ -271,20 +272,23 @@ impl LayoutChildren for ViewedLayoutChildren {
                 session: &self.session,
                 array_read_ctx: &self.array_read_ctx,
             };
-            encoding.build(
-                dtype,
-                fb_child.row_count(),
-                fb_child
-                    .metadata()
-                    .map(|m| m.bytes())
-                    .unwrap_or_else(|| &[]),
-                fb_child
-                    .segments()
-                    .unwrap_or_default()
-                    .iter()
-                    .map(SegmentId::from)
-                    .collect_vec(),
-                &viewed_children,
+            encoding.deserialize(
+                LayoutDeserialization {
+                    serialized_id: encoding_id,
+                    dtype,
+                    row_count: fb_child.row_count(),
+                    metadata: fb_child
+                        .metadata()
+                        .map(|m| m.bytes())
+                        .unwrap_or_else(|| &[]),
+                    segment_ids: fb_child
+                        .segments()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(SegmentId::from)
+                        .collect_vec(),
+                    children: &viewed_children,
+                },
                 &build_ctx,
             )
         })?;

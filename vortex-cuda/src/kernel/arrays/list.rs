@@ -120,12 +120,12 @@ async fn list_views_typed<O: DeviceRepr + NativePType>(
     })?;
 
     let view_offsets = PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(view_offsets))),
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(view_offsets)?)),
         O::PTYPE,
         Validity::NonNullable,
     );
     let view_sizes = PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(view_sizes))),
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(view_sizes)?)),
         O::PTYPE,
         Validity::NonNullable,
     );

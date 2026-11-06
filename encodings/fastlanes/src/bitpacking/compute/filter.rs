@@ -16,6 +16,7 @@ use vortex_array::arrays::filter::filter_chunked;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -53,7 +54,7 @@ impl FilterKernel for BitPacked {
         let ptype = array.dtype().as_ptype();
         let validity = array.validity()?.filter(mask)?;
         let buffer = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |U| {
-            filter_values::<U>(array.data(), bit_width, values).into_byte_buffer()
+            filter_values::<U>(array.data(), bit_width, values, ctx.allocator()).into_byte_buffer()
         });
         let primitive = PrimitiveArray::from_byte_buffer(buffer, ptype, validity);
 
@@ -78,6 +79,7 @@ fn filter_values<T: NativePType + BitPacking>(
     array: &BitPackedData,
     bit_width: u8,
     mask: &MaskValues,
+    allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
     let bit_width = bit_width as usize;
     let chunks = PackedChunks {
@@ -85,7 +87,7 @@ fn filter_values<T: NativePType + BitPacking>(
         bit_width,
         packed_chunk_len: FL_CHUNK_SIZE * bit_width / (8 * size_of::<T>()),
     };
-    filter_chunked(&chunks, array.offset() as usize, mask)
+    filter_chunked(&chunks, array.offset() as usize, mask, allocator)
 }
 
 /// The packed FastLanes chunks of a bit-packed array.
@@ -151,6 +153,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -214,7 +217,13 @@ mod tests {
                 unreachable!("the indices select some but not all values")
             };
             assert_eq!(
-                filter_values::<T>(packed.data(), bit_width, &mask).as_slice(),
+                filter_values::<T>(
+                    packed.data(),
+                    bit_width,
+                    &mask,
+                    BufferAllocatorRef::static_ref()
+                )
+                .as_slice(),
                 expected
             );
         }
@@ -236,7 +245,8 @@ mod tests {
             unreachable!("the indices select some but not all values")
         };
         assert_eq!(
-            filter_values::<u32>(packed.data(), 0, &mask).as_slice(),
+            filter_values::<u32>(packed.data(), 0, &mask, BufferAllocatorRef::static_ref())
+                .as_slice(),
             &[0; 5]
         );
         Ok(())
@@ -510,7 +520,8 @@ mod tests {
             unreachable!("patterns select some but not all values")
         };
         assert_eq!(
-            filter_values::<T>(bitpacked.data(), 7, &mask).as_slice(),
+            filter_values::<T>(bitpacked.data(), 7, &mask, BufferAllocatorRef::static_ref())
+                .as_slice(),
             expected
         );
         Ok(())

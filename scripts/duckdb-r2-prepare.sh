@@ -14,7 +14,10 @@ set -eu
 if [ "$RELEASE" = "true" ]; then
     suffix="${ARCHIVE#libduckdb-}"
     suffix="${suffix%.zip}"
-    upstream="duckdb-shared-libs-${suffix}.tar.gz"
+    case "$suffix" in
+        windows-*) upstream="duckdb-static-libs-${suffix%-static}.tar.gz" ;;
+        *) upstream="duckdb-shared-libs-${suffix}.tar.gz" ;;
+    esac
 
     echo "Mirroring DuckDB release ${REF_DIR}/${upstream} as ${ARCHIVE}"
     curl -fSL --retry 3 -o "$upstream" \

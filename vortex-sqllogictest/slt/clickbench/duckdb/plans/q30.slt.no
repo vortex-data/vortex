@@ -245,7 +245,7 @@ logical_opt [
                                         "sum(IsRefresh)",
                                         "avg(ResolutionWidth)"
                                     ],
-                                    "Estimated Cardinality": "199543"
+                                    "Estimated Cardinality": "199908"
                                 }
                             }
                         ],
@@ -257,7 +257,7 @@ logical_opt [
                                 "#3",
                                 "#4"
                             ],
-                            "Estimated Cardinality": "199543"
+                            "Estimated Cardinality": "199908"
                         }
                     }
                 ],
@@ -269,7 +269,7 @@ logical_opt [
                         "sum(IsRefresh)",
                         "avg(ResolutionWidth)"
                     ],
-                    "Estimated Cardinality": "199543"
+                    "Estimated Cardinality": "199908"
                 }
             }
         ],
@@ -330,7 +330,7 @@ physical_plan [
                                 "sum(#2)",
                                 "avg(#3)"
                             ],
-                            "Estimated Cardinality": "199543"
+                            "Estimated Cardinality": "199908"
                         }
                     }
                 ],
@@ -342,7 +342,7 @@ physical_plan [
                         "#3",
                         "#4"
                     ],
-                    "Estimated Cardinality": "199543"
+                    "Estimated Cardinality": "199908"
                 }
             }
         ],

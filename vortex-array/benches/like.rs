@@ -21,6 +21,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -34,6 +35,14 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
+
+    // The first regex that a process compiles reads the CPU quota from the file system and seeds
+    // a hash. Without this, those system calls land in the single measured iteration of the first
+    // regex benchmark under the CodSpeed simulation.
+    like(strings(), "%HELLO%", ILIKE)
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
     divan::main();
 }
 
@@ -57,20 +66,31 @@ fn strings() -> ArrayRef {
     .into_array()
 }
 
+/// Case-insensitive, non-negated matching.
+const ILIKE: LikeOptions = LikeOptions {
+    negated: false,
+    case_insensitive: true,
+};
+
+/// `array LIKE pattern`, with a constant pattern.
+fn like(array: ArrayRef, pattern: &str, options: LikeOptions) -> ArrayRef {
+    Like::try_new(
+        array,
+        ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
+        options,
+    )
+    .unwrap()
+    .into_array()
+}
+
 fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
     let array = strings();
     bencher
         .with_inputs(|| {
-            (
-                Like::try_new(
-                    array.clone(),
-                    ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
-                    options,
-                )
-                .unwrap()
-                .into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = like(array.clone(), pattern, options);
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
 }
@@ -108,24 +128,17 @@ fn like_per_row_patterns(bencher: Bencher) {
     let patterns = VarBinViewArray::from_iter_str((0..ARRAY_SIZE).map(|_| "hello%")).into_array();
     bencher
         .with_inputs(|| {
-            (
-                Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
-                    .unwrap()
-                    .into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
+                .unwrap()
+                .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
 }
 
 #[divan::bench]
 fn ilike_contains(bencher: Bencher) {
-    bench_like(
-        bencher,
-        "%HELLO%",
-        LikeOptions {
-            negated: false,
-            case_insensitive: true,
-        },
-    );
+    bench_like(bencher, "%HELLO%", ILIKE);
 }

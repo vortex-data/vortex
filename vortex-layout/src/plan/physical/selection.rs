@@ -38,7 +38,7 @@ pub(crate) fn selected(plan: PlanRef, rows: Range<u64>, mask: Mask) -> PlanRef {
         vtable: Selected,
         dtype: plan.dtype().clone(),
         row_count: plan.row_count(),
-        children: vec![plan].into(),
+        slots: [plan].into(),
         data: SelectedData { rows, mask },
     }
     .into_typed()
@@ -69,7 +69,7 @@ impl PlanVTable for Selected {
         if mask.all_false() {
             return Ok(None);
         }
-        compiler.compile(&plan.child_required(0)?, rows, &mask)
+        compiler.compile(&plan.slot_required(0)?, rows, &mask)
     }
 }
 

@@ -1,0 +1,12 @@
+# Bun configuration for vortex-web. Bun merges it with $HOME/.bunfig.toml.
+
+[install]
+# Link only the dependencies each package declares. No code can load a
+# transitive dependency that its own package does not declare.
+linker = "isolated"
+
+# Refuse package versions younger than 7 days (in seconds). npm worms are
+# usually found and removed upstream within hours, so a 7-day wait keeps
+# them out of a local install, a lock file refresh, and CI. Renovate waits
+# the same 7 days before it proposes an update (renovate.json).
+minimumReleaseAge = 604800

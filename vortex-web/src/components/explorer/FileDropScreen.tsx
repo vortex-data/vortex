@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useState, useCallback, type DragEvent, type FormEvent } from 'react';
-import { ThemePicker } from '../ThemePicker';
+import { useCallback, useId, useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { Footer } from './Footer';
+import { Header } from './Header';
 
 interface FileDropScreenProps {
   onFileLoaded: (file: File) => void;
@@ -10,11 +11,15 @@ interface FileDropScreenProps {
   error: string | null;
 }
 
+/** The first screen: open a Vortex file from the disk, by drop or by choosing it, or from a URL. */
 export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [url, setUrl] = useState('');
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const urlId = useId();
+  const errorId = useId();
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -36,16 +41,14 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
     [onFileLoaded],
   );
 
-  const handleClick = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.vortex,.vtx';
-    input.onchange = () => {
-      const file = input.files?.[0];
+  const handleChosen = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
       if (file) onFileLoaded(file);
-    };
-    input.click();
-  }, [onFileLoaded]);
+      e.target.value = '';
+    },
+    [onFileLoaded],
+  );
 
   const handleUrlSubmit = useCallback(
     async (e: FormEvent) => {
@@ -56,14 +59,29 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
       setFetchingUrl(true);
       setUrlError(null);
       try {
-        const resp = await fetch(trimmed);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        let resp: Response;
+        try {
+          resp = await fetch(trimmed);
+        } catch (err) {
+          // A network fault and a CORS refusal look the same from here.
+          console.error('Explorer: the fetch failed', err);
+          setUrlError(
+            'The server did not let this page read the file. Download the file, then open it here.',
+          );
+          return;
+        }
+        if (!resp.ok) {
+          setUrlError(
+            `The file at this address did not load (HTTP ${resp.status}). Check the address.`,
+          );
+          return;
+        }
         const blob = await resp.blob();
-        const name = trimmed.split('/').pop() ?? 'remote.vortex';
-        const file = new File([blob], name, { type: blob.type });
-        onFileLoaded(file);
+        const name = new URL(trimmed).pathname.split('/').pop() || 'remote.vortex';
+        onFileLoaded(new File([blob], name, { type: blob.type }));
       } catch (err) {
-        setUrlError(err instanceof Error ? err.message : String(err));
+        console.error('Explorer: the URL did not open', err);
+        setUrlError('This address is not valid. Check it and try again.');
       } finally {
         setFetchingUrl(false);
       }
@@ -74,69 +92,97 @@ export function FileDropScreen({ onFileLoaded, loading, error }: FileDropScreenP
   const busy = loading || fetchingUrl;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center text-vortex-fg-light dark:text-vortex-fg relative">
-      <div className="absolute top-3 right-3">
-        <ThemePicker />
-      </div>
-      <h1 className="mb-8 font-funnel text-4xl font-light tracking-tight md:text-6xl">
-        Vortex Explorer
-      </h1>
-
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={handleClick}
-        className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging
-            ? 'bg-vortex-light-blue/10'
-            : 'hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.03]'
-        }`}
-      >
-        {busy ? (
-          <p className="font-mono text-lg text-vortex-grey-dark">
-            {fetchingUrl ? 'Fetching…' : 'Loading…'}
-          </p>
-        ) : (
-          <div className="text-center">
-            <p className="font-mono text-lg text-vortex-grey-dark">
-              Drop a{' '}
-              <code className="rounded bg-vortex-black/[0.06] dark:bg-white/[0.08] px-1.5 py-0.5 text-vortex-light-blue">
-                .vortex
-              </code>{' '}
-              file here
+    <div className="x-app is-page">
+      <Header />
+      <main className="x-open has-dot-field">
+        <div className="vx-dot-field" aria-hidden="true" />
+        <div className="x-open-body">
+          <div className="x-open-head">
+            <h1 className="vx-display-mono">Open a Vortex file.</h1>
+            <p className="vx-body">
+              See its layout, encodings, and rows. The file stays on your computer: the Explorer
+              reads it in this tab.
             </p>
-            <p className="mt-2 font-mono text-sm text-vortex-grey-dark/60">or click to browse</p>
           </div>
-        )}
-      </div>
 
-      {/* URL input */}
-      <form
-        onSubmit={handleUrlSubmit}
-        className="mt-6 flex w-full max-w-lg gap-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://example.com/file.vortex"
-          disabled={busy}
-          className="flex-1 rounded border border-vortex-grey-light/40 dark:border-white/[0.08] bg-transparent px-3 py-1.5 font-mono text-sm text-vortex-fg-light dark:text-vortex-fg placeholder:text-vortex-grey-dark/40 focus:border-vortex-light-blue focus:outline-none disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={busy || !url.trim()}
-          className="rounded bg-vortex-light-blue px-4 py-1.5 font-mono text-sm text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
-        >
-          Open
-        </button>
-      </form>
+          {/* The drop target. Its button is the keyboard and pointer path; the drop is extra. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the button inside opens the file. */}
+          <div
+            className={`vx-card x-drop${isDragging ? ' is-over' : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <p className="vx-mono" aria-live="polite">
+              {busy
+                ? fetchingUrl
+                  ? 'Fetching the file…'
+                  : 'Reading the file…'
+                : 'Drop a .vortex file here'}
+            </p>
+            <button
+              type="button"
+              className="vx-btn vx-btn-primary"
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+            >
+              Choose a file
+            </button>
+            <input
+              ref={inputRef}
+              className="vx-sr-only"
+              type="file"
+              accept=".vortex,.vtx"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={handleChosen}
+            />
+            <p className="vx-label-sm">.vortex or .vtx</p>
+            {error && (
+              <div className="x-file-error" role="alert">
+                <p className="vx-small x-error">
+                  The file did not open. Open a .vortex or .vtx file.
+                </p>
+                <p className="vx-label-sm">
+                  Reason · <span className="vx-ref">{error}</span>
+                </p>
+              </div>
+            )}
+          </div>
 
-      {(error || urlError) && (
-        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">{urlError || error}</p>
-      )}
+          <form className="x-url" onSubmit={handleUrlSubmit}>
+            <label className="vx-label" htmlFor={urlId}>
+              Or open a file from a URL
+            </label>
+            <div className="vx-field-row">
+              <input
+                id={urlId}
+                className="vx-field"
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com/orders.vortex"
+                autoComplete="off"
+                disabled={busy}
+                {...(urlError ? { 'aria-invalid': true, 'aria-describedby': errorId } : {})}
+              />
+              <button
+                type="submit"
+                className="vx-btn vx-btn-secondary"
+                disabled={busy || !url.trim()}
+              >
+                Open
+              </button>
+            </div>
+            {urlError && (
+              <p className="vx-small vx-field-error" id={errorId} role="alert">
+                {urlError}
+              </p>
+            )}
+          </form>
+        </div>
+      </main>
+      <Footer />
     </div>
   );
 }

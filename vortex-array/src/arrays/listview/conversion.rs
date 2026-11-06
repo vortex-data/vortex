@@ -45,7 +45,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // garbage data when they turn it back into a `ListArray`.
     let list = list.reset_offsets(false, ctx)?;
 
-    // `reset_offsets` leaves a lazy subtraction in the offsets slot, which both the `sizes` below
+    // `reset_offsets` can leave a lazy subtraction in the offsets slot, which both the `sizes` below
     // and the view's own offsets read. Execute it once here so that it does not run per reader.
     let list_offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -104,14 +104,13 @@ fn build_sizes_from_offsets<O: IntegerPType>(
     Ok(sizes_builder.finish_into_primitive().into_array())
 }
 
-// TODO(connor)[ListView]: Note that it is not exactly zero-copy because we have to add a single
-// offset at the end, but it is fast enough.
 /// Creates a `ListArray` from a `ListViewArray`.
 ///
 /// The resulting `ListArray` will not have any leading or trailing garbage data.
 ///
-/// This operation is fast when `ListViewArray::is_zero_copy_to_list` is `true`. Otherwise it
-/// falls back to the (very) expensive path and rebuilds the `ListArray` from scratch.
+/// This operation is fast when `ListViewArray::is_zero_copy_to_list` is `true`. It is not exactly
+/// zero-copy, since it must append one final offset. Otherwise it falls back to the (very)
+/// expensive path and rebuilds the `ListArray` from scratch.
 pub fn list_from_list_view(
     list_view: ListViewArray,
     ctx: &mut ExecutionCtx,

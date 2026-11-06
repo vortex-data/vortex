@@ -16,13 +16,14 @@ const preview: Preview = {
         items: [
           { value: 'light', title: 'Light', icon: 'sun' },
           { value: 'dark', title: 'Dark', icon: 'moon' },
+          { value: 'system', title: 'System', icon: 'mirror' },
         ],
         dynamicTitle: true,
       },
     },
   },
   initialGlobals: {
-    theme: 'light',
+    theme: 'dark',
   },
   decorators: [
     (Story, context) => {
@@ -30,8 +31,12 @@ const preview: Preview = {
       // (e.g. FileHeader/ThemePicker, which call useTheme) have their context.
       // Seed it from the toolbar's theme global; `key` remounts the provider
       // when the toolbar theme changes so the switch takes effect.
-      const theme = (context.globals.theme as string) || 'light';
-      localStorage.setItem('vortex-theme', theme);
+      const theme = (context.globals.theme as string) || 'dark';
+      try {
+        localStorage.setItem('vx-theme', theme);
+      } catch {
+        // Storage can be blocked; the provider then starts from its default.
+      }
       return createElement(ThemeProvider, { key: theme }, Story());
     },
   ],

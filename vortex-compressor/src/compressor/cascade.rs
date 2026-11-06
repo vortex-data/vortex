@@ -9,7 +9,6 @@ use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
@@ -362,6 +361,6 @@ pub(super) fn exact_uncompressed_size(
     if !UncompressedSizeInBytes::supports_dtype(array.dtype()) {
         return Ok(array.nbytes());
     }
-    let size = uncompressed_size_in_bytes(array, UncompressedSizeOpts::exact(), exec_ctx)?;
+    let size = uncompressed_size_in_bytes(array, exec_ctx)?;
     u64::try_from(size).map_err(|e| vortex_err!("uncompressed size does not fit in u64: {e}"))
 }

@@ -16,8 +16,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::canonical_uncompressed_size_in_bytes;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
@@ -31,12 +31,9 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {
-        aggregate_with(array, UncompressedSizeOpts::default())
-    }
-
-    fn aggregate_with(array: &ArrayRef, opts: UncompressedSizeOpts) -> VortexResult<u64> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut acc = Accumulator::try_new(UncompressedSizeInBytes, opts, array.dtype().clone())?;
+        let mut acc =
+            Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
         acc.finish()?
             .as_primitive()
@@ -95,11 +92,7 @@ mod tests {
         let constant = ConstantArray::new("abcdefghijkl".to_string(), 10).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let canonical = constant.clone().execute::<Canonical>(&mut ctx)?;
-        let expected = canonical_uncompressed_size_in_bytes(
-            &canonical,
-            UncompressedSizeOpts::default(),
-            &mut ctx,
-        )?;
+        let expected = canonical_uncompressed_size_in_bytes(&canonical, &mut ctx)?;
 
         assert_eq!(aggregate(&constant)?, expected);
         assert_eq!(aggregate(&constant)?, 160);
@@ -107,18 +100,15 @@ mod tests {
     }
 
     #[test]
-    fn constant_utf8_exact_matches_inexact() -> VortexResult<()> {
-        // A constant canonicalizes to a single shared value, so nothing is unreferenced.
-        let constant = ConstantArray::new("abcdefghijkl".to_string(), 10).into_array();
+    fn constant_out_of_line_utf8_matches_canonical_size() -> VortexResult<()> {
+        // Every row references the one out-of-line value, so it is counted once per row.
+        let constant = ConstantArray::new("abcdefghijklmnopqrst".to_string(), 10).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let canonical = constant.clone().execute::<Canonical>(&mut ctx)?;
+        let expected = canonical_uncompressed_size_in_bytes(&canonical, &mut ctx)?;
 
-        assert_eq!(
-            aggregate_with(&constant, UncompressedSizeOpts::exact())?,
-            aggregate_with(&constant, UncompressedSizeOpts::inexact())?
-        );
-        assert_eq!(
-            aggregate_with(&constant, UncompressedSizeOpts::exact())?,
-            160
-        );
+        assert_eq!(aggregate(&constant)?, expected);
+        assert_eq!(aggregate(&constant)?, 10 * (16 + 20));
         Ok(())
     }
 }
