@@ -339,6 +339,7 @@ mod tests {
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -441,7 +442,12 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalByteParts::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
+            widen_msp(
+                PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid)
+                    .into_array(),
+                decimal_dtype,
+            )
+            .unwrap(),
             decimal_dtype,
         )
         .unwrap()
@@ -619,6 +625,7 @@ mod tests {
         let dtype = DecimalDType::new(38, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i16, 0, -1, 3], validity.clone()).into_array();
+        let msp = widen_msp(msp, dtype)?;
         let lower = buffer![5u64, 7, 9, u64::from(u16::MAX)].into_array();
         let array = DecimalByteParts::try_new_with_lower_parts(msp, vec![lower], dtype)?;
 
@@ -655,6 +662,7 @@ mod tests {
         let dtype = DecimalDType::new(76, 2);
         let validity = Validity::from_iter([true, false, true, true]);
         let msp = PrimitiveArray::new(buffer![1i8, 0, -1, 3], validity.clone()).into_array();
+        let msp = widen_msp(msp, dtype)?;
         let upper = buffer![5u64, 7, u64::from(u8::MAX), 0].into_array();
         let middle = buffer![9u64, u64::from(u16::MAX), 0, 3].into_array();
         let lower = buffer![2u64, u64::MAX, 4, 0].into_array();

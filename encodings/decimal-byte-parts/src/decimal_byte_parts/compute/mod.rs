@@ -32,6 +32,7 @@ mod tests {
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -63,7 +64,10 @@ mod tests {
     #[rstest]
     // Basic decimal byte parts arrays
     #[case::decimal_i32(DecimalByteParts::try_new(
-        buffer![100i32, 200, 300, 400, 500].into_array(),
+        widen_msp(
+            buffer![100i32, 200, 300, 400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_i64(DecimalByteParts::try_new(
@@ -72,7 +76,10 @@ mod tests {
     ).unwrap())]
     // Nullable arrays
     #[case::decimal_nullable_i32(DecimalByteParts::try_new(
-        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None]).into_array(),
+        widen_msp(
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None]).into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_nullable_i64(DecimalByteParts::try_new(
@@ -81,11 +88,17 @@ mod tests {
     ).unwrap())]
     // Different precision/scale combinations
     #[case::decimal_high_precision(DecimalByteParts::try_new(
-        buffer![123456789i32, 987654321, -123456789].into_array(),
+        widen_msp(
+            buffer![123456789i32, 987654321, -123456789].into_array(),
+            DecimalDType::new(38, 10),
+        ).unwrap(),
         DecimalDType::new(38, 10)
     ).unwrap())]
     #[case::decimal_zero_scale(DecimalByteParts::try_new(
-        buffer![100i32, 200, 300].into_array(),
+        widen_msp(
+            buffer![100i32, 200, 300].into_array(),
+            DecimalDType::new(10, 0),
+        ).unwrap(),
         DecimalDType::new(10, 0)
     ).unwrap())]
     // Edge cases
@@ -94,12 +107,18 @@ mod tests {
         DecimalDType::new(5, 1)
     ).unwrap())]
     #[case::decimal_negative(DecimalByteParts::try_new(
-        buffer![-100i32, -200, 300, -400, 500].into_array(),
+        widen_msp(
+            buffer![-100i32, -200, 300, -400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     // Large arrays
     #[case::decimal_large(DecimalByteParts::try_new(
-        PrimitiveArray::from_iter((0..1500).map(|i| i * 100)).into_array(),
+        widen_msp(
+            PrimitiveArray::from_iter((0..1500).map(|i| i * 100)).into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_large_i64(DecimalByteParts::try_new(
@@ -119,7 +138,10 @@ mod tests {
 
     #[rstest]
     #[case::decimal_i32(DecimalByteParts::try_new(
-        buffer![100i32, 200, 300, 400, 500].into_array(),
+        widen_msp(
+            buffer![100i32, 200, 300, 400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_nullable_i64(DecimalByteParts::try_new(
@@ -127,7 +149,10 @@ mod tests {
         DecimalDType::new(19, 4)
     ).unwrap())]
     #[case::decimal_negative(DecimalByteParts::try_new(
-        buffer![-100i32, -200, 300, -400, 500].into_array(),
+        widen_msp(
+            buffer![-100i32, -200, 300, -400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2)
     ).unwrap())]
     #[case::decimal_i128_one_lower_part(i128_parts(wide_i128(), Validity::NonNullable))]

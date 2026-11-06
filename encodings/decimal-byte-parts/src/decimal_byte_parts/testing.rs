@@ -5,20 +5,26 @@
 
 use std::sync::LazyLock;
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::WidenArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
 use super::MAX_I128_LOWER_PARTS;
 use super::MAX_I256_LOWER_PARTS;
+use super::msp_ptype;
 use super::split_decimal;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -26,6 +32,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     crate::initialize(&session);
     session
 });
+
+/// Wraps a strictly narrower signed child at the logical MSP dtype, preserving nullability.
+pub(crate) fn widen_msp(child: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<ArrayRef> {
+    let logical_dtype = DType::Primitive(msp_ptype(decimal_dtype), child.dtype().nullability());
+
+    WidenArray::try_new(child, logical_dtype).map(IntoArray::into_array)
+}
 
 /// An `i128`-backed decimal array, encoded as byte parts with one lower part.
 pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePartsArray {

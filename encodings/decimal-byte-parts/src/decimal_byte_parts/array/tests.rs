@@ -12,6 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -35,6 +36,7 @@ use crate::decimal_byte_parts::LOWER_PART_DTYPE;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 use crate::decimal_byte_parts::testing::i128_parts;
 use crate::decimal_byte_parts::testing::i256_parts;
+use crate::decimal_byte_parts::testing::widen_msp;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -121,12 +123,19 @@ fn test_scalar_at_matches_decoded_rows(
     #[values(0, 1, 2, 3)] lower_count: usize,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
+    let dtype = DecimalDType::new(if lower_count <= 1 { 38 } else { 76 }, 0);
     let msp = PrimitiveArray::new(
         buffer![0i64, 1, -1],
         Validity::from_iter([false, true, true]),
     )
     .into_array()
     .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
+    let msp = if msp_ptype == PType::I64 {
+        msp
+    } else {
+        widen_msp(msp, dtype)?
+    };
+
     // Set the highest bit of each word to catch accidental sign extension. The low bits differ, so
     // a swapped word shows up too.
     let lower = [(1u64 << 63) | 1, (1 << 63) | 2, (1 << 63) | 3]
@@ -134,7 +143,6 @@ fn test_scalar_at_matches_decoded_rows(
         .take(lower_count)
         .map(|word| buffer![0u64, word, word].into_array())
         .collect();
-    let dtype = DecimalDType::new(if lower_count <= 1 { 38 } else { 76 }, 0);
     let array = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
 
     let decoded = array
@@ -220,7 +228,7 @@ fn test_rejects_missing_slots(#[case] slots: Vec<Option<ArrayRef>>) {
 
 #[test]
 fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
-    // Null rows may hold arbitrary bits in the lower parts; they must stay null.
+    // Null rows may hold arbitrary bits in the lower parts and must stay null.
     let array = DecimalByteParts::try_new_with_lower_parts(
         PrimitiveArray::new(
             buffer![0i64, 0, 0],
@@ -246,6 +254,42 @@ fn test_unused_buffer_of_values_is_ignored_for_null_rows() -> VortexResult<()> {
         ),
         &mut ctx
     );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::p2(2, PType::I8)]
+#[case::p3(3, PType::I16)]
+#[case::p4(4, PType::I16)]
+#[case::p5(5, PType::I32)]
+#[case::p9(9, PType::I32)]
+#[case::p10(10, PType::I64)]
+#[case::p18(18, PType::I64)]
+#[case::p19(19, PType::I64)]
+#[case::p38(38, PType::I64)]
+#[case::p39(39, PType::I64)]
+#[case::p76(76, PType::I64)]
+fn test_msp_requires_logical_ptype(
+    #[case] precision: u8,
+    #[case] expected_ptype: PType,
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] stored_ptype: PType,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let msp = ConstantArray::new(
+        Scalar::default_value(&DType::Primitive(stored_ptype, nullability)),
+        3,
+    )
+    .into_array();
+    let result = DecimalByteParts::try_new(msp.clone(), decimal_dtype);
+    assert_eq!(result.is_ok(), stored_ptype == expected_ptype);
+
+    if stored_ptype < expected_ptype {
+        let msp = widen_msp(msp, decimal_dtype)?;
+        let array = DecimalByteParts::try_new(msp, decimal_dtype)?;
+        assert_eq!(array.dtype(), &DType::Decimal(decimal_dtype, nullability));
+    }
 
     Ok(())
 }

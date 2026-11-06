@@ -13,6 +13,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -47,25 +48,25 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 #[case::one_lower_part(DecimalByteParts::try_new_with_lower_parts(
     msp(), vec![lower_part()], DecimalDType::new(38, 2),
 ))]
-#[case::wider_i64_storage(DecimalByteParts::encode(
-    &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+#[case::i64_storage(DecimalByteParts::encode(
+    &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(18, 0), Validity::NonNullable),
     &mut SESSION.create_execution_ctx(),
 ))]
 #[case::wider_i128_storage(DecimalByteParts::encode(
-    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(38, 0), Validity::NonNullable),
     &mut SESSION.create_execution_ctx(),
 ))]
 #[case::wider_i256_storage(DecimalByteParts::encode(
     &DecimalArray::new(
         buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
-        DecimalDType::new(2, 0), Validity::NonNullable,
+        DecimalDType::new(76, 0), Validity::NonNullable,
     ),
     &mut SESSION.create_execution_ctx(),
 ))]
 #[case::wider_i256_storage_all_null(DecimalByteParts::encode(
     &DecimalArray::new(
         buffer![i256::from_parts(1 << 127, 0); 3],
-        DecimalDType::new(2, 0), Validity::AllInvalid,
+        DecimalDType::new(76, 0), Validity::AllInvalid,
     ),
     &mut SESSION.create_execution_ctx(),
 ))]
@@ -75,7 +76,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     DecimalDType::new(76, 2),
 ))]
 #[case::narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
-    buffer![-1i16, 0, 1].into_array(),
+        WidenArray::try_new(
+            buffer![-1i16, 0, 1].into_array(),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )?.into_array(),
     vec![
         buffer![u64::from(u8::MAX), 128, 0].into_array(),
         ConstantArray::new(u64::from(u16::MAX), 3).into_array(),
@@ -84,9 +88,12 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     DecimalDType::new(76, 2),
 ))]
 #[case::nullable_narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
-    PrimitiveArray::new(
+        WidenArray::try_new(
+            PrimitiveArray::new(
         buffer![-1i8, 0, 1], Validity::from_iter([true, false, true]),
     ).into_array(),
+            DType::Primitive(PType::I64, Nullability::Nullable),
+        )?.into_array(),
     vec![
         buffer![u64::MAX, 1 << 63, 0].into_array(),
         buffer![0u64, 128, u64::from(u8::MAX)].into_array(),

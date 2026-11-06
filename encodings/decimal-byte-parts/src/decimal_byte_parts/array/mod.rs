@@ -23,7 +23,6 @@ use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
@@ -39,12 +38,12 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use super::LOWER_PART_DTYPE;
-use super::MAX_I128_LOWER_PARTS;
-use super::MAX_I256_LOWER_PARTS;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
 use super::decimal_byte_parts_v2_id;
+use super::max_lower_parts;
+use super::msp_ptype;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
@@ -100,12 +99,9 @@ impl DecimalBytePartsData {
         dtype: &DType,
         len: usize,
     ) -> VortexResult<()> {
-        if !msp.dtype().is_signed_int() {
-            vortex_bail!("msp must be a signed integer array")
-        }
-
-        let expected_dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        vortex_ensure_eq!(dtype, &expected_dtype);
+        let expected_msp_dtype = DType::Primitive(msp_ptype(decimal_dtype), dtype.nullability());
+        vortex_ensure_eq!(msp.dtype(), &expected_msp_dtype);
+        vortex_ensure_eq!(dtype, &DType::Decimal(decimal_dtype, dtype.nullability()));
         vortex_ensure_eq!(msp.len(), len);
 
         let lower_part_count = lower_parts.len();
@@ -125,20 +121,6 @@ impl DecimalBytePartsData {
         }
 
         Ok(())
-    }
-}
-
-/// The largest number of lower parts that assemble to at most the canonical width of
-/// `decimal_dtype`.
-///
-/// One lower part assembles to `i128`, and two or three assemble to `i256`. An MSP is at most
-/// `i64`, so a canonical width of `i64` or less allows no lower parts. With this bound, decoding
-/// never narrows values that it assembled from lower parts.
-fn max_lower_parts(decimal_dtype: DecimalDType) -> usize {
-    match decimal_dtype.canonical_values_type() {
-        DecimalType::I8 | DecimalType::I16 | DecimalType::I32 | DecimalType::I64 => 0,
-        DecimalType::I128 => MAX_I128_LOWER_PARTS,
-        DecimalType::I256 => MAX_I256_LOWER_PARTS,
     }
 }
 

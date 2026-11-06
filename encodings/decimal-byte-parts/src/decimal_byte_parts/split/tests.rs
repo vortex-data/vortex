@@ -11,13 +11,17 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -132,6 +136,12 @@ fn test_split_decimal_rejects_too_small_count(
 #[case::i128_three(decimal(buffer![0i128], Validity::NonNullable), 3)]
 #[case::i256_two(decimal(buffer![i256::ZERO], Validity::NonNullable), 2)]
 #[case::i256_four(decimal(buffer![i256::ZERO], Validity::NonNullable), 4)]
+#[case::legacy_wider_storage(DecimalArray::new(
+    buffer![0i128], DecimalDType::new(4, 0), Validity::NonNullable,
+), 1)]
+#[case::legacy_wider_all_null(DecimalArray::new(
+    buffer![i128::MAX], DecimalDType::new(4, 0), Validity::AllInvalid,
+), 1)]
 #[case::all_null(decimal(buffer![0i128], Validity::AllInvalid), 3)]
 #[case::empty(decimal(Buffer::<i64>::empty(), Validity::NonNullable), 1)]
 fn test_split_decimal_rejects_invalid_count(
@@ -296,11 +306,11 @@ fn test_split_i256_part_order(
 /// A valid value outside the precision can need more lower parts than the dtype allows.
 #[rstest]
 #[case::wider_i128_storage(DecimalArray::new(
-    buffer![-99i128, 0, 1 << 70], DecimalDType::new(2, 0), Validity::NonNullable,
+    buffer![-99i128, 0, 1 << 70], DecimalDType::new(18, 0), Validity::NonNullable,
 ))]
 #[case::wider_i256_storage(DecimalArray::new(
     buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(1 << 70)],
-    DecimalDType::new(2, 0), Validity::NonNullable,
+    DecimalDType::new(18, 0), Validity::NonNullable,
 ))]
 fn test_encode_rejects_lower_parts_past_canonical_width(#[case] decimal: DecimalArray) {
     let result = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx());
@@ -310,4 +320,56 @@ fn test_encode_rejects_lower_parts_past_canonical_width(#[case] decimal: Decimal
             .is_err_and(|err| err.to_string().contains("allows at most 0 lower parts")),
         "expected the lower-part bound to reject the parts, got {result:?}"
     );
+}
+
+#[rstest]
+#[case::narrower_i32_at_p38(DecimalType::I32, 38, PType::I64)]
+#[case::wider_i64_at_p4(DecimalType::I64, 4, PType::I16)]
+#[case::wider_i128_at_p4(DecimalType::I128, 4, PType::I16)]
+#[case::wider_i256_at_p4(DecimalType::I256, 4, PType::I16)]
+fn test_split_legacy_storage_uses_logical_msp(
+    #[case] stored_type: DecimalType,
+    #[case] precision: u8,
+    #[case] expected_ptype: PType,
+    #[values(Validity::NonNullable, Validity::from_iter([true, false, true]))] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let decimal = match_each_decimal_value_type!(stored_type, |T| {
+        let mut values = [-99i16, 0, 99].map(|value| {
+            <T as dtype::BigCast>::from(value)
+                .vortex_expect("fixture values fit every storage width")
+        });
+        if !matches!(validity, Validity::NonNullable) {
+            values[1] = T::MAX;
+        }
+
+        DecimalArray::new(Buffer::copy_from(values), decimal_dtype, validity)
+    });
+    let parts = split_decimal(&decimal, 0, &mut ctx)?;
+    assert!(parts.lower_parts.is_empty());
+    assert_eq!(parts.msp.dtype().as_ptype(), expected_ptype);
+    assert_eq!(
+        parts.msp.dtype().nullability(),
+        decimal.dtype().nullability()
+    );
+    let encoded = DecimalByteParts::try_new(parts.msp, decimal_dtype)?;
+    assert_arrays_eq!(encoded, decimal.clone(), &mut ctx);
+    assert_arrays_eq!(
+        DecimalByteParts::encode(&decimal, &mut ctx)?,
+        decimal,
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_split_wider_msp_checks_valid_values() {
+    let decimal = DecimalArray::new(
+        buffer![0i64, i64::MAX],
+        DecimalDType::new(4, 0),
+        Validity::NonNullable,
+    );
+    assert_split_error(&decimal, 0, "does not fit i16");
 }

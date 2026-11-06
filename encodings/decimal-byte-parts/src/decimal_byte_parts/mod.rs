@@ -18,6 +18,8 @@
 //! [`assemble_decimal`]: assemble::assemble_decimal
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 
@@ -35,6 +37,30 @@ const LOWER_PART_BITS: usize = 64;
 
 /// The dtype of every lower part.
 const LOWER_PART_DTYPE: DType = DType::Primitive(PType::U64, Nullability::NonNullable);
+
+/// The logical signed MSP type for a decimal precision, capped at `i64`.
+fn msp_ptype(decimal_dtype: DecimalDType) -> PType {
+    match decimal_dtype.canonical_values_type() {
+        DecimalType::I8 => PType::I8,
+        DecimalType::I16 => PType::I16,
+        DecimalType::I32 => PType::I32,
+        DecimalType::I64 | DecimalType::I128 | DecimalType::I256 => PType::I64,
+    }
+}
+
+/// The largest number of lower parts that assemble to at most the canonical width of
+/// `decimal_dtype`.
+///
+/// One lower part assembles to `i128`, and two or three assemble to `i256`. An MSP is at most
+/// `i64`, so a canonical width of `i64` or less allows no lower parts. With this bound, decoding
+/// never narrows values that it assembled from lower parts.
+fn max_lower_parts(decimal_dtype: DecimalDType) -> usize {
+    match decimal_dtype.canonical_values_type() {
+        DecimalType::I8 | DecimalType::I16 | DecimalType::I32 | DecimalType::I64 => 0,
+        DecimalType::I128 => MAX_I128_LOWER_PARTS,
+        DecimalType::I256 => MAX_I256_LOWER_PARTS,
+    }
+}
 
 mod array;
 pub use array::*;

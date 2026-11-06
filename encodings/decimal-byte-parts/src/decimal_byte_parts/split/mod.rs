@@ -13,18 +13,19 @@ use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::decimal::valid_range;
 use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativeDecimalType;
-use vortex_array::dtype::NativePType;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_signed_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use super::DecimalByteParts;
@@ -32,6 +33,8 @@ use super::DecimalBytePartsArray;
 use super::LOWER_PART_BITS;
 use super::MAX_I128_LOWER_PARTS;
 use super::MAX_I256_LOWER_PARTS;
+use super::max_lower_parts;
+use super::msp_ptype;
 
 impl DecimalByteParts {
     /// Encode a [`DecimalArray`] as byte parts, with as many lower parts as its valid values need
@@ -60,13 +63,16 @@ pub struct DecimalParts {
 }
 
 impl DecimalParts {
-    /// Construct decimal parts with no lower parts from an MSP buffer of `i64` or narrower values:
-    /// either the decimal's own narrow storage, or a copy of wide values that all fit `i64`.
-    fn from_narrow<T: NativePType>(values: Buffer<T>, validity: Validity) -> Self {
-        Self {
-            msp: PrimitiveArray::new(values, validity).into_array(),
+    /// Convert storage to the logical MSP width, reusing the buffer when the widths match.
+    fn from_msp(decimal: &DecimalArray, mask: &Mask, validity: Validity) -> VortexResult<Self> {
+        let msp = match_each_signed_integer_ptype!(msp_ptype(decimal.decimal_dtype()), |T| {
+            PrimitiveArray::new(converted_buffer::<T>(decimal, mask)?, validity).into_array()
+        });
+
+        Ok(Self {
+            msp,
             lower_parts: Vec::new(),
-        }
+        })
     }
 
     /// Construct decimal parts arrays from the buffers constituting a wide decimal (`i128` or `i256`).
@@ -134,13 +140,15 @@ fn range_fits<W: BigCast, T: NativeDecimalType>(min: T, max: T) -> bool {
     <W as BigCast>::from(min).is_some() && <W as BigCast>::from(max).is_some()
 }
 
-/// Split a canonical decimal array into a signed most significant part (MSP) and
-/// `lower_part_count` unsigned 64-bit lower parts. The MSP is at most 64 bits.
+/// Split a decimal array into a signed most significant part (MSP) and
+/// `lower_part_count` unsigned 64-bit lower parts, following the [MSP rule](crate).
+///
+/// Legacy storage widths are accepted. With no lower parts, storage at the logical MSP width is
+/// reused, narrower storage is widened, and wider storage gets a checked conversion.
 ///
 /// These shapes are supported:
 ///
-/// - A storage width up to `i64` with no lower parts. The MSP reuses the values buffer.
-/// - `i128` or `i256` values with no lower parts. The values are copied into an `i64` MSP.
+/// - Any storage width with no lower parts. The values are converted to the logical MSP width.
 /// - `i128` values with one lower part, or `i256` values with three lower parts. The values split
 ///   on 64-bit boundaries into an `i64` MSP and the lower parts.
 /// - `i256` values with one lower part. The values are copied into `i128`, and then split as
@@ -155,13 +163,19 @@ fn range_fits<W: BigCast, T: NativeDecimalType>(min: T, max: T) -> bool {
 /// # Errors
 ///
 /// Returns an error if the array's validity cannot be derived or executed, if the storage width
-/// and `lower_part_count` are not one of the shapes above, or if a valid value does not fit
-/// `lower_part_count` lower parts.
+/// and `lower_part_count` are not one of the shapes above, if the count exceeds the precision's
+/// bound, or if a valid value does not fit `lower_part_count` lower parts.
 pub fn split_decimal(
     decimal: &DecimalArray,
     lower_part_count: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DecimalParts> {
+    let decimal_dtype = decimal.decimal_dtype();
+    let max_lower_parts = max_lower_parts(decimal_dtype);
+    vortex_ensure!(
+        lower_part_count <= max_lower_parts,
+        "{decimal_dtype} allows at most {max_lower_parts} lower parts, got {lower_part_count}"
+    );
     let shape = SplitShape::classify(decimal.values_type(), lower_part_count)?;
 
     let validity = decimal.validity()?;
@@ -169,17 +183,16 @@ pub fn split_decimal(
     let mask = validity.execute_mask(len, ctx)?;
 
     if mask.all_false() || decimal.is_empty() {
-        return Ok(split_no_valid_row(len, shape, &validity));
+        return Ok(split_no_valid_row(
+            len,
+            shape,
+            decimal.decimal_dtype(),
+            &validity,
+        ));
     }
 
     Ok(match shape {
-        SplitShape::ReuseI8 => DecimalParts::from_narrow(decimal.buffer::<i8>(), validity),
-        SplitShape::ReuseI16 => DecimalParts::from_narrow(decimal.buffer::<i16>(), validity),
-        SplitShape::ReuseI32 => DecimalParts::from_narrow(decimal.buffer::<i32>(), validity),
-        SplitShape::ReuseI64 => DecimalParts::from_narrow(decimal.buffer::<i64>(), validity),
-        SplitShape::IntoI64 => {
-            DecimalParts::from_narrow(converted_buffer::<i64>(decimal, &mask)?, validity)
-        }
+        SplitShape::MspOnly => DecimalParts::from_msp(decimal, &mask, validity)?,
         SplitShape::I128OneLowerPart => {
             let (msp, lower) = split_wide(&decimal.buffer::<i128>(), &mask, i128_to_parts);
             DecimalParts::from_wide(msp, lower, validity)
@@ -200,12 +213,8 @@ pub fn split_decimal(
 /// count.
 #[derive(Clone, Copy)]
 enum SplitShape {
-    ReuseI8,
-    ReuseI16,
-    ReuseI32,
-    ReuseI64,
-    /// `i128` or `i256` values.
-    IntoI64,
+    /// Values converted to the logical MSP width, with no lower parts.
+    MspOnly,
     I128OneLowerPart,
     /// Copied into `i128` first.
     I256OneLowerPart,
@@ -217,11 +226,7 @@ impl SplitShape {
     /// error if [`split_decimal`] does not support it.
     fn classify(values_type: DecimalType, lower_part_count: usize) -> VortexResult<Self> {
         Ok(match (values_type, lower_part_count) {
-            (DecimalType::I8, 0) => Self::ReuseI8,
-            (DecimalType::I16, 0) => Self::ReuseI16,
-            (DecimalType::I32, 0) => Self::ReuseI32,
-            (DecimalType::I64, 0) => Self::ReuseI64,
-            (DecimalType::I128 | DecimalType::I256, 0) => Self::IntoI64,
+            (_, 0) => Self::MspOnly,
             (DecimalType::I128, MAX_I128_LOWER_PARTS) => Self::I128OneLowerPart,
             (DecimalType::I256, MAX_I128_LOWER_PARTS) => Self::I256OneLowerPart,
             (DecimalType::I256, MAX_I256_LOWER_PARTS) => Self::I256ThreeLowerParts,
@@ -239,24 +244,10 @@ impl SplitShape {
         })
     }
 
-    /// The type of the MSP.
-    fn msp_ptype(self) -> PType {
-        match self {
-            Self::ReuseI8 => PType::I8,
-            Self::ReuseI16 => PType::I16,
-            Self::ReuseI32 => PType::I32,
-            Self::ReuseI64
-            | Self::IntoI64
-            | Self::I128OneLowerPart
-            | Self::I256OneLowerPart
-            | Self::I256ThreeLowerParts => PType::I64,
-        }
-    }
-
     /// The number of `u64` lower parts.
     fn lower_part_count(self) -> usize {
         match self {
-            Self::ReuseI8 | Self::ReuseI16 | Self::ReuseI32 | Self::ReuseI64 | Self::IntoI64 => 0,
+            Self::MspOnly => 0,
             Self::I128OneLowerPart | Self::I256OneLowerPart => MAX_I128_LOWER_PARTS,
             Self::I256ThreeLowerParts => MAX_I256_LOWER_PARTS,
         }
@@ -265,10 +256,18 @@ impl SplitShape {
 
 /// Splits decimals with no valid rows (all null or empty) into constant decimal parts with the
 /// corresponding nullability.
-fn split_no_valid_row(len: usize, shape: SplitShape, validity: &Validity) -> DecimalParts {
+fn split_no_valid_row(
+    len: usize,
+    shape: SplitShape,
+    decimal_dtype: DecimalDType,
+    validity: &Validity,
+) -> DecimalParts {
     // Empty masks are also all-false. The default scalar is null for nullable inputs
     // and zero for non-nullable empty inputs, preserving the MSP's nullability.
-    let msp = Scalar::default_value(&DType::Primitive(shape.msp_ptype(), validity.nullability()));
+    let msp = Scalar::default_value(&DType::Primitive(
+        msp_ptype(decimal_dtype),
+        validity.nullability(),
+    ));
     DecimalParts {
         msp: ConstantArray::new(msp, len).into_array(),
         lower_parts: vec![ConstantArray::new(0u64, len).into_array(); shape.lower_part_count()],

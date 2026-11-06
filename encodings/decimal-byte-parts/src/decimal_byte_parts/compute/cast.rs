@@ -56,6 +56,7 @@ mod tests {
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
+    use crate::decimal_byte_parts::testing::widen_msp;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();
@@ -67,9 +68,11 @@ mod tests {
     fn test_cast_decimal_byte_parts_nullability() {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
-        let array =
-            DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)
-                .unwrap();
+        let array = DecimalByteParts::try_new(
+            widen_msp(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype).unwrap(),
+            decimal_dtype,
+        )
+        .unwrap();
 
         // Cast to nullable decimal
         let casted = array
@@ -98,7 +101,11 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalByteParts::try_new(
-            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+            widen_msp(
+                PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+                decimal_dtype,
+            )
+            .unwrap(),
             decimal_dtype,
         )
         .unwrap();
@@ -113,7 +120,10 @@ mod tests {
 
     #[rstest]
     #[case::i32(DecimalByteParts::try_new(
-        buffer![100i32, 200, 300, 400, 500].into_array(),
+        widen_msp(
+            buffer![100i32, 200, 300, 400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2),
     ).unwrap())]
     #[case::i64(DecimalByteParts::try_new(
@@ -121,8 +131,11 @@ mod tests {
         DecimalDType::new(19, 4),
     ).unwrap())]
     #[case::nullable(DecimalByteParts::try_new(
-        PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
+        widen_msp(
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
             .into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2),
     ).unwrap())]
     #[case::single(DecimalByteParts::try_new(
@@ -130,7 +143,10 @@ mod tests {
         DecimalDType::new(5, 1),
     ).unwrap())]
     #[case::negative(DecimalByteParts::try_new(
-        buffer![-100i32, -200, 300, -400, 500].into_array(),
+        widen_msp(
+            buffer![-100i32, -200, 300, -400, 500].into_array(),
+            DecimalDType::new(10, 2),
+        ).unwrap(),
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {

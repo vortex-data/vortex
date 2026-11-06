@@ -66,7 +66,7 @@ fn dbp_assemble_kernel(bencher: Bencher, (values_type, len): (DecimalType, usize
     }
 }
 
-// The kernel widens the MSP while assembling; lower parts are already `u64`.
+// The kernel widens the MSP while assembling. Lower parts are already `u64`.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(args = cases())]
 fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
@@ -111,8 +111,12 @@ mod arrays {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::WidenArray;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
@@ -154,7 +158,12 @@ mod arrays {
         };
         bench_parts(
             bencher,
-            buffer![-1i8; len].into_array(),
+            WidenArray::try_new(
+                buffer![-1i8; len].into_array(),
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+            )
+            .vortex_expect("narrow benchmark MSP")
+            .into_array(),
             lower_parts,
             DecimalDType::new(precision, 2),
         );
