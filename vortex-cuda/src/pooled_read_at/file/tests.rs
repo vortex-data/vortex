@@ -547,8 +547,43 @@ async fn uncached_mappings_are_unmapped_before_release_returns() -> VortexResult
     Ok(())
 }
 
-/// A closed reader's mapping is released once its own copies complete, without waiting for
-/// later work on the stream it shares with other scans.
+/// Pauses cleanup until the returned sender drops, including on test failure.
+fn pause_releases() -> mpsc::Sender<()> {
+    let (resume, held) = mpsc::channel();
+    MAPPED_RELEASE_QUEUE
+        .as_ref()
+        .expect("release worker started")
+        .send(Box::new(move || {
+            let _ = held.recv();
+        }))
+        .expect("release worker stopped");
+    resume
+}
+
+/// Blocks later stream work until the returned sender drops, including on test failure.
+fn block_stream(stream: &VortexCudaStream) -> VortexResult<mpsc::Sender<()>> {
+    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
+        // SAFETY: Successful registration transfers the boxed receiver to this callback.
+        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
+        let _ = blocked.recv();
+    }
+
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("{e}"))?;
+    let (unblock, blocked) = mpsc::channel::<()>();
+    let data = Box::into_raw(Box::new(blocked));
+    // SAFETY: The stream is live; the receiver lives until the callback runs or registration fails.
+    if let Err(error) = unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) } {
+        // SAFETY: Registration failed, so the callback did not take ownership.
+        drop(unsafe { Box::from_raw(data) });
+        return Err(vortex_err!("{error}"));
+    }
+    Ok(unblock)
+}
+
+/// A closed reader's release completes while later work on its stream is still blocked.
 #[crate::test]
 async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> {
     let (_runtime, reader, _file) = mapped_reader()?;
@@ -556,30 +591,19 @@ async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> 
         return Ok(());
     }
     let stream = reader.stream.clone();
-    // Hold the release thread so the reader's release runs only after the stream is blocked.
-    let (resume, held) = mpsc::channel::<()>();
-    release_in_background(Box::new(move || {
-        let _ = held.recv_timeout(WAIT);
-    }));
+    // Delay cleanup until later stream work is queued, so a stream-wide wait would block.
+    let resume = pause_releases();
     drop(reader);
-    let (unblock, blocked) = mpsc::channel::<()>();
-    stream
-        .context()
-        .bind_to_thread()
-        .map_err(|e| vortex_err!("{e}"))?;
-    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
-        // SAFETY: Registration transfers sole ownership of the boxed receiver here.
-        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
-        let _ = blocked.recv_timeout(WAIT);
-    }
-    let data = Box::into_raw(Box::new(blocked));
-    // SAFETY: The stream is live, and the host function owns `data` once registered.
-    unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) }
-        .map_err(|e| vortex_err!("{e}"))?;
+    let unblock = block_stream(&stream)?;
+
+    let (done, released) = mpsc::channel();
+    release_in_background(Box::new(move || {
+        let _ = done.send(());
+    }));
     drop(resume);
-    let start = std::time::Instant::now();
-    wait_for_releases();
-    assert!(start.elapsed() < WAIT / 2);
+    released
+        .recv_timeout(WAIT)
+        .expect("reader release blocked on later stream work");
     drop(unblock);
     Ok(())
 }
