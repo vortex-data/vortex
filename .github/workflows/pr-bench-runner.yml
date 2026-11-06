@@ -44,11 +44,9 @@ permissions:
 jobs:
   build:
     timeout-minutes: 60
-    # GitHub drops runner labels longer than 255 characters, and the job then waits for a runner
-    # forever. With the long `family` list and the longest benchmark id, this label is close.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu26-full-arm64-pre-v2/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag={1}{2}', github.run_id, inputs.benchmark_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -167,6 +165,39 @@ jobs:
             litdata==0.2.76 torch pyarrow numpy
           echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
 
+      # Parquet and LitData do not depend on Vortex code, so they are cached; LitData alone is
+      # about 80% of data generation time. Vortex, Arrow IPC and Lance are written every run.
+      # The key covers the dataset generators, the crates that write and seed the Parquet files,
+      # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
+      - name: Compute benchmark data cache key
+        id: data-cache-key
+        if: inputs.benchmark_id == 'random-access-bench'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+          crates=$(awk '/^\[\[package\]\]/ { name = "" }
+            /^name = / { name = $3 }
+            /^version = / && name ~ /^"(parquet|arrow-.*|rand.*)"$/ { print name, $3 }' Cargo.lock \
+            | sort | sha256sum | cut -c1-16)
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+
+      - name: Restore benchmark data
+        id: data-cache
+        if: inputs.benchmark_id == 'random-access-bench'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: >-
+            random-access-data-v1-${{ inputs.remote_data_dir != '' && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+              hashFiles(
+                'vortex-bench/src/datasets/**',
+                'vortex-bench/src/random_access/**',
+                'scripts/litdata-random-access.py',
+                'benchmarks/random-access-bench/src/litdata.rs') }}
+
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ inputs.benchmark_name }} data
@@ -178,6 +209,16 @@ jobs:
           bench="${{ inputs.benchmark_id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
+
+      - name: Save benchmark data
+        if: inputs.benchmark_id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: ${{ steps.data-cache.outputs.cache-primary-key }}
 
       - name: Upload benchmark data to S3
         if: inputs.remote_data_dir != '' && github.event.pull_request.head.repo.fork == false

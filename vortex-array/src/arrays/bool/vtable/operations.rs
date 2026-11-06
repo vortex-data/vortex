@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Bool;
 use crate::arrays::bool::BoolArrayExt;
 use crate::scalar::Scalar;
@@ -13,15 +14,27 @@ use crate::scalar::Scalar;
 impl OperationsVTable<Bool> for Bool {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Bool>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Bool>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
+        let array = state.array();
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
         Ok(Scalar::bool(
             array.bit_buffer_view().value(index),
             array.dtype().nullability(),
         ))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Bool>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

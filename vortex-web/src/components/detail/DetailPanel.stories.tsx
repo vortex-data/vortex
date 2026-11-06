@@ -29,9 +29,9 @@ const meta: Meta<typeof DetailPanel> = {
   decorators: [
     withMockFileContext(mockFileState),
     withMockSelection(layout),
-    // DetailPanel fills its parent's height; give it a bounded flex container.
+    // DetailPanel fills its parent's height; give it a bounded box.
     (Story) => (
-      <div className="flex" style={{ height: 520 }}>
+      <div style={{ display: 'grid', height: 520 }}>
         <Story />
       </div>
     ),

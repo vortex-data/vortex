@@ -1,23 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Decimal arrays whose logical precision determines their canonical integer width.
+//!
+//! [`DecimalPlugin`] reads and writes the `vortex.decimal` wire form in place of the [`Decimal`]
+//! vtable. It reads a legacy node, stored at another width, as the canonical array or as a
+//! [`Widen`].
+//!
+//! [`Widen`]: crate::arrays::Widen
+
 mod array;
 pub use array::DecimalArrayExt;
 pub use array::DecimalArraySlotsExt;
 pub use array::DecimalData;
 pub use array::DecimalDataParts;
 pub use array::DecimalSlots;
-pub use vtable::DecimalArray;
 
 pub(crate) mod compute;
+pub use compute::rules::DecimalMaskedValidityRule;
 
 mod vtable;
-pub use compute::rules::DecimalMaskedValidityRule;
 pub use vtable::Decimal;
+pub use vtable::DecimalArray;
+pub use vtable::DecimalPlugin;
+
+mod utils;
+pub use utils::*;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
 }
-
-mod utils;
-pub use utils::*;

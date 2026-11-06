@@ -17,6 +17,7 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::test_utils::NUM_STRINGS;
 use vortex_fsst::test_utils::make_fsst_clickbench_urls;
@@ -128,6 +129,9 @@ fn bench_like(bencher: Bencher, fsst: &FSSTArray, pattern: &str) {
     let len = fsst.len();
     let arr = fsst.clone().into_array();
     let pattern = ConstantArray::new(pattern, len).into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+    mark_optimized(&pattern, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {

@@ -177,8 +177,7 @@ impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
         Ok(session()
             .arrow()
-            .to_arrow_field("", &self.0)?
-            .data_type()
+            .to_arrow_datatype(&self.0)?
             .to_pyarrow(py)?)
     }
 

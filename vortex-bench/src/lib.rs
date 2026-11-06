@@ -28,6 +28,8 @@ use serde::Serialize;
 use statpopgen::StatPopGenBenchmark;
 use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
+use tpch_nested::Shape;
+use tpch_nested::TpcHNestedBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -62,6 +64,7 @@ pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
+pub mod tpch_nested;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
@@ -394,6 +397,8 @@ pub enum BenchmarkArg {
     TpcH,
     #[clap(name = "tpcds")]
     TpcDS,
+    #[clap(name = "tpch-nested")]
+    TpcHNested,
     #[clap(name = "statpopgen")]
     StatPopGen,
     #[clap(name = "fineweb")]
@@ -448,6 +453,15 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::TpcHNested => {
+            enable_unstable_bench_edition();
+            let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
+            let shape = opts.get_as::<Shape>("shape").unwrap_or_default();
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark =
+                TpcHNestedBenchmark::new(scale_factor.to_string(), shape, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

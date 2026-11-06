@@ -36,7 +36,6 @@ extensions = [
     "vortex_site_files",
 ]
 
-templates_path = ["_templates"]
 html_show_sourcelink = False
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "AGENTS.md"]
 
@@ -90,6 +89,8 @@ html_static_path = ["_static", "_build/_gen_static"]
 html_favicon = "_static/vortex_logo.svg"  # relative to _static/
 # Copied to the site root: robots.txt, and favicon.ico for clients that ignore the icon link.
 html_extra_path = ["_extra"]
+# The 404 page, which the deploy serves for any address that matches no file.
+html_additional_pages = {"404": "404.html"}
 # Pages are served without `.html`. vortex_site_files sets the page links; this sets the search results'.
 html_link_suffix = ""
 
@@ -198,30 +199,6 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(
             in_block = False
 
 
-def _resolve_breathe_cpp_references(app, env, node, contnode) -> object | None:
-    """Resolve relative C++ references emitted by Breathe.
-
-    Breathe emits cross-namespace parameter types with relative qualifiers (e.g. ``scalar::Scalar``
-    instead of ``vortex::scalar::Scalar``). This handler intercepts unresolved references and
-    re-resolves them under the ``vortex::`` namespace.
-    """
-    if node.get("refdomain") != "cpp" or node.get("reftype") != "identifier":
-        return None
-
-    target = node.get("reftarget", "")
-    if not target or target.startswith("vortex::"):
-        return None
-
-    cpp_domain = env.get_domain("cpp")
-    # Try resolving with the vortex:: prefix.
-    node = node.deepcopy()
-    node["reftarget"] = f"vortex::{target}"
-    return cpp_domain.resolve_xref(
-        env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode
-    )
-
-
 def setup(app) -> None:
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)
-    app.connect("missing-reference", _resolve_breathe_cpp_references)

@@ -378,24 +378,24 @@ fn execute_sparse_lists(
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let fill_list = fill_value.as_list();
 
-    // Make the patch views contiguous and trim unused elements once. Empty-fill decoding can
-    // share those elements directly; the nonempty-fill builder below can append contiguous
-    // patch runs and use the exact element count when choosing an offset width.
-    let values = resolved
-        .values()
-        .clone()
-        .downcast::<ListView>()
-        .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+    let values = resolved.values().clone().downcast::<ListView>();
 
     // Keep the builder for at most one valid list: there is no repeated element gather to
     // avoid, and constructing run-end offsets would add setup work.
     let patch_validity = values.listview_validity().execute_mask(values.len(), ctx)?;
     let use_shared_elements = patch_validity.true_count() > 1;
 
-    // Null lists also have no elements, so null and empty fills take the same path.
+    // Null lists also have no elements, so null and empty fills take the same path. Its output
+    // shares the patch elements, so drop the ones only null lists hold: exports and element-wise
+    // functions would otherwise read elements that no valid row shows.
     if fill_list.is_empty() && use_shared_elements {
+        let values = values.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, ctx)?;
         return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
     }
+
+    // Trim the patch elements to those the views reference, so the element count below is what
+    // the builder will hold rather than an over-estimate.
+    let values = values.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
     // Each gap between patches is appended as one constant array, whose canonical form points
     // every view at a single copy of the fill value, so a gap costs the fill value's elements once

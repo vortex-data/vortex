@@ -23,6 +23,7 @@ use vortex_cuda::ZstdKernelPrep;
 use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
 use vortex_cuda::zstd_kernel_prepare;
 use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::SyncOnDrop;
 use vortex_cuda_driver::sys::CUevent_flags;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
@@ -86,14 +87,25 @@ async fn execute_zstd_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
 
-    let (_device_output_ptr, record_device_output) = exec.device_output.device_ptr_mut(stream);
-    let (device_actual_sizes_ptr, record_actual_sizes) =
-        exec.device_actual_sizes.device_ptr_mut(stream);
-    let (nvcomp_temp_buffer_ptr, record_temp) = exec.nvcomp_temp_buffer.device_ptr_mut(stream);
-    let (device_statuses_ptr, record_statuses) = exec.device_statuses.device_ptr_mut(stream);
+    let (_device_output_ptr, record_device_output) = exec
+        .device_output
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("Failed to access output: {e}"))?;
+    let (device_actual_sizes_ptr, record_actual_sizes) = exec
+        .device_actual_sizes
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("Failed to access actual sizes: {e}"))?;
+    let (nvcomp_temp_buffer_ptr, record_temp) = exec
+        .nvcomp_temp_buffer
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("Failed to access temporary buffer: {e}"))?;
+    let (device_statuses_ptr, record_statuses) = exec
+        .device_statuses
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("Failed to access statuses: {e}"))?;
 
     // Launch the kernel
-    unsafe {
+    let launch = unsafe {
         nvcomp_zstd::decompress_async(
             exec.frame_ptrs_ptr as _,
             exec.frame_sizes_ptr as _,
@@ -106,14 +118,21 @@ async fn execute_zstd_kernel(
             device_statuses_ptr as _,
             stream.cu_stream().cast(),
         )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
-    }
-    drop((
+    };
+    let completion = SyncOnDrop::finish_all([
         record_device_output,
         record_actual_sizes,
         record_temp,
         record_statuses,
-    ));
+    ]);
+    launch
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track ZSTD buffer access after launch failure");
+            }
+        })
+        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {e}"))?;
+    completion.map_err(|e| vortex_err!("Failed to track ZSTD buffer access: {e}"))?;
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

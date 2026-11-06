@@ -82,8 +82,8 @@ where
         args.arg(&offsets).arg(&mut status).arg(&scan_len_u64);
     })?;
 
-    let offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)));
-    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
+    let offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)?));
+    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)?));
     let status_copy = status.try_to_host()?;
     let total_copy = offsets.slice_typed::<i32>(len..scan_len).try_to_host()?;
     let (status_bytes, total_bytes) = futures::try_join!(status_copy, total_copy)?;

@@ -22,8 +22,11 @@ use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -31,10 +34,13 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::StructFields;
 use vortex::expr::Expression;
+use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -42,14 +48,20 @@ use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
+use vortex::expr::list_sum_opts;
+use vortex::expr::list_transform;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::traversal::NodeExt;
+use vortex::expr::traversal::Transformed;
+use vortex::expr::var;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -214,13 +226,22 @@ pub struct DefaultExpressionConverter {
     /// `FixedSizeBinary[16]`) convert correctly instead of hitting the static,
     /// non-plugin-aware `DType::from_arrow`.
     session: VortexSession,
+    /// What `$` is in the expressions this converts.
+    scope: Scope,
+}
+
+/// What `$` is where an expression is converted.
+enum Scope {
+    /// Outside any lambda, the scan's columns: a column `c` reads `$.c`.
+    Global,
+    /// A lambda's parameters: a parameter `x` reads `$.x`, as Vortex runs a lambda's body. Vortex
+    /// lambdas can't read columns yet.
+    Lambda(StructFields),
 }
 
 impl Default for DefaultExpressionConverter {
     fn default() -> Self {
-        Self {
-            session: VortexSession::default(),
-        }
+        Self::new(VortexSession::default())
     }
 }
 
@@ -228,7 +249,10 @@ impl DefaultExpressionConverter {
     /// Create a converter that resolves Arrow extension types using `session`'s
     /// dtype registry.
     pub fn new(session: VortexSession) -> Self {
-        Self { session }
+        Self {
+            session,
+            scope: Scope::Global,
+        }
     }
 
     /// Resolve an Arrow field through the session registry; unknown types are unsupported.
@@ -342,7 +366,29 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
-            return Ok(get_item(col_expr.name(), root()));
+            return match self.scope {
+                Scope::Global => Ok(get_item(col_expr.name(), root())),
+                Scope::Lambda(_) => Err(Unconverted::Unsupported),
+            };
+        }
+
+        if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
+            return match &self.scope {
+                Scope::Lambda(params) if params.find(variable.name()).is_some() => {
+                    Ok(get_item(variable.name(), root()))
+                }
+                // Outside any lambda, or a parameter of an enclosing lambda, which Vortex lambdas
+                // can't read yet.
+                _ => Err(Unconverted::Unsupported),
+            };
+        }
+
+        if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
+            let function_impl: &dyn std::any::Any = function.fun().inner().as_ref();
+            if function_impl.downcast_ref::<ArrayTransform>().is_some() {
+                return self.convert_array_transform(function, schema, input_dtype);
+            }
+            return Err(Unconverted::Unsupported);
         }
 
         if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
@@ -597,6 +643,10 @@ impl DefaultExpressionConverter {
             return Ok(result);
         }
 
+        if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
+            return self.convert_array_sum(scalar_fn, schema, input_dtype);
+        }
+
         let (input, length): (_, fn(Expression) -> Expression) =
             if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn).is_some() {
                 let [input] = scalar_fn.args() else {
@@ -632,6 +682,63 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `array_sum` to `list_sum`.
+    ///
+    /// DataFusion casts the list to `List<Float64>`, then adds each list's valid elements in
+    /// order: an empty or all-null list sums to null and a NaN poisons the sum. `list_sum` with
+    /// `include_nans` adds the cast elements the same way.
+    fn convert_array_sum(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [input] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("array_sum requires exactly one argument").into());
+        };
+        let list = self.convert_expr(input, schema, input_dtype)?;
+        Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
+    }
+
+    /// Converts `array_transform` to `list_transform`.
+    ///
+    /// The body is converted in the lambda's scope, where it may read only its one parameter, the
+    /// element.
+    fn convert_array_transform(
+        &self,
+        function: &HigherOrderFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [list, lambda] = function.args() else {
+            return Err(
+                exec_datafusion_err!("array_transform requires a list and a lambda").into(),
+            );
+        };
+        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let [param] = lambda.params() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let list = self.convert_expr(list, schema, input_dtype)?;
+        let DType::List(element, _) = converted_dtype(&list, input_dtype)? else {
+            return Err(Unconverted::Unsupported);
+        };
+        let params = StructFields::from_iter([(param.as_str(), element.as_ref().clone())]);
+        let inputs = DType::Struct(params.clone(), Nullability::NonNullable);
+        let body_converter = Self {
+            session: self.session.clone(),
+            scope: Scope::Lambda(params),
+        };
+        // DataFusion also types the body against the outer schema: a lambda variable carries its
+        // own field.
+        let body = body_converter.convert_expr(lambda.body(), schema, &inputs)?;
+        let lambda = Lambda::new([param.as_str()], read_params(body)?)
+            .map_err(|_| Unconverted::Unsupported)?;
+        Ok(list_transform(list, lambda))
     }
 
     fn convert_case_expr(
@@ -693,6 +800,21 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
 fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
     expr.return_dtype(input_dtype)
         .map_err(|_| Unconverted::Unsupported)
+}
+
+/// Turns a body converted in a lambda's scope, where `$.x` is the parameter `x`, into a lambda's
+/// body, which reads it as `@x`.
+fn read_params(body: Expression) -> Conversion<Expression> {
+    body.transform_down(|node| {
+        if let Some(name) = node.as_opt::<GetItem>()
+            && node.child(0).is_root()
+        {
+            return Ok(Transformed::yes(var(name.clone())));
+        }
+        Ok(Transformed::no(node))
+    })
+    .map(Transformed::into_inner)
+    .map_err(|_| Unconverted::Unsupported)
 }
 
 /// How a supported DataFusion cast is converted.

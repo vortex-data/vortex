@@ -14,11 +14,9 @@ permissions:
 jobs:
   build:
     timeout-minutes: 60
-    # GitHub drops runner labels longer than 255 characters, and the job then waits for a runner
-    # forever. With the long `family` list and the longest benchmark id, this label is close.
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge+c8g.8xlarge+c8gn.8xlarge+m8gd.8xlarge+m8g.8xlarge+r8gd.8xlarge+r8g.8xlarge+x8g.8xlarge+i8g.8xlarge/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/region=us-east-1/runner=arm64-bench/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -155,6 +153,39 @@ jobs:
             litdata==0.2.76 torch pyarrow numpy
           echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
 
+      # Parquet and LitData do not depend on Vortex code, so they are cached; LitData alone is
+      # about 80% of data generation time. Vortex, Arrow IPC and Lance are written every run.
+      # The key covers the dataset generators, the crates that write and seed the Parquet files,
+      # and the LitData conversion. Keep the litdata version in sync with the Install LitData step.
+      - name: Compute benchmark data cache key
+        id: data-cache-key
+        if: matrix.benchmark.id == 'random-access-bench'
+        shell: bash
+        run: |
+          set -Eeu -o pipefail
+          crates=$(awk '/^\[\[package\]\]/ { name = "" }
+            /^name = / { name = $3 }
+            /^version = / && name ~ /^"(parquet|arrow-.*|rand.*)"$/ { print name, $3 }' Cargo.lock \
+            | sort | sha256sum | cut -c1-16)
+          echo "crates=$crates" >> "$GITHUB_OUTPUT"
+
+      - name: Restore benchmark data
+        id: data-cache
+        if: matrix.benchmark.id == 'random-access-bench'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: >-
+            random-access-data-v1-${{ matrix.benchmark.remote_data_dir && 's3' || 'local' }}-litdata0.2.76-${{ steps.data-cache-key.outputs.crates }}-${{
+              hashFiles(
+                'vortex-bench/src/datasets/**',
+                'vortex-bench/src/random_access/**',
+                'scripts/litdata-random-access.py',
+                'benchmarks/random-access-bench/src/litdata.rs') }}
+
       # Download and convert all benchmark data up front, so the benchmark step below only
       # contains timed runs. The data is written with the same settings the benchmark uses.
       - name: Generate ${{ matrix.benchmark.name }} data
@@ -166,6 +197,16 @@ jobs:
           bench="${{ matrix.benchmark.id }}"
           python3 "scripts/${bench%-bench}-split.py" --prepare-data \
             ${{ matrix.benchmark.remote_data_dir && format('--remote-data-dir {0}', matrix.benchmark.remote_data_dir) || '' }}
+
+      - name: Save benchmark data
+        if: matrix.benchmark.id == 'random-access-bench' && steps.data-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            vortex-bench/data/taxi/taxi.parquet
+            vortex-bench/data/random_access/*/*.parquet
+            vortex-bench/data/random_access/*/*.litdata
+          key: ${{ steps.data-cache.outputs.cache-primary-key }}
 
       - name: Upload benchmark data to S3
         if: matrix.benchmark.remote_data_dir != null
@@ -238,8 +279,6 @@ jobs:
           RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
           RDS_BENCH_DB_NAME: ${{ vars.RDS_BENCH_DB_NAME }}
           AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
-          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
-          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
         run: |
           set -Eeuo pipefail
           curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
@@ -266,3 +305,13 @@ jobs:
     with:
       mode: "develop"
       matrix_preset: "develop"
+
+  # Tell the benchmarks website that new results exist, once per push, after every benchmark job
+  # of the push has ingested its results. `always()` runs it even when a benchmark job failed, so
+  # the results that other jobs ingested still appear.
+  refresh-site:
+    needs: [bench, sql]
+    if: ${{ always() }}
+    uses: ./.github/workflows/refresh-bench-site.yml
+    secrets:
+      BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}

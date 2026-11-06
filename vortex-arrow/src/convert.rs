@@ -626,11 +626,20 @@ pub(crate) fn map_from_arrow_parts(
     // within the entries, and share their integer type. The validity has one entry per map.
     let entries = unsafe { ListViewArray::new_unchecked(entries, offsets, sizes, validity) };
     // SAFETY: Arrow Map offsets are sorted list offsets. Vortex sizes are adjacent offset
-    // differences, so every view's end equals the next view's start. Sliced Arrow arrays may
-    // leave leading or trailing entries unreferenced, which zero-copy-to-list permits.
+    // differences, so every view's end equals the next view's start. The caller trims the
+    // entries to the referenced range and rebases the offsets, so the first offset is zero and
+    // the last offset equals the entry count.
     let entries = unsafe { entries.with_zero_copy_to_list(true) };
 
     Ok(MapArray::try_new(map_dtype, entries)?.into_array())
+}
+
+/// Select the child entries that the map offsets reference, and rebase the offsets.
+pub(crate) fn trim_map_entries(array: &ArrowMapArray) -> (ArrowStructArray, OffsetBuffer<i32>) {
+    let (offsets, referenced) = trim_offsets(array.offsets());
+    let entries = array.entries().slice(referenced.start, referenced.len());
+
+    (entries, offsets)
 }
 
 /// Conversion of an Arrow map array into a Vortex `Map` array.
@@ -638,14 +647,9 @@ pub fn from_arrow_map(array: &ArrowMapArray, nullable: bool) -> VortexResult<Arr
     let DataType::Map(_, keys_sorted) = array.data_type() else {
         vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
     };
-    let entries = from_arrow_struct(array.entries(), false)?;
-    map_from_arrow_parts(
-        entries,
-        array.offsets(),
-        array.nulls(),
-        *keys_sorted,
-        nullable,
-    )
+    let (entries, offsets) = trim_map_entries(array);
+    let entries = from_arrow_struct(&entries, false)?;
+    map_from_arrow_parts(entries, &offsets, array.nulls(), *keys_sorted, nullable)
 }
 
 /// Conversion of an Arrow null array into a Vortex `Null` array.
@@ -679,7 +683,9 @@ pub fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<Validit
     if nullable {
         Ok(nulls
             .map(|nulls| {
-                if nulls.null_count() == nulls.len() {
+                if nulls.is_empty() {
+                    Validity::AllValid
+                } else if nulls.null_count() == nulls.len() {
                     Validity::AllInvalid
                 } else {
                     Validity::from(BitBuffer::from(nulls.inner().clone()))

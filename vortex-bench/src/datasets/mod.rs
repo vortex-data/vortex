@@ -12,6 +12,7 @@ use vortex::array::ExecutionCtx;
 use vortex::error::vortex_panic;
 
 use crate::clickbench::Flavor;
+use crate::tpch_nested::Shape;
 
 pub mod data_downloads;
 pub mod feature_vectors;
@@ -67,6 +68,8 @@ pub enum BenchmarkDataset {
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
     TpcDS { scale_factor: String },
+    #[serde(rename = "tpch-nested")]
+    TpcHNested { scale_factor: String, shape: Shape },
     #[serde(rename = "clickbench")]
     ClickBench {
         flavor: Flavor,
@@ -100,6 +103,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::Appian => "appian",
             BenchmarkDataset::TpcH { .. } => "tpch",
             BenchmarkDataset::TpcDS { .. } => "tpcds",
+            BenchmarkDataset::TpcHNested { .. } => "tpch-nested",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::ClickBenchSorted => "clickbench-sorted",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
@@ -120,6 +124,10 @@ impl Display for BenchmarkDataset {
             BenchmarkDataset::Appian => write!(f, "appian"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
             BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
+            BenchmarkDataset::TpcHNested {
+                scale_factor,
+                shape,
+            } => write!(f, "tpch-nested(sf={scale_factor}, shape={shape})"),
             BenchmarkDataset::ClickBench { flavor, files } => match (flavor, files) {
                 (Flavor::Partitioned, Some(files)) => {
                     write!(f, "clickbench-partitioned(files={files})")
@@ -186,7 +194,7 @@ impl BenchmarkDataset {
                 "time_dim",
                 "web_returns",
             ],
-            BenchmarkDataset::TpcH { .. } => &[
+            BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcHNested { .. } => &[
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],

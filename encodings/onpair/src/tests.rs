@@ -646,3 +646,35 @@ fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
     assert_arrays_eq!(dict, expected, &mut ctx);
     Ok(())
 }
+
+/// A sparse dictionary over OnPair values appends through the take kernel, with null and repeated
+/// codes, after the values already in the builder.
+#[test]
+fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = take_input();
+    let onpair = compress_onpair(&values.clone().into_array(), &mut ctx)?;
+    let codes =
+        PrimitiveArray::from_option_iter([Some(1999u32), None, Some(0), Some(7), Some(1999)])
+            .into_array();
+    let dict = DictArray::try_new(codes.clone(), onpair.into_array())?.into_array();
+
+    let mut builder =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    builder.append_value("prefix");
+    dict.append_to_builder(&mut builder, &mut ctx)?;
+
+    let mut expected =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    expected.append_value("prefix");
+    values
+        .into_array()
+        .take(codes)?
+        .append_to_builder(&mut expected, &mut ctx)?;
+    assert_arrays_eq!(
+        builder.finish_into_varbin(),
+        expected.finish_into_varbin(),
+        &mut ctx
+    );
+    Ok(())
+}

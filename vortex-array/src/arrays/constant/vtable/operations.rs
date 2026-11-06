@@ -6,18 +6,27 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::arrays::Constant;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Constant> for Constant {
     type ProbeState = ();
 
-    fn scalar_at(
-        array: ArrayView<'_, Constant>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Constant>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        Ok(array.scalar.clone())
+        Ok(state.array().scalar.clone())
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Constant>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

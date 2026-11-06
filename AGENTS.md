@@ -107,8 +107,10 @@ uvx ruff check <changed-python-files>
 uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 ```
 
-Use `uvx` for both Ruff and ty, matching CI. The command above covers both binding packages and the
-CMake and script tests. For a narrower check, pass the affected directory, such as
+Use `uvx` for both Ruff and ty, matching CI. CI pins ty as `TY_VERSION` in
+`.github/workflows/ci.yml` and `.github/workflows/cuda.yaml`. To match CI, run
+`uvx ty@<TY_VERSION> check ...`, and update both workflows when you change the version. The
+command above covers both binding packages and the CMake and script tests. For a narrower check, pass the affected directory, such as
 `uvx ty check vortex-python` or `uvx ty check vortex-ffi/cmake/tests`. Checking the whole binding
 package covers callers affected by stub or annotation changes.
 
@@ -191,6 +193,8 @@ These CI checks are the ones most often missed when adding files rather than edi
   per-element loops; back such changes with the benchmarks it names.
 - Only write comments that explain non-obvious logic or important context. Do not comment
   self-explanatory code.
+- Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
+  possible so equality failures report both values.
 
 ## Tests
 

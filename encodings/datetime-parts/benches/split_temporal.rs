@@ -16,6 +16,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_datetime_parts::split_temporal;
@@ -58,6 +59,7 @@ fn split(bencher: Bencher, args: (usize, TimeUnit)) {
         unit,
         Some("UTC".into()),
     );
+    mark_optimized(array.temporal_values(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
@@ -80,6 +82,7 @@ fn split_extreme(bencher: Bencher, args: (usize, TimeUnit)) {
         unit,
         Some("UTC".into()),
     );
+    mark_optimized(array.temporal_values(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))

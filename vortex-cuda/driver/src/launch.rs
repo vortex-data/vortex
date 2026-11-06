@@ -5,6 +5,9 @@
 
 use std::ffi::c_void;
 
+use crate::DriverError;
+use crate::error::log_error;
+use crate::event::CudaEvent;
 use crate::memory::AccessKind;
 use crate::memory::ArgAccess;
 use crate::memory::CudaSlice;
@@ -12,8 +15,6 @@ use crate::memory::CudaView;
 use crate::memory::CudaViewMut;
 use crate::module::CudaFunction;
 use crate::repr::DeviceRepr;
-use crate::result::DriverError;
-use crate::stream::CudaEvent;
 use crate::stream::CudaStream;
 use crate::sys;
 
@@ -26,17 +27,6 @@ pub struct LaunchConfig {
     pub block_dim: (u32, u32, u32),
     /// Dynamic shared memory per block, in bytes.
     pub shared_mem_bytes: u32,
-}
-
-impl LaunchConfig {
-    /// One-dimensional blocks of 1024 threads covering `n` elements.
-    pub fn for_num_elems(n: u32) -> Self {
-        Self {
-            grid_dim: (n.div_ceil(1024), 1, 1),
-            block_dim: (1024, 1, 1),
-            shared_mem_bytes: 0,
-        }
-    }
 }
 
 /// A kernel launch being assembled on a stream; create with [`CudaStream::launch_builder`].
@@ -197,9 +187,15 @@ impl LaunchArgs<'_> {
                 .after_or_wait(access.owner, self.stream, access.kind);
             if tracked.is_ok() {
                 tracked = result;
+            } else if let Err(error) = result {
+                log_error("finish additional kernel argument access", error);
             }
         }
-        tracked?;
+        tracked.inspect_err(|_| {
+            if let Err(error) = &end {
+                log_error("record kernel end event", *error);
+            }
+        })?;
         Ok(start.zip(end?))
     }
 }

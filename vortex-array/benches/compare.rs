@@ -47,6 +47,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -69,6 +70,9 @@ fn main() {
 const ARRAY_SIZE: usize = 8_192;
 
 fn bench_compare(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, op: Operator) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let len = lhs.len();
 
     bencher

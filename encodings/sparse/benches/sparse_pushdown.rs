@@ -36,6 +36,7 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -73,7 +74,7 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
     let values: Buffer<i32> = (0..num_patches)
         .map(|i| if constant { 1 } else { 2 + i as i32 })
         .collect();
-    Sparse::try_new(
+    let array = Sparse::try_new(
         indices.into_array(),
         values.into_array(),
         LEN,
@@ -81,7 +82,10 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
         &mut ctx,
     )
     .vortex_expect("valid sparse")
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse array as optimized");
+
+    array
 }
 
 /// Build a sparse `i32` array of `LEN` with a null fill and `num_patches` nullable patches
@@ -95,7 +99,7 @@ fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
     )
     .into_array();
     let nullable = DType::Primitive(PType::I32, Nullability::Nullable);
-    Sparse::try_new(
+    let array = Sparse::try_new(
         indices.into_array(),
         values,
         LEN,
@@ -103,7 +107,10 @@ fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
         &mut ctx,
     )
     .vortex_expect("valid sparse")
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse array as optimized");
+
+    array
 }
 
 #[divan::bench]

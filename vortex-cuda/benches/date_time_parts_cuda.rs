@@ -31,6 +31,7 @@ use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -62,6 +63,7 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
 
         let (time_unit, unit_str) = (TimeUnit::Milliseconds, "ms");
         let dtp_array = make_datetimeparts_array(len, time_unit);
+        mark_optimized(dtp_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/datetimeparts/{unit_str}"), len_str),

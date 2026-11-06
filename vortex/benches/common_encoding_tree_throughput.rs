@@ -61,6 +61,7 @@ use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_panic;
 use vortex::extension::datetime::TimeUnit;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -505,6 +506,8 @@ macro_rules! setup_fn {
 )]
 fn decompress(bencher: Bencher, setup_fn: SetupFn) {
     let compressed = setup_fn();
+    mark_optimized(&compressed, &SESSION).unwrap();
+
     let nbytes = compressed.nbytes();
 
     with_byte_counter(bencher, nbytes)

@@ -24,6 +24,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  TY_VERSION: 0.0.98
 
 jobs:
   duckdb-mirror:
@@ -92,7 +93,7 @@ jobs:
         if: "!cancelled()"
         run: |
           uv sync --all-packages --no-install-workspace
-          uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
+          uvx ty@$TY_VERSION check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 
       # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
@@ -105,6 +106,7 @@ jobs:
             --with tabulate --with xxhash \
             pytest scripts/tests/test_measurement_id.py \
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
+              scripts/tests/test_refresh_bench_site.py \
               scripts/tests/test_codspeed_shards.py
 
   python-test:

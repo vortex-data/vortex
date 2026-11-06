@@ -25,6 +25,7 @@ use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -63,6 +64,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
     let dict = dict_encode(&primitive_arr.clone().into_array(), &mut ctx).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -83,6 +85,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     let dict = dict_encode(&varbin_arr.clone().into_array(), &mut ctx).unwrap();
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -103,6 +106,7 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     let dict = dict_encode(&varbinview_arr.clone().into_array(), &mut ctx).unwrap();
     let const_bytes = varbinview_arr.bytes_at(0);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -148,6 +152,7 @@ fn bench_compare_sliced_dict_primitive(
     let dict = dict_encode(&primitive_arr.clone().into_array(), &mut ctx).unwrap();
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
@@ -171,6 +176,7 @@ fn bench_compare_sliced_dict_varbinview(
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
+    mark_optimized(&dict, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
