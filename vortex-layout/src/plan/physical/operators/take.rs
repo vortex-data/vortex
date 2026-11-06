@@ -77,8 +77,6 @@ impl Operator for TakeSource {
             Some(values) => values.clone(),
             None => {
                 let values_plan = self.plan.values()?;
-                // The values are kept for every batch of codes and for later scans of the split,
-                // so optimize them once here rather than in each dictionary built over them.
                 let values =
                     join_inlet(cx, VALUES, values_plan.dtype())?.optimize_ctx(cx.session())?;
                 let values = shared(values);

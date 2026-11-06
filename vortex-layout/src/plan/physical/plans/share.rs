@@ -123,8 +123,6 @@ impl PlanVTable for Share {
         };
         let mask = mask.clone();
         let source = WholeSource::new(plan.dtype().clone(), move |whole, cx| {
-            // Every consumer of the share, in this scan and later ones, selects rows of the kept
-            // value, so optimize it once before it is kept.
             let whole = whole.optimize_ctx(cx.session())?;
             let value = cache.insert(&shared, Shared::new(whole).into_array());
             selected_rows(&value, &rows, &mask)

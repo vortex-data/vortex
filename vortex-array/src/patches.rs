@@ -583,7 +583,6 @@ impl Patches {
             self.indices.len()
         };
 
-        // Optimize the slice so that the binary search sees the primitive indices it reduces to.
         let chunk_indices = self
             .indices
             .slice(patches_start_idx..patches_end_idx)?
@@ -795,8 +794,6 @@ impl Patches {
             return Ok(None);
         }
 
-        // Optimize the slices so that the patches keep the arrays they reduce to: a later search
-        // must see primitive indices to use the binary search on the buffer.
         let values = self
             .values()
             .slice(slice_start_idx..slice_end_idx)?

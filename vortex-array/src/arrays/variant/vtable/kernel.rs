@@ -72,7 +72,6 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
                     .map(|typed| {
                         let len = typed.len();
-                        // The merge reads the masked tree row by row, so reduce the mask once here.
                         typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)
                     })
                     .transpose()

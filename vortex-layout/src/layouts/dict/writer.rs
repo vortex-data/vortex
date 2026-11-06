@@ -596,7 +596,6 @@ fn remainder(
     session: &VortexSession,
 ) -> VortexResult<Option<ArrayRef>> {
     if encoded_len < array.len() {
-        // The dictionary encoder takes concrete encodings, so optimize the lazy slice into one.
         Ok(Some(
             array
                 .slice(encoded_len..array.len())?
@@ -851,7 +850,6 @@ mod tests {
         let (mut sequence_id, eof) = SequenceId::root().split();
         let chunks = (0..nchunks)
             .map(|i| {
-                // Writers receive optimized chunks, so slice to the primitive array.
                 let chunk = values
                     .slice(i * chunk_len..(i + 1) * chunk_len)?
                     .optimize_ctx(&SESSION)?;

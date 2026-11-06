@@ -237,7 +237,6 @@ fn test_execute_encoded_values() -> VortexResult<()> {
     let array = WidenArray::try_new(values.into_array(), PType::I64.into())?;
     assert!(array.values().is::<Dict>());
 
-    // The step yields a lazy cast of the values, which optimizing pushes into the `Dict`.
     let step = array
         .clone()
         .into_array()

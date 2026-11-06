@@ -72,8 +72,7 @@ impl ChildBuilder {
     /// append and the final [`finish`](Self::finish) walk. Nesting costs one level, not one per
     /// appended array.
     ///
-    /// Nothing is decoded here. The array is optimized with the context's session first, so a
-    /// lazy wrapper such as a slice of the elements is kept as the encoding it reduces to.
+    /// Nothing is decoded here.
     pub fn append_array(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         vortex_ensure_eq!(
             array.dtype(),

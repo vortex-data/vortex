@@ -247,8 +247,7 @@ impl ArrayRef {
 
         let sliced = SliceArray::try_new(self.clone(), range)?.into_array();
 
-        // Propagate some stats from the original array to the sliced array. Optimizing the slice
-        // carries them over to the array it reduces to.
+        // Propagate some stats from the original array to the sliced array.
         self.statistics().with_iter(|iter| {
             sliced.statistics().inherit(iter.filter(|(stat, value)| {
                 matches!(
@@ -400,9 +399,6 @@ impl ArrayRef {
     }
 
     /// Writes the array into the canonical builder.
-    ///
-    /// The array is optimized first, so a lazy array appends through the encoding it reduces to:
-    /// a slice of a constant appends as a constant, not as a canonical copy of the slice.
     pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,
