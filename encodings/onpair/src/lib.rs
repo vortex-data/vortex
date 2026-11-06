@@ -30,6 +30,10 @@ pub use onpair::Error as OnPairError;
 pub use onpair::MAX_TOKEN_SIZE;
 pub use onpair::MaxDictBits;
 pub use onpair::Threshold;
+use vortex_array::ArrayVTable;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -37,4 +41,9 @@ use vortex_session::VortexSession;
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(OnPair);
     kernel::initialize(session);
+    session.aggregate_fns().register_aggregate_kernel(
+        OnPair.id(),
+        Some(UncompressedSizeInBytes.id()),
+        &compute::uncompressed_size_in_bytes::OnPairUncompressedSizeKernel,
+    );
 }

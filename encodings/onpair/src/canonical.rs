@@ -54,6 +54,20 @@ pub(super) fn canonicalize_onpair(
     })
 }
 
+/// Sums the stored per-row uncompressed lengths.
+///
+/// Only the dtype of the lengths is validated on construction, so a malformed array can carry
+/// negative values or values whose sum overflows; both are reported as errors.
+pub(crate) fn total_uncompressed_len(lengths: &PrimitiveArray) -> VortexResult<usize> {
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .try_fold(0usize, |acc, &l| acc.checked_add(l.to_usize()?))
+    })
+    .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))
+}
+
 pub(crate) struct OnPairDecodePlan<'a> {
     codes: Buffer<u16>,
     dict: CompactDictionaryView<'a>,
@@ -70,13 +84,7 @@ impl<'a> OnPairDecodePlan<'a> {
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
 
-        let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
-            lengths
-                .as_slice::<P>()
-                .iter()
-                .try_fold(0usize, |acc, &l| acc.checked_add(l.to_usize()?))
-        })
-        .ok_or_else(|| vortex_err!("OnPair uncompressed lengths are negative or overflow"))?;
+        let total_size = total_uncompressed_len(&lengths)?;
 
         // `codes_offsets` holds the per-row code boundaries and may itself be a
         // sliced or filtered view of the original. Its first and last entries
