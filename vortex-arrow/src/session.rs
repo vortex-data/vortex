@@ -43,10 +43,7 @@ use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
-use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
 use tracing::debug;
 use tracing::trace;
 use vortex_array::ArrayRef;
@@ -93,6 +90,8 @@ use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
+use crate::ext_metadata::decode_arrow_ext_metadata;
+use crate::ext_metadata::encode_arrow_ext_metadata;
 use crate::run_end_import::run_end_from_arrow;
 
 /// Outcome of a successful call to [`ArrowExportVTable::execute_arrow`].
@@ -265,27 +264,27 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 /// extension type (for example `vortex-uuid`); temporal extensions are handled by the canonical
 /// Arrow ↔ Vortex path and do not need plugins.
 ///
-/// An extension type that does not have an exporter exports its storage field, with two Arrow
-/// metadata keys added: `ARROW:extension:name` holds its Vortex ID, and `ARROW:extension:metadata`
-/// holds its serialized metadata in standard padded base64. The metadata is base64 because Arrow
-/// field metadata must be UTF-8, which is also how Parquet stores `ARROW:schema`. DataFusion
-/// compares these strings when it merges file schemas, so [`ExtDTypeRef::serialize_metadata`] must
-/// give equal bytes for equal dtypes. The export fails if the storage field already has an Arrow
-/// extension name, because one field cannot have two.
+/// An extension type that does not have an exporter exports its storage field, with field metadata
+/// that names its Vortex ID and holds its serialized metadata ([`ext_metadata`] describes the
+/// format). DataFusion compares this metadata when it merges file schemas, so
+/// [`ExtDTypeRef::serialize_metadata`] must give equal bytes for equal dtypes. The export fails if
+/// the storage field already has an Arrow extension name, because one field cannot have two.
 ///
-/// A caller can also export to such a field directly. If no exporter accepts the target, but its
-/// extension name is the Vortex ID of the array, the array exports its storage. This works for
-/// every extension type, so a caller can export a timestamp column as `Int64` without losing its
-/// type. However, the target must have the same metadata as the array, because different metadata
-/// would give the values a different meaning, such as a different time unit for a timestamp. To
-/// check this, a session that knows the Vortex ID rebuilds the dtype from the target and compares
-/// the dtypes, and any other session compares the metadata bytes.
+/// A caller can also export to such a field directly, for example one from
+/// [`Self::to_arrow_storage_field`]. If no exporter accepts the target, but its extension name is
+/// the Vortex ID of the array, the array exports its storage. This works for every extension type,
+/// so a caller can export a timestamp column as `Int64` without losing its type. However, the
+/// target must have the same metadata as the array, because different metadata would give the
+/// values a different meaning, such as a different time unit for a timestamp. To check this, a
+/// session that knows the Vortex ID rebuilds the dtype from the target and compares the dtypes, and
+/// any other session compares the metadata bytes.
 ///
 /// On import, the importers run first. If none of them accepts the field, but its extension name is
 /// a Vortex ID that the session knows (see [`initialize`]), the field imports as that extension
 /// type over its storage. In that case, the import fails if the type rejects the metadata or the
 /// storage. A field with any other extension name imports as plain storage.
 ///
+/// [`ext_metadata`]: crate::ext_metadata
 /// [`initialize`]: crate::initialize
 #[derive(Clone, Debug, Default)]
 pub struct ArrowSession {
@@ -387,7 +386,7 @@ impl ArrowSession {
             DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
                 match self.to_arrow_field_with_exporter(name, ext)? {
                     Some(field) => Ok(field),
-                    None => self.to_arrow_field_without_exporter(name, ext),
+                    None => self.to_arrow_storage_field(name, ext),
                 }
             }
             DType::Variant(_) => {
@@ -486,9 +485,16 @@ impl ArrowSession {
         Ok(None)
     }
 
-    /// Build the storage field of an extension type without an exporter, and add the Arrow
-    /// extension metadata that holds its Vortex ID and its metadata.
-    fn to_arrow_field_without_exporter(
+    /// Returns the storage field of `ext_dtype`, with field metadata that holds the extension type
+    /// ([`ext_metadata`] describes the format).
+    ///
+    /// A type with its own Arrow type can also export to this field, for example to export a
+    /// timestamp column as `Int64` and import it back as a timestamp.
+    ///
+    /// Fails if the storage field already has an Arrow extension name.
+    ///
+    /// [`ext_metadata`]: crate::ext_metadata
+    pub fn to_arrow_storage_field(
         &self,
         name: &str,
         ext_dtype: &ExtDTypeRef,
@@ -500,14 +506,9 @@ impl ArrowSession {
             );
         }
 
-        let metadata = BASE64_STANDARD.encode(ext_dtype.serialize_metadata()?);
-        field.metadata_mut().extend([
-            (
-                EXTENSION_TYPE_NAME_KEY.to_owned(),
-                ext_dtype.id().to_string(),
-            ),
-            (EXTENSION_TYPE_METADATA_KEY.to_owned(), metadata),
-        ]);
+        field
+            .metadata_mut()
+            .extend(encode_arrow_ext_metadata(ext_dtype)?);
 
         Ok(field)
     }
@@ -531,7 +532,7 @@ impl ArrowSession {
         };
 
         dtype_plugin
-            .deserialize(&decode_ext_metadata(field)?, storage_dtype.clone())
+            .deserialize(&decode_arrow_ext_metadata(field)?, storage_dtype.clone())
             .map(Some)
     }
 
@@ -1036,20 +1037,6 @@ fn run_end_values_field(values_field: &FieldRef, nullability: Nullability) -> Fi
         .with_nullable(nullability.into())
 }
 
-/// Decode the base64 `ARROW:extension:metadata` of a field whose extension name is a Vortex ID.
-///
-/// A field without that key has empty metadata, as Arrow allows.
-fn decode_ext_metadata(field: &Field) -> VortexResult<Vec<u8>> {
-    let encoded = field.extension_type_metadata().unwrap_or_default();
-
-    BASE64_STANDARD.decode(encoded).map_err(|err| {
-        vortex_err!(
-            "Arrow field {:?} must carry base64 extension metadata, got {encoded:?}: {err}",
-            field.name()
-        )
-    })
-}
-
 impl SessionVar for ArrowSession {
     fn as_any(&self) -> &dyn Any {
         self
@@ -1164,7 +1151,7 @@ impl ArrowExporter<'_> {
                 target.name()
             ),
             None => vortex_ensure!(
-                decode_ext_metadata(target)? == ext_dtype.serialize_metadata()?,
+                decode_arrow_ext_metadata(target)? == ext_dtype.serialize_metadata()?,
                 "Arrow field {:?} must carry the metadata of {ext_dtype}, got {:?}",
                 target.name(),
                 target.extension_type_metadata().unwrap_or_default()
