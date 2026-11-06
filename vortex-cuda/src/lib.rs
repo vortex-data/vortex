@@ -103,7 +103,7 @@ use crate::kernel::SliceExecutor;
 
 /// Checks if a CUDA driver and at least one CUDA device are available.
 pub fn cuda_available() -> bool {
-    CudaContext::new(0).is_ok()
+    CudaContext::device_count().is_ok_and(|count| count > 0)
 }
 
 /// Registers CUDA kernels.
@@ -138,7 +138,7 @@ pub fn initialize_cuda(session: &CudaSession) {
 ///
 /// Each call returns an independent session with its own kernel registry and stream pool.
 /// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
-/// context-level state must supply their own context through [`CudaSession::with_context`].
+/// context-level state must use [`CudaContext::new_non_primary`] with [`CudaSession::with_context`].
 ///
 /// # Panics
 ///

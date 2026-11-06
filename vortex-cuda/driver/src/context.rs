@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The device's primary context, its event pool, and deferred errors.
+//! The device's primary context and its memory and event pools.
 
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 
 use crate::DriverError;
 use crate::device;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::mem_pool;
 use crate::module::CudaModule;
@@ -33,7 +32,6 @@ pub struct CudaContext {
     mem_pool: sys::CUmemoryPool,
     /// Whether the context is the device's primary context, released rather than destroyed.
     primary: bool,
-    error_state: AtomicU32,
     /// Timing-disabled events returned by finished accesses, reused to avoid creating and
     /// destroying an event per access.
     events: Mutex<Vec<sys::CUevent>>,
@@ -62,26 +60,34 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        // Errors here have nowhere to go: they would be recorded in the context being dropped.
-        let _ = self.make_current();
+        if let Err(error) = self.bind_to_thread() {
+            log_error("binding context for destruction", error);
+        }
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
-            let _ = unsafe { sys::cuEventDestroy_v2(event) };
+            if let Err(error) = unsafe { sys::cuEventDestroy_v2(event) }.result() {
+                log_error("destroying cached CUDA event", error);
+            }
         }
         if !self.mem_pool.is_null() {
             // SAFETY: Created by `wrap` and destroyed once; allocations still live are released
             // by the driver once they are freed.
-            let _ = unsafe { mem_pool::destroy(self.mem_pool) };
+            if let Err(error) = unsafe { mem_pool::destroy(self.mem_pool) } {
+                log_error("destroying CUDA memory pool", error);
+            }
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
-        let _ = unsafe {
+        let released = unsafe {
             if self.primary {
                 sys::cuDevicePrimaryCtxRelease_v2(self.device)
             } else {
                 sys::cuCtxDestroy_v2(self.context)
             }
         };
+        if let Err(error) = released.result() {
+            log_error("releasing CUDA context", error);
+        }
     }
 }
 
@@ -144,7 +150,6 @@ impl CudaContext {
             has_async_alloc,
             mem_pool,
             primary,
-            error_state: AtomicU32::new(0),
             events: Mutex::new(Vec::new()),
         });
         // On failure, dropping the context releases or destroys it.
@@ -152,27 +157,42 @@ impl CudaContext {
         Ok(context)
     }
 
-    /// A pool that keeps freed memory reserved for reuse, up to half the device, or the device's
-    /// pool if setup fails.
+    /// A pool that retains freed memory for reuse, falling back to the device's current pool if
+    /// setup fails.
     ///
-    /// The device's default pool returns freed memory to the driver at every synchronization, so
-    /// scans that free and reallocate their batches between synchronizations pay for remapping
-    /// device memory on every batch. At each synchronization this pool releases freed memory beyond
-    /// half the device: the threshold bounds what it keeps idle, not what it can allocate. Each
-    /// wrapper using this default policy owns its pool. Failures fall back to the device's pool
-    /// rather than failing the context.
+    /// CUDA's initial release threshold is zero, allowing unused pool memory to be released at
+    /// synchronization. Retaining it avoids repeated device-memory mapping work between batches.
+    /// This pool uses half the device's memory as its release threshold: a retention target, not a
+    /// hard cap on reserved memory or live allocations. Separately constructed context wrappers each
+    /// own a pool, so this is not a process-wide budget.
+    ///
+    /// CUDA can reclaim unused pool memory for unrelated CUDA allocations in the same process.
+    /// Allocations in other processes do not trigger that reclamation, so retaining memory here can
+    /// reduce what is available to them.
     fn retaining_pool(device: sys::CUdevice) -> sys::CUmemoryPool {
         let mut total = 0;
         // SAFETY: `device` is valid; the driver writes its memory size.
-        if unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }
-            .result()
-            .is_err()
-        {
+        if let Err(error) = unsafe { sys::cuDeviceTotalMem_v2(&raw mut total, device) }.result() {
+            tracing::warn!(
+                %error,
+                device,
+                operation = "querying device memory size",
+                "CUDA retaining pool setup failed; using the device's current pool"
+            );
             return std::ptr::null_mut();
         }
         // SAFETY: `device` is valid and supports memory pools.
-        let Ok(pool) = (unsafe { mem_pool::create(device) }) else {
-            return std::ptr::null_mut();
+        let pool = match unsafe { mem_pool::create(device) } {
+            Ok(pool) => pool,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    device,
+                    operation = "creating retaining memory pool",
+                    "CUDA retaining pool setup failed; using the device's current pool"
+                );
+                return std::ptr::null_mut();
+            }
         };
         let mut threshold = total as u64 / 2;
         // SAFETY: The release threshold is a u64.
@@ -183,9 +203,17 @@ impl CudaContext {
                 (&raw mut threshold).cast(),
             )
         };
-        if retained.is_err() {
+        if let Err(error) = retained {
+            tracing::warn!(
+                %error,
+                device,
+                operation = "setting memory pool release threshold",
+                "CUDA retaining pool setup failed; using the device's current pool"
+            );
             // SAFETY: Created above and never used.
-            let _ = unsafe { mem_pool::destroy(pool) };
+            if let Err(error) = unsafe { mem_pool::destroy(pool) } {
+                log_error("destroying unconfigured CUDA memory pool", error);
+            }
             return std::ptr::null_mut();
         }
         pool
@@ -251,20 +279,7 @@ impl CudaContext {
     }
 
     /// Makes this context current on the calling thread, if it is not already.
-    ///
-    /// First returns, and clears, any error recorded where none could be returned.
     pub fn bind_to_thread(&self) -> Result<(), DriverError> {
-        if self.error_state.load(Ordering::Relaxed) != 0 {
-            self.check_err()?;
-        }
-        self.make_current()
-    }
-
-    /// Makes this context current on the calling thread, leaving recorded errors in place.
-    ///
-    /// Cleanup and access tracking bind with this: an unrelated recorded error must not make
-    /// them skip a free or a record, nor be consumed where it cannot be reported.
-    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
         let mut current = std::ptr::null_mut();
         // SAFETY: The driver writes the current context.
         unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
@@ -277,13 +292,7 @@ impl CudaContext {
 
     /// Blocks until all work in the context completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.check_err()?;
-        self.synchronize_in_place()
-    }
-
-    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
-    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
-        self.make_current()?;
+        self.bind_to_thread()?;
         // SAFETY: The context is current.
         unsafe { sys::cuCtxSynchronize() }.result()
     }
@@ -338,7 +347,7 @@ impl CudaContext {
         if let Some(event) = self.events.lock().pop() {
             return Ok(event);
         }
-        self.make_current()?;
+        self.bind_to_thread()?;
         let mut event = std::ptr::null_mut();
         // SAFETY: The context is current; the driver writes the new event.
         unsafe {
@@ -362,28 +371,5 @@ impl CudaContext {
     #[cfg(test)]
     pub(crate) fn pooled_events(&self) -> usize {
         self.events.lock().len()
-    }
-
-    /// The first error recorded where none could be returned, clearing it.
-    pub fn check_err(&self) -> Result<(), DriverError> {
-        match self.error_state.swap(0, Ordering::Relaxed) {
-            0 => Ok(()),
-            error => Err(DriverError(CUresult(error))),
-        }
-    }
-
-    /// Keeps an error from a call that cannot return it, such as in `Drop`.
-    ///
-    /// An earlier error that was not yet checked is kept instead, as it is likely the cause.
-    pub fn record_err<T>(&self, result: Result<T, DriverError>) {
-        if let Err(error) = result {
-            // A failed exchange means an earlier error is pending, which takes precedence.
-            let _ = self.error_state.compare_exchange(
-                0,
-                error.0.0,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            );
-        }
     }
 }

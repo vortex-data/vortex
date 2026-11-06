@@ -21,6 +21,7 @@ use vortex::error::vortex_err;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::SyncOnDrop;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
@@ -77,7 +78,9 @@ async fn decode_zstd_buffers(
     let mut frame_ptr_records = Vec::with_capacity(frame_views.len());
     let mut frame_ptrs = Vec::with_capacity(frame_views.len());
     for view in &frame_views {
-        let (ptr, record_frame_ptr) = view.device_ptr(ctx.stream());
+        let (ptr, record_frame_ptr) = view
+            .device_ptr(ctx.stream())
+            .map_err(|e| vortex_err!("nvcomp frame pointer: {e}"))?;
         frame_ptrs.push(ptr);
         frame_ptr_records.push(record_frame_ptr);
     }
@@ -109,19 +112,35 @@ async fn decode_zstd_buffers(
     let output_sizes_view = output_sizes_handle.cuda_view::<usize>()?;
     let output_ptrs_view = output_ptrs_handle.cuda_view::<u64>()?;
 
-    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view.device_ptr(stream);
-    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view.device_ptr(stream);
-    let (output_sizes_ptr, record_output_sizes) = output_sizes_view.device_ptr(stream);
-    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view.device_ptr(stream);
+    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp frame pointers pointer: {e}"))?;
+    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp frame sizes pointer: {e}"))?;
+    let (output_sizes_ptr, record_output_sizes) = output_sizes_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp output sizes pointer: {e}"))?;
+    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view
+        .device_ptr(stream)
+        .map_err(|e| vortex_err!("nvcomp output pointers pointer: {e}"))?;
 
     // Track writes to the output allocation at the actual enqueue point.
     // This guard intentionally outlives the pointer-metadata construction above.
-    let (_device_output_ptr, record_device_output) = device_output.device_ptr_mut(stream);
-    let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes.device_ptr_mut(stream);
-    let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer.device_ptr_mut(stream);
-    let (device_statuses_ptr, record_statuses) = device_statuses.device_ptr_mut(stream);
+    let (_device_output_ptr, record_device_output) = device_output
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp output pointer: {e}"))?;
+    let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp actual sizes pointer: {e}"))?;
+    let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp temporary buffer pointer: {e}"))?;
+    let (device_statuses_ptr, record_statuses) = device_statuses
+        .device_ptr_mut(stream)
+        .map_err(|e| vortex_err!("nvcomp statuses pointer: {e}"))?;
 
-    ctx.launch_external(plan.output_size_total(), || {
+    let launch_result = ctx.launch_external(plan.output_size_total(), || {
         // SAFETY: Pointer and size parameters are derived from validated decode plan inputs.
         unsafe {
             nvcomp_zstd::decompress_async(
@@ -138,10 +157,8 @@ async fn decode_zstd_buffers(
             )
             .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
         }
-    })?;
-    drop(frame_ptr_records);
-    drop(frame_views);
-    drop((
+    });
+    let finish_result = SyncOnDrop::finish_all(frame_ptr_records.into_iter().chain([
         record_frame_ptrs,
         record_frame_sizes,
         record_output_sizes,
@@ -150,11 +167,19 @@ async fn decode_zstd_buffers(
         record_actual_sizes,
         record_temp,
         record_statuses,
-    ));
+    ]))
+    .map_err(|e| vortex_err!("nvcomp decompression buffer tracking: {e}"));
+    drop(frame_views);
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track nvcomp decompression buffers after launch failure");
+        }
+    })?;
+    finish_result?;
 
     validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
 
-    let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+    let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)?));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
     let inner_array = ZstdBuffers::build_inner(&array, &decompressed_buffers, ctx.session())?;
@@ -178,10 +203,10 @@ async fn validate_decompress_results(
     device_actual_sizes: CudaSlice<usize>,
     device_statuses: CudaSlice<nvcompStatus_t>,
 ) -> VortexResult<()> {
-    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)
+    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)?
         .copy_to_host(Alignment::of::<usize>())?
         .await?;
-    let statuses_host = CudaDeviceBuffer::new(device_statuses)
+    let statuses_host = CudaDeviceBuffer::new(device_statuses)?
         .copy_to_host(Alignment::of::<nvcompStatus_t>())?
         .await?;
 

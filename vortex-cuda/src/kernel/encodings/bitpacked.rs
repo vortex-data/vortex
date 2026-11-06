@@ -223,7 +223,7 @@ where
         ctx.synchronize_stream()?;
     }
 
-    let output_buf = CudaDeviceBuffer::new(output_slice);
+    let output_buf = CudaDeviceBuffer::new(output_slice)?;
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
 

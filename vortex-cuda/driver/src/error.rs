@@ -77,6 +77,11 @@ impl fmt::Display for DriverError {
 
 impl std::error::Error for DriverError {}
 
+/// Reports a destructor or secondary error that cannot be returned to the caller.
+pub(crate) fn log_error(operation: &'static str, error: DriverError) {
+    tracing::error!(%error, operation, "CUDA operation failed");
+}
+
 impl CUresult {
     /// `Ok` for [`CUresult::CUDA_SUCCESS`], otherwise the error.
     #[inline]

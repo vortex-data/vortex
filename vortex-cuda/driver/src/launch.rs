@@ -6,6 +6,7 @@
 use std::ffi::c_void;
 
 use crate::DriverError;
+use crate::error::log_error;
 use crate::event::CudaEvent;
 use crate::memory::AccessKind;
 use crate::memory::ArgAccess;
@@ -197,9 +198,15 @@ impl LaunchArgs<'_> {
                 .after_or_wait(access.owner, self.stream, access.kind);
             if tracked.is_ok() {
                 tracked = result;
+            } else if let Err(error) = result {
+                log_error("finish additional kernel argument access", error);
             }
         }
-        tracked?;
+        tracked.inspect_err(|_| {
+            if let Err(error) = &end {
+                log_error("record kernel end event", *error);
+            }
+        })?;
         Ok(start.zip(end?))
     }
 }
