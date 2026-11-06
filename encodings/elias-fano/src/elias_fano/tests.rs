@@ -10,10 +10,13 @@ use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -40,6 +43,7 @@ use super::array::EliasFanoArraySlotsExt;
 use super::array::EliasFanoSlots;
 use super::elias_fano_encode;
 use super::vtable::EliasFanoMetadata;
+use crate::Unary;
 use crate::unary_encode;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -56,7 +60,10 @@ fn primitive(ptype: PType, values: &[u64]) -> PrimitiveArray {
 }
 
 fn encode_as(ptype: PType, values: &[u64]) -> VortexResult<Option<EliasFanoArray>> {
-    elias_fano_encode(primitive(ptype, values).as_ref().as_::<Primitive>())
+    elias_fano_encode(
+        primitive(ptype, values).as_ref().as_::<Primitive>(),
+        &mut SESSION.create_execution_ctx(),
+    )
 }
 
 fn serde_roundtrip(array: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -79,6 +86,11 @@ fn test_layout_example() -> VortexResult<()> {
         .ok_or_else(|| vortex_err!("the example did not encode"))?;
     let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(array.lower_bits, 1);
+    // No count exceeds 1, so `upper` stores them as `u8` under its `u64` dtype.
+    assert_eq!(
+        array.upper().as_::<Widen>().values().dtype(),
+        &DType::Primitive(PType::U8, NonNullable)
+    );
     assert_arrays_eq!(
         array.upper().clone(),
         PrimitiveArray::from_iter([0u64, 1, 1, 0, 1]),
@@ -102,33 +114,51 @@ fn test_layout_example() -> VortexResult<()> {
 #[case::squares(PType::U64, (0..1000).map(|i| i * i).collect())]
 fn test_roundtrip(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResult<()> {
     let expected = primitive(ptype, &values);
-    let encoded = encode_as(ptype, &values)?
-        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?
-        .into_array();
+    let ef = encode_as(ptype, &values)?
+        .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?;
+    let encoded = ef.clone().into_array();
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(encoded, expected, &mut ctx);
-    let decoded = serde_roundtrip(&encoded)?;
+    // `Widen` has no wire form, so the counts are written as a `u64` Primitive.
+    let counts = ef.upper().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let writable =
+        EliasFano::try_new(counts.into_array(), ef.lower().clone(), ef.lower_bits())?.into_array();
+    let decoded = serde_roundtrip(&writable)?;
     assert!(decoded.is::<EliasFano>());
     assert_arrays_eq!(decoded, expected, &mut ctx);
     test_array_consistency(&encoded, &mut ctx);
     Ok(())
 }
 
-/// The tree the EF scheme builds, with `upper` as Unary, which `scalar_at` reads by select.
+/// With `upper` in Unary, as the EF scheme stores it, which decoding and `scalar_at` read from its
+/// bits.
 #[rstest]
-#[case::example(vec![3, 4, 9])]
-#[case::duplicates(vec![2, 2, 2, 5, 5, 9])]
-#[case::squares((0..1000).map(|i| i * i).collect())]
-fn test_unary_upper(#[case] values: Vec<u64>) -> VortexResult<()> {
-    let ef = encode_as(PType::U64, &values)?
+#[case::empty(PType::U64, vec![])]
+#[case::example(PType::U64, vec![3, 4, 9])]
+#[case::duplicates(PType::U64, vec![2, 2, 2, 5, 5, 9])]
+#[case::u8_max(PType::U8, vec![0, 1, 255, 255])]
+#[case::u64_max(PType::U64, vec![0, u64::MAX])]
+#[case::squares(PType::U64, (0..1000).map(|i| i * i).collect())]
+fn test_unary_upper(#[case] ptype: PType, #[case] values: Vec<u64>) -> VortexResult<()> {
+    let expected = primitive(ptype, &values);
+    let ef = encode_as(ptype, &values)?
         .ok_or_else(|| vortex_err!("{} values did not encode", values.len()))?;
     let mut ctx = SESSION.create_execution_ctx();
     let counts = ef.upper().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let upper = unary_encode(counts.as_ref().as_::<Primitive>(), &mut ctx)?
         .ok_or_else(|| vortex_err!("the counts did not encode"))?;
-    let array =
-        EliasFano::try_new(upper.into_array(), ef.lower().clone(), ef.lower_bits())?.into_array();
-    assert_arrays_eq!(array, primitive(PType::U64, &values), &mut ctx);
+    let array = EliasFano::try_new(upper.into_array(), ef.lower().clone(), ef.lower_bits())?;
+    // The bits are decoded as they are, without executing `upper` first.
+    assert!(matches!(
+        EliasFano::execute(array.clone(), &mut ctx)?.step(),
+        ExecutionStep::Done
+    ));
+    let array = array.into_array();
+    assert_arrays_eq!(array, expected, &mut ctx);
+    // It reads back with `upper` still in Unary.
+    let decoded = serde_roundtrip(&array)?;
+    assert!(decoded.as_::<EliasFano>().upper().is::<Unary>());
+    assert_arrays_eq!(decoded, expected, &mut ctx);
     test_array_consistency(&array, &mut ctx);
     Ok(())
 }
@@ -142,7 +172,11 @@ fn test_encode_returns_none() -> VortexResult<()> {
     ];
     for input in inputs {
         assert!(
-            elias_fano_encode(input.as_ref().as_::<Primitive>())?.is_none(),
+            elias_fano_encode(
+                input.as_ref().as_::<Primitive>(),
+                &mut SESSION.create_execution_ctx()
+            )?
+            .is_none(),
             "{} encoded",
             input.dtype()
         );
@@ -231,14 +265,19 @@ fn test_rejects() -> VortexResult<()> {
             1,
         ),
     ];
-    for (case, upper, lower, lower_bits) in undecodable {
-        let array = EliasFano::try_new(upper, lower, lower_bits)?.into_array();
-        assert!(
-            array
-                .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-                .is_err(),
-            "{case} decoded"
-        );
+    let mut ctx = SESSION.create_execution_ctx();
+    for (case, counts, lower, lower_bits) in undecodable {
+        // Each case runs on the counts, and on the same counts in Unary, which decodes its bits.
+        let unary = unary_encode(counts.as_::<Primitive>(), &mut ctx)?
+            .ok_or_else(|| vortex_err!("the counts for {case} did not encode"))?
+            .into_array();
+        for upper in [counts, unary] {
+            let array = EliasFano::try_new(upper, lower.clone(), lower_bits)?.into_array();
+            assert!(
+                array.execute::<PrimitiveArray>(&mut ctx).is_err(),
+                "{case} decoded"
+            );
+        }
     }
     Ok(())
 }

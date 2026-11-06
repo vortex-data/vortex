@@ -3,9 +3,11 @@
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -16,14 +18,19 @@ use vortex_error::VortexResult;
 use super::vtable::EliasFano;
 use super::vtable::EliasFanoArray;
 
-/// Encode `array` as an [`EliasFano`] array, leaving both children uncompressed.
+/// Encode `array` as an [`EliasFano`] array, leaving both children to the compressor.
 ///
-/// The children are left to the compressor: the EF scheme in `vortex-btrblocks` forces `upper`
-/// into [`Unary`](crate::Unary) and bit-packs `lower`.
+/// The counts in `upper` are held in a [`Widen`](vortex_array::arrays::Widen) over the narrowest
+/// type that holds them, unless only a `u64` does. `Widen` has no wire form yet, so the array can
+/// be written only once the compressor has encoded `upper`: the EF scheme in `vortex-btrblocks`
+/// forces it into [`Unary`](crate::Unary), and bit-packs `lower`.
 ///
 /// Returns `None` when the dtype is not a non-nullable unsigned integer, or when the values are
 /// not sorted.
-pub fn elias_fano_encode(array: ArrayView<'_, Primitive>) -> VortexResult<Option<EliasFanoArray>> {
+pub fn elias_fano_encode(
+    array: ArrayView<'_, Primitive>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<EliasFanoArray>> {
     let &DType::Primitive(ptype, NonNullable) = array.dtype() else {
         return Ok(None);
     };
@@ -52,7 +59,7 @@ pub fn elias_fano_encode(array: ArrayView<'_, Primitive>) -> VortexResult<Option
             lower.push((value & mask).as_());
         }
         EliasFano::try_new(
-            PrimitiveArray::new(upper, Validity::NonNullable).into_array(),
+            WidenArray::encode(PrimitiveArray::new(upper, Validity::NonNullable), ctx)?,
             PrimitiveArray::new(lower, Validity::NonNullable).into_array(),
             u8::try_from(lower_bits)?,
         )

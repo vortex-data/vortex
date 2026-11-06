@@ -28,6 +28,7 @@ use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -41,6 +42,7 @@ use super::array::EliasFanoArraySlotsExt;
 use super::array::EliasFanoData;
 use super::array::EliasFanoSlots;
 use super::array::EliasFanoSlotsView;
+use crate::Unary;
 
 mod operations;
 mod validity;
@@ -62,8 +64,10 @@ pub(super) struct EliasFanoMetadata {
 /// The dtype of the `upper` child.
 ///
 /// One bucket can hold every value, so a count can reach the array's length, which only a `u64`
-/// holds for every length. A wide logical dtype costs nothing: a `Unary` child stores the same bits
-/// whatever its dtype.
+/// holds for every length. The wide dtype does not widen what is stored:
+/// [`elias_fano_encode`](crate::elias_fano_encode) holds the counts in a
+/// [`Widen`](vortex_array::arrays::Widen) over a narrower type whenever one holds them, and a
+/// `Unary` child stores the same bits whatever its dtype.
 const UPPER_DTYPE: DType = DType::Primitive(PType::U64, NonNullable);
 
 impl ArrayHash for EliasFanoData {
@@ -191,7 +195,12 @@ impl VTable for EliasFano {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.upper(), EliasFanoSlots::UPPER => Primitive);
+        // A `Unary` upper is decoded from its bits, so its counts are never built.
+        let array = if array.upper().is::<Unary>() {
+            array
+        } else {
+            require_child!(array, array.upper(), EliasFanoSlots::UPPER => Primitive)
+        };
         let array = require_child!(array, array.lower(), EliasFanoSlots::LOWER => Primitive);
         Ok(ExecutionResult::done(
             elias_fano_decode(&array)?.into_array(),
@@ -199,8 +208,12 @@ impl VTable for EliasFano {
     }
 }
 
-/// Decode every value, bucket by bucket. Both children must be primitive.
+/// Decode every value. `lower` must be primitive, and `upper` must be [`Unary`], whose bits are
+/// read directly, or primitive, whose counts are read bucket by bucket.
 fn elias_fano_decode(array: &EliasFanoArray) -> VortexResult<PrimitiveArray> {
+    if let Some(upper) = array.upper().as_opt::<Unary>() {
+        return decode_bits(array, &upper.to_bit_buffer());
+    }
     let counts = array.upper().as_::<Primitive>();
     let counts = counts.as_slice::<u64>();
     // `validate` cannot see the children's values, so a malformed file is caught here.
@@ -228,6 +241,32 @@ fn elias_fano_decode(array: &EliasFanoArray) -> VortexResult<PrimitiveArray> {
     })
 }
 
+/// Decode every value from the bits of a [`Unary`] upper. The value at `index` is the `index`-th
+/// set bit, and the unset bits before it, one closing each earlier bucket, give its bucket.
+fn decode_bits(array: &EliasFanoArray, bits: &BitBuffer) -> VortexResult<PrimitiveArray> {
+    // Each set bit is one value, so a malformed file with too many or too few is caught here.
+    vortex_ensure_eq!(bits.true_count(), array.len());
+
+    let lower = array.lower().as_::<Primitive>();
+    match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
+        let lows = lower.as_slice::<T>();
+        let mut values = BufferMut::<T>::with_capacity(array.len());
+        let mut stray = 0;
+        bits.for_each_set_index(|bit| {
+            let index = values.len();
+            let low = lows[index];
+            stray |= low;
+            values.push((AsPrimitive::<T>::as_(bit - index) << array.lower_bits) | low);
+        });
+        vortex_ensure_eq!(
+            stray >> array.lower_bits,
+            0,
+            "EliasFanoArray low bits must fit in lower_bits"
+        );
+        Ok(PrimitiveArray::new(values, Validity::NonNullable))
+    })
+}
+
 /// Elias-Fano encoding for sorted, non-nullable unsigned integers.
 ///
 /// Each value is split into its high bits, `value >> lower_bits`, which pick its bucket, and its
@@ -235,8 +274,8 @@ fn elias_fano_decode(array: &EliasFanoArray) -> VortexResult<PrimitiveArray> {
 /// `lower` child holds the low bits in order. For `[3, 4, 9]` with `lower_bits = 1`, `upper` is
 /// `[0, 1, 1, 0, 1]` and `lower` is `[1, 0, 1]`.
 ///
-/// [`elias_fano_encode`](crate::elias_fano_encode) leaves both children uncompressed, for the
-/// compressor to encode as `Unary` and `BitPacked`.
+/// [`elias_fano_encode`](crate::elias_fano_encode) leaves both children for the compressor to
+/// encode as `Unary` and `BitPacked`.
 ///
 /// There is no validity yet, which keeps the encoding simple. Adding it must stay backwards
 /// compatible, which an optional validity child allows, as in Bool: arrays written now have only

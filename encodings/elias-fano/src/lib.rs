@@ -9,8 +9,8 @@
 //!
 //! [`EliasFano`] stores a sorted, non-nullable unsigned column as two children: the number of
 //! values in each bucket of high bits, and the low bits of each value. [`elias_fano_encode`]
-//! leaves both uncompressed, and the EF scheme in `vortex-btrblocks` encodes them as [`Unary`] and
-//! `BitPacked`.
+//! leaves both to the compressor, and the EF scheme in `vortex-btrblocks` encodes them as
+//! [`Unary`] and `BitPacked`.
 //!
 //! None of these encodings is in a file edition or registered by `vortex-file`, so the default
 //! writers reject them for now. [`initialize`] registers them in a session.

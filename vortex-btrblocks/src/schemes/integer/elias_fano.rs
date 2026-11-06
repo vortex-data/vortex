@@ -115,7 +115,7 @@ impl Scheme for EliasFanoScheme {
             .encoded()
             .clone()
             .execute::<PrimitiveArray>(exec_ctx)?;
-        let ef = elias_fano_encode(biased.as_view())?
+        let ef = elias_fano_encode(biased.as_view(), exec_ctx)?
             .ok_or_else(|| vortex_err!("cannot Elias-Fano encode an unsorted array"))?;
 
         let counts = ef.upper().clone().execute::<PrimitiveArray>(exec_ctx)?;
