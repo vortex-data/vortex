@@ -28,14 +28,22 @@ use crate::scalar_fn::fns::not::NotReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Between, Constant, BetweenReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Cast, Constant, CastReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Filter, Constant, ConstantFilterRule);
-    kernels.register_reduce_parent_rule(FillNull, Constant, FillNullReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Filter, Constant, FilterReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Not, Constant, NotReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Slice, Constant, SliceReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Dict, Constant, TakeReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(
+        Between,
+        Constant,
+        const { &BetweenReduceAdaptor(Constant) },
+    );
+    kernels.register_reduce_parent_rule(Cast, Constant, const { &CastReduceAdaptor(Constant) });
+    kernels.register_reduce_parent_rule(Filter, Constant, const { &ConstantFilterRule });
+    kernels.register_reduce_parent_rule(
+        FillNull,
+        Constant,
+        const { &FillNullReduceAdaptor(Constant) },
+    );
+    kernels.register_reduce_parent_rule(Filter, Constant, const { &FilterReduceAdaptor(Constant) });
+    kernels.register_reduce_parent_rule(Not, Constant, const { &NotReduceAdaptor(Constant) });
+    kernels.register_reduce_parent_rule(Slice, Constant, const { &SliceReduceAdaptor(Constant) });
+    kernels.register_reduce_parent_rule(Dict, Constant, const { &TakeReduceAdaptor(Constant) });
 }
 
 #[derive(Debug)]

@@ -83,15 +83,27 @@ impl ArrayReduceRule<Chunked> for ChunkedDictValuesPullUpRule {
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, Chunked, CastReduceAdaptor(Chunked));
-    kernels.register_reduce_parent_rule(AnyScalarFn, Chunked, ChunkedUnaryScalarFnPushDownRule);
+    kernels.register_reduce_parent_rule(Cast, Chunked, const { &CastReduceAdaptor(Chunked) });
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Chunked,
+        const { &ChunkedUnaryScalarFnPushDownRule },
+    );
     kernels.register_reduce_parent_rule(
         ListContains,
         Chunked,
-        ListContainsElementReduceAdaptor(Chunked),
+        const { &ListContainsElementReduceAdaptor(Chunked) },
     );
-    kernels.register_reduce_parent_rule(AnyScalarFn, Chunked, ChunkedConstantScalarFnPushDownRule);
-    kernels.register_reduce_parent_rule(FillNull, Chunked, FillNullReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Chunked,
+        const { &ChunkedConstantScalarFnPushDownRule },
+    );
+    kernels.register_reduce_parent_rule(
+        FillNull,
+        Chunked,
+        const { &FillNullReduceAdaptor(Chunked) },
+    );
 }
 
 /// Push down any unary scalar function through chunked arrays.

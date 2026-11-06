@@ -68,14 +68,26 @@ impl ArrayReduceRule<Dict> for DictConstantCodesRule {
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter, Dict, FilterReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Cast, Dict, CastReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(MaskFn, Dict, MaskReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Like, Dict, LikeReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Chunked, Dict, DictionaryChunkedValuesPullUpRule);
-    kernels.register_reduce_parent_rule(AnyScalarFn, Dict, DictionaryScalarFnValuesPushDownRule);
-    kernels.register_reduce_parent_rule(AnyScalarFn, Dict, DictionaryScalarFnCodesPullUpRule);
-    kernels.register_reduce_parent_rule(Slice, Dict, SliceReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(
+        Chunked,
+        Dict,
+        const { &DictionaryChunkedValuesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnValuesPushDownRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnCodesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(Slice, Dict, const { &SliceReduceAdaptor(Dict) });
 }
 
 /// Pull a common dictionary values array above chunked dictionary codes.

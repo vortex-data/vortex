@@ -18,8 +18,8 @@ use crate::scalar_fn::fns::get_item::GetItem;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice, Slice, SliceReduceAdaptor(Slice));
-    kernels.register_reduce_parent_rule(GetItem, Slice, SliceGetItemRule);
+    kernels.register_reduce_parent_rule(Slice, Slice, const { &SliceReduceAdaptor(Slice) });
+    kernels.register_reduce_parent_rule(GetItem, Slice, const { &SliceGetItemRule });
 }
 
 #[derive(Debug)]

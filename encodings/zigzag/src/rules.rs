@@ -16,8 +16,8 @@ use crate::ZigZag;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, ZigZag, CastReduceAdaptor(ZigZag));
-    kernels.register_reduce_parent_rule(Filter, ZigZag, FilterReduceAdaptor(ZigZag));
-    kernels.register_reduce_parent_rule(MaskFn, ZigZag, MaskReduceAdaptor(ZigZag));
-    kernels.register_reduce_parent_rule(Slice, ZigZag, SliceReduceAdaptor(ZigZag));
+    kernels.register_reduce_parent_rule(Cast, ZigZag, const { &CastReduceAdaptor(ZigZag) });
+    kernels.register_reduce_parent_rule(Filter, ZigZag, const { &FilterReduceAdaptor(ZigZag) });
+    kernels.register_reduce_parent_rule(MaskFn, ZigZag, const { &MaskReduceAdaptor(ZigZag) });
+    kernels.register_reduce_parent_rule(Slice, ZigZag, const { &SliceReduceAdaptor(ZigZag) });
 }

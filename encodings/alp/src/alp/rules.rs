@@ -37,7 +37,7 @@ pub(super) fn initialize(session: &VortexSession) {
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Between, ALP, BetweenReduceAdaptor(ALP));
-    kernels.register_reduce_parent_rule(Cast, ALP, CastReduceAdaptor(ALP));
-    kernels.register_reduce_parent_rule(MaskFn, ALP, MaskReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(Between, ALP, const { &BetweenReduceAdaptor(ALP) });
+    kernels.register_reduce_parent_rule(Cast, ALP, const { &CastReduceAdaptor(ALP) });
+    kernels.register_reduce_parent_rule(MaskFn, ALP, const { &MaskReduceAdaptor(ALP) });
 }

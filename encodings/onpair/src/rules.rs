@@ -12,6 +12,6 @@ use crate::OnPair;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice, OnPair, SliceReduceAdaptor(OnPair));
-    kernels.register_reduce_parent_rule(Cast, OnPair, CastReduceAdaptor(OnPair));
+    kernels.register_reduce_parent_rule(Slice, OnPair, const { &SliceReduceAdaptor(OnPair) });
+    kernels.register_reduce_parent_rule(Cast, OnPair, const { &CastReduceAdaptor(OnPair) });
 }

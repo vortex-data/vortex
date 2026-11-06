@@ -24,11 +24,11 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter, ListView, ListViewFilterPushDown);
-    kernels.register_reduce_parent_rule(Cast, ListView, CastReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(MaskFn, ListView, MaskReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(Slice, ListView, SliceReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(Dict, ListView, TakeReduceAdaptor(ListView));
+    kernels.register_reduce_parent_rule(Filter, ListView, const { &ListViewFilterPushDown });
+    kernels.register_reduce_parent_rule(Cast, ListView, const { &CastReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(MaskFn, ListView, const { &MaskReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(Slice, ListView, const { &SliceReduceAdaptor(ListView) });
+    kernels.register_reduce_parent_rule(Dict, ListView, const { &TakeReduceAdaptor(ListView) });
 }
 
 #[derive(Debug)]

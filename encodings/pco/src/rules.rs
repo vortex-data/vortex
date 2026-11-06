@@ -12,6 +12,6 @@ use crate::Pco;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice, Pco, SliceReduceAdaptor(Pco));
-    kernels.register_reduce_parent_rule(Cast, Pco, CastReduceAdaptor(Pco));
+    kernels.register_reduce_parent_rule(Slice, Pco, const { &SliceReduceAdaptor(Pco) });
+    kernels.register_reduce_parent_rule(Cast, Pco, const { &CastReduceAdaptor(Pco) });
 }

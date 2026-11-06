@@ -24,6 +24,7 @@ use std::fmt::Debug;
 use std::hash::BuildHasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ptr;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -62,7 +63,7 @@ pub(crate) trait DynReduceParentKernel: Debug + Send + Sync + 'static {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub(crate) type ReduceParentKernelRef = Arc<dyn DynReduceParentKernel>;
+pub(crate) type ReduceParentKernelRef = &'static dyn DynReduceParentKernel;
 
 /// A snapshot of the session's parent-reduce kernels, as the optimizer consults them.
 #[derive(Clone, Debug, Default)]
@@ -110,9 +111,19 @@ fn append<T>(slice: &mut Box<[T]>, items: impl IntoIterator<Item = T>) {
     *slice = items_vec.into_boxed_slice();
 }
 
+#[repr(transparent)]
 struct RegisteredReduceParentRule<V, R> {
     rule: R,
     _child: PhantomData<V>,
+}
+
+impl<V: VTable, R: ArrayParentReduceRule<V>> RegisteredReduceParentRule<V, R> {
+    /// Views a static rule as a parent-reduce kernel for the `V` child encoding.
+    const fn lift(rule: &'static R) -> ReduceParentKernelRef {
+        // SAFETY: `RegisteredReduceParentRule` is `repr(transparent)` over `rule`, and its only
+        // other field is a zero-sized `PhantomData`, so it has the same layout as `R`.
+        unsafe { &*ptr::from_ref(rule).cast::<Self>() }
+    }
 }
 
 impl<V, R: Debug> Debug for RegisteredReduceParentRule<V, R> {
@@ -320,7 +331,9 @@ impl ArrayKernels {
     /// under [`AnyScalarFn`].
     ///
     /// Use [`Self::register_scalar_fn_reduce_parent_rule`] for a rule on a scalar function child.
-    pub fn register_reduce_parent_rule<P, Kind, V, R>(&self, parent: P, child: V, rule: R)
+    ///
+    /// Pass the rule as `const { &rule }` so that it lives in static memory.
+    pub fn register_reduce_parent_rule<P, Kind, V, R>(&self, parent: P, child: V, rule: &'static R)
     where
         P: ReduceParent<Kind>,
         V: VTable,
@@ -337,8 +350,8 @@ impl ArrayKernels {
     /// `parent`.
     ///
     /// The rule is keyed by [`AnyScalarFn::id`] on the child side. See
-    /// [`Self::register_reduce_parent_rule`] for how `parent` is identified.
-    pub fn register_scalar_fn_reduce_parent_rule<P, Kind, R>(&self, parent: P, rule: R)
+    /// [`Self::register_reduce_parent_rule`] for how `parent` is identified and how to pass `rule`.
+    pub fn register_scalar_fn_reduce_parent_rule<P, Kind, R>(&self, parent: P, rule: &'static R)
     where
         P: ReduceParent<Kind>,
         R: ArrayParentReduceRule<ScalarFn>,
@@ -346,19 +359,16 @@ impl ArrayKernels {
         self.push_reduce_parent_rule::<ScalarFn, R>(parent.parent_id(), AnyScalarFn.id(), rule);
     }
 
-    fn push_reduce_parent_rule<V, R>(&self, parent: Id, child: Id, rule: R)
+    fn push_reduce_parent_rule<V, R>(&self, parent: Id, child: Id, rule: &'static R)
     where
         V: VTable,
         R: ArrayParentReduceRule<V>,
     {
-        let kernel: ReduceParentKernelRef = Arc::new(RegisteredReduceParentRule {
-            rule,
-            _child: PhantomData::<V>,
-        });
+        let kernel = RegisteredReduceParentRule::<V, R>::lift(rule);
 
         self.reduce_parent.rcu(|current| {
             let mut next = ParentReduceKernels::clone(current);
-            next.push(parent, child, Arc::clone(&kernel));
+            next.push(parent, child, kernel);
             next
         });
     }

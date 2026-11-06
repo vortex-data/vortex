@@ -25,10 +25,10 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Masked, Decimal, DecimalMaskedValidityRule);
-    kernels.register_reduce_parent_rule(Cast, Decimal, CastReduceAdaptor(Decimal));
-    kernels.register_reduce_parent_rule(MaskFn, Decimal, MaskReduceAdaptor(Decimal));
-    kernels.register_reduce_parent_rule(Slice, Decimal, SliceReduceAdaptor(Decimal));
+    kernels.register_reduce_parent_rule(Masked, Decimal, const { &DecimalMaskedValidityRule });
+    kernels.register_reduce_parent_rule(Cast, Decimal, const { &CastReduceAdaptor(Decimal) });
+    kernels.register_reduce_parent_rule(MaskFn, Decimal, const { &MaskReduceAdaptor(Decimal) });
+    kernels.register_reduce_parent_rule(Slice, Decimal, const { &SliceReduceAdaptor(Decimal) });
 }
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.

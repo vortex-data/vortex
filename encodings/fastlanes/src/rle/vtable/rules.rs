@@ -10,5 +10,5 @@ use crate::RLE;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, RLE, CastReduceAdaptor(RLE));
+    kernels.register_reduce_parent_rule(Cast, RLE, const { &CastReduceAdaptor(RLE) });
 }

@@ -12,6 +12,6 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter, Patched, FilterReduceAdaptor(Patched));
-    kernels.register_reduce_parent_rule(Slice, Patched, SliceReduceAdaptor(Patched));
+    kernels.register_reduce_parent_rule(Filter, Patched, const { &FilterReduceAdaptor(Patched) });
+    kernels.register_reduce_parent_rule(Slice, Patched, const { &SliceReduceAdaptor(Patched) });
 }

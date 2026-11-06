@@ -12,6 +12,6 @@ use crate::BitPacked;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, BitPacked, CastReduceAdaptor(BitPacked));
-    kernels.register_reduce_parent_rule(Slice, BitPacked, SliceReduceAdaptor(BitPacked));
+    kernels.register_reduce_parent_rule(Cast, BitPacked, const { &CastReduceAdaptor(BitPacked) });
+    kernels.register_reduce_parent_rule(Slice, BitPacked, const { &SliceReduceAdaptor(BitPacked) });
 }
