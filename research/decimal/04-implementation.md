@@ -79,7 +79,7 @@ planning review on 2026-10-23.
 | CD4p | Decimal `Interleave` execution, so that CD4 can test its fallbacks | None | Medium |
 | CD4 | Decimal `Widen` in memory, `WidenArray::from_stored_decimal` (D40), the decimal `Sum` and `MinMax` kernels (D36), and the serializer lowering (D26) | WD1, WD3, WD4, CD1, CD3, CD3b, CD4p | Large |
 | CD4b | Export decimal `Widen` arrays to Arrow with one copy | CD4 | Small |
-| LT3 | Sum, min, and max on the DecimalByteParts MSP, and the reshaped DecimalByteParts benchmarks (D19, D42) | WD3, CD1 | Medium |
+| LT3 | Sum, min, and max on the DecimalByteParts MSP (D19). No benchmark changes (D42) | WD3, CD1 | Medium |
 | CD5 | DecimalByteParts is the decimal over an integer child: the MSP keeps the canonical width, capped at `i64`, a narrower MSP is an integer `Widen`, and decoding needs no scan (D16). CD7 is folded in, so one PR holds both. #10905 closed on 2026-11-05 | WD1, LT3, CD1, CD3, CD3b, #11284, the CD2 fixtures in 0.91.0 | Large |
 | CD6 | The `vortex.decimal` read plugin converts old nodes through `WidenArray::from_stored_decimal` | FX1, CD3, CD3b, CD4, the CD2 fixtures in 0.91.0 | Medium |
 | CD7 | One DecimalByteParts scheme on the canonical array, which stores a narrower MSP as an integer `Widen`, also next to lower parts (D17). Folded into CD5 on 2026-11-05. #10992 closed on 2026-11-05 | WD1, CD1, CD3b, CD5 | Medium |

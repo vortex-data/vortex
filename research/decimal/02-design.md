@@ -339,7 +339,8 @@ MSP on the device fails today. [#11284](https://github.com/vortex-data/vortex/is
 device `Widen` kernel that sign-extends on the device, for integer and decimal `Widen`s (decided,
 D16). The new decoding depends on it, because every narrow DBP read on the GPU then has a `Widen`
 MSP, and it adds no stopgap of its own. The GPU still rejects a legacy MSP that is wider than its
-logical dtype.
+logical dtype. #11284 also covers reading legacy `vortex.decimal` nodes on the GPU, which CD6
+leaves as an error (D40).
 
 The compressor has one DBP scheme (decided, D17):
 

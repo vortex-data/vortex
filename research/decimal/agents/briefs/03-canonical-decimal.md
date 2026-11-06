@@ -163,10 +163,9 @@ Tests: None. Benchmarks only.
 Benchmarks:
 
 - In this PR, every case is new, so CodSpeed shows additions only.
-- LT3 reshapes these benches (D42). `sum` and `min_max` run on the MSP, `filter` stops at the DBP
-  array, and `decode` and `canonicalize` become one `canonicalize`, which pays one widening copy
-  for a narrow MSP. Compare cases stay the same, because they run on the MSP.
-  `msp_i64_p18_canonical` stays the same. How the compressed tree decompress changes is open.
+- These benches keep their form through LT3 and CD5 (D42). After LT3, `sum` and `min_max` run on
+  the MSP. After CD5, `decode` pays one widening copy for a narrow MSP and no scan. Compare cases
+  stay the same, because they run on the MSP. `msp_i64_p18_canonical` stays the same.
 - After CD7, these in-memory inputs do not change. The golden snapshot and the optional compress
   case cover the scheme.
 - After CD4, `widen_*` in `cast_decimal.rs` stays similar or gets faster, because the execution of
