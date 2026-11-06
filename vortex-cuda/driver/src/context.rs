@@ -230,6 +230,11 @@ impl CudaContext {
         self.ordinal
     }
 
+    /// The raw device handle.
+    pub fn cu_device(&self) -> sys::CUdevice {
+        self.device
+    }
+
     /// The raw context handle; do not release it.
     pub fn cu_ctx(&self) -> sys::CUcontext {
         self.context
