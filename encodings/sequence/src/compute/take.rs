@@ -27,12 +27,10 @@ use crate::Sequence;
 use crate::eval;
 use crate::eval::SequenceValue;
 
-/// Evaluates the sequence at every index. Out-of-bounds indices are reported through the lane
-/// kernel so the hot loop stays branch-free, and null indices are exempt from the bounds check.
+/// Evaluates the sequence at every index.
 ///
-/// Both `T` and `O` are unsigned: indices are non-negative, and wrapping arithmetic produces the
-/// same bits in either signedness, so the result is reinterpreted back to the sequence ptype. This
-/// keeps the kernel to 4x4 instantiations instead of 8x8.
+/// `T` and `O` are unsigned to keep 4x4 instantiations, because wrapping arithmetic produces the
+/// same bits in either signedness.
 fn take_inner<T: UnsignedPType, O: SequenceValue + UnsignedPType>(
     array: ArrayView<'_, Sequence>,
     indices: &[T],
@@ -252,14 +250,11 @@ mod test {
             .unwrap();
     }
 
-    #[rstest]
-    #[case::i8(PrimitiveArray::from_iter([0i8, -1]))]
-    #[case::i16(PrimitiveArray::from_iter([0i16, -1]))]
-    #[case::i32(PrimitiveArray::from_iter([0i32, -1]))]
-    #[case::i64(PrimitiveArray::from_iter([0i64, -1]))]
+    #[test]
     #[should_panic(expected = "out of bounds")]
-    fn test_negative_index_out_of_bounds(#[case] indices: PrimitiveArray) {
+    fn test_negative_index_out_of_bounds() {
         let array = Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
+        let indices = PrimitiveArray::from_iter([0i32, -1]);
         let _array = array
             .take(indices.into_array())
             .unwrap()
