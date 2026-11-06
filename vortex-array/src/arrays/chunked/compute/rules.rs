@@ -37,9 +37,7 @@ pub(crate) const RULES: ReduceRuleSet<Chunked> =
 /// Pull a common dictionary values array above chunked dictionary codes.
 ///
 /// Rewrites `Chunked<Dict<codes_i, values>>` into `Dict<Chunked<codes_i>, values>` only when
-/// every chunk is a dictionary over the exact same values array allocation. The rewrite depends
-/// on every chunk at once, so it is a rule of the chunked array rather than a parent rule each
-/// chunk evaluates.
+/// every chunk is a dictionary over the exact same values array allocation.
 #[derive(Debug)]
 struct ChunkedDictValuesPullUpRule;
 
