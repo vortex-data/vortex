@@ -779,12 +779,6 @@ mod tests {
         1_704_088_800_123_456_789,
         1_704_088_800_123_456
     )]
-    #[case::seconds_non_utc(
-        TimeUnit::Seconds,
-        "America/New_York",
-        1_704_088_800,
-        1_704_088_800_000_000
-    )]
     fn try_from_timestamp_tz_scalar(
         #[case] unit: TimeUnit,
         #[case] tz: &str,

@@ -21,6 +21,7 @@
 //! ("Codec diagnostic").
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -29,11 +30,16 @@ use anyhow::bail;
 use clap::ValueEnum;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use parquet::arrow::ArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
+use parquet::arrow::async_reader;
+use parquet::basic::Compression;
+use parquet::basic::ZstdLevel;
+use parquet::file::properties::WriterProperties;
 use tokio::fs::File;
+use url::Url;
 use vortex::VortexSessionDefault;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
@@ -50,13 +56,16 @@ use vortex_bench::IdempotentPath;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::datasets::data_downloads::download_data;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
+use vortex_bench::idempotent_async;
+use vortex_cloud::hf::make_hf_store_from_url;
 use vortex_fsst::FSST;
 use vortex_onpair::Config;
+use vortex_onpair::DEFAULT_CONFIG;
+use vortex_onpair::MaxDictBits;
 use vortex_onpair::OnPair;
 
 mod codec;
 pub use codec::ColumnResult;
-pub use codec::DirectCandidate;
 pub use codec::bench_column;
 
 const CLICKBENCH_SHARD_COUNT: u32 = 100;
@@ -115,6 +124,52 @@ impl StringEncoder {
 impl std::fmt::Display for StringEncoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.label())
+    }
+}
+
+/// A fully configured encoder candidate, run by both suites: an encoder family
+/// plus the fixed configuration that path needs.
+pub enum Candidate {
+    /// OnPair with a deterministic config, whose dictionary budget is the only
+    /// thing the benchmark varies.
+    OnPair(Config),
+    /// FSST (no configuration).
+    Fsst,
+}
+
+impl Candidate {
+    /// OnPair with a dictionary budget of up to `2^max_dict_bits` tokens,
+    /// reusing every other default. `max_dict_bits` must be in `9..=16`; OnPair
+    /// stores codes as `u16`, so all of those fit.
+    pub fn on_pair(max_dict_bits: u8) -> Result<Self> {
+        let max_dict_bits = MaxDictBits::new(max_dict_bits).map_err(|e| {
+            anyhow::anyhow!(
+                "invalid maximum dictionary bit width {max_dict_bits} (want 9..=16): {e}"
+            )
+        })?;
+        Ok(Self::OnPair(Config {
+            max_dict_bits,
+            ..DEFAULT_CONFIG
+        }))
+    }
+
+    /// The encoder family, for the post-compression type check.
+    pub fn family(&self) -> StringEncoder {
+        match self {
+            Self::OnPair(_) => StringEncoder::OnPair,
+            Self::Fsst => StringEncoder::Fsst,
+        }
+    }
+
+    /// Stable label used in benchmark output, e.g. `onpair-12` or `fsst`.
+    /// Changing a candidate's config renames its metrics and so restarts their
+    /// benchmark history, which is intended: neither size nor speed is
+    /// comparable across dictionary budgets.
+    pub fn label(&self) -> String {
+        match self {
+            Self::OnPair(config) => onpair_label(config),
+            Self::Fsst => StringEncoder::Fsst.label().to_string(),
+        }
     }
 }
 
@@ -194,11 +249,7 @@ pub(crate) fn prepare_column(
     // Use an aggressively compacted array so the baseline cannot include
     // retained backing-buffer regions that the compressors never see.
     let canonical = canonical.compact_with_threshold(1.0, ctx)?;
-    let uncompressed_bytes = u64::try_from(uncompressed_size_in_bytes(
-        canonical.as_ref(),
-        UncompressedSizeOpts::exact(),
-        ctx,
-    )?)?;
+    let uncompressed_bytes = u64::try_from(uncompressed_size_in_bytes(canonical.as_ref(), ctx)?)?;
     if uncompressed_bytes == 0 {
         bail!("column {} has zero uncompressed bytes", column.name);
     }
@@ -289,6 +340,121 @@ pub async fn load_tpch_l_comment(ctx: &mut ExecutionCtx) -> Result<StringColumn>
         name: "tpch/l_comment".to_string(),
         array: to_utf8_column(struct_array, "l_comment", ctx)?,
     })
+}
+
+/// One Utf8 column of a public parquet file on the Hugging Face Hub.
+pub struct HfColumn {
+    /// Output name used in measurement names and matched by `--columns`.
+    pub name: &'static str,
+    /// `hf://` URL of the parquet file, pinned to a commit or tag so the input
+    /// cannot change under the benchmark history.
+    pub url: &'static str,
+    /// Column to read.
+    pub column: &'static str,
+    /// Keep only the first `max_rows` rows. The file is read with range
+    /// requests, so a prefix of a large file fetches only the row groups it
+    /// needs.
+    pub max_rows: Option<usize>,
+}
+
+/// The datasets the OnPair paper (Gargiulo & Venturini, "OnPair: Short Strings
+/// Compression for Fast Random Access", arXiv:2508.02280) evaluates on, from
+/// public parquet mirrors, plus a slice of FineWeb as long-document web text.
+///
+/// The paper's fifth dataset, OpenWebText URLs, has no parquet mirror; the
+/// ClickBench `URL` column covers that shape.
+pub const HF_COLUMNS: &[HfColumn] = &[
+    // Amazon Reviews 2023 (Hou et al. 2024), Books. The paper takes the first
+    // 500 MiB of reviews; 200k reviews is about 80 MiB.
+    HfColumn {
+        name: "amazon/book_reviews",
+        url: "hf://datasets/cogsci13/Amazon-Reviews-2023-Books-Review@df2faf70120558bddedb83c4d798385e5036b821/data/full-00000-of-00033.parquet",
+        column: "text",
+        max_rows: Some(200_000),
+    },
+    // Amazon Reviews 2023, Books item titles: the first of 28 metadata shards.
+    HfColumn {
+        name: "amazon/book_titles",
+        url: "hf://datasets/cogsci13/Amazon-Reviews-2023-Books-Meta@35db8e29f8681b8694da79558a5b86a381e6e260/data/full-00000-of-00028.parquet",
+        column: "title",
+        max_rows: None,
+    },
+    // "A Million News Headlines" (ABC News), the whole dataset.
+    HfColumn {
+        name: "news/headlines",
+        url: "hf://datasets/rajistics/million-headlines@refs%2Fconvert%2Fparquet/default/train/0000.parquet",
+        column: "headline_text",
+        max_rows: None,
+    },
+    // Sentiment140 tweets: the 1.36M-row train split of the 1.6M tweets.
+    HfColumn {
+        name: "twitter/sentiment140",
+        url: "hf://datasets/adilbekovich/Sentiment140Twitter@refs%2Fconvert%2Fparquet/default/train/0000.parquet",
+        column: "text",
+        max_rows: None,
+    },
+    // FineWeb document text: the first 10k documents (about 30 MiB) of the
+    // shard the FineWeb query benchmark uses.
+    HfColumn {
+        name: "fineweb/text",
+        url: "hf://datasets/HuggingFaceFW/fineweb@v1.4.0/sample/10BT/001_00000.parquet",
+        column: "text",
+        max_rows: Some(10_000),
+    },
+];
+
+/// Reader for a remote parquet file, used only to fill the local input cache.
+#[expect(
+    deprecated,
+    reason = "arrow-rs deprecated this in favour of a hand-rolled AsyncFileReader; a one-time, \
+        untimed input download does not need one (arrow-rs#10308)"
+)]
+type ObjectReader = async_reader::ParquetObjectReader;
+
+/// Load one Hugging Face column, fetching and caching it locally first if it
+/// is not already present.
+pub async fn load_hf_column(source: &HfColumn, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
+    let path = cache_hf_column(source).await?;
+    let struct_array = read_parquet_projected(path, source.column).await?;
+    Ok(StringColumn {
+        name: source.name.to_string(),
+        array: to_utf8_column(struct_array, source.column, ctx)?,
+    })
+}
+
+/// Read `source`'s rows over HTTP and cache just that column as a local
+/// zstd-compressed parquet file under `vortex-bench/data/string-bench/`.
+///
+/// The cache file is named after the column, so changing a source's URL or row
+/// cap needs the stale file deleted.
+async fn cache_hf_column(source: &HfColumn) -> Result<PathBuf> {
+    let cache_path = format!("string-bench/{}.parquet", source.name.replace('/', "_"));
+    idempotent_async(cache_path, |tmp| async move {
+        let (store, path) = make_hf_store_from_url(&Url::parse(source.url)?)?;
+        let builder = ParquetRecordBatchStreamBuilder::new(ObjectReader::new(store, path)).await?;
+        let col_idx = builder.schema().index_of(source.column)?;
+        let mask = ProjectionMask::roots(builder.parquet_schema(), [col_idx]);
+        let mut builder = builder.with_projection(mask);
+        if let Some(max_rows) = source.max_rows {
+            builder = builder.with_limit(max_rows);
+        }
+        let mut reader = builder.build()?;
+
+        let props = WriterProperties::builder()
+            .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
+            .build();
+        let mut writer = ArrowWriter::try_new(
+            std::fs::File::create(&tmp)?,
+            Arc::clone(reader.schema()),
+            Some(props),
+        )?;
+        while let Some(batch) = reader.try_next().await? {
+            writer.write(&batch)?;
+        }
+        writer.close()?;
+        Ok(())
+    })
+    .await
 }
 
 /// Read a single column from a parquet file (projected at the parquet level to

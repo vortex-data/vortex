@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import { TreePanel } from './TreePanel';
 import { SwimlaneOverview } from '../swimlane/SwimlaneOverview';
 import { DataPreview } from './DataPreview';
@@ -9,88 +9,96 @@ import { DetailPanel } from '../detail/DetailPanel';
 import { SummarySidebar } from '../detail/SummarySidebar';
 
 const MIN_PANEL_HEIGHT = 120;
-const DEFAULT_PREVIEW_HEIGHT = 200;
+const DEFAULT_PREVIEW_HEIGHT = 240;
+const KEY_STEP = 24;
 
 export type MainView = 'details' | 'swimlane';
 
 /**
- * Main explorer area: tree panel (left) | the active main view (details or
- * swimlane, chosen in the top header) over a resizable data preview (right). The
- * tree stays put as column navigation while the header tabs switch the view.
- *
- * The preview panel at the bottom is vertically resizable via a drag handle.
+ * The work area: the layout tree (Details view only), then the active view and the summary over
+ * the data preview. The handle between them sets the preview's height, by drag or with the arrow
+ * keys.
  */
 export function MainArea({ view }: { view: MainView }) {
   const [previewHeight, setPreviewHeight] = useState(DEFAULT_PREVIEW_HEIGHT);
   const dragging = useRef(false);
   const startY = useRef(0);
   const startHeight = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  // The view and the preview share the room the other rows leave (the handle, and below 1100px
+  // the summary), so the preview grows only until the view is down to its minimum.
+  const clamp = useCallback((h: number) => {
+    const view = mainRef.current?.firstElementChild;
+    const preview = mainRef.current?.lastElementChild;
+    const shared =
+      view && preview
+        ? view.getBoundingClientRect().height + preview.getBoundingClientRect().height
+        : 600;
+    const max = Math.max(MIN_PANEL_HEIGHT, shared - MIN_PANEL_HEIGHT);
+    return Math.round(Math.min(max, Math.max(MIN_PANEL_HEIGHT, h)));
+  }, []);
 
   const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
+    (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       dragging.current = true;
       startY.current = e.clientY;
       startHeight.current = previewHeight;
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
     },
     [previewHeight],
   );
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const containerHeight = containerRef.current?.clientHeight ?? 600;
-    const maxPreview = containerHeight - MIN_PANEL_HEIGHT;
-    const delta = startY.current - e.clientY;
-    const next = Math.min(maxPreview, Math.max(MIN_PANEL_HEIGHT, startHeight.current + delta));
-    setPreviewHeight(next);
-  }, []);
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragging.current) return;
+      setPreviewHeight(clamp(startHeight.current + startY.current - e.clientY));
+    },
+    [clamp],
+  );
 
   const onPointerUp = useCallback(() => {
     dragging.current = false;
   }, []);
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = { ArrowUp: KEY_STEP, ArrowDown: -KEY_STEP }[e.key];
+      if (step === undefined) return;
+      e.preventDefault();
+      setPreviewHeight((h) => clamp(h + step));
+    },
+    [clamp],
+  );
+
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Left: tree panel — column navigation paired with the details view. The
-          swimlane view hides it so the byte-bars get the full width. */}
-      {view === 'details' && (
-        <div className="w-[260px] flex-shrink-0 h-full overflow-hidden">
-          <TreePanel />
-        </div>
-      )}
-
-      {/* Right: active main view over the resizable data preview */}
-      <div ref={containerRef} className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Active view — fills available vertical space, scrolls internally. The
-            swimlane keeps the summary sidebar alongside it, like the details view. */}
-        <div className="flex-1 min-h-0 flex overflow-hidden">
-          {view === 'details' ? (
-            <DetailPanel />
-          ) : (
-            <>
-              <div className="flex-1 min-w-0 flex flex-col">
-                <SwimlaneOverview />
-              </div>
-              <SummarySidebar />
-            </>
-          )}
-        </div>
-
-        {/* Resize handle */}
+    <main className={`x-work${view === 'details' ? '' : ' is-wide'}`}>
+      {view === 'details' && <TreePanel />}
+      <div
+        ref={mainRef}
+        className="x-main"
+        style={{ '--x-preview-height': `${previewHeight}px` } as CSSProperties}
+      >
+        {view === 'details' ? <DetailPanel /> : <SwimlaneOverview />}
+        <SummarySidebar />
+        {/* A window splitter: the focusable separator pattern of WAI-ARIA. */}
+        {/* biome-ignore lint/a11y/useSemanticElements: an hr cannot take focus or a drag. */}
         <div
-          className="flex-shrink-0 h-1 cursor-row-resize border-t border-vortex-grey-light/40 dark:border-white/[0.06] hover:bg-vortex-light-blue/20 active:bg-vortex-light-blue/30 transition-colors"
+          className="x-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Preview height"
+          aria-valuenow={previewHeight}
+          aria-valuemin={MIN_PANEL_HEIGHT}
+          tabIndex={0}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onKeyDown={onKeyDown}
         />
-
-        {/* Data preview — resizable bottom section */}
-        <div className="flex-shrink-0 overflow-hidden" style={{ height: previewHeight }}>
-          <DataPreview />
-        </div>
+        <DataPreview />
       </div>
-    </div>
+    </main>
   );
 }

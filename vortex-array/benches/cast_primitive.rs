@@ -20,6 +20,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -49,6 +50,8 @@ fn cast_u16_to_u32(bencher: Bencher, n: usize) {
         rng.random_bool(0.5).then_some(i as u16)
     }))
     .into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+
     // Pre-compute min/max so values_fit_in is a cache hit during the benchmark.
     arr.statistics()
         .compute_all(&[Stat::Min, Stat::Max], &mut SESSION.create_execution_ctx())
@@ -72,6 +75,8 @@ fn cast_u32_to_u8(bencher: Bencher, n: usize) {
             .then(|| rng.random_range(0..u8::MAX) as u32)
     }))
     .into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
@@ -81,17 +86,27 @@ fn cast_u32_to_u8(bencher: Bencher, n: usize) {
         });
 }
 
-/// Sign-change cast i32 → u32. Values are non-negative so the kernel succeeds
-/// but still pays the per-lane `try_from` check.
+/// Sign-change cast i32 -> u32. Values are non-negative so min/max range scan proves
+/// they fit and cast reinterprets the buffer in O(1)
 #[divan::bench(args = SIZES)]
 fn cast_i32_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
-    let arr = PrimitiveArray::from_option_iter(
+    let parts = PrimitiveArray::from_option_iter(
         (0..n).map(|_| rng.random_bool(0.7).then(|| rng.random_range(0..i32::MAX))),
     )
-    .into_array();
+    .into_data_parts();
     bencher
-        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .with_inputs(|| {
+            let array = PrimitiveArray::from_buffer_handle(
+                parts.buffer.clone(),
+                parts.ptype,
+                parts.validity.clone(),
+            )
+            .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
+        })
         .bench_refs(|(a, ctx)| {
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
                 .unwrap()
@@ -105,6 +120,8 @@ fn cast_i32_to_u32(bencher: Bencher, n: usize) {
 fn cast_i64_to_decimal38_scale2(bencher: Bencher, n: usize) {
     let arr =
         PrimitiveArray::from_iter((0..n).map(|value| i64::try_from(value).unwrap())).into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
@@ -122,6 +139,8 @@ fn cast_i64_to_decimal38_scale2(bencher: Bencher, n: usize) {
 fn cast_i32_to_decimal9_scale2(bencher: Bencher, n: usize) {
     let arr =
         PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {
@@ -139,6 +158,8 @@ fn cast_i32_to_decimal9_scale2(bencher: Bencher, n: usize) {
 fn cast_i32_to_decimal9_scale0(bencher: Bencher, n: usize) {
     let arr =
         PrimitiveArray::from_iter((0..n).map(|value| i32::try_from(value).unwrap())).into_array();
+    mark_optimized(&arr, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| {

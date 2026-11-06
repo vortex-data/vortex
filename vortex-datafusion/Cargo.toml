@@ -48,6 +48,8 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-json = { workspace = true }
+vortex-tensor = { workspace = true }
 
 [lints]
 workspace = true

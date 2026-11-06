@@ -183,7 +183,16 @@ fn create_from_fields(
             let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
             for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
                 let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
-                let arrow_array = exporter.execute_arrow(vx_field.clone(), None, ctx)?;
+
+                // A child with an Arrow extension name exports to its inferred field. With `None`,
+                // the export would fail for a type without an Arrow plugin, because an export
+                // without a target has no field to hold its extension metadata. Other children keep
+                // `None`, so that their Arrow type still follows their encoding.
+                let target = inferred
+                    .extension_type_name()
+                    .is_some()
+                    .then_some(&inferred);
+                let arrow_array = exporter.execute_arrow(vx_field.clone(), target, ctx)?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(

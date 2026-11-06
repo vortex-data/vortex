@@ -14,6 +14,7 @@ use vortex_cub::scan::cudaStream_t;
 use vortex_cuda_driver::CudaSlice;
 use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::SyncOnDrop;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
@@ -47,11 +48,17 @@ pub(crate) fn onpair_batch_offsets(
     let total_tokens = u64::try_from(num_tokens)?;
     let stream = ctx.stream();
     let stream_ptr = stream.cu_stream() as cudaStream_t;
-    let (status_ptr, record_status) = status.device_ptr_mut(stream);
-    let (offsets_ptr, record_offsets) = chunk_offsets.device_ptr_mut(stream);
-    let (temp_ptr, record_temp) = temp.device_ptr_mut(stream);
+    let (status_ptr, record_status) = status
+        .device_ptr_mut(stream)
+        .map_err(|err| vortex_err!("CUB onpair status pointer: {err}"))?;
+    let (offsets_ptr, record_offsets) = chunk_offsets
+        .device_ptr_mut(stream)
+        .map_err(|err| vortex_err!("CUB onpair offsets pointer: {err}"))?;
+    let (temp_ptr, record_temp) = temp
+        .device_ptr_mut(stream)
+        .map_err(|err| vortex_err!("CUB onpair temporary buffer pointer: {err}"))?;
 
-    ctx.launch_external(num_tokens, || unsafe {
+    let launch_result = ctx.launch_external(num_tokens, || unsafe {
         onpair::batch_offsets(
             temp_ptr as *mut c_void,
             temp_bytes,
@@ -66,8 +73,15 @@ pub(crate) fn onpair_batch_offsets(
             stream_ptr,
         )
         .map_err(|err| vortex_err!("CUB onpair_batch_offsets failed: {err}"))
+    });
+    let finish_result = SyncOnDrop::finish_all([record_status, record_offsets, record_temp])
+        .map_err(|err| vortex_err!("CUB onpair buffer tracking: {err}"));
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB onpair buffers after launch failure");
+        }
     })?;
-    drop((record_status, record_offsets, record_temp));
+    finish_result?;
 
     Ok(chunk_offsets)
 }
@@ -85,11 +99,17 @@ pub(crate) fn exclusive_sum_i32(
     let mut output = ctx.device_alloc::<i32>(len)?;
     let stream = ctx.stream();
     let stream_ptr = stream.cu_stream() as cudaStream_t;
-    let (input_ptr, record_input) = input.device_ptr(stream);
-    let (output_ptr, record_output) = output.device_ptr_mut(stream);
-    let (temp_ptr, record_temp) = temp.device_ptr_mut(stream);
+    let (input_ptr, record_input) = input
+        .device_ptr(stream)
+        .map_err(|err| vortex_err!("CUB exclusive sum input pointer: {err}"))?;
+    let (output_ptr, record_output) = output
+        .device_ptr_mut(stream)
+        .map_err(|err| vortex_err!("CUB exclusive sum output pointer: {err}"))?;
+    let (temp_ptr, record_temp) = temp
+        .device_ptr_mut(stream)
+        .map_err(|err| vortex_err!("CUB exclusive sum temporary buffer pointer: {err}"))?;
 
-    ctx.launch_external(len, || unsafe {
+    let launch_result = ctx.launch_external(len, || unsafe {
         scan::exclusive_sum_i32(
             temp_ptr as *mut c_void,
             temp_bytes,
@@ -99,8 +119,15 @@ pub(crate) fn exclusive_sum_i32(
             stream_ptr,
         )
         .map_err(|err| vortex_err!("CUB scan_exclusive_sum_i32 failed: {err}"))
+    });
+    let finish_result = SyncOnDrop::finish_all([record_input, record_output, record_temp])
+        .map_err(|err| vortex_err!("CUB exclusive sum buffer tracking: {err}"));
+    launch_result.inspect_err(|_| {
+        if let Err(error) = &finish_result {
+            tracing::error!(%error, "Failed to track CUB exclusive sum buffers after launch failure");
+        }
     })?;
-    drop((record_input, record_output, record_temp));
+    finish_result?;
 
     Ok(output)
 }

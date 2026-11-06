@@ -24,11 +24,12 @@ mod tests {
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::Widen;
     use vortex_array::arrays::decimal::DecimalArrayExt;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::arrays::widen::WidenArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::BigCast;
-    use vortex_array::dtype::DecimalType;
     use vortex_array::match_each_decimal_value_type;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -83,8 +84,7 @@ mod tests {
                 let Some(decimal) = node.as_opt::<Decimal>() else {
                     continue;
                 };
-                let canonical_type =
-                    DecimalType::smallest_decimal_value_type(&decimal.decimal_dtype());
+                let canonical_type = decimal.decimal_dtype().canonical_values_type();
                 assert_eq!(
                     decimal.values_type(),
                     canonical_type,
@@ -99,10 +99,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_decimal_fixtures_keep_stored_widths() -> VortexResult<()> {
+    fn legacy_decimal_fixtures_read_canonical_or_widen() -> VortexResult<()> {
         for fixture in legacy_decimal_fixtures() {
             let mut ctx = SESSION.create_execution_ctx();
             let written = fixture.build_written(&mut ctx)?;
+            let expected = fixture.build(&mut ctx)?.execute::<StructArray>(&mut ctx)?;
             let bytes = adapter::write_file_to_bytes(written.clone())?;
             let read_back = adapter::read_file(bytes)?.execute::<StructArray>(&mut ctx)?;
             let written = written.as_::<Struct>();
@@ -120,8 +121,7 @@ mod tests {
                     column.name.contains(&spec_name),
                     "{context}: the name must contain {spec_name}",
                 );
-                let canonical_type =
-                    DecimalType::smallest_decimal_value_type(&column.decimal_dtype);
+                let canonical_type = column.decimal_dtype.canonical_values_type();
                 assert_eq!(
                     column.stored_type == canonical_type,
                     column.name.starts_with("canonical_"),
@@ -136,19 +136,35 @@ mod tests {
                     "{context}",
                 );
 
-                let read_field = read_back
-                    .unmasked_field_by_name(column.name)?
-                    .clone()
-                    .execute::<DecimalArray>(&mut ctx)?;
+                // The `WidenArray::from_stored_decimal` tests pin the child precision, so this
+                // checks only that every leaf is canonical.
+                let read_field = read_back.unmasked_field_by_name(column.name)?;
+                let leaf = match read_field.as_opt::<Widen>() {
+                    Some(widen) => widen.values().clone(),
+                    None => read_field.clone(),
+                };
+                let leaf = leaf.as_::<Decimal>();
+                let read_context = format!("{context} after a file round trip");
                 assert_eq!(
-                    read_field.values_type(),
-                    column.stored_type,
-                    "{context} after a file round trip",
+                    leaf.values_type(),
+                    leaf.decimal_dtype().canonical_values_type(),
+                    "{read_context}",
                 );
-                assert_eq!(
-                    raw_slots(&read_field),
-                    column.slots,
-                    "{context} after a file round trip",
+
+                // A column at the canonical width reads as it was written, with its raw slots.
+                if column.stored_type == canonical_type {
+                    assert!(!read_field.is::<Widen>(), "{read_context}");
+                    assert_eq!(
+                        raw_slots(&leaf.into_owned()),
+                        column.slots,
+                        "{read_context}"
+                    );
+                }
+
+                assert_arrays_eq!(
+                    read_field,
+                    expected.unmasked_field_by_name(column.name)?,
+                    &mut ctx
                 );
             }
         }

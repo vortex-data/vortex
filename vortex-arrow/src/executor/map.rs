@@ -15,6 +15,7 @@ use vortex_array::arrays::Map;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::map::MapArrayExt;
 use vortex_array::arrays::map::MapArraySlotsExt;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -34,6 +35,12 @@ pub(super) fn to_arrow_map(
     exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Map(..)),
+        "Arrow map export requires a map dtype, got {}",
+        array.dtype()
+    );
+
     let array = match array.try_downcast::<Map>() {
         Ok(map) => map,
         Err(array) => array.execute::<MapArray>(ctx)?,
@@ -92,6 +99,7 @@ mod tests {
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::Map as VortexMap;
     use vortex_array::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::arrays::map::MapArraySlotsExt;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::MapBuilder;
@@ -354,14 +362,14 @@ mod tests {
         let entries = map.entries().as_::<ListView>();
         assert!(entries.is_zero_copy_to_list());
         let mut ctx = vortex_session.create_execution_ctx();
-        assert_eq!(entries.offset_at(0, &mut ctx), 1);
-        assert_eq!(entries.offset_at(1, &mut ctx), 3);
+        assert_eq!(entries.offset_at(0, &mut ctx), 0);
+        assert_eq!(entries.offset_at(1, &mut ctx), 2);
 
         Ok(())
     }
 
     #[test]
-    fn sliced_arrow_map_import_preserves_nonzero_offsets() -> VortexResult<()> {
+    fn sliced_arrow_map_import_trims_entries_and_rebases_offsets() -> VortexResult<()> {
         let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
@@ -379,15 +387,17 @@ mod tests {
         let vortex = session.from_arrow_array(sliced, &field)?;
         let map = vortex.as_::<VortexMap>();
         let entries = map.entries().as_::<ListView>();
-        assert_eq!(entries.offset_at(0, &mut ctx), 1);
-        assert_eq!(entries.offset_at(1, &mut ctx), 3);
+        assert_eq!(entries.offset_at(0, &mut ctx), 0);
+        assert_eq!(entries.offset_at(1, &mut ctx), 2);
         assert_eq!(entries.size_at(0, &mut ctx), 2);
         assert_eq!(entries.size_at(1, &mut ctx), 1);
+        assert_eq!(entries.elements().len(), 3);
 
         let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
         let map = exported.as_map();
 
-        assert_eq!(map.value_offsets(), &[1, 3, 4]);
+        assert_eq!(map.value_offsets(), &[0, 2, 3]);
+        assert_eq!(map.entries().len(), 3);
         assert_eq!(
             map.value(0)
                 .column(0)

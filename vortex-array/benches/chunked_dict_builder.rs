@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -14,6 +16,7 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -41,7 +44,7 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 1000, 20),
 ];
 
-#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+#[divan::bench(types = [u32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_canonical_into<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -49,6 +52,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
     StandardUniform: Distribution<T>,
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
@@ -62,7 +66,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
         })
 }
 
-#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+#[divan::bench(types = [u32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -70,6 +74,7 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
     StandardUniform: Distribution<T>,
 {
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (chunk.clone(), SESSION.create_execution_ctx()))

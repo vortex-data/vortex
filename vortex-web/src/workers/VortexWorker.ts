@@ -24,7 +24,7 @@ interface PendingRequest<T = unknown> {
 /** Typed async wrapper around the Vortex WASM Web Worker. */
 export class VortexWorker {
   private worker: Worker;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: requests with different result types share one map.
   private pending = new Map<number, PendingRequest<any>>();
   private nextId = 0;
 

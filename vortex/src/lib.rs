@@ -295,7 +295,7 @@ pub mod encodings {
 
     /// Arrow-compatible run-end encoding.
     pub mod runend {
-        pub use vortex_runend::*;
+        pub use vortex_array::arrays::runend::*;
     }
 
     /// Fixed-step sequence encoding.

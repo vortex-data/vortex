@@ -33,6 +33,9 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
+use crate::plan::physical::ListPackPlan;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::segments::SegmentSource;
 
 /// Child index of the elements layout.
@@ -162,6 +165,20 @@ impl VTable for List {
             ctx,
         )?))
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        // SAFETY: List layout construction validates its element, offsets, and optional validity
+        // child shapes. Its slots are `[elements, offsets, validity]`, which are the ListPack
+        // slots.
+        let plan = unsafe {
+            ListPackPlan::from_slots_unchecked(
+                layout.dtype().clone(),
+                layout.row_count(),
+                PlanSlots::from_layout(&layout.to_layout()),
+            )
+        };
+        Ok(plan.into_plan())
+    }
 }
 
 impl Layout<List> {
@@ -261,7 +278,8 @@ mod tests {
     use super::List;
     use super::ListLayoutMetadata;
     use crate::LayoutBuildContext;
-    use crate::LayoutVTablePlugin;
+    use crate::LayoutDeserialization;
+    use crate::LayoutPlugin;
     use crate::layout_children;
     use crate::test::SESSION;
 
@@ -278,13 +296,16 @@ mod tests {
             session: &SESSION,
             array_read_ctx: &read_ctx,
         };
-        let result = LayoutVTablePlugin::build(
+        let result = LayoutPlugin::deserialize(
             &List,
-            &dtype,
-            0,
-            &metadata,
-            vec![],
-            children.as_ref(),
+            LayoutDeserialization {
+                serialized_id: LayoutPlugin::id(&List),
+                dtype: &dtype,
+                row_count: 0,
+                metadata: &metadata,
+                segment_ids: vec![],
+                children: children.as_ref(),
+            },
             &build_ctx,
         );
         assert!(result.is_err_and(|err| {

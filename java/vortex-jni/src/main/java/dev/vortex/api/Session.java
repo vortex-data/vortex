@@ -30,6 +30,16 @@ public final class Session {
         return new Session(NativeSession.newSession());
     }
 
+    /**
+     * Enable the edition with the name {@code edition}, for example {@code core2025.10.0}. The edition replaces the
+     * enabled edition of the same family. Only writers that start after this call use it.
+     *
+     * <p>Select an older edition to write files that older Vortex readers can read.
+     */
+    public void enableEdition(String edition) {
+        NativeSession.enableEdition(pointer, edition);
+    }
+
     /** Internal: returns the native pointer. Do not free directly. */
     public long nativePointer() {
         return pointer;

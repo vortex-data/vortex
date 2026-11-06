@@ -15,7 +15,7 @@ from ._lib.arrays import (
     ChunkedArray,
     ConstantArray,
     DateTimePartsArray,
-    # DecimalArray # TODO(connor): Is this missing a `DecimalArray`?
+    DecimalArray,
     DictArray,
     ExtensionArray,
     FastLanesBitPackedArray,
@@ -71,7 +71,7 @@ from ._lib.runtime import (
 from ._lib.scalar import (
     BinaryScalar,
     BoolScalar,
-    # TODO(connor): Is this missing a `DecimalScalar`?
+    DecimalScalar,
     ExtensionScalar,
     ListScalar,
     NullScalar,
@@ -182,6 +182,7 @@ __all__ = [
     "BoolArray",
     "ByteBoolArray",
     "PrimitiveArray",
+    "DecimalArray",
     "VarBinArray",
     "VarBinViewArray",
     "StructArray",
@@ -206,6 +207,7 @@ __all__ = [
     "NullScalar",
     "BoolScalar",
     "PrimitiveScalar",
+    "DecimalScalar",
     "Utf8Scalar",
     "BinaryScalar",
     "StructScalar",

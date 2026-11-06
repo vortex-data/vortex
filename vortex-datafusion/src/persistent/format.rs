@@ -686,10 +686,6 @@ impl FileFormat for VortexFormat {
                 }
                 let stats_set = &stats_set;
 
-                // Update the total size in bytes.
-                let column_size =
-                    stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
                 let nan_free = is_nan_free(stats_set, stats_dtype);
                 let bound = |stat| {
                     if nan_free {
@@ -713,13 +709,10 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count,
-                    byte_size: column_size.to_df(),
+                    // See `stats_set_to_df` for why the uncompressed size is not reported.
+                    byte_size: DFPrecision::Absent,
                 })
             }
-
-            let total_byte_size = column_statistics
-                .iter()
-                .fold(DFPrecision::Exact(0), |acc, cs| acc.add(&cs.byte_size));
 
             Ok(Statistics {
                 num_rows: DFPrecision::Exact(
@@ -727,7 +720,7 @@ impl FileFormat for VortexFormat {
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),
-                total_byte_size,
+                total_byte_size: DFPrecision::Absent,
                 column_statistics,
             })
         })

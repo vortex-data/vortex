@@ -7,11 +7,12 @@ concurrency:
 on:
   pull_request:
     # Trigger on these PR activities
-    types: [opened, reopened, synchronize, labeled, unlabeled]
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
 
 jobs:
   check_changelog_label:
     name: Validate Changelog Label
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

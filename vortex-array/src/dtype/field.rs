@@ -24,8 +24,6 @@ use crate::dtype::FieldName;
 pub enum Field {
     /// Address a field of a [`crate::dtype::DType::Struct`].
     Name(FieldName),
-    // TODO(connor)[FixedSizeList]: Actually make use of this variant after `FixedSizeList` is
-    // implemented.
     /// Address the element type of a [`crate::dtype::DType::List`] or [`crate::dtype::DType::FixedSizeList`].
     ElementType,
 }
@@ -190,7 +188,8 @@ impl FieldPath {
         for field in &self.0 {
             dtype = match (dtype, field) {
                 (DType::Struct(fields, _), Field::Name(name)) => fields.field(name)?,
-                (DType::List(element_dtype, _), Field::ElementType) => {
+                (DType::List(element_dtype, _), Field::ElementType)
+                | (DType::FixedSizeList(element_dtype, ..), Field::ElementType) => {
                     element_dtype.as_ref().clone()
                 }
                 (..) => return None,
@@ -309,6 +308,8 @@ impl IntoIterator for FieldPathSet {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::Nullability::*;
@@ -413,6 +414,34 @@ mod tests {
         let path = FieldPath::root().push("a").push("b").push("c");
         assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists_in(level1));
+    }
+
+    #[test]
+    fn nested_field_fixed_size_list() {
+        let dtype = DType::struct_(
+            [(
+                "a",
+                DType::FixedSizeList(
+                    Arc::new(DType::struct_(
+                        [("b", DType::Primitive(PType::F32, NonNullable))],
+                        NonNullable,
+                    )),
+                    4,
+                    Nullable,
+                ),
+            )],
+            NonNullable,
+        );
+
+        let path = FieldPath::from_name("a").push(Field::ElementType).push("b");
+        assert_eq!(
+            path.resolve(dtype.clone()),
+            Some(DType::Primitive(PType::F32, NonNullable))
+        );
+        assert!(path.exists_in(dtype.clone()));
+
+        let path = FieldPath::from_name("a").push("b");
+        assert!(path.resolve(dtype).is_none());
     }
 
     #[test]

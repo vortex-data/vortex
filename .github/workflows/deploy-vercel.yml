@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Deploys a static site that an earlier job built and uploaded as an artifact.
+# The artifact becomes the static half of a Vercel Build Output API directory,
+# the caller's checked-in config.json supplies routes and headers, and the
+# pinned CLI in .github/vercel-cli uploads it with `vercel deploy --prebuilt`.
+# Nothing is built here, so the token is only ever used by the upload step.
+#
+# The GitHub environment named by `environment` holds the target project:
+# VERCEL_ORG_ID and VERCEL_PROJECT_ID as variables, and VERCEL_TOKEN as a
+# secret. Each token is scoped to its own Vercel project.
+
+name: Deploy to Vercel
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment that holds the Vercel project and token.
+        type: string
+        required: true
+      artifact-name:
+        description: Name of the artifact to deploy. Set this or artifact-ids.
+        type: string
+        default: ""
+      artifact-ids:
+        description: IDs of the artifacts to deploy. Set this or artifact-name.
+        type: string
+        default: ""
+      config:
+        description: Repository path to the Build Output API config.json.
+        type: string
+        required: true
+      pages-html-handling:
+        description: Serve HTML at the URLs Cloudflare Pages used (see .github/vercel-cli/pages-html-routes.py).
+        type: boolean
+        default: false
+      production:
+        description: Deploy to production instead of a preview.
+        type: boolean
+        default: false
+    outputs:
+      url:
+        description: URL of the new deployment.
+        value: ${{ jobs.deploy.outputs.url }}
+
+permissions: { }
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # One production deploy per project at a time, so the check of the live
+    # production commit in the Deploy step cannot race. Previews never wait.
+    concurrency:
+      group: deploy-vercel-${{ inputs.environment }}-${{ inputs.production && 'production' || github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: write
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Check inputs
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          ARTIFACT_IDS: ${{ inputs.artifact-ids }}
+        run: |
+          # download-artifact fetches every artifact in the run when given
+          # neither input, so require exactly one.
+          if [ -n "$ARTIFACT_NAME" ] && [ -n "$ARTIFACT_IDS" ] ||
+             [ -z "$ARTIFACT_NAME$ARTIFACT_IDS" ]; then
+            echo "::error::Set exactly one of artifact-name and artifact-ids."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/vercel-cli
+            ${{ inputs.config }}
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: .github/vercel-cli/package-lock.json
+      - name: Install Vercel CLI
+        working-directory: .github/vercel-cli
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Download site
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          artifact-ids: ${{ inputs.artifact-ids }}
+          path: ${{ runner.temp }}/site/.vercel/output/static
+          merge-multiple: true
+      - name: Add routes and headers
+        env:
+          CONFIG: ${{ inputs.config }}
+        run: cp "$CONFIG" "$RUNNER_TEMP/site/.vercel/output/config.json"
+      - name: Add Pages HTML routes
+        if: inputs.pages-html-handling
+        run: python3 -I .github/vercel-cli/pages-html-routes.py "$RUNNER_TEMP/site/.vercel/output"
+      - name: Deploy
+        id: deploy
+        working-directory: ${{ runner.temp }}/site
+        env:
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_CLI: ${{ github.workspace }}/.github/vercel-cli/node_modules/.bin/vercel
+          PRODUCTION: ${{ inputs.production }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN is empty. Store it in the $ENVIRONMENT environment and call this workflow with 'secrets: inherit'."
+            exit 1
+          fi
+          # The commit tag lets a later production deploy see what is live.
+          args=(deploy --prebuilt --non-interactive --format json --meta "githubCommitSha=$GITHUB_SHA")
+          if [ "$PRODUCTION" = "true" ]; then
+            # Runs for overlapping pushes do not cancel each other, so an older
+            # build can finish last. Do not replace a newer production deploy.
+            # If production cannot be read, deploy anyway.
+            live=$(curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&target=production&state=READY&limit=1" \
+              | jq -r '.deployments[0].meta.githubCommitSha // empty') ||
+              { echo "::warning::Could not read the production deployment."; live=""; }
+            if [ -n "$live" ] && [ "$live" != "$GITHUB_SHA" ] &&
+               [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$live...$GITHUB_SHA" --jq .status)" = "behind" ]; then
+              echo "::notice::Skipped: production serves $live, which is newer than $GITHUB_SHA."
+              exit 0
+            fi
+            args+=(--prod)
+          fi
+          url=$("$VERCEL_CLI" "${args[@]}" | jq -er '.deployment.url')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"

@@ -34,6 +34,8 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -225,25 +227,35 @@ impl Debug for Rhs {
 /// A utility for checking whether any dynamic expressions have been updated.
 pub struct DynamicExprUpdates {
     exprs: Box<[DynamicComparisonExpr]>,
+    sources: Box<[Arc<dyn DynamicExpressionSource>]>,
     // Track the latest observed versions of each dynamic expression, along with a version counter.
-    prev_versions: Mutex<(u64, Vec<Option<Scalar>>)>,
+    prev_versions: Mutex<ObservedVersions>,
+}
+
+struct ObservedVersions {
+    version: u64,
+    scalars: Vec<Option<Scalar>>,
+    generations: Vec<u64>,
 }
 
 impl DynamicExprUpdates {
     /// Track dynamic scalar functions contained in a bound expression tree.
     pub fn new(expr: &BoundExpression) -> Option<Self> {
         #[derive(Default)]
-        struct Visitor(Vec<DynamicComparisonExpr>);
+        struct Visitor {
+            exprs: Vec<DynamicComparisonExpr>,
+            sources: Vec<Arc<dyn DynamicExpressionSource>>,
+        }
 
         impl NodeVisitor<'_> for Visitor {
             type NodeTy = BoundExpression;
 
             fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
-                if let Some(dynamic) = node
-                    .as_scalar()
-                    .and_then(|scalar_fn| scalar_fn.as_opt::<DynamicComparison>())
-                {
-                    self.0.push(dynamic.clone());
+                if let Some(dynamic) = node.as_opt::<DynamicComparison>() {
+                    self.exprs.push(dynamic.clone());
+                }
+                if let Some(dynamic) = node.as_opt::<DynamicExpression>() {
+                    self.sources.push(Arc::clone(dynamic.source()));
                 }
                 Ok(TraversalOrder::Continue)
             }
@@ -252,12 +264,13 @@ impl DynamicExprUpdates {
         let mut visitor = Visitor::default();
         expr.accept(&mut visitor).vortex_expect("Infallible");
 
-        if visitor.0.is_empty() {
+        if visitor.exprs.is_empty() && visitor.sources.is_empty() {
             return None;
         }
 
-        let exprs = visitor.0.into_boxed_slice();
-        let prev_versions = exprs
+        let exprs = visitor.exprs.into_boxed_slice();
+        let sources = visitor.sources.into_boxed_slice();
+        let scalars = exprs
             .iter()
             .map(|expr| {
                 (expr.rhs.value)().map(|v| {
@@ -266,10 +279,16 @@ impl DynamicExprUpdates {
                 })
             })
             .collect();
+        let generations = sources.iter().map(|source| source.generation()).collect();
 
         Some(Self {
             exprs,
-            prev_versions: Mutex::new((0, prev_versions)),
+            sources,
+            prev_versions: Mutex::new(ObservedVersions {
+                version: 0,
+                scalars,
+                generations,
+            }),
         })
     }
 
@@ -279,20 +298,27 @@ impl DynamicExprUpdates {
         let mut updated = false;
         for (i, expr) in self.exprs.iter().enumerate() {
             let current = expr.scalar();
-            if current != guard.1[i] {
+            if current != guard.scalars[i] {
                 // At least one expression has been updated.
                 // We don't bail out early in order to avoid false positives for future calls
                 // to `is_updated`.
                 updated = true;
-                guard.1[i] = current;
+                guard.scalars[i] = current;
+            }
+        }
+        for (i, source) in self.sources.iter().enumerate() {
+            let current = source.generation();
+            if current != guard.generations[i] {
+                updated = true;
+                guard.generations[i] = current;
             }
         }
 
         if updated {
-            guard.0 += 1;
+            guard.version += 1;
         }
 
-        guard.0
+        guard.version
     }
 }
 

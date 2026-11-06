@@ -63,7 +63,8 @@ fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
     reset_dir(work_dir)?;
     let _guard = WorkDirGuard::new(work_dir.to_path_buf());
-    let work_dir = work_dir.to_string_lossy().into_owned();
+    // Windows get us backslashes slashes but Duckdb produces forward slashes
+    let work_dir = work_dir.to_string_lossy().replace('\\', "/");
 
     let rt = build_runtime()?;
     rt.block_on(async {
@@ -109,7 +110,8 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
 fn drive_duckdb(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
     reset_dir(work_dir)?;
     let _guard = WorkDirGuard::new(work_dir.to_path_buf());
-    let work_dir = work_dir.to_string_lossy().into_owned();
+    // Windows get us backslashes slashes but Duckdb produces forward slashes
+    let work_dir = work_dir.to_string_lossy().replace('\\', "/");
 
     // Deliberately not a Tokio runtime. DuckDB scans drive Vortex's own runtime, and a Vortex
     // runtime driven from a thread inside `tokio::runtime::Runtime::block_on` loses the wakeups

@@ -184,18 +184,15 @@ impl Canonical {
                 })
             }
             DType::Decimal(decimal_type, n) => {
-                match_each_decimal_value_type!(
-                    DecimalType::smallest_decimal_value_type(decimal_type),
-                    |D| {
-                        Canonical::Decimal(unsafe {
-                            DecimalArray::new_unchecked::<D>(
-                                Buffer::empty(),
-                                *decimal_type,
-                                Validity::from(n),
-                            )
-                        })
-                    }
-                )
+                match_each_decimal_value_type!(decimal_type.canonical_values_type(), |D| {
+                    Canonical::Decimal(unsafe {
+                        DecimalArray::new_unchecked::<D>(
+                            Buffer::empty(),
+                            *decimal_type,
+                            Validity::from(n),
+                        )
+                    })
+                })
             }
             DType::Utf8(n) => Canonical::VarBinView(unsafe {
                 VarBinViewArray::new_unchecked(

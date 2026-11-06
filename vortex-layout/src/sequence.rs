@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -98,10 +99,29 @@ impl SequenceId {
     ///
     /// This method consumes `self`, as the parent ID is no longer needed once
     /// we've descended to work with its children.
-    pub fn descend(self) -> SequencePointer {
-        let mut id = self.id.clone();
+    pub fn descend(mut self) -> SequencePointer {
+        // Take the parent's id, so that dropping `self` does not touch the universe. The child
+        // replaces the parent under one lock acquisition, as every writer task contends on it.
+        let parent = mem::take(&mut self.id);
+        let mut id = parent.clone();
         id.push(0);
-        SequencePointer(SequenceId::new(id, Arc::clone(&self.universe)))
+        let key = id.clone();
+
+        let (removed, waker) = {
+            let mut universe = self.universe.lock();
+            universe.active.insert(key);
+            universe.remove(&parent)
+        };
+
+        drop(removed);
+        if let Some(w) = waker {
+            w.wake();
+        }
+
+        SequencePointer(SequenceId {
+            id,
+            universe: Arc::clone(&self.universe),
+        })
     }
 
     /// Waits until all SequenceIds with IDs lexicographically smaller than this one are dropped.
@@ -136,17 +156,26 @@ impl SequenceId {
     /// This is intentionally not pub. [SequencePointer::advance] is the only allowed way to create
     /// [SequenceId] instances
     fn new(id: Vec<usize>, universe: Arc<Mutex<SequenceUniverse>>) -> Self {
-        // NOTE: This is the only place we construct a SequenceId, and
-        // we immediately add it to the universe.
-        let res = Self { id, universe };
-        res.universe.lock().add(&res);
-        res
+        // NOTE: Apart from `descend`, this is the only place we construct a SequenceId, and
+        // we immediately add it to the universe. Clone the key before taking the lock, as every
+        // writer task contends on it.
+        let key = id.clone();
+        universe.lock().active.insert(key);
+        Self { id, universe }
     }
 }
 
 impl Drop for SequenceId {
     fn drop(&mut self) {
-        let waker = self.universe.lock().remove(self);
+        // An empty id was taken by `descend`, which already removed it from the universe.
+        if self.id.is_empty() {
+            return;
+        }
+
+        let (removed, waker) = self.universe.lock().remove(&self.id);
+
+        // Free the removed key outside the lock.
+        drop(removed);
         if let Some(w) = waker {
             w.wake();
         }
@@ -188,7 +217,7 @@ impl SequencePointer {
         let last = last.vortex_expect("must have at least one element");
         *last += 1;
         let next_sibling = SequenceId::new(next_id, Arc::clone(&self.0.universe));
-        std::mem::replace(&mut self.0, next_sibling)
+        mem::replace(&mut self.0, next_sibling)
     }
 
     /// Converts this pointer into its current SequenceId, consuming the pointer.
@@ -208,18 +237,22 @@ struct SequenceUniverse {
 }
 
 impl SequenceUniverse {
-    fn add(&mut self, sequence_id: &SequenceId) {
-        self.active.insert(sequence_id.id.clone());
-    }
+    /// Removes `id` from the active set, returning the removed key and the waker of the new first
+    /// active sequence, if one is waiting.
+    fn remove(&mut self, id: &[usize]) -> (Option<Vec<usize>>, Option<Waker>) {
+        let removed = self.active.take(id);
 
-    fn remove(&mut self, sequence_id: &SequenceId) -> Option<Waker> {
-        self.active.remove(&sequence_id.id);
+        // Most sequences are never collapsed, so usually no waker is registered.
+        if self.wakers.is_empty() {
+            return (removed, None);
+        }
+
         let Some(first) = self.active.first() else {
             // last sequence finished, we must have no pending futures
-            assert!(self.wakers.is_empty(), "all wakers must have been removed");
-            return None;
+            unreachable!("all wakers must have been removed");
         };
-        self.wakers.remove(first)
+        let waker = self.wakers.remove(first);
+        (removed, waker)
     }
 }
 

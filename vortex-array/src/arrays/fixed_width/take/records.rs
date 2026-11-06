@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use super::take_values;
-use crate::arrays::fixed_width::match_each_record_width;
 use crate::dtype::UnsignedPType;
+use crate::match_each_power_of_two_width;
 
 pub(super) fn take_byte_records<I: UnsignedPType>(
     values: &ByteBuffer,
@@ -21,7 +21,7 @@ pub(super) fn take_byte_records<I: UnsignedPType>(
 ) -> VortexResult<ByteBuffer> {
     let alignment = values.alignment();
 
-    match_each_record_width!(
+    match_each_power_of_two_width!(
         byte_width,
         |W| {
             let records = Buffer::<[u8; W]>::from_byte_buffer(values.clone());

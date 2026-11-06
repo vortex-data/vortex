@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -17,6 +18,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
@@ -107,6 +109,32 @@ i64_test_element!(
     }
 );
 i64_test_element!(DenseFallible, false);
+
+#[rstest]
+#[case::canonical(PrimitiveArray::from_iter([1_i64, 2, 3]).into_array(), vec![1, 2, 3])]
+#[case::encoded(ConstantArray::new(7_i64, 3).into_array(), vec![7, 7, 7])]
+fn test_borrowed_primitive_decode_retains_storage(
+    #[case] array: ArrayRef,
+    #[case] expected: Vec<i64>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let column = <i64 as InputElement>::decode_ref(&array, &mut ctx)?;
+    drop(array);
+
+    assert_eq!(column.as_slice(), expected);
+    Ok(())
+}
+
+#[test]
+fn test_default_borrowed_decode_retains_storage() -> VortexResult<()> {
+    let array = BoolArray::from_iter([true, false, true]).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let column = <bool as InputElement>::decode_ref(&array, &mut ctx)?;
+    drop(array);
+
+    assert_eq!(column.iter().collect::<Vec<_>>(), [true, false, true]);
+    Ok(())
+}
 
 #[test]
 fn test_view_lens_match_checks_each_view() {

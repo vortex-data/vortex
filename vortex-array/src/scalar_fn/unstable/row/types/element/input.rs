@@ -49,7 +49,8 @@ pub unsafe trait InputElement: 'static {
     /// null rows to the row closure.
     const DENSE_SAFE: bool;
 
-    /// Whether [`decode`](Self::decode) is infallible for _legal_ input data.
+    /// Whether [`decode`](Self::decode) and [`decode_ref`](Self::decode_ref) are infallible for
+    /// _legal_ input data.
     ///
     /// This excludes infrastructural failures such as IO or allocation.
     /// It is independent of
@@ -66,6 +67,18 @@ pub unsafe trait InputElement: 'static {
     /// deferred error starts a second invocation over valid rows. Hoist dtype checks, downcasts,
     /// and other invocation-invariant work into this method.
     fn decode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column>;
+
+    /// Decode a borrowed `array` into its column representation.
+    ///
+    /// The default clones `array` for [`decode`](Self::decode). Override this when a common
+    /// representation decodes without taking ownership of the array.
+    ///
+    /// The result must preserve the valid-row values and row count of [`decode`](Self::decode),
+    /// and must retain its storage after `array` is dropped. [`DENSE_SAFE`](Self::DENSE_SAFE) and
+    /// [`DECODE_INFALLIBLE`](Self::DECODE_INFALLIBLE) apply to this method too.
+    fn decode_ref(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self::Column> {
+        Self::decode(array.clone(), ctx)
+    }
 
     /// Decode one non-null batch-constant input.
     ///

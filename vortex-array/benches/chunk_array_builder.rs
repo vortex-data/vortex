@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::LazyLock;
 
 use divan::Bencher;
@@ -22,6 +24,7 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -50,6 +53,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
@@ -63,9 +67,11 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
         })
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+// The largest nullable case varies on unchanged code in simulation. The cause is unknown.
+#[divan::bench(args = if cfg!(codspeed) { &[(10, 100), (100, 50)] } else { BENCH_ARGS })]
 fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
@@ -82,6 +88,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_opt_bool_chunks(len, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
@@ -91,6 +98,7 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -110,6 +118,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -119,6 +128,7 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -138,6 +148,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -154,6 +165,7 @@ const VARBIN_BENCH_ARGS: &[(usize, usize)] = &[
 #[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(false, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -173,6 +185,7 @@ fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (u
 #[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(true, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -192,6 +205,7 @@ fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count)
 #[divan::bench(args = VARBIN_BENCH_ARGS)]
 fn chunked_varbin_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_varbin_chunks(false, len, chunk_count);
+    mark_optimized(&chunks, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
@@ -201,6 +215,7 @@ fn chunked_varbin_into_canonical(bencher: Bencher, (len, chunk_count): (usize, u
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_constant_i32_chunks(len, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))
@@ -226,6 +241,7 @@ fn chunked_constant_utf8_append_to_builder(
     (value, len, chunk_count): (&str, usize, usize),
 ) {
     let chunk = make_constant_utf8_chunks(value, len, chunk_count);
+    mark_optimized(&chunk, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunk, SESSION.create_execution_ctx()))

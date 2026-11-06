@@ -14,7 +14,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::constant::ArbitraryConstantArray;
 use vortex_array::arrays::dict::ArbitraryDictArray;
-use vortex_runend::ArbitraryRunEndArray;
+use vortex_array::arrays::runend::ArbitraryRunEndArray;
 
 use crate::SESSION;
 use crate::error::Backtrace;

@@ -20,6 +20,7 @@ use vortex_utils::iter::ReduceBalancedIterExt;
 use crate::stats::session::StatsSessionExt;
 
 mod builtins;
+mod dynamic_expression;
 #[cfg(test)]
 mod fn_tests;
 mod like_variant;

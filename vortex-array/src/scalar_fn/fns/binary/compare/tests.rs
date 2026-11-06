@@ -36,6 +36,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
@@ -46,6 +47,8 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::test_harness::ExpectedOutcome;
+use crate::test_harness::assert_execution_paths;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -449,23 +452,35 @@ fn int_constant_lhs_and_rhs(#[case] op: Operator, #[case] expected: [bool; 4]) {
 
 /// Floats compare with Vortex's total ordering: NaN is the largest value, equality is bitwise,
 /// and -0.0 < +0.0. This matches `Scalar` comparison semantics.
-#[test]
-fn float_total_order() {
+#[rstest]
+fn float_total_order(#[values(4, 129)] len: usize) {
     let mut ctx = SESSION.create_execution_ctx();
-    let lhs = buffer![f64::NAN, f64::NAN, -0.0f64, 1.0].into_array();
-    let rhs = buffer![f64::NAN, f64::INFINITY, 0.0f64, f64::NAN].into_array();
+    let lhs = PrimitiveArray::from_iter(
+        [f64::NAN, f64::NAN, -0.0, 1.0]
+            .into_iter()
+            .cycle()
+            .take(len),
+    )
+    .into_array();
+    let rhs = PrimitiveArray::from_iter(
+        [f64::NAN, f64::INFINITY, 0.0, f64::NAN]
+            .into_iter()
+            .cycle()
+            .take(len),
+    )
+    .into_array();
 
     let result = execute_compare_test(lhs.clone(), rhs.clone(), Operator::Eq);
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([true, false, false, false]),
+        BoolArray::from_iter([true, false, false, false].into_iter().cycle().take(len)),
         &mut ctx
     );
 
     let result = execute_compare_test(lhs, rhs, Operator::Lt);
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([false, false, true, true]),
+        BoolArray::from_iter([false, false, true, true].into_iter().cycle().take(len)),
         &mut ctx
     );
 }
@@ -629,26 +644,124 @@ fn extension_timestamp_compare() {
     assert_arrays_eq!(result, BoolArray::from_iter([false, true, false]), &mut ctx);
 }
 
-/// Comparing extension arrays with different extension dtypes (e.g. timestamps in different
-/// units) must error rather than silently comparing raw storage values.
-#[test]
-fn extension_mismatched_units_errors() {
+#[rstest]
+#[case::storage(DType::Primitive(PType::I64, Nullability::Nullable))]
+#[case::different_unit(DType::Extension(
+    Timestamp::new(TimeUnit::Nanoseconds, Nullability::Nullable).erased()
+))]
+#[case::different_extension(DType::Extension(
+    Time::new(TimeUnit::Microseconds, Nullability::Nullable).erased()
+))]
+#[case::different_time_zone(DType::Extension(
+    Timestamp::new_with_tz(TimeUnit::Milliseconds, Some("UTC".into()), Nullability::Nullable).erased()
+))]
+fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
+    #[case] rhs_dtype: DType,
+    #[values(false, true)] swapped: bool,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let ms = ExtensionArray::new(
+    let lhs = ExtensionArray::new(
         Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
-        buffer![1000i64, 2000].into_array(),
+        buffer![1600i64, 1400].into_array(),
     )
     .into_array();
-    let secs = ExtensionArray::new(
-        Timestamp::new(TimeUnit::Seconds, Nullability::NonNullable).erased(),
-        buffer![1i64, 3].into_array(),
+    let scalar = Scalar::try_new(rhs_dtype, Some(1500i64.into()))?;
+    let rhs = ConstantArray::new(scalar, lhs.len()).into_array();
+    let inputs = if swapped { [rhs, lhs] } else { [lhs, rhs] };
+
+    assert_execution_paths(
+        &inputs,
+        |inputs| {
+            let error = inputs[0]
+                .binary(inputs[1].clone(), Operator::Lt)
+                .expect_err("mismatched comparison dtypes must be rejected while binding");
+
+            Err(error)
+        },
+        ExpectedOutcome::Error,
+        &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::equal(Operator::Eq, [Some(false), Some(true), Some(false), None])]
+#[case::not_equal(Operator::NotEq, [Some(true), Some(false), Some(true), None])]
+#[case::less(Operator::Lt, [Some(false), Some(false), Some(true), None])]
+#[case::less_equal(Operator::Lte, [Some(false), Some(true), Some(true), None])]
+#[case::greater(Operator::Gt, [Some(true), Some(false), Some(false), None])]
+#[case::greater_equal(Operator::Gte, [Some(true), Some(true), Some(false), None])]
+fn test_extension_comparison_preserves_paths_and_nulls(
+    #[case] operator: Operator,
+    #[case] expected: [Option<bool>; 4],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+    let lhs = ExtensionArray::new(
+        dtype,
+        PrimitiveArray::from_option_iter([Some(1600i64), Some(1500), Some(1400), None])
+            .into_array(),
+    )
+    .into_array();
+    let rhs = ConstantArray::new(
+        Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            Scalar::from(1500i64),
+        ),
+        lhs.len(),
     )
     .into_array();
 
-    let result = ms
-        .binary(secs, Operator::Eq)
-        .and_then(|a| a.execute::<BoolArray>(&mut ctx));
-    assert!(result.is_err());
+    assert_execution_paths(
+        &[lhs, rhs],
+        |inputs| inputs[0].binary(inputs[1].clone(), operator),
+        ExpectedOutcome::Array(BoolArray::from_iter(expected).into_array()),
+        &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::null(2)]
+fn test_extension_comparison_checks_dtypes_before_fast_paths(
+    #[case] len: usize,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+    let lhs = ExtensionArray::new(
+        dtype,
+        ConstantArray::new(Scalar::primitive(1000i64, Nullability::Nullable), len).into_array(),
+    )
+    .into_array();
+    let rhs = ConstantArray::new(
+        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+        len,
+    )
+    .into_array();
+
+    assert!(super::execute_compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn test_null_scalar_comparison_requires_matching_dtypes() {
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+
+    assert!(
+        scalar_cmp(
+            &Scalar::null(DType::Extension(dtype)),
+            &Scalar::from(1000i64),
+            CompareOperator::Eq
+        )
+        .is_err()
+    );
 }
 
 /// Struct fields containing nulls order null-first, matching `Scalar` comparison semantics;
@@ -906,8 +1019,8 @@ fn struct_of_map_compare() -> VortexResult<()> {
 }
 
 #[rstest]
-fn byte_comparisons_across_bitmap_words(
-    #[values(PType::I8, PType::U8)] ptype: PType,
+fn primitive_comparisons_across_bitmap_words(
+    #[values(PType::I8, PType::U8, PType::I64, PType::U64, PType::F64)] ptype: PType,
     #[values(0, 1, 63, 64, 65, 129)] len: usize,
     #[values(
         CompareOperator::Eq,
@@ -950,16 +1063,19 @@ fn byte_comparisons_across_bitmap_words(
     .map(value_for_type)
     .collect();
     let dtype = DType::Primitive(ptype, Nullability::Nullable);
-    let lhs = PrimitiveArray::from_option_iter(left.iter().copied())
+    let lhs = PrimitiveArray::from_option_iter([None].into_iter().chain(left.iter().copied()))
         .into_array()
         .cast(dtype.clone())?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .into_array();
-    let rhs = PrimitiveArray::from_option_iter(right.iter().copied())
         .into_array()
-        .cast(dtype.clone())?
-        .execute::<PrimitiveArray>(&mut ctx)?
-        .into_array();
+        .slice(1..len + 1)?;
+    let rhs =
+        PrimitiveArray::from_option_iter([None, None].into_iter().chain(right.iter().copied()))
+            .into_array()
+            .cast(dtype.clone())?
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array()
+            .slice(2..len + 2)?;
     let predicate = |a: i16, b: i16| match op {
         CompareOperator::Eq => a == b,
         CompareOperator::NotEq => a != b,

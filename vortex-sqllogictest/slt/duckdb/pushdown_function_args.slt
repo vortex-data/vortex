@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES
+    ('abc', 'b', [1, 2], ['pii', 'x']),
+    ('de', 'x', [3], ['y']),
+    ('fghi', 'gh', [2], []),
+    (NULL, 'q', NULL, NULL)) t(s, p, l, tags))
+TO '${WORK_DIR}/pushdown-function-args.vortex';
+
+# upper() has no Vortex equivalent, so filters over it stay in DuckDB.
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE strlen(upper(s)) = 3;
+----
+abc
+
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE contains(upper(s), 'FGH');
+----
+fghi
+
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE upper(s) LIKE 'A_C';
+----
+abc
+
+# A pattern that isn't a constant string is evaluated by DuckDB.
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE contains(s, p) ORDER BY s;
+----
+abc
+fghi
+
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE prefix(s, s) ORDER BY s;
+----
+abc
+de
+fghi
+
+# contains() over lists is DuckDB's list_contains.
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE contains(l, 2) ORDER BY s;
+----
+abc
+fghi
+
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE contains(list_distinct(l), 2) ORDER BY s;
+----
+abc
+fghi
+
+query T
+SELECT s FROM '${WORK_DIR}/pushdown-function-args.vortex' WHERE contains(tags, 'pii');
+----
+abc
+
+# A filter on a struct field accessed by index fails instead of being dropped.
+statement ok
+COPY (SELECT row(i) AS t, {'a': i, 'b': i::VARCHAR} AS s FROM range(12) r(i))
+TO '${WORK_DIR}/pushdown-struct-index.vortex';
+
+statement error struct_extract with a non-string key is not supported
+SELECT count(*) FROM '${WORK_DIR}/pushdown-struct-index.vortex' WHERE struct_extract(t, 1) = 3;
+
+statement error struct_extract_at is not supported
+SELECT count(*) FROM '${WORK_DIR}/pushdown-struct-index.vortex' WHERE struct_extract_at(s, 1) = 3;
+
+# Nested in another function, DuckDB evaluates it.
+query I
+SELECT count(*) FROM '${WORK_DIR}/pushdown-struct-index.vortex' WHERE strlen(struct_extract_at(s, 2)) = 1;
+----
+10

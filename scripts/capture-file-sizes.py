@@ -19,6 +19,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Capture file sizes from benchmark data directories")
     parser.add_argument("data_dir", help="Data directory (e.g., vortex-bench/data)")
     parser.add_argument("--benchmark", required=True, help="Benchmark name (e.g., clickbench)")
+    parser.add_argument(
+        "--dataset-dir", required=True, help="The benchmark's directory under data_dir (e.g., clickbench_partitioned)"
+    )
     parser.add_argument("--commit", required=True, help="Commit SHA")
     parser.add_argument("-o", "--output", required=True, help="Output JSONL file path")
     args = parser.parse_args()
@@ -28,16 +31,9 @@ def main() -> None:
         print(f"Data directory not found: {data_dir}", file=sys.stderr)
         sys.exit(1)
 
-    # Find benchmark directories matching the name (handles flavors like clickbench_partitioned)
-    # Also handles exact match (e.g., tpch)
-    benchmark_dirs = [
-        d
-        for d in data_dir.iterdir()
-        if d.is_dir() and (d.name == args.benchmark or d.name.startswith(f"{args.benchmark}_"))
-    ]
-
-    if not benchmark_dirs:
-        print(f"No benchmark directories found matching: {args.benchmark}", file=sys.stderr)
+    benchmark_dir = data_dir / args.dataset_dir
+    if not benchmark_dir.is_dir():
+        print(f"Benchmark directory not found: {benchmark_dir}", file=sys.stderr)
         sys.exit(1)
 
     # Formats to capture (vortex formats only, not parquet/duckdb)
@@ -49,42 +45,41 @@ def main() -> None:
     # Walk subdirectories looking for format directories
     # Handle both direct format dirs (clickbench_partitioned/vortex-file-compressed/)
     # and scale factor subdirs (tpch/1.0/vortex-file-compressed/)
-    for benchmark_dir in benchmark_dirs:
-        for format_dir in benchmark_dir.rglob("*"):
-            if not format_dir.is_dir():
+    for format_dir in benchmark_dir.rglob("*"):
+        if not format_dir.is_dir():
+            continue
+
+        format_name = format_dir.name
+        if format_name not in formats_to_capture:
+            continue
+
+        # Extract scale factor from path (e.g., "1.0" for tpch/1.0/vortex-file-compressed)
+        # Default to "1.0" if no intermediate directory (e.g., clickbench)
+        path_between = format_dir.relative_to(benchmark_dir).parent
+        scale_factor = str(path_between) if str(path_between) != "." else "1.0"
+
+        # Capture all files in this format directory
+        for file_path in format_dir.rglob("*"):
+            if not file_path.is_file():
                 continue
 
-            format_name = format_dir.name
-            if format_name not in formats_to_capture:
-                continue
+            size_bytes = file_path.stat().st_size
+            relative_path = file_path.relative_to(format_dir)
 
-            # Extract scale factor from path (e.g., "1.0" for tpch/1.0/vortex-file-compressed)
-            # Default to "1.0" if no intermediate directory (e.g., clickbench)
-            path_between = format_dir.relative_to(benchmark_dir).parent
-            scale_factor = str(path_between) if str(path_between) != "." else "1.0"
-
-            # Capture all files in this format directory
-            for file_path in format_dir.rglob("*"):
-                if not file_path.is_file():
-                    continue
-
-                size_bytes = file_path.stat().st_size
-                relative_path = file_path.relative_to(format_dir)
-
-                records.append(
-                    {
-                        "metric": "file_size",
-                        "unit": "bytes",
-                        "value": size_bytes,
-                        "commit_id": args.commit,
-                        "file_size": {
-                            "benchmark": args.benchmark,
-                            "scale_factor": scale_factor,
-                            "format": format_name,
-                            "file": str(relative_path),
-                        },
-                    }
-                )
+            records.append(
+                {
+                    "metric": "file_size",
+                    "unit": "bytes",
+                    "value": size_bytes,
+                    "commit_id": args.commit,
+                    "file_size": {
+                        "benchmark": args.benchmark,
+                        "scale_factor": scale_factor,
+                        "format": format_name,
+                        "file": str(relative_path),
+                    },
+                }
+            )
 
     # Sort for deterministic output
     records.sort(

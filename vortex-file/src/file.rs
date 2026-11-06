@@ -31,7 +31,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_falsified_by_file_stats;
 use crate::source::FileDataSource;
 use crate::v2::FileStatsLayoutReader;
 
@@ -286,7 +286,7 @@ impl VortexFile {
             return Ok(false);
         };
 
-        can_prune_file_stats(
+        is_falsified_by_file_stats(
             &filter.bind(self.footer.dtype())?,
             self.footer.row_count(),
             stats,

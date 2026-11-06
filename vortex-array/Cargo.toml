@@ -120,6 +120,10 @@ name = "cast_decimal"
 harness = false
 
 [[bench]]
+name = "copy_to_canonical_width"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 
@@ -331,4 +335,40 @@ harness = false
 
 [[bench]]
 name = "probe"
+harness = false
+
+[[bench]]
+name = "widen"
+harness = false
+
+[[bench]]
+name = "widen_decimal"
+harness = false
+
+[[bench]]
+name = "run_end_null_count"
+harness = false
+
+[[bench]]
+name = "run_end_compress"
+harness = false
+
+[[bench]]
+name = "run_end_decode"
+harness = false
+
+[[bench]]
+name = "run_end_take"
+harness = false
+
+[[bench]]
+name = "run_end_filter"
+harness = false
+
+[[bench]]
+name = "run_end_sum"
+harness = false
+
+[[bench]]
+name = "run_end_decode_primitive"
 harness = false

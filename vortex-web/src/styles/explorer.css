@@ -1,0 +1,781 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* SPDX-FileCopyrightText: Copyright the Vortex contributors */
+
+/* The Explorer's own rules, on top of the Vortex design system (vortex-tokens.css, vortex-base.css
+   and vortex.css, which are copies: change the system, not them). A value is a token wherever
+   the system has one. The exceptions are fixed widths, SVG stroke widths, and the run frame's
+   corner. The classes start with x-. */
+
+/* ------------------------------------------------------------------ the frame
+   With a file open, one screen: the header, the work area, and the status line. The panes scroll,
+   the page does not. A tool wants its room for data, so the page's side gutter steps down from
+   48px to 24px, and to the token's 16px on a phone. The start page (is-page) is a page
+   like the site's: the system's gutter, the shared footer, and the page scrolls. */
+.x-app {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.x-app:not(.is-page) {
+  --page-pad: var(--space-24);
+  height: 100dvh;
+  overflow: hidden;
+}
+.x-app.is-page {
+  min-height: 100dvh;
+}
+.x-app > .vx-header {
+  flex: none;
+}
+
+.x-file {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-12);
+  min-width: 0;
+}
+.x-file-name {
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.x-file-meta {
+  white-space: nowrap;
+}
+.x-icon-btn {
+  width: var(--control-md);
+  padding: 0;
+  justify-content: center;
+}
+
+.x-work {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: var(--space-16);
+  padding: var(--space-16) var(--page-pad);
+}
+.x-work.is-wide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The view and the summary sit over the preview. The handle between them is the row gap, so the
+   preview's height changes by dragging it. */
+.x-main {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 248px);
+  grid-template-rows: minmax(0, 1fr) var(--space-16) var(--x-preview-height, 240px);
+  column-gap: var(--space-16);
+}
+.x-view {
+  grid-column: 1;
+  grid-row: 1;
+}
+.x-side {
+  grid-column: 2;
+  grid-row: 1;
+}
+.x-handle {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  position: relative;
+  cursor: row-resize;
+  touch-action: none;
+}
+.x-handle::after {
+  content: '';
+  position: absolute;
+  inset: calc(50% - 1px) calc(50% - var(--space-24));
+  border-radius: var(--radius-full);
+  background: var(--edge);
+  transition: background-color var(--vx-motion);
+}
+.x-handle:hover::after,
+.x-handle:focus-visible::after {
+  background: var(--ink-muted);
+}
+.x-handle:focus-visible {
+  outline-offset: -2px;
+}
+.x-preview {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* A pane's body with no table or tree in it gets the card's padding. */
+.x-pad {
+  padding: var(--space-16);
+}
+.x-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: var(--space-16);
+  text-align: center;
+}
+.x-error {
+  color: var(--error-ink);
+}
+.x-file-error {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: center;
+  text-align: center;
+}
+
+/* The status line runs the width of the window, at the page's edge. */
+.x-status {
+  flex: none;
+  padding-inline: var(--page-pad);
+  background: var(--ground);
+}
+.x-status .x-push {
+  margin-left: auto;
+}
+
+/* ------------------------------------------------------------------ the tree
+   The search field (vx-field is-sm) fills the head beside the switch. */
+.x-tree-pane .vx-pane-head .vx-field {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.x-tree-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.x-tree-label {
+  flex: none;
+  white-space: nowrap;
+}
+.x-tree-name .vx-tree-type {
+  min-width: 0;
+  margin-left: var(--space-8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A node the layout groups (a run of chunks) or hides (a transparent layout) is quieter. */
+.vx-tree-node.is-group,
+.vx-tree-node.is-hidden {
+  color: var(--ink-muted);
+}
+.vx-tree-node.is-hidden {
+  cursor: default;
+}
+/* An array encoding node, under a flat layout, takes the wash so it reads as inside the segment. */
+.vx-tree-node.is-array {
+  background: var(--wash);
+}
+/* Hover in another view marks the node and, more faintly, its parents. */
+.vx-tree-node.is-hovered {
+  background: var(--raised);
+}
+.vx-tree-node.is-hovered-parent {
+  background: var(--wash);
+}
+
+/* ------------------------------------------------------------------ the detail view */
+.x-view-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  border-bottom: 1px solid var(--line);
+  padding-right: var(--space-16);
+}
+.x-view-head > .vx-tabs-list {
+  flex: none;
+  border-bottom: 0;
+}
+.x-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.x-crumbs ol {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.x-crumbs li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.x-crumbs li + li::before {
+  content: '/' / '';
+  color: var(--ink-muted);
+}
+.x-crumbs li.is-array::before {
+  content: '›' / '';
+}
+.x-crumbs button {
+  all: unset;
+  cursor: pointer;
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--vx-motion);
+}
+.x-crumbs button:hover {
+  color: var(--ink);
+}
+.x-crumbs [aria-current] {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.x-crumbs.is-preview {
+  opacity: 0.6;
+}
+.x-dtype {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.x-dtype::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--vx-dt, var(--chart-muted));
+}
+
+.x-side .vx-facts {
+  grid-template-columns: minmax(0, 1fr);
+}
+.x-side-title {
+  overflow-wrap: anywhere;
+}
+
+/* The encoding tree, as text. */
+.x-encoding {
+  padding: var(--space-16);
+  font: 400 12.5px / 1.6 var(--font-mono);
+  color: var(--ink-body);
+  white-space: pre;
+  overflow: auto;
+}
+
+/* ------------------------------------------------------------------ the buffers */
+.x-buffers {
+  display: grid;
+  grid-template-columns: minmax(0, 176px) minmax(0, 1fr);
+  height: 100%;
+}
+.x-buffer-list {
+  min-width: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.x-buffer-list button {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-8) var(--space-16);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background-color var(--vx-motion);
+}
+.x-buffer-list button:hover {
+  background: var(--wash);
+}
+.x-buffer-list button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.x-buffer-list button:focus-visible {
+  outline-offset: -2px;
+}
+.x-buffer-name {
+  color: var(--ink);
+  font: 400 12.5px / 1.3 var(--font-mono);
+}
+.x-hex {
+  overflow: auto;
+  padding: var(--space-12) var(--space-16);
+  font: 400 12px / 20px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-body);
+}
+.x-hex-row {
+  display: flex;
+  gap: var(--space-16);
+  white-space: pre;
+}
+.x-hex-offset {
+  flex: none;
+  color: var(--ink-muted);
+  user-select: none;
+}
+.x-hex-bytes,
+.x-hex-text {
+  flex: none;
+}
+.x-hex-byte {
+  display: inline-block;
+  width: 2.5ch;
+  text-align: center;
+}
+.x-hex-byte.is-gap {
+  margin-left: 1ch;
+}
+.x-hex-text .is-dot {
+  color: var(--ink-muted);
+}
+.x-hex [data-at].is-hovered {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ the data table
+   The preview and the segment list: a vx-table with sticky heads, virtualised rows, and a short
+   summary of each column in its head. */
+.x-table-scroll {
+  height: 100%;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge) transparent;
+}
+.x-table-scroll .vx-table.is-data {
+  width: max-content;
+  min-width: 100%;
+}
+.x-table-scroll .vx-table th {
+  white-space: nowrap;
+}
+.x-table-scroll .vx-table th button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  cursor: pointer;
+}
+.x-table-scroll .vx-table th[aria-sort] button {
+  color: var(--ink);
+}
+.x-table-scroll .vx-table.is-data th:first-child,
+.x-table-scroll .vx-table.is-data td:first-child {
+  padding-left: var(--space-16);
+}
+.x-table-scroll .vx-table.is-data td {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.x-table-scroll .vx-table tr.is-link {
+  cursor: pointer;
+}
+.x-null,
+.x-row-num {
+  color: var(--ink-muted);
+}
+.x-col-summary {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+.x-spark {
+  display: block;
+  flex: none;
+}
+.x-spark rect {
+  fill: var(--chart-muted);
+}
+.x-spark line {
+  stroke: var(--chart-muted);
+}
+.x-share {
+  display: inline-flex;
+  width: 32px;
+  height: 6px;
+  background: var(--chart-track);
+}
+.x-share > span {
+  background: var(--chart-muted);
+}
+.x-tip.x-col-tip {
+  position: absolute;
+  pointer-events: none;
+  font-weight: 400;
+  z-index: 2;
+  top: 100%;
+  left: 0;
+  min-width: 160px;
+  margin-top: var(--space-4);
+}
+.x-path-link {
+  all: unset;
+  cursor: pointer;
+  color: var(--ink-muted);
+  transition: color var(--vx-motion);
+}
+.x-path-link:hover {
+  color: var(--ink);
+}
+.x-path-sep {
+  color: var(--ink-muted);
+  padding: 0 2px;
+}
+
+/* ------------------------------------------------------------------ tooltips
+   A card that follows the pointer, with a key and value list. */
+.x-tip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 260px;
+  background: var(--raised);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-card);
+}
+.x-tip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12) 0;
+  color: var(--ink);
+}
+.x-tip .vx-facts {
+  gap: var(--space-4) var(--space-12);
+  padding: var(--space-8) var(--space-12) var(--space-12);
+}
+.x-tip .vx-facts > div {
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--space-8);
+}
+.x-tip .vx-facts dd {
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ the treemap
+   A leaf takes its dtype's fill (--vx-dt-fill: solid in Dark, a tint with a hued edge in Light),
+   and a container is only an outline round its leaves. The selected block takes the accent ring
+   (Blue marks a selection), and a hovered one an ink stroke. The SVG reads its colours from the
+   tokens, so it follows the theme. */
+.x-treemap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.x-treemap svg {
+  display: block;
+  cursor: pointer;
+  user-select: none;
+}
+.x-treemap rect {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1;
+}
+.x-treemap .is-leaf rect {
+  fill: var(--vx-dt-fill, var(--raised));
+  stroke: var(--vx-dt-edge, var(--surface));
+}
+.x-treemap .is-hovered rect {
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+.x-treemap .is-selected rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+/* The selected node is the drill root, which draws no block: the frame takes the ring. */
+.x-treemap.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+}
+.x-treemap text {
+  font: 400 11px var(--font-mono);
+  fill: var(--ink);
+}
+.x-treemap .is-container text {
+  font-weight: 600;
+}
+.x-treemap .is-leaf text {
+  fill: var(--vx-dt-ink, var(--ink));
+}
+.x-treemap text.is-size {
+  fill: var(--ink-body);
+}
+.x-treemap .is-leaf text.is-size {
+  fill: var(--vx-dt-ink, var(--ink));
+  fill-opacity: 0.85;
+}
+.x-treemap-up {
+  position: absolute;
+  z-index: 1;
+  top: var(--space-8);
+  left: var(--space-8);
+  background: var(--surface);
+}
+
+/* ------------------------------------------------------------------ the swimlane
+   One row per column: its name, then its segments at their place in the file. */
+.x-lanes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.x-lanes-rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  padding: var(--space-8) 0;
+}
+.x-lane {
+  display: grid;
+  grid-template-columns: var(--x-lane-label, 180px) minmax(0, 1fr);
+  min-height: var(--control-sm);
+  transition: background-color var(--vx-motion);
+}
+.x-lane:hover {
+  background: var(--wash);
+}
+.x-lane.is-selected {
+  background: var(--accent-soft);
+}
+.x-lane.is-hovered {
+  background: var(--wash);
+}
+.x-lane-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: calc(var(--space-12) + var(--vx-depth, 0) * var(--space-16));
+  padding-right: var(--space-8);
+}
+.x-lane-select {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  height: 100%;
+  font: 400 12.5px / 1 var(--font-mono);
+  color: var(--ink-body);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.x-lane-select:focus-visible {
+  outline-offset: -2px;
+}
+.x-lane-select > .vx-tree-dot {
+  flex: none;
+}
+.x-lane-select > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.x-lane-select:hover,
+.x-lane.is-selected .x-lane-select {
+  color: var(--ink);
+}
+/* The chevron is the tree's (vx-tree-toggle), which turns under aria-expanded. */
+.x-lane-toggle {
+  all: unset;
+  flex: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.x-lane-toggle .vx-tree-toggle {
+  vertical-align: 0;
+}
+.x-lane-toggle.is-leaf {
+  visibility: hidden;
+}
+.x-lane-bar {
+  position: relative;
+  min-width: 0;
+}
+/* A segment: a thin mark, so it takes its dtype's full hue in both themes (the treemap's tint is
+   for areas). A run of segments in one column sits in a frame, which takes the accent when the
+   column is selected. */
+.x-seg {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  min-width: 3px;
+  background: var(--vx-dt, var(--chart-muted));
+}
+.x-run {
+  all: unset;
+  box-sizing: border-box;
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 3px;
+  border: 1px solid var(--edge);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.x-lane.is-selected .x-run {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.x-axis {
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--x-lane-label, 180px) minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+  scrollbar-gutter: stable;
+  overflow: hidden;
+}
+.x-axis-ticks {
+  position: relative;
+  height: var(--control-sm);
+}
+.x-axis-ticks > span {
+  position: absolute;
+  top: var(--space-8);
+  translate: -50% 0;
+  white-space: nowrap;
+}
+.x-axis-ticks > span:first-child {
+  translate: 0 0;
+}
+/* The file's size ends the axis, set in from the card's edge. */
+.x-axis-ticks > span:last-child {
+  translate: calc(-100% - var(--space-8)) 0;
+}
+
+/* ------------------------------------------------------------------ dropping a file */
+.x-drop-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1001;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ground) 80%, transparent);
+  border: 2px dashed var(--edge);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ the open screen */
+.x-open {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: var(--space-48) var(--page-pad);
+}
+.x-open-body {
+  display: grid;
+  gap: var(--space-32);
+  width: 100%;
+  max-width: 640px;
+}
+.x-open-head {
+  display: grid;
+  gap: var(--space-12);
+}
+.x-open-head p {
+  color: var(--ink-body);
+}
+.x-drop {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-16);
+  padding: var(--space-48) var(--space-24);
+  text-align: center;
+  transition: border-color var(--vx-motion);
+}
+.x-drop:hover,
+.x-drop.is-over {
+  border-color: var(--ink);
+}
+.x-drop .vx-mono {
+  color: var(--ink);
+}
+.x-url {
+  display: grid;
+  gap: var(--space-8);
+}
+.x-url .vx-field-row {
+  max-width: none;
+}
+
+/* ------------------------------------------------------------------ narrow windows
+   Below 1100px the summary moves under the view. Below 760px the panes stack and the page scrolls:
+   the Explorer is built for a desktop window, and a phone gets a readable column. */
+@media (max-width: 1100px) {
+  .x-file-meta {
+    display: none;
+  }
+  .x-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto var(--space-16) var(--x-preview-height, 240px);
+    row-gap: 0;
+  }
+  .x-side {
+    grid-column: 1;
+    grid-row: 2;
+    margin-top: var(--space-16);
+    max-height: 200px;
+  }
+  .x-side .vx-facts {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+  .x-handle {
+    grid-row: 3;
+  }
+  .x-preview {
+    grid-row: 4;
+  }
+}
+@media (max-width: 760px) {
+  .x-app {
+    height: auto;
+    overflow: visible;
+  }
+  .x-work {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .x-tree-pane {
+    max-height: 360px;
+  }
+  .x-view {
+    min-height: 420px;
+  }
+  .x-file {
+    display: none;
+  }
+  .x-status .x-push {
+    margin-left: 0;
+  }
+}
+/* Below 640px the view switch leaves the row, and its twin rows in the Menu's panel take over. The
+   current view reads as the current page does. */
+@media (max-width: 640px) {
+  .x-app:not(.is-page) {
+    --page-pad: var(--space-16);
+  }
+  .x-app .vx-header-tools {
+    display: none;
+  }
+}
+.vx-header-menu-panel .vx-nav-link[aria-pressed='true'] {
+  color: var(--ink);
+}
