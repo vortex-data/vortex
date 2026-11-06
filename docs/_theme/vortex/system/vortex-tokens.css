@@ -1,7 +1,7 @@
 /* Vortex design system tokens, copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 d7ec8986a6d838f1b8fd6226d641156c00def5c2af4d9fee4e22b2525c2a7c04 */
+   sha256 9273c71d879dce3bdce743cf1169e25ee60d12bf65f3ddb0617ade247027998f */
 :root, [data-theme="dark"] {
   --white: #ffffff;
   --grey-50: #fcfcf9;
@@ -64,32 +64,6 @@
   --syntax-string: #a8205b;
   --syntax-comment: var(--grey-500);
   color-scheme: light;
-}
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] {
-    --ground: var(--ground-light);
-    --surface: var(--white);
-    --raised: var(--grey-100);
-    --line: var(--grey-200);
-    --edge: var(--grey-300);
-    --wash: rgba(235, 235, 232, 0.5);
-    --ink: var(--black);
-    --ink-body: var(--grey-600);
-    --ink-muted: var(--grey-500);
-    --accent-ink: var(--blue);
-    --accent-soft: rgba(29, 15, 237, 0.1);
-    --primary: var(--black);
-    --on-primary: var(--white);
-    --focus-ring: var(--accent-ink);
-    --warn-ink: #ad4a00;
-    --syntax-plain: var(--grey-600);
-    --syntax-keyword: var(--blue);
-    --syntax-function: #6d24b5;
-    --syntax-type: #0a6b75;
-    --syntax-string: #a8205b;
-    --syntax-comment: var(--grey-500);
-    color-scheme: light;
-  }
 }
 :root {
   --space-4: 4px;

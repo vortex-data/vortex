@@ -1,4 +1,4 @@
-{#- The one 404 every surface serves (the design system's Status, DECISIONS 36), under the shared
+{#- The one 404 every surface serves (the design system's Status), under the shared
     header and footer: vortex.dev's 404, word for word, so the surfaces read as one site. The code,
     what it means, and the ways back, with the turning mark over a DotField
     (_static/vortex-status-mark.js). It is the monorepo's one 404: the deploy serves it with a 404
@@ -12,7 +12,7 @@
   <script type="module" src="{{ pathto('_static/vortex-status-mark.js', 1) }}"></script>
 {%- endblock %}
 {%- block frame %}
-<main id="main" class="vx-docs-status">
+<main id="main" class="vx-docs-status" tabindex="-1">
   <div class="vx-status has-mark has-dot-field">
     <div class="vx-dot-field" aria-hidden="true"></div>
     <div class="vx-status-text">

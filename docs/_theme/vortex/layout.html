@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-{#- Titles are "<Page> | Vortex" on every surface (the design system's DECISIONS 36). The docs'
+{#- Titles are "<Page> | Vortex" on every surface, as the design system says. The docs'
     root page is "Docs". #}
 {%- set page_title = _("Docs") if pagename == root_doc else title|striptags %}
 {%- set github = "https://github.com/vortex-data/vortex" %}
@@ -30,7 +30,7 @@
   <meta property="og:url" content="{{ pageurl|e }}" />
   {%- endif %}
   <meta property="og:image" content="https://docs.vortex.dev/_static/vortex_logo.svg" />
-  {#- The shared theme (ThemeSwitch): the reader's choice from the vortex-theme cookie, set before the
+  {#- The shared theme (ThemeSwitch): the reader's choice from the vx-theme cookie, set before the
       stylesheets so the wrong theme never flashes. With no script, data-theme="dark" gives the
       default theme. #}
   <script src="{{ pathto('_static/vortex-theme-bootstrap.js', 1) }}"></script>
@@ -60,7 +60,7 @@
   {%- block extrahead %}{% endblock %}
 </head>
 <body class="vx-docs page-{{ pagename|replace('/', '-')|e }}">
-<a class="vx-docs-skip" href="#main">{{ _('Skip to content') }}</a>
+<a class="vx-skip-link" href="#main">{{ _('Skip to content') }}</a>
 <input type="checkbox" id="nav-toggle" class="vx-docs-toggle" aria-label="{{ _('Show the pages') }}" />
 {#- The shared header (the design system's Header): the wordmark, the surfaces' links with Docs
     current, the search and the sidebar's button in the docs' tools, then the socials (X, Slack,
@@ -100,7 +100,7 @@
       {{ toc }}
     </details>
     {%- endif %}
-    <main id="main" class="vx-docs-main" role="main">
+    <main id="main" class="vx-docs-main" role="main" tabindex="-1">
       {%- block body %}{% endblock %}
     </main>
     {%- if page_source_suffix %}
