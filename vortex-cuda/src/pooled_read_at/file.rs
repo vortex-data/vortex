@@ -31,8 +31,6 @@ use vortex::buffer::Alignment;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-#[cfg(target_os = "linux")]
-use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
@@ -116,9 +114,8 @@ impl PooledFileReadAtOptions {
         if self.direct_io {
             // Direct I/O needs a descriptor of its own, which must reach the same file.
             let backend = DirectFileReadBackend::open(path)?;
-            vortex_ensure_eq!(
-                FileVersion::of(backend.file())?,
-                FileVersion::of(file)?,
+            vortex_ensure!(
+                FileVersion::of(backend.file())? == FileVersion::of(file)?,
                 "{} was replaced while opening it",
                 path.display()
             );
