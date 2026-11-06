@@ -156,6 +156,27 @@ fn binary_falsify<P: NonNanProof>(
     let lhs = expr.child(0);
     let rhs = expr.child(1);
 
+    if *operator == Operator::Eq {
+        for (lower, target) in [(lhs, rhs), (rhs, lhs)] {
+            if target.is::<Literal>()
+                && lower
+                    .as_scalar()
+                    .is_some_and(|f| f.id() == StringFn::Lower.id())
+            {
+                if !P::EMIT_UNGUARDED_REWRITES {
+                    return Ok(None);
+                }
+                return min(lower.child(0))
+                    .zip(max(lower.child(0)))
+                    .map(|(low, high)| {
+                        StringFn::LowerBoundExcludes
+                            .try_new_bound_expr(EmptyOptions, [low, high, target.clone()])
+                    })
+                    .transpose();
+            }
+        }
+    }
+
     Ok(match operator {
         Operator::Eq => {
             let left = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));

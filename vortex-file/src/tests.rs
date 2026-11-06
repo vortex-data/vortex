@@ -3241,6 +3241,7 @@ async fn test_can_prune_unicode_lower_bounds() -> VortexResult<()> {
         // Lowercase is not monotonic, even on ASCII input.
         (vec![Some("Z"), Some("a")], "a", false),
         (vec![Some("A"), Some("Z")], "m", false),
+        (vec![Some("z"), Some("K")], "k", false),
     ] {
         let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
         let mut buf = ByteBufferMut::empty();

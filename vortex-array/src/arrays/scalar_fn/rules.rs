@@ -15,22 +15,60 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
+use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::ArrayReduceNode;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::string::StringFn;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFn> =
     ReduceRuleSet::new(&[&ScalarFnPackToStructRule, &ScalarFnAbstractReduceRule]);
 
 pub(super) const PARENT_RULES: ParentRuleSet<ScalarFn> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&LowerEqualsRule),
     ParentRuleSet::lift(&ScalarFilterPushdownRule),
     ParentRuleSet::lift(&ScalarFnSliceReduceRule),
 ]);
+
+#[derive(Debug)]
+struct LowerEqualsRule;
+impl ArrayParentReduceRule<ScalarFn> for LowerEqualsRule {
+    type Parent = ExactScalarFn<Binary>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, ScalarFn>,
+        parent: ScalarFnArrayView<'_, Binary>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.scalar_fn().id() != StringFn::Lower.id() || *parent.options != Operator::Eq {
+            return Ok(None);
+        }
+        let parent = parent.as_::<ScalarFn>();
+        let other = parent.get_child(1 - child_idx);
+        if other.as_constant().is_none() {
+            return Ok(None);
+        }
+        Ok(Some(
+            ScalarFnArray::try_new(
+                StringFn::LowerEquals.bind(EmptyOptions),
+                [array.get_child(0).clone(), other.clone()],
+            )?
+            .into_array(),
+        ))
+    }
+}
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
