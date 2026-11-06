@@ -53,8 +53,6 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
 use crate::types::arrow::drop_masked_nulls;
-use crate::types::arrow::to_logical;
-use crate::types::arrow::to_physical;
 use crate::types::fixed_shape_tensor::FixedShapeTensor;
 use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
 
@@ -109,17 +107,7 @@ fn to_vortex(
     tensor: &ArrowFixedShapeTensor,
     shape: &[usize],
 ) -> VortexResult<FixedShapeTensorMetadata> {
-    let permutation = tensor.permutations();
-    let mut metadata = FixedShapeTensorMetadata::new(to_logical(shape, permutation)?);
-
-    if let Some(names) = tensor.dimension_names() {
-        metadata = metadata.with_dim_names(to_logical(names, permutation)?)?;
-    }
-    if let Some(permutation) = permutation {
-        metadata = metadata.with_permutation(permutation.to_vec())?;
-    }
-
-    Ok(metadata)
+    FixedShapeTensorMetadata::from_physical(shape, tensor.dimension_names(), tensor.permutations())
 }
 
 impl ArrowExportVTable for FixedShapeTensor {
@@ -153,9 +141,7 @@ impl ArrowExportVTable for FixedShapeTensor {
         let permutation = metadata.permutation();
         let out = ArrowMetadataOut {
             shape: metadata.physical_shape().collect(),
-            dim_names: metadata
-                .dim_names()
-                .map(|names| to_physical(names, permutation)),
+            dim_names: metadata.physical_dim_names(),
             permutations: permutation,
         };
 
@@ -194,10 +180,11 @@ impl ArrowExportVTable for FixedShapeTensor {
         let storage = executed.storage_array().clone();
 
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .exporter(options)
-            .execute_arrow(storage, Some(target), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(target), ctx)?;
 
         Ok(ArrowExport::Exported(arrow_storage))
     }
