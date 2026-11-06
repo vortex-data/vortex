@@ -26,6 +26,7 @@ use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
+use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
@@ -1141,6 +1142,104 @@ fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
         in_scan |= child_in_scan;
     }
     (in_datafusion, in_scan)
+}
+
+/// Plans string functions over plain and dictionary-encoded label columns in SQL, as DataFusion
+/// coerces them, and checks where the filter runs and that the rows match an in-memory oracle.
+///
+/// DataFusion casts a plain dictionary argument of `contains`, `strpos`, `ends_with`, and the
+/// `LIKE` that constant `starts_with` becomes, to `Utf8`. That cast can overflow, so the filter
+/// stays in DataFusion, also when the dictionary comes from `lower`, which keeps the encoding.
+/// REE columns are cast to `Utf8View`, which cannot overflow, so their filters are pushed down.
+#[rstest]
+#[case::lower_eq("lower(labels) = 'comm_0'", true)]
+#[case::lower_unicode("lower(labels) = 'ος_1'", true)]
+#[case::contains("contains(labels, 'omm_')", false)]
+#[case::contains_lower("contains(lower(labels), 'comm_')", false)]
+#[case::contains_negated("NOT contains(labels, 'omm_')", false)]
+#[case::strpos("strpos(labels, 'm_1') > 0", false)]
+#[case::strpos_lower("strpos(lower(labels), 'm_1') > 0", false)]
+#[case::ends_with("ends_with(labels, '_1')", false)]
+#[case::starts_with("starts_with(labels, 'Comm')", false)]
+#[tokio::test]
+async fn test_string_function_filter_pushdown(
+    #[case] predicate: &str,
+    #[case] pushed_on_dictionary: bool,
+    #[values("utf8", "view", "dictionary", "runs")] encoding: &str,
+    #[values(false, true)] pushdown: bool,
+) -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let labels = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![
+            Some(0),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+            Some(5),
+        ]),
+        Arc::new(StringArray::from(vec![
+            "comm_0", "Comm_1", "COMM_0", "other", "ΟΣ_1", "comm_1", "unused",
+        ])),
+    )?;
+    let runs =
+        RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 5, 6, 8, 11, 13, 14]), &labels)?;
+    let labels = cast(&runs, labels.data_type())?;
+    let labels: Arc<dyn Array> = match encoding {
+        "utf8" => cast(&labels, &DataType::Utf8)?,
+        "view" => cast(&labels, &DataType::Utf8View)?,
+        "dictionary" => labels,
+        "runs" => Arc::new(runs),
+        _ => unreachable!(),
+    };
+    let len = labels.len();
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("labels", labels.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(Int32Array::from_iter_values(0..i32::try_from(len)?)),
+            labels,
+        ],
+    )?;
+    ctx.write_arrow_batch("labels.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/labels.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    let pushed = pushdown && (encoding != "dictionary" || pushed_on_dictionary);
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (!pushed, pushed),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    let actual = batch_values(&actual.collect().await?);
+    let expected = batch_values(&ctx.session.sql(&query("oracle")).await?.collect().await?);
+    assert!(!expected.is_empty());
+    assert!(expected.len() < len);
+    assert_eq!(actual, expected);
+    Ok(())
 }
 
 /// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
