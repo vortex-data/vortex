@@ -22,6 +22,7 @@ pub(crate) use plugin::ALPPatchedPlugin;
 
 pub(crate) fn initialize(session: &VortexSession) {
     rules::initialize(session);
+    rules::register_parent_rules(session);
 }
 
 #[cfg(test)]

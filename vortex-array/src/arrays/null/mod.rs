@@ -26,7 +26,6 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::Dict;
 use crate::arrays::dict::TakeExecuteAdaptor;
-use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::NullBuilder;
@@ -45,6 +44,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     session
         .kernels()
         .register_execute_parent_kernel(Dict.id(), Null, TakeExecuteAdaptor(Null));
+    compute::rules::register_parent_rules(session);
 }
 
 impl VTable for Null {
@@ -122,14 +122,6 @@ impl VTable for Null {
             EmptyArrayData,
             ArraySlots::new(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

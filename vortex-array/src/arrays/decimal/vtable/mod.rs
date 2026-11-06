@@ -34,7 +34,6 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::decimal::DecimalData;
 use crate::arrays::decimal::array::DecimalSlots;
-use crate::arrays::decimal::compute::rules::RULES;
 use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -167,14 +166,6 @@ impl VTable for Decimal {
             vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
         };
         builder.append_decimal_array(&array.into_owned(), ctx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

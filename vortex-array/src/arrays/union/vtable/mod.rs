@@ -23,7 +23,6 @@ use crate::array::with_empty_buffers;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionSlots;
 use crate::arrays::union::array::make_union_parts;
-use crate::arrays::union::compute::rules::PARENT_RULES;
 use crate::arrays::union::union_type_ids_dtype;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -159,13 +158,5 @@ impl VTable for Union {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_bail!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

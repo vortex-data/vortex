@@ -51,7 +51,6 @@ use vortex_session::registry::CachedId;
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
-use crate::alp::rules::RULES;
 
 /// A [`ALP`]-encoded Vortex array.
 pub type ALPArray = Array<ALP>;
@@ -202,14 +201,6 @@ impl VTable for ALP {
         Ok(ExecutionResult::done(
             execute_decompress(array, ctx)?.into_array(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

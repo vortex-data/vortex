@@ -17,7 +17,11 @@ mod tests {
     use crate::Pco;
     use crate::PcoArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn pco_f32() -> PcoArray {
         let values = PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]);

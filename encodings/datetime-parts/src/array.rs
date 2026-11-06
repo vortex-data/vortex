@@ -42,7 +42,6 @@ use vortex_session::registry::CachedId;
 
 use crate::TemporalParts;
 use crate::canonical::decode_to_temporal;
-use crate::compute::rules::PARENT_RULES;
 use crate::split_temporal;
 
 /// A [`DateTimeParts`]-encoded Vortex array.
@@ -204,14 +203,6 @@ impl VTable for DateTimeParts {
         Ok(ExecutionResult::done(
             decode_to_temporal(parts, &dtype, ctx)?.into_array(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

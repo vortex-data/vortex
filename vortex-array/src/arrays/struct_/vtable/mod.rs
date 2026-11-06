@@ -19,7 +19,6 @@ use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::struct_::array::StructSlots;
 use crate::arrays::struct_::array::struct_slots_with_capacity;
-use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::StructBuilder;
@@ -214,14 +213,6 @@ impl VTable for Struct {
             vortex_bail!("append_to_builder for Struct requires a StructBuilder");
         };
         builder.append_struct_array(&array.into_owned(), ctx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

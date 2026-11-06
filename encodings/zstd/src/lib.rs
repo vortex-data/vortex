@@ -11,15 +11,14 @@
 //! buffers while preserving the inner encoding metadata.
 //!
 //! This crate exposes array encodings only. Compression scheme selection is wired through
-//! `vortex-btrblocks` and file writing. To deserialize arrays manually, register the encoding in the
-//! array session:
+//! `vortex-btrblocks` and file writing. To deserialize arrays manually, initialize the encodings
+//! and their parent-reduce rules in the session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
 //! use vortex_session::VortexSession;
 //!
 //! let session = VortexSession::empty();
-//! session.arrays().register(vortex_zstd::Zstd);
+//! vortex_zstd::initialize(&session);
 //! ```
 
 pub use array::*;
@@ -57,6 +56,7 @@ pub fn initialize(session: &VortexSession) {
             .register_edition(&editions::DECLARATION)
             .vortex_expect("Zstd edition declaration is valid");
     }
+    rules::register_parent_rules(session);
 }
 
 /// Ensure Vortex metadata agrees with the content size declared by a zstd frame.
