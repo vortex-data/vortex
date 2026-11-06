@@ -19,7 +19,7 @@ use tokio::time::timeout;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
-use vortex_cuda_driver::result::stream::launch_host_function;
+use vortex_cuda_driver::stream::launch_host_function;
 
 use super::*;
 use crate::CudaBufferExt;
