@@ -58,7 +58,10 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
         }
 
         // TODO(ngates): relax this constraint and implement run-end decoding for all vector types.
-        if !matches!(parent.dtype(), DType::Bool(_) | DType::Primitive(..)) {
+        if !matches!(
+            parent.dtype(),
+            DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_)
+        ) {
             return Ok(None);
         }
 
