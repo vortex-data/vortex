@@ -104,6 +104,9 @@ impl ArrayPlugin for Dict {
             self.clone(),
             dtype.clone(),
             len,
+            // SAFETY: `Array::try_from_parts` validates the codes and values against the dtype and
+            // length before the array is exposed. The `all_values_referenced` flag is trusted from
+            // the metadata, as it was before serde moved here.
             unsafe { DictData::new_unchecked().set_all_values_referenced(all_values_referenced) },
             smallvec![Some(codes), Some(values)],
         ))?
