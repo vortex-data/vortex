@@ -17,9 +17,6 @@ use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_contains::PreparedSet;
 
 /// Pushes `list_contains` of a prepared set into the values of run-end encoded needles.
-///
-/// The values get the prepared set at their own length, sharing the one set, so that the set is
-/// not built again for them.
 impl ListContainsElementReduce for RunEnd {
     fn list_contains(
         list: &ArrayRef,

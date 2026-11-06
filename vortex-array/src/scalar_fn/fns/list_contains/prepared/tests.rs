@@ -564,34 +564,57 @@ fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
     Ok(())
 }
 
-/// Dictionary needles with a null code, against a set that is empty or not.
+/// Dictionary needles with a null code or a null value, against a set that is empty or not.
 #[rstest]
-#[case::default(ListContainsOptions::default(), set_with_null(), [Some(true), Some(false), None, Some(true)])]
-#[case::sql(ListContainsOptions { sql_null_semantics: true }, set_with_null(), [Some(true), None, None, Some(true)])]
+#[case::default(null_code_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), None, Some(true)])]
+#[case::sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, set_with_null(), vec![Some(true), None, None, Some(true)])]
 // Off SQL null semantics an empty list answers `false` even for the null code.
-#[case::empty(ListContainsOptions::default(), empty_i32_set(), [Some(false); 4])]
-#[case::empty_sql(ListContainsOptions { sql_null_semantics: true }, empty_i32_set(), [Some(false), Some(false), None, Some(false)])]
-fn test_dictionary_needles_with_null_codes(
+#[case::empty(null_code_needles(), ListContainsOptions::default(), empty_i32_set(), vec![Some(false); 4])]
+#[case::empty_sql(null_code_needles(), ListContainsOptions { sql_null_semantics: true }, empty_i32_set(), vec![Some(false), Some(false), None, Some(false)])]
+#[case::null_value(null_value_needles(), ListContainsOptions::default(), set_with_null(), vec![Some(true), Some(false), Some(true), None, Some(false)])]
+fn test_dictionary_needles(
+    #[case] needles: VortexResult<ArrayRef>,
     #[case] options: ListContainsOptions,
     #[case] set: Scalar,
-    #[case] expected: [Option<bool>; 4],
+    #[case] expected: Vec<Option<bool>>,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let needles = DictArray::try_new(
-        PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
-        buffer![2i32, 3].into_array(),
-    )?
-    .into_array();
+    let needles = needles?;
     let list = ConstantArray::new(set, needles.len()).into_array();
 
     let array = ListContains::try_new_opts(list, needles, options)?
         .into_array()
         .optimize()?;
+
     // The rule took the node: it is a dictionary of answers, or a constant for the empty list.
     assert!(!array.is::<ScalarFn>());
 
+    // The prepared list still lets the function into the values of the dictionary.
+    if let Some(dict) = array.as_opt::<Dict>() {
+        let values = dict.values().clone();
+        assert!(PreparedSet::set_of(values.as_::<ScalarFn>().get_child(0)).is_some());
+    }
+
     assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
     Ok(())
+}
+
+/// Dictionary needles of `i32` with a null code.
+fn null_code_needles() -> VortexResult<ArrayRef> {
+    Ok(DictArray::try_new(
+        PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(0)]).into_array(),
+        buffer![2i32, 3].into_array(),
+    )?
+    .into_array())
+}
+
+/// Dictionary needles of `i32` with a null value.
+fn null_value_needles() -> VortexResult<ArrayRef> {
+    Ok(DictArray::try_new(
+        buffer![0u8, 1, 0, 2, 1].into_array(),
+        PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),
+    )?
+    .into_array())
 }
 
 /// The empty set of nullable `i32`.
@@ -601,29 +624,4 @@ fn empty_i32_set() -> Scalar {
         vec![],
         Nullability::NonNullable,
     )
-}
-
-#[test]
-fn test_constant_list_over_dictionary_needles() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let needles = DictArray::try_new(
-        buffer![0u8, 1, 0, 2, 1].into_array(),
-        PrimitiveArray::from_option_iter([Some(2i32), Some(3), None]).into_array(),
-    )?
-    .into_array();
-    let list = ConstantArray::new(set_with_null(), needles.len()).into_array();
-
-    // The prepared list still lets the function into the values of the dictionary.
-    let array = ListContains::try_new(list, needles)?
-        .into_array()
-        .optimize()?;
-    let values = array.as_::<Dict>().values().clone();
-    assert!(PreparedSet::set_of(values.as_::<ScalarFn>().get_child(0)).is_some());
-
-    assert_arrays_eq!(
-        array,
-        BoolArray::from_iter([Some(true), Some(false), Some(true), None, Some(false)]),
-        &mut ctx
-    );
-    Ok(())
 }

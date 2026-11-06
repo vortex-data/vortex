@@ -21,9 +21,6 @@ use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_contains::PreparedSet;
 
 /// Pushes `list_contains` of a prepared set into the values of a dictionary of needles.
-///
-/// The values get a slice of the prepared set, which shares the one set, so that the set is not
-/// built again for them.
 impl ListContainsElementReduce for Dict {
     fn list_contains(
         list: &ArrayRef,
