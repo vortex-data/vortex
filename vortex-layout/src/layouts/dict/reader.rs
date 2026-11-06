@@ -102,8 +102,11 @@ impl DictReader {
             values_len,
             values_array: Default::default(),
             values_source: Default::default(),
-            pages: (*PAGE_SIZE > 0 && values_len > *PAGE_SIZE)
-                .then(|| DictPages::new(values_len, *PAGE_SIZE)),
+            // Only string and binary values cost enough to decode for paging to pay off.
+            pages: (*PAGE_SIZE > 0
+                && values_len > *PAGE_SIZE
+                && matches!(values.dtype(), DType::Utf8(_) | DType::Binary(_)))
+            .then(|| DictPages::new(values_len, *PAGE_SIZE)),
             values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
             values,
             codes,
@@ -204,6 +207,28 @@ impl DictReader {
             })
             .clone()
     }
+}
+
+/// Builds the dictionary for a projection over the layout's own codes and values, then applies
+/// the part of the projection that was not pushed down into the values.
+fn dict_projection(
+    codes: ArrayRef,
+    values: ArrayRef,
+    all_values_referenced: bool,
+    expr_outer: &BoundExpression,
+) -> VortexResult<ArrayRef> {
+    // SAFETY: Layout was validated at write time.
+    //  * The codes dtype is guaranteed to be an integer type from the layout
+    //  * The codes child reader ensures the correct dtype.
+    //  * The layout stores `all_values_referenced` and if this is malicious then it must
+    //    only affect correctness not memory safety.
+    let array = unsafe {
+        DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
+    }
+    .into_array()
+    .optimize()?;
+
+    array.apply_bound(expr_outer)
 }
 
 // On expression pushdown, "inner" is packed as field with this name.
@@ -360,21 +385,14 @@ impl LayoutReader for DictReader {
             if let Some(pages) = &self.pages {
                 let pages = Arc::clone(pages);
                 let source = self.values_source();
-                // Resolved only if the codes hit too many pages to page.
-                let full = self.values_array();
                 let session = self.session.clone();
                 return Ok(async move {
                     let (source, codes) = try_join!(source.map_err(VortexError::from), codes_eval)?;
                     let mut ctx = session.create_execution_ctx();
                     let codes = codes.execute::<PrimitiveArray>(&mut ctx)?;
-                    let array = match pages.take(&source, &codes, &mut ctx)? {
-                        Some(array) => array,
-                        None => {
-                            let values = full.await?;
-                            DictArray::try_new(codes.into_array(), values)?.into_array()
-                        }
-                    };
-                    array.apply_bound(&expr_outer)
+                    pages
+                        .take(&source, &codes, &mut ctx)?
+                        .apply_bound(&expr_outer)
                 }
                 .boxed());
             }
@@ -383,20 +401,7 @@ impl LayoutReader for DictReader {
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
-
-            // SAFETY: Layout was validated at write time.
-            //  * The codes dtype is guaranteed to be an integer type from the layout
-            //  * The codes child reader ensures the correct dtype.
-            //  * The layout stores `all_values_referenced` and if this is malicious then it must
-            //    only affect correctness not memory safety.
-            let array = unsafe {
-                DictArray::new_unchecked(codes, values)
-                    .set_all_values_referenced(all_values_referenced)
-            }
-            .into_array()
-            .optimize()?;
-
-            array.apply_bound(&expr_outer)
+            dict_projection(codes, values, all_values_referenced, &expr_outer)
         }
         .boxed())
     }

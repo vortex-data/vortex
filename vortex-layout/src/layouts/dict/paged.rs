@@ -1,32 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Page-at-a-time decoding of dictionary values.
+//! Page-at-a-time decoding of string dictionary values.
 //!
 //! A dictionary's values are shared by every chunk of codes that references them, so the
 //! reader normally decodes all of them once. When a selective filter leaves only a few codes in
 //! a chunk, that decodes values no row needs. Instead, the values are split into fixed-size pages
-//! that are decoded the first time any code hits them and cached for later chunks. A projection
-//! then builds a dictionary over just the hit pages, with its codes renumbered to match.
+//! that are decoded the first time any code hits them and cached for later chunks.
+//!
+//! A projection then gathers each code's view straight out of its page in a single pass, sharing
+//! the pages' byte buffers rather than copying them. That pass costs the same as gathering from
+//! fully decoded values, and every page is decoded at most once, so even codes that hit every page
+//! do no more work than decoding the dictionary whole.
 
-use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 /// Values per page when `VORTEX_DICT_PAGE_SIZE` is unset.
 const DEFAULT_PAGE_SIZE: usize = 1024;
@@ -47,20 +53,21 @@ pub(super) static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
         })
 });
 
-/// Paged decoding is used only when at most `1 / MAX_HIT_DENOMINATOR` of the pages are hit;
-/// otherwise decoding the values whole is as cheap and avoids renumbering the codes.
-static MAX_HIT_DENOMINATOR: LazyLock<usize> = LazyLock::new(|| {
-    std::env::var("VORTEX_DICT_PAGE_MAX_HIT_DENOM")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2)
-});
+/// Marks a page that no code of the current take has hit yet.
+const UNSEEN: u32 = u32::MAX;
 
-/// Lazily decoded pages of one dictionary's values.
+/// One decoded page of values.
+struct Page {
+    values: VarBinViewArray,
+    /// The values' validity, or `None` when every value is valid.
+    validity: Option<Mask>,
+}
+
+/// Lazily decoded pages of one dictionary's string or binary values.
 pub(super) struct DictPages {
     page_size: usize,
     len: usize,
-    pages: Box<[OnceLock<ArrayRef>]>,
+    pages: Box<[OnceLock<Page>]>,
 }
 
 impl Drop for DictPages {
@@ -75,8 +82,9 @@ impl Drop for DictPages {
 }
 
 impl DictPages {
-    pub(super) fn new(len: usize, page_size: usize) -> Arc<Self> {
-        Arc::new(Self {
+    pub(super) fn new(len: usize, page_size: usize) -> std::sync::Arc<Self> {
+        debug_assert!(page_size.is_power_of_two());
+        std::sync::Arc::new(Self {
             page_size,
             len,
             pages: (0..len.div_ceil(page_size))
@@ -95,122 +103,154 @@ impl DictPages {
         self.pages.iter().filter(|p| p.get().is_some()).count()
     }
 
-    fn page(
-        &self,
-        idx: usize,
-        source: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    fn page(&self, idx: usize, source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<&Page> {
         if let Some(page) = self.pages[idx].get() {
-            return Ok(page.clone());
+            return Ok(page);
         }
         let start = idx * self.page_size;
         let end = (start + self.page_size).min(self.len);
-        let decoded = source
-            .slice(start..end)?
-            .execute::<Canonical>(ctx)?
-            .into_array();
-        Ok(self.pages[idx].get_or_init(|| decoded).clone())
+        let values = source.slice(start..end)?.execute::<VarBinViewArray>(ctx)?;
+        let validity = values.validity()?.execute_mask(values.len(), ctx)?;
+        let page = Page {
+            values,
+            validity: (!validity.all_true()).then_some(validity),
+        };
+        // A racing decode of the same page is discarded; both decoded the same values.
+        Ok(self.pages[idx].get_or_init(|| page))
     }
 
-    /// Builds a dictionary over only the pages `codes` hits, or returns `None` when too many
-    /// pages are hit for paging to pay off.
+    /// Looks up each code in the dictionary `source`, decoding only the pages the codes hit.
     pub(super) fn take(
         &self,
         source: &ArrayRef,
         codes: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let validity = codes.validity()?;
-        let mask = validity.execute_mask(codes.len(), ctx)?;
+    ) -> VortexResult<ArrayRef> {
+        let codes_validity = codes.validity()?;
+        let codes_mask = codes_validity.execute_mask(codes.len(), ctx)?;
 
-        // Rank of each hit page among the hit pages, or `u32::MAX` for a page no code hits.
-        let mut rank = vec![u32::MAX; self.pages.len()];
-        let shift = self.page_size.trailing_zeros();
-        debug_assert!(self.page_size.is_power_of_two());
-        match_each_integer_ptype!(codes.ptype(), |C| {
-            mark_hits(codes.as_slice::<C>(), &mask, shift, &mut rank)
+        let mut gather = Gather {
+            pages: self,
+            source,
+            shift: self.page_size.trailing_zeros(),
+            slot: vec![UNSEEN; self.pages.len()],
+            hit: Vec::new(),
+            buffers: Vec::new(),
+        };
+        let views = match_each_integer_ptype!(codes.ptype(), |C| {
+            gather.views(codes.as_slice::<C>(), &codes_mask, ctx)?
         });
 
-        let mut hit = Vec::new();
-        for (page, r) in rank.iter_mut().enumerate() {
-            if *r != u32::MAX {
-                *r = u32::try_from(hit.len())?;
-                hit.push(page);
-            }
-        }
-        let fallback = hit.len() * *MAX_HIT_DENOMINATOR > self.pages.len();
+        let validity = if source.dtype().is_nullable() {
+            match_each_integer_ptype!(codes.ptype(), |C| {
+                gather.validity(codes.as_slice::<C>(), &codes_mask)
+            })
+        } else {
+            codes_validity
+        };
         tracing::debug!(
             codes = codes.len(),
-            hit = hit.len(),
+            hit = gather.hit.len(),
             pages = self.pages.len(),
-            fallback,
             "dict paged take"
         );
-        if fallback {
-            return Ok(None);
-        }
 
-        let new_codes = match_each_integer_ptype!(codes.ptype(), |C| {
-            PrimitiveArray::new(remap(codes.as_slice::<C>(), shift, &rank), validity)
-        });
-
-        let pages = hit
-            .iter()
-            .map(|&idx| self.page(idx, source, ctx))
-            .collect::<VortexResult<Vec<_>>>()?;
-        let values = if pages.len() == 1 {
-            pages.into_iter().next().unwrap_or_else(|| unreachable!())
-        } else {
-            ChunkedArray::try_new(pages, source.dtype().clone())?.into_array()
-        };
-
-        // SAFETY: every valid code is renumbered into a hit page, and null codes to 0, which is in
-        // bounds whenever any page is hit. With no page hit, every code is null.
-        let values = if values.is_empty() {
-            source.slice(0..source.len().min(1))?
-        } else {
-            values
-        };
-        Ok(Some(
-            unsafe { DictArray::new_unchecked(new_codes.into_array(), values) }.into_array(),
-        ))
-    }
-}
-
-fn mark_hits<C: NativePType + AsPrimitive<usize>>(
-    codes: &[C],
-    mask: &vortex_mask::Mask,
-    shift: u32,
-    rank: &mut [u32],
-) {
-    match mask.indices() {
-        AllOr::All => codes.iter().for_each(|&c| rank[c.as_() >> shift] = 0),
-        AllOr::None => {}
-        AllOr::Some(valid) => valid
-            .iter()
-            .for_each(|&i| rank[codes[i].as_() >> shift] = 0),
-    }
-}
-
-fn remap<C>(codes: &[C], shift: u32, rank: &[u32]) -> Buffer<C>
-where
-    C: NativePType + AsPrimitive<usize>,
-    usize: AsPrimitive<C>,
-{
-    let low = (1usize << shift) - 1;
-    codes
-        .iter()
-        .map(|&c| {
-            let c: usize = c.as_();
-            let r = rank.get(c >> shift).copied().unwrap_or(u32::MAX);
-            if r == u32::MAX {
-                C::default()
-            } else {
-                (((r as usize) << shift) | (c & low)).as_()
+        let dtype = source
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        // SAFETY: every view is either inlined, or a view of a decoded page re-pointed at that
+        // page's buffers, which are copied into `buffers` in the same order at the recorded base.
+        Ok(
+            unsafe {
+                VarBinViewArray::new_unchecked(views, gather.buffers.into(), dtype, validity)
             }
-        })
-        .collect()
+            .into_array(),
+        )
+    }
+}
+
+/// The state of one take: which pages its codes have hit so far, and the buffers of those pages.
+struct Gather<'a> {
+    pages: &'a DictPages,
+    source: &'a ArrayRef,
+    shift: u32,
+    /// For each page, its index into `hit`, or [`UNSEEN`].
+    slot: Vec<u32>,
+    /// The hit pages, each with the index of its first buffer in `buffers`.
+    hit: Vec<(&'a Page, u32)>,
+    buffers: Vec<ByteBuffer>,
+}
+
+impl<'a> Gather<'a> {
+    /// The hit page holding `code`, decoding it the first time any code of this take hits it.
+    #[inline]
+    fn page_of(&mut self, code: usize, ctx: &mut ExecutionCtx) -> VortexResult<(&'a Page, u32)> {
+        let idx = code >> self.shift;
+        let slot = self.slot[idx];
+        if slot != UNSEEN {
+            return Ok(self.hit[slot as usize]);
+        }
+        let page = self.pages.page(idx, self.source, ctx)?;
+        let base = u32::try_from(self.buffers.len())?;
+        self.buffers.extend(
+            page.values
+                .data_buffers()
+                .iter()
+                .map(|buffer| buffer.as_host().clone()),
+        );
+        self.slot[idx] = u32::try_from(self.hit.len())?;
+        self.hit.push((page, base));
+        Ok((page, base))
+    }
+
+    fn views<C: NativePType + AsPrimitive<usize>>(
+        &mut self,
+        codes: &[C],
+        codes_mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Buffer<BinaryView>> {
+        let low = (1usize << self.shift) - 1;
+        let mut views = BufferMut::<BinaryView>::with_capacity(codes.len());
+        for (row, &code) in codes.iter().enumerate() {
+            if !codes_mask.value(row) {
+                views.push(BinaryView::empty_view());
+                continue;
+            }
+            let code: usize = code.as_();
+            let (page, base) = self.page_of(code, ctx)?;
+            let view = page.values.views()[code & low];
+            views.push(if view.is_inlined() {
+                view
+            } else {
+                let view = view.as_view();
+                view.with_buffer_and_offset(view.buffer_index + base, view.offset)
+                    .into()
+            });
+        }
+        Ok(views.freeze())
+    }
+
+    /// The validity of the gathered values: a row is valid when its code and its value are.
+    fn validity<C: NativePType + AsPrimitive<usize>>(
+        &self,
+        codes: &[C],
+        codes_mask: &Mask,
+    ) -> Validity {
+        let low = (1usize << self.shift) - 1;
+        let mut valid = BitBufferMut::with_capacity(codes.len());
+        for (row, &code) in codes.iter().enumerate() {
+            let code: usize = code.as_();
+            valid.append(
+                codes_mask.value(row) && {
+                    let (page, _) = self.hit[self.slot[code >> self.shift] as usize];
+                    page.validity
+                        .as_ref()
+                        .is_none_or(|validity| validity.value(code & low))
+                },
+            );
+        }
+        Validity::from(valid.freeze())
+    }
 }
 
 #[cfg(test)]
@@ -258,21 +298,33 @@ mod tests {
         let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?;
         // Twice, so the second take reads the cached pages.
         for _ in 0..2 {
-            let actual = pages
-                .take(&values, &codes, &mut ctx)?
-                .expect("sparse codes should be paged");
+            let actual = pages.take(&values, &codes, &mut ctx)?;
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
     }
 
     #[test]
-    fn dense_codes_fall_back() -> VortexResult<()> {
+    fn dense_codes_decode_every_page_once() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = values(64)?;
         let pages = DictPages::new(values.len(), 16);
-        let codes = PrimitiveArray::new(buffer![0u8, 17, 33, 49], Validity::NonNullable);
-        assert!(pages.take(&values, &codes, &mut ctx)?.is_none());
+        let codes = PrimitiveArray::new(buffer![0u8, 17, 33, 49, 63, 0], Validity::NonNullable);
+        let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?;
+        let actual = pages.take(&values, &codes, &mut ctx)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        assert_eq!(pages.decoded_pages(), pages.len());
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_codes_decode_only_hit_pages() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = values(130)?;
+        let pages = DictPages::new(values.len(), 16);
+        let codes = PrimitiveArray::new(buffer![100u8, 101, 3], Validity::NonNullable);
+        pages.take(&values, &codes, &mut ctx)?;
+        assert_eq!(pages.decoded_pages(), 2);
         Ok(())
     }
 }
