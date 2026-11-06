@@ -10,6 +10,7 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::try_join;
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -45,6 +46,8 @@ use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
 use crate::arrays::shared::Shared;
+use crate::arrays::shared::SharedArrayExt;
+use crate::arrays::shared::SharedArraySlotsExt;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -57,8 +60,6 @@ pub struct DictReader {
     values_len: usize,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
-    /// Cached undecoded dict values array, for paged decoding
-    values_source: OnceLock<SharedArrayFuture>,
     /// Pages of the dict values decoded so far, when paged decoding is enabled
     pages: Option<Arc<DictPages>>,
     /// Cache of expression evaluation results on the values array by expression
@@ -102,7 +103,6 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
-            values_source: Default::default(),
             // Only string and binary values cost enough to decode for paging to pay off.
             pages: (*PAGE_SIZE > 0
                 && values_len > *PAGE_SIZE
@@ -158,28 +158,6 @@ impl DictReader {
                 .boxed()
                 .shared()
         })
-    }
-
-    /// The dict values array as stored, shared by all paged projections.
-    fn values_source(&self) -> SharedArrayFuture {
-        let values_len = self.values_len;
-        let root = root()
-            .bind(self.values.dtype())
-            .vortex_expect("root must bind against the dictionary values dtype");
-        self.values_source
-            .get_or_init(move || {
-                self.values
-                    .projection_evaluation(
-                        &(0..values_len as u64),
-                        &root,
-                        MaskFuture::new_true(values_len),
-                    )
-                    .vortex_expect("must construct dict values array evaluation")
-                    .map_err(Arc::new)
-                    .boxed()
-                    .shared()
-            })
-            .clone()
     }
 
     fn values_eval(&self, expr: BoundExpression) -> SharedArrayFuture {
@@ -385,20 +363,29 @@ impl LayoutReader for DictReader {
         } else {
             if let Some(pages) = &self.pages {
                 let pages = Arc::clone(pages);
-                let source = self.values_source();
-                // Resolved only once the codes hit most pages, sharing the unpaged decode.
-                let whole = self.values_array();
+                // Resolving this reads the values without decoding them. They are decoded whole
+                // only if some evaluation executes them, as unpaged projections do.
+                let values = self.values_array();
                 let all_values_referenced = self.layout.has_all_values_referenced();
                 let session = self.session.clone();
                 return Ok(async move {
-                    let (source, codes) = try_join!(source.map_err(VortexError::from), codes_eval)?;
+                    let (values, codes) = try_join!(values.map_err(VortexError::from), codes_eval)?;
                     let mut ctx = session.create_execution_ctx();
                     let codes = codes.execute::<PrimitiveArray>(&mut ctx)?;
-                    match pages.take(&source, &codes, &mut ctx)? {
+                    let take = match values.as_opt::<Shared>() {
+                        // Another evaluation, such as a filter over the values, may already have
+                        // decoded them whole; looking codes up in those costs less than decoding
+                        // pages.
+                        Some(shared) if !shared.current_array_ref().is::<AnyCanonical>() => {
+                            pages.take(shared.source(), &codes, &mut ctx)?
+                        }
+                        _ => PagedTake::Whole,
+                    };
+                    match take {
                         PagedTake::Gathered(array) => array.apply_bound(&expr_outer),
                         PagedTake::Whole => dict_projection(
                             codes.into_array(),
-                            whole.await?,
+                            values,
                             all_values_referenced,
                             &expr_outer,
                         ),
@@ -437,6 +424,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::dict_encode;
     use vortex_array::dtype::DType;
@@ -470,6 +458,7 @@ mod tests {
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::compressed::CompressingStrategy;
     use crate::layouts::dict::reader::DictReader;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
@@ -549,9 +538,21 @@ mod tests {
                         .into_array(),
                 )
             };
+            // Store the values as offsets-based VarBin, which needs decoding into views: paging
+            // only applies to values that are not already canonical.
+            let to_varbin = |chunk: &ArrayRef, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                let views = chunk.clone().execute::<VarBinViewArray>(ctx)?;
+                Ok(VarBinArray::from_iter_nonnull(
+                    (0..views.len()).map(|i| views.bytes_at(i)),
+                    views.dtype().clone(),
+                )
+                .into_array())
+            };
+            let values_strategy =
+                CompressingStrategy::new(FlatLayoutStrategy::default(), to_varbin);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
-                FlatLayoutStrategy::default(),
+                values_strategy,
                 FlatLayoutStrategy::default(),
                 DictLayoutOptions::default(),
                 Arc::new(probe),
