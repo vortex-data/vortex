@@ -28,6 +28,7 @@ use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoSource;
@@ -93,9 +94,7 @@ impl ScanDriver {
             builder,
             Arc::new(move |batch| {
                 let mut ctx = session.create_execution_ctx();
-                let arrow = session
-                    .arrow()
-                    .execute_arrow(batch, Some(&field), &mut ctx)?;
+                let arrow = batch.execute_arrow(Some(&field), &mut ctx)?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             }),
         )

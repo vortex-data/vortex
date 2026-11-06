@@ -27,7 +27,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
+use crate::ExecuteArrowExt;
 use crate::executor::infer_nearest_arrow_field;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
@@ -51,7 +52,7 @@ impl Matcher for ArrowStructExportable {
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
     target_fields: Option<&Fields>,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -83,7 +84,7 @@ pub(super) fn to_arrow_struct(
                 &fields,
                 validity,
                 len,
-                exporter,
+                options,
                 ctx,
             );
         }
@@ -102,7 +103,7 @@ pub(super) fn to_arrow_struct(
             &array.children(),
             None, // Pack is never null,
             len,
-            exporter,
+            options,
             ctx,
         );
     }
@@ -131,7 +132,7 @@ pub(super) fn to_arrow_struct(
         &fields,
         validity,
         len,
-        exporter,
+        options,
         ctx,
     )
 }
@@ -141,7 +142,7 @@ fn create_from_fields(
     vortex_fields: &[ArrayRef],
     null_buffer: Option<NullBuffer>,
     len: usize,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     match fields {
@@ -156,8 +157,11 @@ fn create_from_fields(
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
                 // Route through the session with the full Field (not just data_type) so any
                 // ARROW:extension:name metadata reaches the export-plugin dispatcher.
-                let arrow_field =
-                    exporter.execute_arrow(vx_field.clone(), Some(field.as_ref()), ctx)?;
+                let arrow_field = vx_field.clone().execute_arrow_with_options(
+                    Some(field.as_ref()),
+                    options,
+                    ctx,
+                )?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -192,7 +196,9 @@ fn create_from_fields(
                     .extension_type_name()
                     .is_some()
                     .then_some(&inferred);
-                let arrow_array = exporter.execute_arrow(vx_field.clone(), target, ctx)?;
+                let arrow_array = vx_field
+                    .clone()
+                    .execute_arrow_with_options(target, options, ctx)?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(
@@ -249,7 +255,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrowArrayExecutor;
+    use crate::ExecuteArrowExt;
     use crate::convert::from_arrow_dyn;
     use crate::dtype::to_data_type_naive;
 
@@ -272,7 +278,7 @@ mod tests {
 
         let actual = struct_a
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+            .execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)?;
         let expected = ArrowStructArray::new(
             vec![Field::new("xs", DataType::Int64, false)].into(),
             vec![Arc::new(Int64Array::from(vec![0, 1, 2, 3, 4]))],
@@ -300,7 +306,7 @@ mod tests {
 
         let error = struct_a
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)
+            .execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)
             .unwrap_err();
         assert!(
             error
@@ -330,7 +336,7 @@ mod tests {
 
         let err = struct_a
             .into_array()
-            .execute_arrow(Some(&arrow_dt), &mut ctx)
+            .execute_arrow(Some(&Field::new("", arrow_dt, true)), &mut ctx)
             .err()
             .unwrap();
         assert!(
@@ -377,7 +383,7 @@ mod tests {
         assert_eq!(
             &array
                 .into_array()
-                .execute_arrow(Some(&arrow_dtype), &mut ctx)?,
+                .execute_arrow(Some(&Field::new("", arrow_dtype, true)), &mut ctx)?,
             &arrow_array
         );
         Ok(())

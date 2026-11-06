@@ -44,6 +44,7 @@ use crate::ArrowExport;
 use crate::ArrowExportVTable;
 use crate::ArrowSession;
 use crate::ArrowSessionExt;
+use crate::ExecuteArrowExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -144,10 +145,7 @@ fn external_options_reach_nested_exporters() -> VortexResult<()> {
     .into_array();
     let called = Arc::new(AtomicU32::new(0));
     let options = ArrowExportOptions::default().with(PluginOption(Arc::clone(&called)));
-    let arrow = session
-        .arrow()
-        .exporter(&options)
-        .execute_arrow(array, Some(&field), &mut ctx)?;
+    let arrow = array.execute_arrow_with_options(Some(&field), &options, &mut ctx)?;
     assert_eq!(arrow.len(), 1);
     assert_eq!(arrow.null_count(), 0);
     assert_eq!(
@@ -322,9 +320,9 @@ fn compaction_option_reaches_nested_views(
     let expected = expected_sparse_views(binary);
 
     let (array, target) = shape.wrap(view.into_array(), expected.data_type().clone(), &mut ctx)?;
-    let arrow = SESSION.arrow().exporter(&options).execute_arrow(
-        array,
+    let arrow = array.execute_arrow_with_options(
         Some(&Field::new("", target, true)),
+        &options,
         &mut ctx,
     )?;
 
@@ -343,9 +341,7 @@ fn execute_arrow_compacts_by_default(#[values(false, true)] binary: bool) -> Vor
     let view = sparse_views(binary, &mut ctx)?;
     let backing = view.data_buffers()[0].as_host().as_ptr();
 
-    let arrow = SESSION
-        .arrow()
-        .execute_arrow(view.into_array(), None, &mut ctx)?;
+    let arrow = view.into_array().execute_arrow(None, &mut ctx)?;
 
     assert_eq!(arrow.to_data(), expected_sparse_views(binary).to_data());
     assert!(!view_buffer_ptrs(&arrow).contains(&backing));

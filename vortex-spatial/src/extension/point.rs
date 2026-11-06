@@ -36,6 +36,7 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -129,8 +130,7 @@ fn point_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Point
         &SpatialMetadata::default(),
         coordinate_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     PointArray::try_from((arrow.as_ref(), point_type))
         .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))
 }
@@ -207,12 +207,8 @@ impl ArrowExportVTable for Point {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.
