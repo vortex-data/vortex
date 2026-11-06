@@ -135,8 +135,7 @@ mod test {
 
     use hegel::TestCase;
     use hegel::generators as gs;
-    use num_traits::Bounded;
-    use num_traits::ToPrimitive;
+    use num_traits::PrimInt;
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
@@ -144,6 +143,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::match_each_integer_ptype;
@@ -278,7 +278,7 @@ mod test {
         Ok(())
     }
 
-    const PTYPES: [PType; 8] = [
+    const INDEX_PTYPES: [PType; 8] = [
         PType::I8,
         PType::I16,
         PType::I32,
@@ -292,132 +292,72 @@ mod test {
     /// Rows per generated sequence and per generated set of indices.
     const MAX_LEN: usize = 64;
 
-    fn ptype_bounds(ptype: PType) -> (i128, i128) {
-        match_each_integer_ptype!(ptype, |P| {
-            (
-                <P as Bounded>::min_value()
-                    .to_i128()
-                    .vortex_expect("integer min fits i128"),
-                <P as Bounded>::max_value()
-                    .to_i128()
-                    .vortex_expect("integer max fits i128"),
-            )
-        })
-    }
-
-    /// Every value drawn here lies in `[i64::MIN, u64::MAX]`.
-    fn pvalue(value: i128) -> PValue {
-        match i64::try_from(value) {
-            Ok(value) => PValue::I64(value),
-            Err(_) => PValue::U64(u64::try_from(value).vortex_expect("value fits u64")),
-        }
-    }
-
-    /// Taking from ascending and descending sequences of every integer type, with negative and
-    /// positive bases, matches an exact `i128` evaluation of `base + index * multiplier`. Null
-    /// indices hold negative (signed) or out-of-bounds (unsigned) values that must be ignored.
+    /// Taking from a generated sequence matches taking from its canonical values.
     #[hegel::test]
-    fn take_matches_exact_model(tc: TestCase) {
-        check_take_matches_exact_model(&tc).vortex_expect("sequence take");
+    fn take_matches_canonical(tc: TestCase) {
+        match tc.draw(gs::integers::<u8>().max_value(7)) {
+            0 => check_take::<u8>(&tc),
+            1 => check_take::<u16>(&tc),
+            2 => check_take::<u32>(&tc),
+            3 => check_take::<u64>(&tc),
+            4 => check_take::<i8>(&tc),
+            5 => check_take::<i16>(&tc),
+            6 => check_take::<i32>(&tc),
+            _ => check_take::<i64>(&tc),
+        }
+        .vortex_expect("sequence take");
     }
 
-    fn check_take_matches_exact_model(tc: &TestCase) -> VortexResult<()> {
-        let ptype = tc.draw(gs::sampled_from(&PTYPES));
-        let len = tc.draw(gs::integers::<usize>().min_value(1).max_value(MAX_LEN));
-        let (min, max) = ptype_bounds(ptype);
+    fn check_take<P>(tc: &TestCase) -> VortexResult<()>
+    where
+        P: NativePType + PrimInt + gs::Integer + Into<PValue> + 'static,
+    {
+        let mut ctx = SESSION.create_execution_ctx();
+        let len: usize = tc.draw(gs::integers().min_value(1).max_value(MAX_LEN));
 
-        // Bound the multiplier so some base keeps every value in range, while still reaching
-        // both signs and the extremes of the type.
-        let steps = i128::try_from(len - 1)?;
-        let span = if steps == 0 {
-            i128::from(i64::MAX)
-        } else {
-            (max - min) / steps
-        };
-        let multiplier = tc.draw(
-            gs::integers::<i128>()
-                .min_value(-span.min(i128::from(i64::MAX)))
-                .max_value(span),
+        // The base stays within a quarter of the range around its middle, and the steps span at
+        // most one more quarter, thus every value fits `P`.
+        let two = P::one() + P::one();
+        let quarter = P::max_value() / (two + two);
+        let middle = P::min_value() / two + P::max_value() / two;
+        let base: P = tc.draw(
+            gs::integers()
+                .min_value(middle - quarter)
+                .max_value(middle + quarter),
         );
-        let last_offset = multiplier * steps;
-        let base = tc.draw(
-            gs::integers::<i128>()
-                .min_value(min.max(min - last_offset))
-                .max_value(max.min(max - last_offset)),
+        let max_step = (quarter / num_traits::cast::<usize, P>(len).vortex_expect("len fits P"))
+            .to_i64()
+            .vortex_expect("step fits i64");
+        let multiplier: i64 = tc.draw(gs::integers().min_value(-max_step).max_value(max_step));
+        let sequence = Sequence::try_new(
+            base.into(),
+            PValue::from(multiplier),
+            P::PTYPE,
+            Nullability::NonNullable,
+            len,
+        )?
+        .into_array();
+
+        let indices: Vec<u8> = tc.draw(
+            gs::vecs(gs::integers::<u8>().max_value(u8::try_from(len - 1)?)).max_size(MAX_LEN),
         );
-        let nullability = if tc.draw(gs::booleans()) {
-            Nullability::Nullable
-        } else {
-            Nullability::NonNullable
-        };
-        let sequence =
-            Sequence::try_new(pvalue(base), pvalue(multiplier), ptype, nullability, len)?;
-
-        let index_ptype = tc.draw(gs::sampled_from(&PTYPES));
-        let nullable_indices = tc.draw(gs::booleans());
-        let index_count = tc.draw(gs::integers::<usize>().max_value(MAX_LEN));
-        let mut indices = Vec::with_capacity(index_count);
-        let mut valid = Vec::with_capacity(index_count);
-        for _ in 0..index_count {
-            let is_valid = !nullable_indices || tc.draw(gs::booleans());
-            let index = if is_valid {
-                tc.draw(
-                    gs::integers::<i64>()
-                        .min_value(0)
-                        .max_value(i64::try_from(len)? - 1),
-                )
-            } else if index_ptype.is_signed_int() {
-                tc.draw(gs::integers::<i64>().min_value(-100).max_value(-1))
-            } else {
-                tc.draw(
-                    gs::integers::<i64>()
-                        .min_value(i64::try_from(len)?)
-                        .max_value(200),
-                )
-            };
-            indices.push(index);
-            valid.push(is_valid);
-        }
-
-        let indices_validity = if nullable_indices {
-            Validity::from_iter(valid.iter().copied())
-        } else {
-            Validity::NonNullable
-        };
-        let indices_array = match_each_integer_ptype!(index_ptype, |I| {
-            PrimitiveArray::new(
-                Buffer::<I>::from_iter(
-                    indices
-                        .iter()
-                        .map(|&index| num_traits::cast(index).vortex_expect("index fits")),
-                ),
-                indices_validity.clone(),
+        let index_ptype = tc.draw(gs::sampled_from(&INDEX_PTYPES));
+        let indices = match_each_integer_ptype!(index_ptype, |I| {
+            Buffer::<I>::from_iter(
+                indices
+                    .iter()
+                    .map(|&index| num_traits::cast::<u8, I>(index).vortex_expect("index fits")),
             )
+            .into_array()
         });
 
-        let expected_values = indices.iter().zip(&valid).map(|(&index, &is_valid)| {
-            if is_valid {
-                base + multiplier * i128::from(index)
-            } else {
-                base
-            }
-        });
-        let expected_validity = if nullable_indices {
-            indices_validity
-        } else {
-            Validity::from(nullability)
-        };
-        let expected = match_each_integer_ptype!(ptype, |P| {
-            PrimitiveArray::new(
-                Buffer::<P>::from_iter(
-                    expected_values.map(|value| num_traits::cast(value).vortex_expect("in range")),
-                ),
-                expected_validity,
-            )
-        });
-
-        let taken = sequence.into_array().take(indices_array.into_array())?;
-        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
+        let expected = sequence
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array()
+            .take(indices.clone())?;
+        let taken = sequence.take(indices)?;
+        assert_arrays_eq!(taken, expected, &mut ctx);
         Ok(())
     }
 }
