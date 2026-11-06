@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::PlanReuseOptions;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_edition::ComponentKind;
@@ -88,11 +89,12 @@ impl CompressorConfig {
 fn coalesce_then_compress(
     buffered: BufferedStrategy,
     compressor: Arc<dyn CompressorPlugin>,
+    plan_reuse: Option<PlanReuseOptions>,
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
 ) -> RepartitionStrategy {
     RepartitionStrategy::new(
-        CompressingStrategy::new(buffered, compressor),
+        CompressingStrategy::new(buffered, compressor).with_plan_reuse(plan_reuse),
         RepartitionWriterOptions {
             // Write stream partitions roughly become segments. Because Vortex never reads less
             // than one segment, the size of segments and, therefore, partitions, must be small
@@ -127,6 +129,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    plan_reuse: Option<PlanReuseOptions>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
@@ -147,6 +150,7 @@ impl WriteStrategyBuilder {
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
+            plan_reuse: Some(PlanReuseOptions::default()),
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
@@ -222,6 +226,16 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override how the chunks of one column reuse the scheme decisions of earlier chunks, or pass
+    /// `None` to select schemes for each chunk separately.
+    ///
+    /// Reuse is on by default. It skips most of the scheme selection for chunks with data similar
+    /// to the earlier chunks.
+    pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
+        self.plan_reuse = plan_reuse;
+        self
+    }
+
     /// Override the compressor used to probe whether a column is dict-eligible.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
@@ -249,12 +263,14 @@ impl WriteStrategyBuilder {
         let codes = coalesce_then_compress(
             buffered.clone(),
             compressors.codes,
+            self.plan_reuse,
             self.row_block_size,
             self.data_block_target_bytes,
         );
         let fallback = coalesce_then_compress(
             buffered,
             Arc::clone(&compressors.full),
+            self.plan_reuse,
             self.row_block_size,
             self.data_block_target_bytes,
         );
@@ -262,7 +278,8 @@ impl WriteStrategyBuilder {
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat =
-            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&full_compressor));
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&full_compressor))
+                .with_plan_reuse(self.plan_reuse);
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {

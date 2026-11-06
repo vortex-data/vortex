@@ -5,17 +5,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::dtype::DType;
 use vortex_array::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::PlanReuse;
+use vortex_btrblocks::PlanReuseOptions;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
@@ -32,11 +37,34 @@ use crate::sequence::SequentialStreamExt;
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Compresses one chunk of a stream. `reuse` holds the decisions made for the earlier chunks
+    /// of the same stream.
+    ///
+    /// The default ignores `reuse` and calls [`compress_chunk`](Self::compress_chunk).
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        reuse: &PlanReuse,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let _ = reuse;
+        self.compress_chunk(chunk, ctx)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        reuse: &PlanReuse,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.as_ref().compress_stream_chunk(chunk, reuse, ctx)
     }
 }
 
@@ -53,6 +81,39 @@ impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
     }
+
+    fn compress_stream_chunk(
+        &self,
+        chunk: &ArrayRef,
+        reuse: &PlanReuse,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.compress_reusing(chunk, reuse, ctx)
+    }
+}
+
+/// Scheme decisions that the streams of one column share.
+///
+/// Usually each stream that a [`CompressingStrategy`] writes has its own [`PlanReuse`]. A writer
+/// context with a scope makes all streams below it with the same dtype share one [`PlanReuse`].
+/// Clones share the same decisions.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PlanReuseScope {
+    /// The shared decisions for each stream dtype.
+    reuse: Arc<Mutex<HashMap<DType, Arc<PlanReuse>>>>,
+}
+
+impl PlanReuseScope {
+    /// Returns the shared decisions for streams of `dtype`, and creates them with `options` for
+    /// the first stream.
+    fn get_or_create(&self, dtype: &DType, options: PlanReuseOptions) -> Arc<PlanReuse> {
+        Arc::clone(
+            self.reuse
+                .lock()
+                .entry(dtype.clone())
+                .or_insert_with(|| Arc::new(PlanReuse::new(options))),
+        )
+    }
 }
 
 /// A layout writer that compresses chunks.
@@ -68,6 +129,7 @@ pub struct CompressingStrategy {
     compressor: Arc<dyn CompressorPlugin>,
     stats: Arc<[Stat]>,
     concurrency: usize,
+    plan_reuse: Option<PlanReuseOptions>,
 }
 
 impl CompressingStrategy {
@@ -78,6 +140,7 @@ impl CompressingStrategy {
             compressor: Arc::new(compressor),
             stats: Stat::all().collect(),
             concurrency: get_available_parallelism().unwrap_or(1),
+            plan_reuse: Some(PlanReuseOptions::default()),
         }
     }
 
@@ -86,6 +149,13 @@ impl CompressingStrategy {
     /// Values less than 1 are clamped to 1. Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency.max(1);
+        self
+    }
+
+    /// Override how the chunks of one stream reuse the scheme decisions of earlier chunks, or
+    /// pass `None` to select schemes for each chunk separately.
+    pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
+        self.plan_reuse = plan_reuse;
         self
     }
 
@@ -114,6 +184,10 @@ impl LayoutStrategy for CompressingStrategy {
         let compute_session = session.clone();
         let size_scope = ctx.size_scope().clone();
         let buffered_bytes = ctx.buffered_bytes_tracker().clone();
+        let reuse = self.plan_reuse.map(|options| match ctx.plan_reuse_scope() {
+            Some(scope) => scope.get_or_create(&dtype, options),
+            None => Arc::new(PlanReuse::new(options)),
+        });
 
         let handle = session.handle();
         let stream = stream
@@ -123,6 +197,7 @@ impl LayoutStrategy for CompressingStrategy {
                 let session = compute_session.clone();
                 let buffered_bytes = buffered_bytes.clone();
                 let size_scope = size_scope.clone();
+                let reuse = reuse.clone();
 
                 // Count the input as uncompressed until its compressed output is counted.
                 let input_reservation = chunk
@@ -144,7 +219,10 @@ impl LayoutStrategy for CompressingStrategy {
                             chunk.nbytes()
                         };
 
-                    let compressed = compressor.compress_chunk(&chunk, &mut ctx)?;
+                    let compressed = match &reuse {
+                        Some(reuse) => compressor.compress_stream_chunk(&chunk, reuse, &mut ctx)?,
+                        None => compressor.compress_chunk(&chunk, &mut ctx)?,
+                    };
                     let compressed_size = compressed.nbytes();
                     size_scope.record(uncompressed_size, compressed_size);
 

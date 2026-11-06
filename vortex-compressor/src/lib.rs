@@ -69,6 +69,8 @@ pub mod stats;
 
 mod compressor;
 pub use compressor::CascadingCompressor;
+pub use compressor::PlanReuse;
+pub use compressor::PlanReuseOptions;
 pub use compressor::sample_aligned_chunks;
 
 mod trace;
