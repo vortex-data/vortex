@@ -180,10 +180,9 @@ Methods that exist only for erased dispatch (e.g. `as_any`, `metadata_any`,
 
 Vtables are registered in the session by their ID. An array vtable registers through its
 `ArrayPlugin` implementation, and a vtable without one cannot be registered. When a serialized
-value is encountered
-(e.g. an extension dtype in a file footer), the session's registry resolves the ID to the
-`FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned as the
-erased form (`FooRef`) so it can be stored without generic parameters.
+value is encountered (e.g. an extension dtype in a file footer), the session's registry resolves
+the ID to the `FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned
+as the erased form (`FooRef`) so it can be stored without generic parameters.
 
 This pattern -- register plugin by ID, deserialize via plugin, store as erased ref -- is
 consistent across all vtable-backed types in Vortex.
