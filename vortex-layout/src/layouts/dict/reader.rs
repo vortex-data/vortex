@@ -39,6 +39,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::DictLayout;
 use super::paged::DictPages;
 use super::paged::PAGE_SIZE;
+use super::paged::PagedTake;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::RowSplits;
@@ -385,14 +386,23 @@ impl LayoutReader for DictReader {
             if let Some(pages) = &self.pages {
                 let pages = Arc::clone(pages);
                 let source = self.values_source();
+                // Resolved only once the codes hit most pages, sharing the unpaged decode.
+                let whole = self.values_array();
+                let all_values_referenced = self.layout.has_all_values_referenced();
                 let session = self.session.clone();
                 return Ok(async move {
                     let (source, codes) = try_join!(source.map_err(VortexError::from), codes_eval)?;
                     let mut ctx = session.create_execution_ctx();
                     let codes = codes.execute::<PrimitiveArray>(&mut ctx)?;
-                    pages
-                        .take(&source, &codes, &mut ctx)?
-                        .apply_bound(&expr_outer)
+                    match pages.take(&source, &codes, &mut ctx)? {
+                        PagedTake::Gathered(array) => array.apply_bound(&expr_outer),
+                        PagedTake::Whole => dict_projection(
+                            codes.into_array(),
+                            whole.await?,
+                            all_values_referenced,
+                            &expr_outer,
+                        ),
+                    }
                 }
                 .boxed());
             }

@@ -8,13 +8,16 @@
 //! a chunk, that decodes values no row needs. Instead, the values are split into fixed-size pages
 //! that are decoded the first time any code hits them and cached for later chunks.
 //!
-//! A projection then gathers each code's view straight out of its page in a single pass, sharing
-//! the pages' byte buffers rather than copying them. That pass costs the same as gathering from
-//! fully decoded values, and every page is decoded at most once, so even codes that hit every page
-//! do no more work than decoding the dictionary whole.
+//! A projection first checks which pages its codes hit, in one pass over the codes. If they hit
+//! only a few, it decodes just those pages and gathers each code's view straight out of its page,
+//! sharing the pages' byte buffers rather than copying them. If they hit most pages, it decodes
+//! the values whole, through the same shared decode as without paging, so dense codes cost only
+//! that one extra pass over the codes.
 
 use std::sync::LazyLock;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
@@ -30,8 +33,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 /// Values per page when `VORTEX_DICT_PAGE_SIZE` is unset.
@@ -53,9 +56,6 @@ pub(super) static PAGE_SIZE: LazyLock<usize> = LazyLock::new(|| {
         })
 });
 
-/// Marks a page that no code of the current take has hit yet.
-const UNSEEN: u32 = u32::MAX;
-
 /// One decoded page of values.
 struct Page {
     values: VarBinViewArray,
@@ -68,6 +68,8 @@ pub(super) struct DictPages {
     page_size: usize,
     len: usize,
     pages: Box<[OnceLock<Page>]>,
+    /// Set once a take hit most pages, after which every take uses the whole values.
+    whole: AtomicBool,
 }
 
 impl Drop for DictPages {
@@ -90,6 +92,7 @@ impl DictPages {
             pages: (0..len.div_ceil(page_size))
                 .map(|_| OnceLock::new())
                 .collect(),
+            whole: AtomicBool::new(false),
         })
     }
 
@@ -120,27 +123,62 @@ impl DictPages {
     }
 
     /// Looks up each code in the dictionary `source`, decoding only the pages the codes hit.
+    ///
+    /// Returns [`PagedTake::Whole`] instead once a take hits more than half the pages: decoding
+    /// the values whole then costs no more than decoding those pages, and the caller can keep the
+    /// codes over the whole values lazily, exactly as without paging. From then on every take of
+    /// this dictionary uses the whole values without checking its codes.
     pub(super) fn take(
         &self,
         source: &ArrayRef,
         codes: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<PagedTake> {
+        if self.whole.load(Ordering::Relaxed) {
+            return Ok(PagedTake::Whole);
+        }
         let codes_validity = codes.validity()?;
         let codes_mask = codes_validity.execute_mask(codes.len(), ctx)?;
+        let shift = self.page_size.trailing_zeros();
 
-        let mut gather = Gather {
-            pages: self,
-            source,
-            shift: self.page_size.trailing_zeros(),
-            slot: vec![UNSEEN; self.pages.len()],
-            hit: Vec::new(),
-            buffers: Vec::new(),
-        };
-        let views = match_each_integer_ptype!(codes.ptype(), |C| {
-            gather.views(codes.as_slice::<C>(), &codes_mask, ctx)?
+        let mut hit = vec![false; self.pages.len()];
+        match_each_integer_ptype!(codes.ptype(), |C| {
+            mark_hits(codes.as_slice::<C>(), &codes_mask, shift, &mut hit)
         });
+        let hits = hit.iter().filter(|&&h| h).count();
+        tracing::debug!(
+            codes = codes.len(),
+            hit = hits,
+            pages = self.pages.len(),
+            "dict paged take"
+        );
+        if hits * 2 > self.pages.len() {
+            self.whole.store(true, Ordering::Relaxed);
+            return Ok(PagedTake::Whole);
+        }
 
+        // Decode the hit pages, and lay out their buffers one after another.
+        let mut table = vec![PageRef::default(); self.pages.len()];
+        let mut buffers = Vec::new();
+        for (idx, _) in hit.iter().enumerate().filter(|(_, h)| **h) {
+            let page = self.page(idx, source, ctx)?;
+            table[idx] = PageRef {
+                views: page.values.views(),
+                base: u32::try_from(buffers.len())?,
+                validity: page.validity.as_ref(),
+            };
+            buffers.extend(
+                page.values
+                    .data_buffers()
+                    .iter()
+                    .map(|buffer| buffer.as_host().clone()),
+            );
+        }
+
+        let gather = Gather { table, shift };
+        let views = match_each_integer_ptype!(codes.ptype(), |C| {
+            gather.views(codes.as_slice::<C>(), &codes_mask)
+        });
         let validity = if source.dtype().is_nullable() {
             match_each_integer_ptype!(codes.ptype(), |C| {
                 gather.validity(codes.as_slice::<C>(), &codes_mask)
@@ -148,86 +186,87 @@ impl DictPages {
         } else {
             codes_validity
         };
-        tracing::debug!(
-            codes = codes.len(),
-            hit = gather.hit.len(),
-            pages = self.pages.len(),
-            "dict paged take"
-        );
 
         let dtype = source
             .dtype()
             .union_nullability(codes.dtype().nullability());
         // SAFETY: every view is either inlined, or a view of a decoded page re-pointed at that
-        // page's buffers, which are copied into `buffers` in the same order at the recorded base.
-        Ok(
-            unsafe {
-                VarBinViewArray::new_unchecked(views, gather.buffers.into(), dtype, validity)
-            }
-            .into_array(),
-        )
+        // page's buffers, which are laid out in `buffers` from the page's recorded base.
+        Ok(PagedTake::Gathered(
+            unsafe { VarBinViewArray::new_unchecked(views, buffers.into(), dtype, validity) }
+                .into_array(),
+        ))
     }
 }
 
-/// The state of one take: which pages its codes have hit so far, and the buffers of those pages.
-struct Gather<'a> {
-    pages: &'a DictPages,
-    source: &'a ArrayRef,
-    shift: u32,
-    /// For each page, its index into `hit`, or [`UNSEEN`].
-    slot: Vec<u32>,
-    /// The hit pages, each with the index of its first buffer in `buffers`.
-    hit: Vec<(&'a Page, u32)>,
-    buffers: Vec<ByteBuffer>,
+/// The result of [`DictPages::take`].
+pub(super) enum PagedTake {
+    /// The codes' values, gathered from the pages they hit.
+    Gathered(ArrayRef),
+    /// The codes hit most pages; look them up in the whole decoded values instead.
+    Whole,
 }
 
-impl<'a> Gather<'a> {
-    /// The hit page holding `code`, decoding it the first time any code of this take hits it.
+/// Marks the page of every valid code as hit.
+fn mark_hits<C: NativePType + AsPrimitive<usize>>(
+    codes: &[C],
+    codes_mask: &Mask,
+    shift: u32,
+    hit: &mut [bool],
+) {
+    match codes_mask.indices() {
+        AllOr::All => codes.iter().for_each(|&c| hit[c.as_() >> shift] = true),
+        AllOr::None => {}
+        AllOr::Some(valid) => valid
+            .iter()
+            .for_each(|&i| hit[codes[i].as_() >> shift] = true),
+    }
+}
+
+/// A decoded page as one take sees it. Pages the take does not hit stay empty.
+#[derive(Clone, Copy, Default)]
+struct PageRef<'a> {
+    views: &'a [BinaryView],
+    /// Index in the take's buffers of this page's first buffer.
+    base: u32,
+    /// The page's validity, or `None` when every value is valid.
+    validity: Option<&'a Mask>,
+}
+
+/// Gathers values from the pages a take hits.
+struct Gather<'a> {
+    table: Vec<PageRef<'a>>,
+    shift: u32,
+}
+
+impl Gather<'_> {
     #[inline]
-    fn page_of(&mut self, code: usize, ctx: &mut ExecutionCtx) -> VortexResult<(&'a Page, u32)> {
-        let idx = code >> self.shift;
-        let slot = self.slot[idx];
-        if slot != UNSEEN {
-            return Ok(self.hit[slot as usize]);
+    fn view(&self, code: usize) -> BinaryView {
+        let page = &self.table[code >> self.shift];
+        let view = page.views[code & ((1 << self.shift) - 1)];
+        if view.is_inlined() {
+            view
+        } else {
+            let view = view.as_view();
+            view.with_buffer_and_offset(view.buffer_index + page.base, view.offset)
+                .into()
         }
-        let page = self.pages.page(idx, self.source, ctx)?;
-        let base = u32::try_from(self.buffers.len())?;
-        self.buffers.extend(
-            page.values
-                .data_buffers()
-                .iter()
-                .map(|buffer| buffer.as_host().clone()),
-        );
-        self.slot[idx] = u32::try_from(self.hit.len())?;
-        self.hit.push((page, base));
-        Ok((page, base))
     }
 
     fn views<C: NativePType + AsPrimitive<usize>>(
-        &mut self,
+        &self,
         codes: &[C],
         codes_mask: &Mask,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Buffer<BinaryView>> {
-        let low = (1usize << self.shift) - 1;
-        let mut views = BufferMut::<BinaryView>::with_capacity(codes.len());
-        for (row, &code) in codes.iter().enumerate() {
-            if !codes_mask.value(row) {
-                views.push(BinaryView::empty_view());
-                continue;
+    ) -> Buffer<BinaryView> {
+        match codes_mask.bit_buffer() {
+            AllOr::All => codes.iter().map(|&code| self.view(code.as_())).collect(),
+            AllOr::None => Buffer::full(BinaryView::empty_view(), codes.len()),
+            AllOr::Some(valid) => {
+                let mut views = BufferMut::full(BinaryView::empty_view(), codes.len());
+                valid.for_each_set_index(|row| views[row] = self.view(codes[row].as_()));
+                views.freeze()
             }
-            let code: usize = code.as_();
-            let (page, base) = self.page_of(code, ctx)?;
-            let view = page.values.views()[code & low];
-            views.push(if view.is_inlined() {
-                view
-            } else {
-                let view = view.as_view();
-                view.with_buffer_and_offset(view.buffer_index + base, view.offset)
-                    .into()
-            });
         }
-        Ok(views.freeze())
     }
 
     /// The validity of the gathered values: a row is valid when its code and its value are.
@@ -237,17 +276,24 @@ impl<'a> Gather<'a> {
         codes_mask: &Mask,
     ) -> Validity {
         let low = (1usize << self.shift) - 1;
-        let mut valid = BitBufferMut::with_capacity(codes.len());
-        for (row, &code) in codes.iter().enumerate() {
-            let code: usize = code.as_();
-            valid.append(
-                codes_mask.value(row) && {
-                    let (page, _) = self.hit[self.slot[code >> self.shift] as usize];
-                    page.validity
-                        .as_ref()
-                        .is_none_or(|validity| validity.value(code & low))
-                },
-            );
+        let value_valid = |code: usize| {
+            self.table[code >> self.shift]
+                .validity
+                .is_none_or(|validity| validity.value(code & low))
+        };
+        let mut valid = BitBufferMut::new_unset(codes.len());
+        match codes_mask.bit_buffer() {
+            AllOr::All => codes.iter().enumerate().for_each(|(row, &code)| {
+                if value_valid(code.as_()) {
+                    valid.set(row);
+                }
+            }),
+            AllOr::None => {}
+            AllOr::Some(codes_valid) => codes_valid.for_each_set_index(|row| {
+                if value_valid(codes[row].as_()) {
+                    valid.set(row);
+                }
+            }),
         }
         Validity::from(valid.freeze())
     }
@@ -270,6 +316,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::DictPages;
+    use super::PagedTake;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -298,22 +345,31 @@ mod tests {
         let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?;
         // Twice, so the second take reads the cached pages.
         for _ in 0..2 {
-            let actual = pages.take(&values, &codes, &mut ctx)?;
+            let PagedTake::Gathered(actual) = pages.take(&values, &codes, &mut ctx)? else {
+                panic!("sparse codes should be gathered from pages");
+            };
             assert_arrays_eq!(actual, expected, &mut ctx);
         }
         Ok(())
     }
 
     #[test]
-    fn dense_codes_decode_every_page_once() -> VortexResult<()> {
+    fn dense_codes_use_whole_values() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = values(64)?;
         let pages = DictPages::new(values.len(), 16);
-        let codes = PrimitiveArray::new(buffer![0u8, 17, 33, 49, 63, 0], Validity::NonNullable);
-        let expected = DictArray::try_new(codes.clone().into_array(), values.clone())?;
-        let actual = pages.take(&values, &codes, &mut ctx)?;
-        assert_arrays_eq!(actual, expected, &mut ctx);
-        assert_eq!(pages.decoded_pages(), pages.len());
+        let dense = PrimitiveArray::new(buffer![0u8, 17, 33, 49], Validity::NonNullable);
+        assert!(matches!(
+            pages.take(&values, &dense, &mut ctx)?,
+            PagedTake::Whole
+        ));
+        assert_eq!(pages.decoded_pages(), 0);
+        // Once whole, sparse codes use the whole values too.
+        let sparse = PrimitiveArray::new(buffer![1u8], Validity::NonNullable);
+        assert!(matches!(
+            pages.take(&values, &sparse, &mut ctx)?,
+            PagedTake::Whole
+        ));
         Ok(())
     }
 
