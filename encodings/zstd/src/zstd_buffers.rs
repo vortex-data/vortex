@@ -40,7 +40,6 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::ZstdBuffersMetadata;
 use crate::decompressor::with_decompressor;
 use crate::validate_frame_content_size;
 
@@ -596,6 +595,7 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use super::*;
+    use crate::ZstdBuffersMetadata;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

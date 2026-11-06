@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,7 +14,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -31,7 +29,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::TypedArrayRef;
-use crate::VortexSessionExecute;
 use crate::array_slots;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
@@ -49,7 +46,6 @@ use crate::arrays::runend::ops::find_slice_end_index;
 use crate::arrays::runend::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::require_child;
 use crate::validity::Validity;
@@ -547,6 +543,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
@@ -906,12 +904,16 @@ mod tests {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = RunEnd.deserialize(
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

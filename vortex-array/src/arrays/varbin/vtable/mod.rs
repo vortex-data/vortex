@@ -3,7 +3,6 @@
 
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -30,7 +29,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
@@ -232,6 +230,8 @@ mod tests {
     use super::VarBin;
     use super::VarBinMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -243,12 +243,16 @@ mod tests {
     fn test_deserialize_rejects_unknown_offsets_ptype() -> VortexResult<()> {
         let metadata = VarBinMetadata { offsets_ptype: 11 }.encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = VarBin.deserialize(
-            &DType::Utf8(Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &VarBin,
+            ArrayDeserialization::new(
+                VTable::id(&VarBin),
+                &DType::Utf8(Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

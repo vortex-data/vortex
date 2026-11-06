@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use prost::Message;
-
 use crate::ArrayEq;
 use crate::ArrayHash;
 mod kernels;

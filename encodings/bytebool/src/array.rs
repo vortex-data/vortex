@@ -36,7 +36,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 mod plugin;
@@ -298,6 +297,7 @@ mod tests {
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::*;

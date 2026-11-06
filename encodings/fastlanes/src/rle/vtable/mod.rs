@@ -276,6 +276,8 @@ fn validate_parts(
 mod tests {
     use prost::Message;
     use rstest::rstest;
+    use vortex_array::ArrayDeserialization;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -323,12 +325,16 @@ mod tests {
     ) -> VortexResult<()> {
         let metadata = with_ptype(11).encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = RLE.deserialize(
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &RLE,
+            ArrayDeserialization::new(
+                VTable::id(&RLE),
+                &DType::Primitive(PType::U32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| err.to_string().contains(expected)));

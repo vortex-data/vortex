@@ -46,8 +46,8 @@ impl ArrayPlugin for RunEnd {
         );
         let array = array.as_::<RunEnd>();
         let metadata = RunEndMetadata {
-            ends_ptype: PType::try_from(array.ends().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
+                as i32,
             num_runs: array.ends().len() as u64,
             offset: array.offset() as u64,
         }

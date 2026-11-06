@@ -523,6 +523,7 @@ mod test {
     use prost::Message;
     use rstest::rstest;
     use vortex_array::ArrayDeserialization;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -608,12 +609,16 @@ mod test {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = ALPRD.deserialize(
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &ALPRD,
+            ArrayDeserialization::new(
+                VTable::id(&ALPRD),
+                &DType::Primitive(PType::F64, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {
@@ -638,10 +643,10 @@ mod test {
         metadata: &ALPRDMetadata,
         children: Vec<ArrayRef>,
     ) -> VortexResult<ArrayRef> {
-        vortex_array::ArrayPlugin::deserialize(
+        ArrayPlugin::deserialize(
             &ALPRD,
             ArrayDeserialization::new(
-                ALPRD.id(),
+                VTable::id(&ALPRD),
                 dtype,
                 len,
                 &metadata.encode_to_vec(),

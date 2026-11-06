@@ -10,7 +10,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -49,7 +48,6 @@ use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 pub(crate) mod canonical;
 mod operations;

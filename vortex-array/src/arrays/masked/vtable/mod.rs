@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -40,7 +39,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::validity::Validity;
 /// A [`Masked`]-encoded Vortex array.
 pub type MaskedArray = Array<Masked>;
 

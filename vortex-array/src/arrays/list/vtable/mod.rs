@@ -4,14 +4,12 @@
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -34,7 +32,6 @@ use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
 mod operations;
@@ -183,6 +180,8 @@ mod tests {
     use super::List;
     use super::ListMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -202,7 +201,11 @@ mod tests {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = List.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        let result = ArrayPlugin::deserialize(
+            &List,
+            ArrayDeserialization::new(VTable::id(&List), &dtype, 0, &metadata, &[], &children),
+            &SESSION,
+        );
         assert!(result.is_err_and(|err| {
             err.to_string()
                 .contains("ListMetadata offset_ptype must be a known PType, got 11")

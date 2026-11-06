@@ -294,14 +294,7 @@ fn test_deserialize_rejects() -> VortexResult<()> {
     let deserialize = |metadata: &[u8], buffers: &[BufferHandle], children: &[ArrayRef]| {
         ArrayPlugin::deserialize(
             &Unary,
-            ArrayDeserialization::new(
-                VTable::id(&Unary),
-                &dtype,
-                2,
-                metadata,
-                buffers,
-                &children,
-            ),
+            ArrayDeserialization::new(VTable::id(&Unary), &dtype, 2, metadata, buffers, &children),
             &SESSION,
         )
     };
