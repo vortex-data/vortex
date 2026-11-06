@@ -71,6 +71,66 @@ use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
 
+#[test]
+fn test_row_index_conversion_and_raw_projection() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "__vortex_row_index",
+        DataType::Int32,
+        false,
+    )]);
+    let expr = crate::row_index();
+    assert_eq!(expr.data_type(&schema)?, DataType::UInt64);
+    assert!(!expr.nullable(&schema)?);
+    assert!(expr.is_volatile_node());
+    assert!(expr.children().is_empty());
+    assert!(
+        expr.evaluate(&RecordBatch::new_empty(Arc::new(schema.clone())))
+            .is_err()
+    );
+    assert!(
+        Arc::clone(&expr)
+            .with_new_children(vec![Arc::clone(&expr)])
+            .is_err()
+    );
+    assert!(Arc::ptr_eq(
+        &Arc::clone(&expr).with_new_children(vec![])?,
+        &expr
+    ));
+    let converter = DefaultExpressionConverter::default();
+    assert_eq!(
+        converter.try_convert(&expr, &schema)?,
+        Some(row_idx::row_idx())
+    );
+
+    // A nested row-index leaf must be rewritten even when its output alias collides
+    // with a real file column and projection pushdown is disabled.
+    let nested: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        expr,
+        DFOperator::Plus,
+        Arc::new(df_expr::Literal::new(ScalarValue::UInt64(Some(1)))),
+    ));
+    let processed = converter.no_pushdown_projection(
+        vec![ProjectionExpr::new(nested, "__vortex_row_index")].into(),
+        &schema,
+    )?;
+    assert_eq!(
+        processed.scan_reference_schema.field(0).name(),
+        "__vortex_row_index_"
+    );
+    assert_eq!(
+        processed.scan_reference_schema.field(0).data_type(),
+        &DataType::UInt64
+    );
+    assert!(!processed.scan_reference_schema.field(0).is_nullable());
+    let columns = collect_columns(&processed.leftover_projection.as_ref()[0].expr);
+    assert_eq!(columns.len(), 1);
+    assert_eq!(
+        columns.iter().next().expect("row-index column").name(),
+        "__vortex_row_index_"
+    );
+    Ok(())
+}
+
 #[rstest::fixture]
 fn test_schema() -> Schema {
     Schema::new(vec![
