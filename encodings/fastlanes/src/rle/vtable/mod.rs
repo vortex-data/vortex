@@ -190,9 +190,10 @@ impl VTable for RLE {
             "RLEArray expects 0 buffers, got {}",
             buffers.len()
         );
+        let values_ptype = PType::try_from(dtype)?;
         let values = children.get(
             0,
-            &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
+            &DType::Primitive(values_ptype, Nullability::NonNullable),
             usize::try_from(metadata.values_len)?,
         )?;
 
@@ -408,6 +409,33 @@ mod tests {
 
         assert_eq!(get_ptype(&with_ptype(PType::U32 as i32))?, PType::U32);
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_rejects_non_primitive_dtype() -> VortexResult<()> {
+        let metadata = RLEMetadata {
+            values_len: 0,
+            indices_len: 0,
+            indices_ptype: PType::U16 as i32,
+            values_idx_offsets_len: 0,
+            values_idx_offsets_ptype: PType::U64 as i32,
+            offset: 0,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = RLE.deserialize(
+            &DType::Utf8(Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("Cannot convert DType utf8 into PType")
+        }));
         Ok(())
     }
 }

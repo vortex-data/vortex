@@ -166,11 +166,21 @@ impl VTable for RunEnd {
         let metadata = RunEndMetadata::decode(metadata)?;
         let ends_ptype = metadata.get_ends_ptype()?;
         let ends_dtype = DType::Primitive(ends_ptype, Nullability::NonNullable);
-        let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
+        let runs = usize::try_from(metadata.num_runs).map_err(|_| {
+            vortex_err!(
+                "RunEndMetadata num_runs {} exceeds usize range",
+                metadata.num_runs
+            )
+        })?;
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
-        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
+        let offset = usize::try_from(metadata.offset).map_err(|_| {
+            vortex_err!(
+                "RunEndMetadata offset {} exceeds usize range",
+                metadata.offset
+            )
+        })?;
         RunEndData::validate_parts(
             &ends,
             &values,
@@ -974,6 +984,60 @@ mod tests {
         };
         assert_eq!(known.get_ends_ptype()?, PType::U32);
 
+        Ok(())
+    }
+
+    // On 32-bit targets, a crafted num_runs / offset above usize::MAX used to panic via
+    // vortex_expect. Keep a regression that only builds where the conversion can fail.
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_num_runs_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: u64::from(u32::MAX) + 1,
+            offset: 0,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = RunEnd.deserialize(
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("RunEndMetadata num_runs")
+                && err.to_string().contains("exceeds usize range")
+        }));
+        Ok(())
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn test_deserialize_rejects_offset_overflow() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            num_runs: 0,
+            offset: u64::from(u32::MAX) + 1,
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = RunEnd.deserialize(
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("RunEndMetadata offset")
+                && err.to_string().contains("exceeds usize range")
+        }));
         Ok(())
     }
 }
