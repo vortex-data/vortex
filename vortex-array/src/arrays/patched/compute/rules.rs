@@ -3,7 +3,6 @@
 
 use vortex_session::VortexSession;
 
-use crate::ArrayVTable;
 use crate::arrays::Filter;
 use crate::arrays::Patched;
 use crate::arrays::Slice;
@@ -11,9 +10,8 @@ use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 
-/// Registers the parent-reduce rules for [`Patched`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Patched, FilterReduceAdaptor(Patched));
-    kernels.register_reduce_parent_rule(Slice.id(), Patched, SliceReduceAdaptor(Patched));
+    kernels.register_reduce_parent_rule(Filter, Patched, FilterReduceAdaptor(Patched));
+    kernels.register_reduce_parent_rule(Slice, Patched, SliceReduceAdaptor(Patched));
 }

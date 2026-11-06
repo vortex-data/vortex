@@ -24,7 +24,6 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNull;
@@ -84,26 +83,17 @@ impl ArrayReduceRule<Chunked> for ChunkedDictValuesPullUpRule {
     }
 }
 
-/// Registers the parent-reduce rules for [`Chunked`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Chunked, CastReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(Cast, Chunked, CastReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(AnyScalarFn, Chunked, ChunkedUnaryScalarFnPushDownRule);
     kernels.register_reduce_parent_rule(
-        AnyScalarFn.id(),
-        Chunked,
-        ChunkedUnaryScalarFnPushDownRule,
-    );
-    kernels.register_reduce_parent_rule(
-        ListContains.id(),
+        ListContains,
         Chunked,
         ListContainsElementReduceAdaptor(Chunked),
     );
-    kernels.register_reduce_parent_rule(
-        AnyScalarFn.id(),
-        Chunked,
-        ChunkedConstantScalarFnPushDownRule,
-    );
-    kernels.register_reduce_parent_rule(FillNull.id(), Chunked, FillNullReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(AnyScalarFn, Chunked, ChunkedConstantScalarFnPushDownRule);
+    kernels.register_reduce_parent_rule(FillNull, Chunked, FillNullReduceAdaptor(Chunked));
 }
 
 /// Push down any unary scalar function through chunked arrays.
