@@ -457,11 +457,11 @@ async fn reopened_files_share_mappings_until_modified() -> VortexResult<()> {
             .as_ref()
             .vortex_expect("open file has a mapping"),
     );
-    let again = FileMapping::open(file.path())?;
+    let again = FileMapping::open(file.path())?.vortex_expect("file is mappable");
     assert!(Arc::ptr_eq(&first, &again));
 
     io::Write::write_all(&mut file, &[7; 4096])?;
-    let modified = FileMapping::open(file.path())?;
+    let modified = FileMapping::open(file.path())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&first, &modified));
     assert_eq!(modified.mapping().len(), MAPPED_FILE_BYTES + 4096);
     assert_eq!(modified.mapping()[MAPPED_FILE_BYTES], 7);
@@ -486,7 +486,7 @@ async fn released_mappings_are_remapped() -> VortexResult<()> {
     release_file_mappings();
     // The open reader keeps its mapping.
     assert_eq!(in_use.mapping()[0], file_byte(0));
-    let reopened = FileMapping::open(file.path())?;
+    let reopened = FileMapping::open(file.path())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&in_use, &reopened));
     Ok(())
 }
@@ -524,6 +524,14 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     drop(cache);
     assert!(mapping.upgrade().is_none());
     assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
+/// Files that cannot be mapped, such as those of procfs, take the staged path instead of failing.
+#[cfg(target_os = "linux")]
+#[test]
+fn unmappable_files_are_not_mapped() -> VortexResult<()> {
+    assert!(FileMapping::open(Path::new("/proc/self/status"))?.is_none());
     Ok(())
 }
 
