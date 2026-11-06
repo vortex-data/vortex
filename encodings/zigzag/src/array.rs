@@ -19,10 +19,12 @@ use vortex_array::IntoArray;
 use vortex_array::ProbeState;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::require_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
@@ -137,9 +139,13 @@ impl VTable for ZigZag {
         ZigZagSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.encoded(), ZigZagSlots::ENCODED => Primitive);
+
+        let ZigZagSlots { encoded } = array.into_parts();
+
         Ok(ExecutionResult::done(
-            zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
+            zigzag_decode(encoded.downcast::<Primitive>()).into_array(),
         ))
     }
 
@@ -187,6 +193,21 @@ pub trait ZigZagArrayExt: ZigZagArraySlotsExt {
 }
 
 impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
+
+pub(crate) trait ZigZagArrayOwnedExt {
+    /// Returns the slots of the array. Moves them out when this handle owns the array, and
+    /// clones them otherwise.
+    fn into_parts(self) -> ZigZagSlots;
+}
+
+impl ZigZagArrayOwnedExt for Array<ZigZag> {
+    fn into_parts(self) -> ZigZagSlots {
+        match self.try_into_parts() {
+            Ok(parts) => ZigZagSlots::from_slots(parts.slots),
+            Err(array) => array.slots_view().to_owned(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ZigZag;

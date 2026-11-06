@@ -44,7 +44,6 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -54,9 +53,10 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::alp_rd::PrimitivePatches;
+use crate::alp_rd::alp_rd_decode_primitive;
 use crate::alp_rd::check_left_parts_codes;
 use crate::alp_rd::rules::RULES;
-use crate::alp_rd_decode;
 
 /// A [`ALPRD`]-encoded Vortex array.
 pub type ALPRDArray = Array<ALPRD>;
@@ -288,17 +288,12 @@ impl VTable for ALPRD {
         } = ALPRDArrayOwnedExt::into_data_parts(array);
         let ptype = dtype.as_ptype();
 
-        let left_parts = left_parts
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("ALPRD execute: left_parts is primitive");
-        let right_parts = right_parts
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("ALPRD execute: right_parts is primitive");
+        let left_parts = left_parts.downcast::<Primitive>();
+        let right_parts = right_parts.downcast::<Primitive>();
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = left_parts_dictionary;
+        let left_parts_patches = left_parts_patches.map(PrimitivePatches::downcast);
         let validity = left_parts
             .as_ref()
             .validity()?
@@ -309,26 +304,24 @@ impl VTable for ALPRD {
 
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
-                alp_rd_decode::<f32>(
+                alp_rd_decode_primitive::<f32>(
                     left_parts,
                     &left_parts_dict,
                     right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     left_parts_patches,
-                    ctx,
-                )?,
+                ),
                 Validity::from_mask(validity, dtype.nullability()),
             )
         } else {
             PrimitiveArray::new(
-                alp_rd_decode::<f64>(
+                alp_rd_decode_primitive::<f64>(
                     left_parts,
                     &left_parts_dict,
                     right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     left_parts_patches,
-                    ctx,
-                )?,
+                ),
                 Validity::from_mask(validity, dtype.nullability()),
             )
         };

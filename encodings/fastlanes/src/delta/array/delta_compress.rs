@@ -151,7 +151,7 @@ mod tests {
         let delta = Delta::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(delta.len(), array.len());
         assert!(!delta.deltas().dtype().is_nullable());
-        let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
+        let decompressed = delta_decompress(&delta)?;
         assert_arrays_eq!(decompressed, array, &mut SESSION.create_execution_ctx());
         Ok(())
     }
