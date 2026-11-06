@@ -5,13 +5,11 @@ use std::hash::Hasher;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValuesRef;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -43,7 +41,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`Filter`]-encoded Vortex array.
@@ -127,27 +124,6 @@ impl VTable for Filter {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         FilterSlots::NAMES[idx].to_string()
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // TODO(joe): make this configurable
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Filter array is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

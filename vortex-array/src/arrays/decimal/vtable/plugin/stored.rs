@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Validation of a `vortex.decimal` node before [`DecimalPlugin`] constructs an array in memory.
+//! Validation of a `vortex.decimal` node before the [`Decimal`] plugin constructs an array in
+//! memory.
 //!
 //! A malformed row count or buffer layout returns an error here instead of failing an assert
 //! later.
 //!
-//! [`DecimalPlugin`]: super::DecimalPlugin
+//! [`Decimal`]: super::Decimal
 
 use prost::Message;
 use vortex_error::VortexResult;

@@ -14,11 +14,9 @@ pub use plugin::WidenPlugin;
 mod validity;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -47,7 +45,6 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::match_each_decimal_value_type;
 use crate::require_child;
-use crate::serde::ArrayChildren;
 
 /// The encoding of a [`WidenArray`].
 #[derive(Clone, Debug)]
@@ -101,25 +98,6 @@ impl VTable for Widen {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Widen deserialization is not supported")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

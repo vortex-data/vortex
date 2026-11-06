@@ -388,6 +388,8 @@ mod test {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Dict;
@@ -606,12 +608,16 @@ mod test {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = Dict.deserialize(
-            &DType::Primitive(PType::I32, NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &Dict,
+            ArrayDeserialization::new(
+                VTable::id(&Dict),
+                &DType::Primitive(PType::I32, NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

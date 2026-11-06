@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod operations;
+mod plugin;
 mod validity;
 
 use std::hash::Hasher;
 
-use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -23,12 +21,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::array::validity_to_child;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArrayExt;
@@ -43,8 +39,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 /// A [`Masked`]-encoded Vortex array.
 pub type MaskedArray = Array<Masked>;
 
@@ -113,63 +107,6 @@ impl VTable for Masked {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "MaskedArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        if !buffers.is_empty() {
-            vortex_bail!("Expected 0 buffer, got {}", buffers.len());
-        }
-
-        vortex_ensure!(
-            children.len() == 1 || children.len() == 2,
-            "`MaskedArray::build` expects 1 or 2 children, got {}",
-            children.len()
-        );
-
-        let child = children.get(0, &dtype.as_nonnullable(), len)?;
-
-        let validity = if children.len() == 2 {
-            let validity = children.get(1, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            Validity::from(dtype.nullability())
-        };
-
-        let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut session.create_execution_ctx())?,
-            validity,
-        )?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            smallvec![Some(child), validity_slot],
-        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

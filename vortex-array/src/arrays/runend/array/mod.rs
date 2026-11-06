@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use prost::Message;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,7 +14,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
@@ -31,7 +29,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::TypedArrayRef;
-use crate::VortexSessionExecute;
 use crate::array_slots;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
@@ -49,13 +46,13 @@ use crate::arrays::runend::ops::find_slice_end_index;
 use crate::arrays::runend::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::require_child;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
+
+mod plugin;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -137,56 +134,6 @@ impl VTable for RunEnd {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         crate::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            RunEndMetadata {
-                ends_ptype: PType::try_from(array.ends().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-                num_runs: array.ends().len() as u64,
-                offset: array.offset() as u64,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = RunEndMetadata::decode(metadata)?;
-        let ends_ptype = metadata.get_ends_ptype()?;
-        let ends_dtype = DType::Primitive(ends_ptype, Nullability::NonNullable);
-        let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
-        let ends = children.get(0, &ends_dtype, runs)?;
-
-        let values = children.get(1, dtype, runs)?;
-        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
-        RunEndData::validate_parts(
-            &ends,
-            &values,
-            offset,
-            len,
-            &mut session.create_execution_ctx(),
-        )?;
-        let slots = RunEndSlots { ends, values }.into_slots();
-        let data = RunEndData::new(offset);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -596,6 +543,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
@@ -955,12 +904,16 @@ mod tests {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = RunEnd.deserialize(
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+        let result = ArrayPlugin::deserialize(
+            &RunEnd,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

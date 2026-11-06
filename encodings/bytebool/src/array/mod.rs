@@ -25,7 +25,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -35,11 +34,11 @@ use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+
+mod plugin;
 
 /// A [`ByteBool`]-encoded Vortex array.
 pub type ByteBoolArray = Array<ByteBool>;
@@ -110,53 +109,6 @@ impl VTable for ByteBool {
             array.len(),
             data,
             array.slots().iter().cloned().collect(),
-        ))
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ByteBoolArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
-        };
-
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let buffer = buffers[0].clone();
-
-        let data = ByteBoolData::new(buffer);
-        let slots = ByteBoolData::make_slots(&validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
         ))
     }
 
@@ -345,6 +297,7 @@ mod tests {
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::*;
