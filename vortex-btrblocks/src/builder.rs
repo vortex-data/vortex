@@ -18,6 +18,7 @@ use crate::SchemeExt;
 use crate::SchemeId;
 use crate::allowed_ids::AllowedIds;
 use crate::schemes::binary;
+use crate::schemes::boolean;
 use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::string;
@@ -67,6 +68,8 @@ impl CompressionMode {
                 // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
                 // decode is benchmarked against the schemes it would displace.
                 excluded.extend([
+                    boolean::BoolRunEndScheme.id(),
+                    boolean::BoolSparseScheme.id(),
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),

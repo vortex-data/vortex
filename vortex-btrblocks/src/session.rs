@@ -13,6 +13,7 @@ use vortex_session::SessionVar;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::schemes::binary;
+use crate::schemes::boolean;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -45,6 +46,8 @@ impl Default for CompressionSession {
     fn default() -> Self {
         Self {
             schemes: vec![
+                &boolean::BoolRunEndScheme,
+                &boolean::BoolSparseScheme,
                 ////////////////////////////////////////////////////////////////////////////////////
                 // Integer schemes.
                 ////////////////////////////////////////////////////////////////////////////////////

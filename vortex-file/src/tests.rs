@@ -3477,3 +3477,20 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     assert_arrays_eq!(result, mk_struct(vec![big])?, &mut ctx);
     Ok(())
 }
+
+/// The sparse values cut from a mostly-null column with runs of nulls must not keep a lazy filter
+/// over its compressed validity as theirs: the writer cannot serialize it.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn null_dominated_clustered_f32_writes() -> VortexResult<()> {
+    let values = PrimitiveArray::from_option_iter(
+        (0..262_144u32).map(|i| ((i / 64) % 20 == 0).then_some(i as f32)),
+    );
+    let st = StructArray::from_fields(&[("v", values.into_array())])?;
+    let stream = st.into_array().to_array_stream();
+    SESSION
+        .write_options()
+        .write(&mut ByteBufferMut::empty(), stream)
+        .await?;
+    Ok(())
+}
