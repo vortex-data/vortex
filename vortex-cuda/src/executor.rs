@@ -438,8 +438,6 @@ pub trait CudaArrayExt {
 impl CudaArrayExt for ArrayRef {
     #[expect(clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        // Constructors are lazy. Optimize first so that the kernels see the encodings they match.
-        // This is free for an array that is already optimized.
         let array = self.optimize_ctx(&ctx.ctx)?;
 
         if array.encoding_id() == Struct.id() {

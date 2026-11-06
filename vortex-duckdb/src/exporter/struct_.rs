@@ -50,7 +50,6 @@ pub(crate) fn new_exporter(
 
     let iter = fields.into_iter();
     let children = if let Some(validity) = validity.as_ref() {
-        // The exporter is chosen by encoding, so reduce the mask to keep the fast exporters.
         iter.map(|child| {
             let child = child.mask(validity.clone())?.optimize_ctx(ctx)?;
             new_array_exporter(child, cache, ctx)

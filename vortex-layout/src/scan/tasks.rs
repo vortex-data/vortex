@@ -174,9 +174,7 @@ pub(crate) struct TaskContext {
     pub(crate) reader: LayoutReaderRef,
     /// The projection expression to apply to gather the scanned rows.
     pub(crate) projection: BoundExpression,
-    /// The session the projected arrays are optimized with before the scan returns them. Readers
-    /// apply the projection lazily, so without this a caller would see expression nodes, such as
-    /// a pack, instead of the arrays they reduce to.
+    /// The session the projected arrays are optimized with before the scan returns them.
     pub(crate) session: VortexSession,
 }
 

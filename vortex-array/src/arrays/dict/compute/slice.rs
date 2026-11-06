@@ -38,7 +38,6 @@ impl SliceReduce for Dict {
         };
 
         // TODO(joe): if the range is size 1 replace with a constant array
-        // `DictConstantCodesRule` collapses the result if the sliced codes reduce to a constant.
         // SAFETY: slicing the codes preserves invariants.
         let array =
             unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()).into_array() };

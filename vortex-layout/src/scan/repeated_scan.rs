@@ -288,9 +288,6 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 let mapped = limit_rows(arrays, limit).map(move |array| {
                     let map_fn = Arc::clone(&map_fn);
                     let session = session.clone();
-                    // The limit can slice the last array lazily, so reduce it before the map, as
-                    // the scan tasks do for every other array. This is free for the arrays that
-                    // the limit leaves whole.
                     handle.spawn_cpu(move || map_fn(array?.optimize_ctx(&session)?))
                 });
                 buffer(mapped, ordered, concurrency)

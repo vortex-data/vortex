@@ -1188,8 +1188,6 @@ impl ListChildExport {
         elements: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowArray> {
-        // The rebuild builds its children with lazy constructors, so a `take` on struct elements
-        // is a `Dict` over the struct until the optimizer pushes it into the fields.
         let elements = elements.optimize_ctx(ctx.execution_ctx())?;
 
         let (elements_child, _) = match self {

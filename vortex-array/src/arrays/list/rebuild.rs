@@ -66,8 +66,6 @@ impl ListArray {
 
         let (elements, mut offsets) =
             drop_unreferenced_elements(self.elements(), starts, end, &null_runs, ctx.allocator())?;
-        // The kept elements are a lazy slice or filter. Reduce them so that callers, such as
-        // `reset_offsets`, see the encoding of the elements.
         let elements = elements.optimize_ctx(ctx)?;
         offsets.push(
             num_traits::cast(elements.len())
