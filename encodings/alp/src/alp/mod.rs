@@ -15,10 +15,9 @@ mod compress;
 pub(crate) mod compute;
 mod decompress;
 mod ops;
-mod plugin;
 mod rules;
 
-pub(crate) use plugin::ALPPatchedPlugin;
+pub(crate) use array::ALPPatchedPlugin;
 
 pub(crate) fn initialize(session: &VortexSession) {
     rules::initialize(session);

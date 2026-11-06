@@ -50,6 +50,7 @@ use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::RULES;
 
 mod plugin;
+pub(crate) use plugin::ALPPatchedPlugin;
 
 /// A [`ALP`]-encoded Vortex array.
 pub type ALPArray = Array<ALP>;
