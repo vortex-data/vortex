@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
    Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 045d619408a2402cf44ec6e905603e00b5fcd267d5b246d8e7e567637549b7e2 */
+   sha256 a25eb7e8c2df9c60e136c27c4ed421373e134eb2913489428dd302b88365c83a */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -21,15 +21,19 @@
 }
 /* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
    vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
-   the label voice, with the shared focus ring. No script: the fragment moves focus to main, which
-   takes it (tabindex="-1"), so the next Tab starts in the content. Main draws no ring, the system's
-   or the browser's: around the whole page, it marks nothing a reader can use. */
+   the label voice, with the shared focus ring. It is a control's height, centred on the 64px
+   header row like the header's controls, so it covers the 24px mark. No script: the fragment moves
+   focus to main, which takes it (tabindex="-1"), so the next Tab starts in the content. Main draws
+   no ring, the system's or the browser's: around the whole page, it marks nothing a reader can use. */
 .vx-skip-link {
   position: fixed;
-  top: var(--space-8);
+  top: calc((var(--space-64) - var(--control-md)) / 2);
   left: var(--space-8);
   z-index: 1200;
-  padding: var(--space-8) var(--space-12);
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-md);
+  padding: 0 var(--space-12);
   border-radius: var(--radius-control);
   background: var(--ground);
   color: var(--ink);
