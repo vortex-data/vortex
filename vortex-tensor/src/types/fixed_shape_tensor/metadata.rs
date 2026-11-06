@@ -68,24 +68,35 @@ impl FixedShapeTensorMetadata {
     /// number of logical dimensions.
     pub fn with_permutation(mut self, permutation: Vec<usize>) -> VortexResult<Self> {
         if !permutation.is_empty() {
-            vortex_ensure_eq!(permutation.len(), self.logical_shape.len());
-
-            // Verify this is actually a permutation of [0..N).
-            let mut seen = vec![false; permutation.len()];
-            for &p in &permutation {
-                vortex_ensure!(
-                    p < permutation.len(),
-                    "permutation index {p} is out of range for {} dimensions",
-                    permutation.len()
-                );
-                vortex_ensure!(!seen[p], "permutation contains duplicate index {p}");
-                seen[p] = true;
-            }
-
+            validate_permutation(&permutation, self.logical_shape.len())?;
             self.permutation = Some(permutation);
         }
 
         Ok(self)
+    }
+
+    /// Creates a new [`FixedShapeTensorMetadata`] from a *physical* (row-major) `shape` and
+    /// `dim_names`, as the Arrow canonical tensor metadata stores them.
+    ///
+    /// The values are reordered into logical order: logical dimension `i` is physical dimension
+    /// `permutation[i]`. For example, physical shape `[100, 200, 500]` with permutation
+    /// `[2, 0, 1]` is logical shape `[500, 100, 200]`.
+    pub(crate) fn from_physical(
+        shape: &[usize],
+        dim_names: Option<&[String]>,
+        permutation: Option<&[usize]>,
+    ) -> VortexResult<Self> {
+        let mut metadata = Self::new(to_logical_order(shape, permutation)?);
+
+        if let Some(names) = dim_names {
+            metadata = metadata.with_dim_names(to_logical_order(names, permutation)?)?;
+        }
+
+        if let Some(permutation) = permutation {
+            metadata = metadata.with_permutation(permutation.to_vec())?;
+        }
+
+        Ok(metadata)
     }
 
     /// Returns the number of dimensions (rank) of the tensor.
@@ -116,15 +127,19 @@ impl FixedShapeTensorMetadata {
     ///
     /// When no permutation is present, the physical shape is identical to the logical shape.
     pub fn physical_shape(&self) -> impl Iterator<Item = usize> + '_ {
-        let ndim = self.logical_shape.len();
-        let permutation = self.permutation.as_deref();
+        to_physical_order(&self.logical_shape, self.permutation.as_deref()).copied()
+    }
 
-        match permutation {
-            None => Either::Left(self.logical_shape.iter().copied()),
-            Some(perm) => Either::Right(
-                (0..ndim).map(move |p| self.logical_shape[Self::inverse_perm(perm, p)]),
-            ),
-        }
+    /// Returns the dimension names in physical order, if set.
+    ///
+    /// See [`physical_shape`](Self::physical_shape) for the physical order.
+    pub(crate) fn physical_dim_names(&self) -> Option<Vec<String>> {
+        let names = self.dim_names.as_deref()?;
+        Some(
+            to_physical_order(names, self.permutation.as_deref())
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Returns an iterator over the strides for each logical dimension of the tensor.
@@ -165,18 +180,59 @@ impl FixedShapeTensorMetadata {
             .map(|(l, _)| self.logical_shape[l])
             .product::<usize>()
     }
+}
 
-    /// Returns the logical dimension index that maps to physical position `p`. This is the
-    /// inverse of the permutation: if `perm[i] == p`, returns `i`.
-    ///
-    /// Each call is a linear scan of `perm`, making callers that invoke this for every physical
-    /// position O(ndim^2) overall. Tensor rank is typically small (2–5), so avoiding a Vec
-    /// allocation for the full inverse permutation is a net win.
-    fn inverse_perm(perm: &[usize], p: usize) -> usize {
-        perm.iter()
-            .position(|&pi| pi == p)
-            .vortex_expect("permutation must contain every physical position exactly once")
+/// Verifies that `permutation` is a permutation of `[0, 1, ..., ndim-1]`.
+fn validate_permutation(permutation: &[usize], ndim: usize) -> VortexResult<()> {
+    vortex_ensure_eq!(permutation.len(), ndim);
+
+    let mut seen = vec![false; ndim];
+    for &p in permutation {
+        vortex_ensure!(
+            p < ndim,
+            "permutation index {p} is out of range for {ndim} dimensions"
+        );
+        vortex_ensure!(!seen[p], "permutation contains duplicate index {p}");
+        seen[p] = true;
     }
+
+    Ok(())
+}
+
+/// Iterates the per-dimension `logical` values in physical order:
+/// `physical[permutation[i]] = logical[i]`.
+///
+/// `permutation` must be valid for `logical`. Each physical position does a linear scan of
+/// `permutation`, which is O(ndim^2) overall. Tensor rank is typically small (2–5), so avoiding a
+/// Vec allocation for the full inverse permutation is a net win.
+fn to_physical_order<'a, T>(
+    logical: &'a [T],
+    permutation: Option<&'a [usize]>,
+) -> impl Iterator<Item = &'a T> + 'a {
+    match permutation {
+        None => Either::Left(logical.iter()),
+        Some(permutation) => Either::Right((0..logical.len()).map(move |p| {
+            let i = permutation
+                .iter()
+                .position(|&pi| pi == p)
+                .vortex_expect("permutation must contain every physical position exactly once");
+            &logical[i]
+        })),
+    }
+}
+
+/// Reorders the per-dimension `physical` values into logical order:
+/// `logical[i] = physical[permutation[i]]`.
+fn to_logical_order<T: Clone>(
+    physical: &[T],
+    permutation: Option<&[usize]>,
+) -> VortexResult<Vec<T>> {
+    let Some(permutation) = permutation else {
+        return Ok(physical.to_vec());
+    };
+
+    validate_permutation(permutation, physical.len())?;
+    Ok(permutation.iter().map(|&p| physical[p].clone()).collect())
 }
 
 impl fmt::Display for FixedShapeTensorMetadata {
@@ -328,6 +384,61 @@ mod tests {
         let m = FixedShapeTensorMetadata::new(shape).with_permutation(perm)?;
         assert_eq!(m.physical_shape().collect::<Vec<_>>(), expected);
         Ok(())
+    }
+
+    #[test]
+    fn physical_dim_names_permuted() -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4])
+            .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
+            .with_permutation(vec![2, 0, 1])?;
+        assert_eq!(
+            m.physical_dim_names(),
+            Some(vec!["y".to_string(), "z".to_string(), "x".to_string()])
+        );
+        Ok(())
+    }
+
+    // -- From physical --
+
+    #[rstest]
+    #[case::no_permutation(vec![2, 3, 4],       None,                vec![2, 3, 4])]
+    #[case::transpose_2d(  vec![4, 3],          Some(vec![1, 0]),    vec![3, 4])]
+    #[case::perm_3d(       vec![100, 200, 500], Some(vec![2, 0, 1]), vec![500, 100, 200])]
+    fn from_physical_shape(
+        #[case] physical: Vec<usize>,
+        #[case] perm: Option<Vec<usize>>,
+        #[case] expected: Vec<usize>,
+    ) -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::from_physical(&physical, None, perm.as_deref())?;
+        assert_eq!(m.logical_shape(), expected.as_slice());
+        assert_eq!(m.physical_shape().collect::<Vec<_>>(), physical);
+        Ok(())
+    }
+
+    #[test]
+    fn from_physical_round_trips_dim_names() -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4])
+            .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
+            .with_permutation(vec![2, 0, 1])?;
+        let physical_shape = m.physical_shape().collect::<Vec<_>>();
+        let physical_names = m.physical_dim_names();
+
+        let round_tripped = FixedShapeTensorMetadata::from_physical(
+            &physical_shape,
+            physical_names.as_deref(),
+            m.permutation(),
+        )?;
+        assert_eq!(round_tripped, m);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::wrong_length(vec![0])]
+    #[case::out_of_range(vec![0, 5])]
+    #[case::duplicate_index(vec![0, 0])]
+    fn from_physical_invalid_permutation(#[case] perm: Vec<usize>) {
+        let result = FixedShapeTensorMetadata::from_physical(&[2, 3], None, Some(&perm));
+        assert!(result.is_err());
     }
 
     // -- Display --
