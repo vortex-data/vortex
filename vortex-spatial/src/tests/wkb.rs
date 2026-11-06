@@ -34,6 +34,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use wkb::writer::WriteOptions;
@@ -146,9 +147,7 @@ fn exports_to_binary_family(#[case] data_type: DataType) -> VortexResult<()> {
 
     let field = Field::new("geom", data_type.clone(), false)
         .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array, Some(&field), &mut ctx)?;
+    let exported = array.execute_arrow(Some(&field), &mut ctx)?;
 
     assert_eq!(exported.data_type(), &data_type);
     let values: Vec<&[u8]> = match &data_type {
@@ -266,9 +265,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
 
     let field = Field::new("geom", DataType::BinaryView, false)
         .with_extension_type(WkbType::new(Default::default()));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(original, Some(&field), &mut ctx)?;
+    let exported = original.execute_arrow(Some(&field), &mut ctx)?;
     let arrow_field = wkb_field("geom", DataType::BinaryView, false, Some("EPSG:4326"));
     let reimported = SESSION.arrow().from_arrow_array(exported, &arrow_field)?;
 

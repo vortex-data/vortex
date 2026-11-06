@@ -23,6 +23,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -84,9 +85,7 @@ fn exports_to_struct() -> VortexResult<()> {
     let array = point_column(vec![1.0, 3.0], vec![2.0, 4.0])?;
 
     let target = point_field("loc", false, Some("EPSG:4326"));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(array, Some(&target), &mut ctx)?;
+    let exported = array.execute_arrow(Some(&target), &mut ctx)?;
 
     let points = exported.as_struct();
     let ordinates = |name: &str| -> VortexResult<Vec<f64>> {
@@ -168,9 +167,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
     let original = point_column(vec![0.0, 3.0], vec![4.0, 0.0])?;
 
     let target = point_field("loc", false, Some("EPSG:4326"));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(original, Some(&target), &mut ctx)?;
+    let exported = original.execute_arrow(Some(&target), &mut ctx)?;
     let reimported = SESSION.arrow().from_arrow_array(exported, &target)?;
 
     let ext = reimported
