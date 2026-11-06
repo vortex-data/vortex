@@ -14,6 +14,7 @@ import dev.vortex.spark.VortexOptions;
 import dev.vortex.spark.VortexSparkSession;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Map;
 import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.execution.datasources.OutputWriter;
@@ -64,6 +65,21 @@ public final class VortexOutputWriter extends OutputWriter {
      * @param options additional write options
      */
     public VortexOutputWriter(String filePath, StructType schema, VortexOptions options, NativeWritable writable) {
+        this(filePath, schema, options, writable, Map.of());
+    }
+
+    /**
+     * Creates a writer that also stores {@code metadata} in the file footer, for callers that write files outside
+     * Spark's commit protocol.
+     *
+     * @param metadata footer segments, read back verbatim by {@code NativeFiles.readMetadata}
+     */
+    public VortexOutputWriter(
+            String filePath,
+            StructType schema,
+            VortexOptions options,
+            NativeWritable writable,
+            Map<String, byte[]> metadata) {
         this.filePath = filePath;
         this.options = options;
         this.writable = writable;
@@ -90,6 +106,7 @@ public final class VortexOutputWriter extends OutputWriter {
 
             this.session = VortexSparkSession.get(options);
             this.vortexWriter = VortexWriter.builder(session, writable, arrowSchema, allocator)
+                    .metadata(metadata)
                     .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
             // The native writer holds several batches at once, so a batch of few rows must not take Arrow's default
