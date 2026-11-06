@@ -33,7 +33,6 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::Like;
@@ -67,21 +66,16 @@ impl ArrayReduceRule<Dict> for DictConstantCodesRule {
     }
 }
 
-/// Registers the parent-reduce rules for [`Dict`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Dict, FilterReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Cast.id(), Dict, CastReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Dict, MaskReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Like.id(), Dict, LikeReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Chunked.id(), Dict, DictionaryChunkedValuesPullUpRule);
-    kernels.register_reduce_parent_rule(
-        AnyScalarFn.id(),
-        Dict,
-        DictionaryScalarFnValuesPushDownRule,
-    );
-    kernels.register_reduce_parent_rule(AnyScalarFn.id(), Dict, DictionaryScalarFnCodesPullUpRule);
-    kernels.register_reduce_parent_rule(Slice.id(), Dict, SliceReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Filter, Dict, FilterReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Cast, Dict, CastReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(MaskFn, Dict, MaskReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Like, Dict, LikeReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Chunked, Dict, DictionaryChunkedValuesPullUpRule);
+    kernels.register_reduce_parent_rule(AnyScalarFn, Dict, DictionaryScalarFnValuesPushDownRule);
+    kernels.register_reduce_parent_rule(AnyScalarFn, Dict, DictionaryScalarFnCodesPullUpRule);
+    kernels.register_reduce_parent_rule(Slice, Dict, SliceReduceAdaptor(Dict));
 }
 
 /// Pull a common dictionary values array above chunked dictionary codes.

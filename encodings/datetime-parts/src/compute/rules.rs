@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
@@ -20,7 +19,6 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::Cast;
@@ -34,27 +32,14 @@ use vortex_session::VortexSession;
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
-/// Registers the parent-reduce rules for [`DateTimeParts`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), DateTimeParts, DTPFilterPushDownRule);
-    kernels.register_reduce_parent_rule(AnyScalarFn.id(), DateTimeParts, DTPComparisonPushDownRule);
-    kernels.register_reduce_parent_rule(Cast.id(), DateTimeParts, CastReduceAdaptor(DateTimeParts));
-    kernels.register_reduce_parent_rule(
-        Filter.id(),
-        DateTimeParts,
-        FilterReduceAdaptor(DateTimeParts),
-    );
-    kernels.register_reduce_parent_rule(
-        MaskFn.id(),
-        DateTimeParts,
-        MaskReduceAdaptor(DateTimeParts),
-    );
-    kernels.register_reduce_parent_rule(
-        Slice.id(),
-        DateTimeParts,
-        SliceReduceAdaptor(DateTimeParts),
-    );
+    kernels.register_reduce_parent_rule(Filter, DateTimeParts, DTPFilterPushDownRule);
+    kernels.register_reduce_parent_rule(AnyScalarFn, DateTimeParts, DTPComparisonPushDownRule);
+    kernels.register_reduce_parent_rule(Cast, DateTimeParts, CastReduceAdaptor(DateTimeParts));
+    kernels.register_reduce_parent_rule(Filter, DateTimeParts, FilterReduceAdaptor(DateTimeParts));
+    kernels.register_reduce_parent_rule(MaskFn, DateTimeParts, MaskReduceAdaptor(DateTimeParts));
+    kernels.register_reduce_parent_rule(Slice, DateTimeParts, SliceReduceAdaptor(DateTimeParts));
 }
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields

@@ -6,7 +6,6 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
@@ -24,21 +23,19 @@ use crate::builtins::ArrayBuiltins;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
-/// Registers the parent-reduce rules for [`Struct`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Struct, StructCastRule);
-    kernels.register_reduce_parent_rule(GetItem.id(), Struct, StructGetItemRule);
-    kernels.register_reduce_parent_rule(MaskFn.id(), Struct, MaskReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Slice.id(), Struct, SliceReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Dict.id(), Struct, TakeReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Cast, Struct, StructCastRule);
+    kernels.register_reduce_parent_rule(GetItem, Struct, StructGetItemRule);
+    kernels.register_reduce_parent_rule(MaskFn, Struct, MaskReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Slice, Struct, SliceReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Dict, Struct, TakeReduceAdaptor(Struct));
 }
 
 /// Casts a struct by casting its fields, when the cast only changes what the validity can hold.

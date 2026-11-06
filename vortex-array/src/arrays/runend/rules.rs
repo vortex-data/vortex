@@ -19,21 +19,19 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
-/// Registers the parent-reduce rules for [`RunEnd`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
-    kernels.register_reduce_parent_rule(Cast.id(), RunEnd, CastReduceAdaptor(RunEnd));
-    kernels.register_reduce_parent_rule(AnyScalarFn.id(), RunEnd, RunEndScalarFnRule);
-    kernels.register_reduce_parent_rule(FillNull.id(), RunEnd, FillNullReduceAdaptor(RunEnd));
+    kernels.register_reduce_parent_rule(Cast, RunEnd, CastReduceAdaptor(RunEnd));
+    kernels.register_reduce_parent_rule(AnyScalarFn, RunEnd, RunEndScalarFnRule);
+    kernels.register_reduce_parent_rule(FillNull, RunEnd, FillNullReduceAdaptor(RunEnd));
 }
 
 /// A rule to push down scalar functions through run-end encoding into the values array.

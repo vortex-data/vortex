@@ -6,7 +6,6 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ArrayVTable;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -28,15 +27,13 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::get_item::GetItem;
 
-/// Registers the parent-reduce rules for [`Filter`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Filter, FilterReduceAdaptor(Filter));
-    kernels.register_reduce_parent_rule(GetItem.id(), Filter, FilterGetItemRule);
-    kernels.register_reduce_parent_rule(Slice.id(), Filter, SliceReduceAdaptor(Filter));
+    kernels.register_reduce_parent_rule(Filter, Filter, FilterReduceAdaptor(Filter));
+    kernels.register_reduce_parent_rule(GetItem, Filter, FilterGetItemRule);
+    kernels.register_reduce_parent_rule(Slice, Filter, SliceReduceAdaptor(Filter));
 }
 
 pub(super) const RULES: ReduceRuleSet<Filter> =

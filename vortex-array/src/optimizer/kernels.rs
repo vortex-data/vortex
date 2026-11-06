@@ -34,9 +34,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use arc_swap::ArcSwap;
-use parking_lot::Mutex;
 use vortex_error::VortexResult;
-use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -54,6 +52,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::reduce_parent_with_kernels;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::ScalarFnVTable;
 
 /// Shared hasher used to combine `(outer, child)` tuples into registry keys.
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
@@ -75,22 +74,46 @@ pub(crate) type ReduceParentKernelRef = Arc<dyn DynReduceParentKernel>;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ParentReduceKernels {
     /// Kernels keyed by hashed `(parent, child)` pair.
-    kernels: Arc<HashMap<ReduceParentFnId, Arc<[ReduceParentKernelRef]>>>,
+    kernels: HashMap<ReduceParentFnId, Box<[ReduceParentKernelRef]>>,
     /// The child ids each parent id has kernels for, so a parent can skip children that no kernel
     /// is registered for without probing each pair.
-    children: Arc<HashMap<Id, Arc<[Id]>>>,
+    children: HashMap<Id, Box<[Id]>>,
 }
 
 impl ParentReduceKernels {
     /// Returns the kernels registered for `(parent, child)`.
-    pub(crate) fn get(&self, parent: Id, child: Id) -> Option<&Arc<[ReduceParentKernelRef]>> {
-        self.kernels.get(&hash_fn_id(parent, child))
+    pub(crate) fn get(&self, parent: Id, child: Id) -> Option<&[ReduceParentKernelRef]> {
+        self.kernels
+            .get(&hash_fn_id(parent, child))
+            .map(AsRef::as_ref)
     }
 
     /// Returns the child ids that kernels are registered for under `parent`.
     pub(crate) fn children(&self, parent: Id) -> Option<&[Id]> {
         self.children.get(&parent).map(AsRef::as_ref)
     }
+
+    fn push(&mut self, parent: Id, child: Id, kernel: ReduceParentKernelRef) {
+        append(
+            self.kernels
+                .entry(hash_fn_id(parent, child).into())
+                .or_default(),
+            [kernel],
+        );
+
+        let children = self.children.entry(parent).or_default();
+        if !children.contains(&child) {
+            append(children, [child]);
+        }
+    }
+}
+
+/// Appends `items` to a boxed slice. Registration replaces the kernel maps rather than growing
+/// them in place, so the slices keep no spare capacity.
+fn append<T>(slice: &mut Box<[T]>, items: impl IntoIterator<Item = T>) {
+    let mut items_vec = std::mem::take(slice).into_vec();
+    items_vec.extend(items);
+    *slice = items_vec.into_boxed_slice();
 }
 
 struct RegisteredReduceParentRule<V, R> {
@@ -172,7 +195,7 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
 
 pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
 
-pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Box<[ExecuteParentKernelRef]>>;
 
 #[derive(Debug)]
 struct ExecuteParentFnKernel(ExecuteParentFn);
@@ -234,10 +257,42 @@ impl Borrow<u64> for ExecuteParentFnId {
     }
 }
 
-/// Registry of [`ReduceParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
-type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentKernelRef]>>;
-/// Registry of [`ExecuteParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
-type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+/// The parent that a parent-reduce rule is registered under.
+///
+/// A parent is an array encoding, such as [`Filter`](crate::arrays::Filter), or a scalar function,
+/// such as [`Cast`](crate::scalar_fn::fns::cast::Cast), because a `ScalarFnArray` is identified by
+/// its function. [`AnyScalarFn`] is the parent for a rule that applies to any scalar function
+/// array. The `Kind` parameter only keeps these implementations apart, and callers never name it.
+pub trait ReduceParent<Kind> {
+    /// The id that the parent is registered under.
+    fn parent_id(&self) -> Id;
+}
+
+/// The [`ReduceParent`] kind of an array encoding.
+#[derive(Debug)]
+pub struct EncodingParent;
+
+/// The [`ReduceParent`] kind of a scalar function.
+#[derive(Debug)]
+pub struct ScalarFnParent;
+
+impl<V: VTable> ReduceParent<EncodingParent> for V {
+    fn parent_id(&self) -> Id {
+        VTable::id(self)
+    }
+}
+
+impl<F: ScalarFnVTable> ReduceParent<ScalarFnParent> for F {
+    fn parent_id(&self) -> Id {
+        ScalarFnVTable::id(self)
+    }
+}
+
+impl ReduceParent<AnyScalarFn> for AnyScalarFn {
+    fn parent_id(&self) -> Id {
+        self.id()
+    }
+}
 
 /// Session-scoped registry of optimizer kernel functions.
 ///
@@ -245,23 +300,13 @@ type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKer
 /// functions for an existing key appends them to that key's ordered list.
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
-    reduce_parent: ReduceParentRegistry,
-    reduce_parent_children: ArcSwapMap<Id, Arc<[Id]>>,
-    /// Both parent-reduce maps, published together after each registration.
-    ///
     /// The optimizer reads the kernels each time it is called without an execution context, from
-    /// many threads at once. Borrowing this published value does not write to a shared reference
-    /// count, unlike taking a new snapshot of each map.
-    reduce_parent_published: Arc<ReduceParentPublished>,
-    execute_parent: ExecuteParentRegistry,
-}
-
-#[derive(Debug, Default)]
-struct ReduceParentPublished {
-    kernels: ArcSwap<ParentReduceKernels>,
-    /// Held while the maps are read and the result is stored, so that a registration cannot
-    /// replace a newer published value with an older one.
-    publish: Mutex<()>,
+    /// many threads at once. Borrowing the current value does not write to a shared reference
+    /// count. Registration replaces the whole value.
+    reduce_parent: Arc<ArcSwap<ParentReduceKernels>>,
+    /// Execute-parent kernels keyed by hashed `(parent, child)` pair, read and replaced in the
+    /// same way.
+    execute_parent: Arc<ArcSwap<ParentExecutionKernels>>,
 }
 
 impl Default for ArrayKernels {
@@ -274,26 +319,24 @@ impl ArrayKernels {
     /// Create an empty [`ArrayKernels`] with no kernels registered.
     pub fn empty() -> Self {
         Self {
-            reduce_parent: ReduceParentRegistry::default(),
-            reduce_parent_children: ArcSwapMap::default(),
-            reduce_parent_published: Arc::default(),
-            execute_parent: ExecuteParentRegistry::default(),
+            reduce_parent: Arc::default(),
+            execute_parent: Arc::default(),
         }
     }
 
     /// Register an [`ArrayParentReduceRule`] for a `child` encoding under `parent`.
     ///
     /// The optimizer tries the rules registered for a pair in registration order when it sees a
-    /// parent with encoding id `parent` holding a child of the `child` encoding. The child id comes
-    /// from the vtable that the rule applies to, so it always matches the rule. The parent id is
-    /// an encoding id, except that a `ScalarFnArray` is identified by its scalar function id, for
-    /// example `Cast.id()`, or by [`AnyScalarFn::id`] for a rule that applies to any scalar
-    /// function array. Rules for the exact ids are tried before those registered under
-    /// [`AnyScalarFn::id`].
+    /// `parent` holding a child of the `child` encoding. The child id comes from the vtable that
+    /// the rule applies to, so it always matches the rule. The parent is an encoding, such as
+    /// `Filter`, or a scalar function, such as `Cast`, or [`AnyScalarFn`] for a rule that applies
+    /// to any scalar function array. Rules for the exact parent are tried before those registered
+    /// under [`AnyScalarFn`].
     ///
     /// Use [`Self::register_scalar_fn_reduce_parent_rule`] for a rule on a scalar function child.
-    pub fn register_reduce_parent_rule<V, R>(&self, parent: Id, child: V, rule: R)
+    pub fn register_reduce_parent_rule<P, Kind, V, R>(&self, parent: P, child: V, rule: R)
     where
+        P: ReduceParent<Kind>,
         V: VTable,
         R: ArrayParentReduceRule<V>,
     {
@@ -301,7 +344,7 @@ impl ArrayKernels {
             TypeId::of::<V>() != TypeId::of::<ScalarFn>(),
             "register scalar function children with register_scalar_fn_reduce_parent_rule"
         );
-        self.push_reduce_parent_rule::<V, R>(parent, child.id(), rule);
+        self.push_reduce_parent_rule::<V, R>(parent.parent_id(), child.id(), rule);
     }
 
     /// Register an [`ArrayParentReduceRule`] for a scalar function child, of any function, under
@@ -309,11 +352,12 @@ impl ArrayKernels {
     ///
     /// The rule is keyed by [`AnyScalarFn::id`] on the child side. See
     /// [`Self::register_reduce_parent_rule`] for how `parent` is identified.
-    pub fn register_scalar_fn_reduce_parent_rule<R>(&self, parent: Id, rule: R)
+    pub fn register_scalar_fn_reduce_parent_rule<P, Kind, R>(&self, parent: P, rule: R)
     where
+        P: ReduceParent<Kind>,
         R: ArrayParentReduceRule<ScalarFn>,
     {
-        self.push_reduce_parent_rule::<ScalarFn, R>(parent, AnyScalarFn.id(), rule);
+        self.push_reduce_parent_rule::<ScalarFn, R>(parent.parent_id(), AnyScalarFn.id(), rule);
     }
 
     fn push_reduce_parent_rule<V, R>(&self, parent: Id, child: Id, rule: R)
@@ -321,39 +365,16 @@ impl ArrayKernels {
         V: VTable,
         R: ArrayParentReduceRule<V>,
     {
-        self.reduce_parent.push(
-            hash_fn_id(parent, child).into(),
-            Arc::new(RegisteredReduceParentRule {
-                rule,
-                _child: PhantomData::<V>,
-            }) as ReduceParentKernelRef,
-        );
-        self.record_reduce_parent_child(parent, child);
-        self.publish_reduce_parent();
-    }
+        let kernel: ReduceParentKernelRef = Arc::new(RegisteredReduceParentRule {
+            rule,
+            _child: PhantomData::<V>,
+        });
 
-    /// Publishes the current parent-reduce maps for [`Self::with_reduce_parent_kernels`].
-    fn publish_reduce_parent(&self) {
-        let _publish = self.reduce_parent_published.publish.lock();
-        self.reduce_parent_published
-            .kernels
-            .store(Arc::new(ParentReduceKernels {
-                kernels: self.reduce_parent.snapshot(),
-                children: self.reduce_parent_children.snapshot(),
-            }));
-    }
-
-    /// Record that `parent` has parent-reduce kernels for `child`, so the optimizer probes only the
-    /// children of a parent that kernels exist for, as the execute-parent marker does for parents.
-    fn record_reduce_parent_child(&self, parent: Id, child: Id) {
-        if self.reduce_parent_children.read(|children| {
-            children
-                .get(&parent)
-                .is_some_and(|ids| ids.contains(&child))
-        }) {
-            return;
-        }
-        self.reduce_parent_children.extend(parent, &[child]);
+        self.reduce_parent.rcu(|current| {
+            let mut next = ParentReduceKernels::clone(current);
+            next.push(parent, child, Arc::clone(&kernel));
+            next
+        });
     }
 
     /// Try the parent-reduce kernels registered for `parent` and `child` once, without
@@ -382,9 +403,7 @@ impl ArrayKernels {
             .iter()
             .map(|f| Arc::new(ExecuteParentFnKernel(*f)) as ExecuteParentKernelRef)
             .collect();
-        self.execute_parent
-            .extend(hash_fn_id(parent, child).into(), kernels.as_slice());
-        self.mark_execute_parent(parent);
+        self.push_execute_parent(parent, child, &kernels);
     }
 
     /// Register a typed [`ExecuteParentKernel`] for `(parent, child.id())`.
@@ -401,36 +420,41 @@ impl ArrayKernels {
         K: ExecuteParentKernel<V>,
     {
         let child_id = child.id();
-        self.execute_parent.push(
-            hash_fn_id(parent, child_id).into(),
-            Arc::new(RegisteredExecuteParentKernel {
-                _child: child,
-                kernel,
-            }) as ExecuteParentKernelRef,
-        );
-        self.mark_execute_parent(parent);
+        let kernel: ExecuteParentKernelRef = Arc::new(RegisteredExecuteParentKernel {
+            _child: child,
+            kernel,
+        });
+        self.push_execute_parent(parent, child_id, &[kernel]);
     }
 
-    /// Record that `parent` owns at least one execute-parent kernel.
+    /// Append `kernels` for `(parent, child)` and record that `parent` owns execute-parent kernels.
     ///
     /// The marker lives in the same map as the kernels, under a key no `(parent, child)` pair
     /// hashes to, so the executor's snapshot answers "does this parent have any kernel?" with
     /// one probe and no extra state. The marker's kernel list is empty.
-    fn mark_execute_parent(&self, parent: Id) {
-        self.execute_parent
-            .insert_if_absent(execute_parent_marker_key(parent).into(), Arc::from([]));
+    fn push_execute_parent(&self, parent: Id, child: Id, kernels: &[ExecuteParentKernelRef]) {
+        self.execute_parent.rcu(|current| {
+            let mut next = ParentExecutionKernels::clone(current);
+            append(
+                next.entry(hash_fn_id(parent, child).into()).or_default(),
+                kernels.iter().cloned(),
+            );
+            next.entry(execute_parent_marker_key(parent).into())
+                .or_default();
+            next
+        });
     }
 
     /// Returns true when one or more execute-parent kernels are registered for `(parent, child)`.
     pub fn has_execute_parent(&self, parent: Id, child: Id) -> bool {
         self.execute_parent
-            .get(&hash_fn_id(parent, child))
-            .is_some()
+            .load()
+            .contains_key(&hash_fn_id(parent, child))
     }
 
     /// Return the currently published parent-reduce kernel snapshot.
-    pub(crate) fn reduce_parent_snapshot(&self) -> ParentReduceKernels {
-        self.with_reduce_parent_kernels(ParentReduceKernels::clone)
+    pub(crate) fn reduce_parent_snapshot(&self) -> Arc<ParentReduceKernels> {
+        self.reduce_parent.load_full()
     }
 
     /// Passes the currently published parent-reduce kernels to `f` without copying them.
@@ -438,12 +462,12 @@ impl ArrayKernels {
         &self,
         f: impl FnOnce(&ParentReduceKernels) -> R,
     ) -> R {
-        f(&self.reduce_parent_published.kernels.load())
+        f(&self.reduce_parent.load())
     }
 
     /// Return the currently published execute-parent kernel snapshot.
     pub(crate) fn execute_parent_snapshot(&self) -> Arc<ParentExecutionKernels> {
-        self.execute_parent.snapshot()
+        self.execute_parent.load_full()
     }
 }
 

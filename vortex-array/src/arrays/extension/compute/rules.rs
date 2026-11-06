@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -24,7 +23,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::Mask as MaskFn;
@@ -55,15 +53,14 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
     }
 }
 
-/// Registers the parent-reduce rules for [`Extension`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Extension, ExtensionFilterPushDownRule);
-    kernels.register_reduce_parent_rule(Cast.id(), Extension, CastReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(Filter.id(), Extension, FilterReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Extension, MaskReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(Slice.id(), Extension, SliceReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(Dict.id(), Extension, TakeReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Filter, Extension, ExtensionFilterPushDownRule);
+    kernels.register_reduce_parent_rule(Cast, Extension, CastReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Filter, Extension, FilterReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(MaskFn, Extension, MaskReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Slice, Extension, SliceReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Dict, Extension, TakeReduceAdaptor(Extension));
 }
 
 /// Push filter operations into the storage array of an extension array.
