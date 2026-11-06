@@ -10,17 +10,23 @@ use vortex_array::ArrayRef;
 use vortex_array::ArraySerialization;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArraySlotsExt;
-
-#[cfg(test)]
-mod tests;
 
 mod v1;
 mod v2;
@@ -85,12 +91,12 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
     fn deserialize(
         &self,
         parts: ArrayDeserialization<'_>,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let array = if parts.serialized_id == decimal_byte_parts_v1_id() {
-            v1::deserialize(parts)?
+            v1::deserialize(parts, session)?
         } else if parts.serialized_id == decimal_byte_parts_v2_id() {
-            v2::deserialize(parts)?
+            v2::deserialize(parts, session)?
         } else {
             vortex_bail!(
                 "DecimalByteParts plugin does not recognize serialized ID {}",
@@ -100,3 +106,52 @@ impl ArrayPlugin for DecimalBytePartsPlugin {
         Ok(array.into_array())
     }
 }
+
+/// The wire stores the narrow integer child, so older readers need no `Widen` support.
+fn stored_msp(msp: &ArrayRef) -> ArrayRef {
+    match msp.as_opt::<Widen>() {
+        Some(widen) => widen.values().clone(),
+        None => msp.clone(),
+    }
+}
+
+/// Restore the logical MSP dtype from a stored signed integer width.
+///
+/// Only wider legacy MSPs need a checked copy. Their null payloads may be outside the target
+/// range, so the primitive cast kernel masks failures and zeroes null lanes.
+fn read_msp(
+    msp: ArrayRef,
+    decimal_dtype: DecimalDType,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    let logical_ptype = super::msp_ptype(decimal_dtype);
+    let stored_ptype = msp.dtype().as_ptype();
+    let logical_dtype = DType::Primitive(logical_ptype, msp.dtype().nullability());
+
+    if stored_ptype.byte_width() == logical_ptype.byte_width() {
+        return Ok(msp);
+    }
+
+    if stored_ptype.byte_width() < logical_ptype.byte_width() {
+        return Ok(WidenArray::try_new(msp, logical_dtype)?.into_array());
+    }
+
+    vortex_ensure!(
+        msp.is_host(),
+        "a wider legacy DecimalByteParts MSP must be in host memory, got device memory"
+    );
+    let mut ctx = session.create_execution_ctx();
+    let msp = msp.execute::<PrimitiveArray>(&mut ctx)?;
+    vortex_ensure!(
+        msp.buffer_handle().is_on_host(),
+        "a wider legacy DecimalByteParts MSP must be in host memory, got device memory"
+    );
+    Ok(msp
+        .into_array()
+        .cast(logical_dtype)?
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .into_array())
+}
+
+#[cfg(test)]
+mod tests;

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Wire translation, metadata validation, and serialized format selection.
+
+mod device;
+
 use std::sync::LazyLock;
 
 use prost::Message as _;
@@ -13,8 +17,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::Widen;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
@@ -34,6 +39,7 @@ use super::*;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
+use crate::decimal_byte_parts::testing::widen_msp;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -76,10 +82,10 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     DecimalDType::new(76, 2),
 ))]
 #[case::narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
-        WidenArray::try_new(
+        widen_msp(
             buffer![-1i16, 0, 1].into_array(),
-            DType::Primitive(PType::I64, Nullability::NonNullable),
-        )?.into_array(),
+            DecimalDType::new(76, 2),
+        )?,
     vec![
         buffer![u64::from(u8::MAX), 128, 0].into_array(),
         ConstantArray::new(u64::from(u16::MAX), 3).into_array(),
@@ -88,12 +94,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     DecimalDType::new(76, 2),
 ))]
 #[case::nullable_narrow_msp_with_lower_parts(DecimalByteParts::try_new_with_lower_parts(
-        WidenArray::try_new(
+        widen_msp(
             PrimitiveArray::new(
         buffer![-1i8, 0, 1], Validity::from_iter([true, false, true]),
-    ).into_array(),
-            DType::Primitive(PType::I64, Nullability::Nullable),
-        )?.into_array(),
+    )
+            .into_array(),
+            DecimalDType::new(76, 2),
+        )?,
     vec![
         buffer![u64::MAX, 1 << 63, 0].into_array(),
         buffer![0u64, 128, u64::from(u8::MAX)].into_array(),
@@ -213,7 +220,7 @@ fn v1_metadata_is_unchanged() -> VortexResult<()> {
     decimal_byte_parts_v2_id(),
     v2_metadata(vec![i32::MAX]),
     vec![msp(), lower_part()],
-    "invalid PType"
+    "must have a valid PType"
 )]
 fn decoder_rejects_malformed_payloads(
     #[case] serialized_id: ArrayId,
@@ -315,4 +322,131 @@ fn deserialize_with(
         ArrayDeserialization::new(serialized_id, &dtype, 3, metadata, &[], &children),
         &VortexSession::empty(),
     )
+}
+
+#[rstest]
+fn legacy_msp_widths(
+    #[values(false, true)] v2: bool,
+    #[values(2, 4, 9, 18, 38, 76)] precision: u8,
+    #[values(PType::I8, PType::I16, PType::I32, PType::I64)] stored_ptype: PType,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+) -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let dtype = DType::Decimal(DecimalDType::new(precision, 0), nullability);
+    let msp = PrimitiveArray::new(
+        buffer![-99i64, 0, 99],
+        if nullability == Nullability::Nullable {
+            Validity::from_iter([true, false, true])
+        } else {
+            Validity::NonNullable
+        },
+    )
+    .into_array()
+    .cast(DType::Primitive(stored_ptype, nullability))?
+    .execute::<PrimitiveArray>(&mut ctx)?
+    .into_array();
+    let metadata = if v2 {
+        DecimalBytePartsV2Metadata {
+            msp_ptype: stored_ptype as i32,
+            lower_part_ptypes: vec![],
+        }
+        .encode_to_vec()
+    } else {
+        v1::DecimalBytePartsMetadata {
+            zeroth_child_ptype: stored_ptype as i32,
+            lower_part_count: 0,
+        }
+        .encode_to_vec()
+    };
+    let children = vec![msp];
+    let decoded = DecimalBytePartsPlugin.deserialize(
+        ArrayDeserialization::new(
+            if v2 {
+                decimal_byte_parts_v2_id()
+            } else {
+                decimal_byte_parts_v1_id()
+            },
+            &dtype,
+            3,
+            &metadata,
+            &[],
+            &children,
+        ),
+        &session,
+    )?;
+    let array = decoded.as_opt::<DecimalByteParts>().unwrap();
+    let logical_ptype = crate::decimal_byte_parts::msp_ptype(DecimalDType::new(precision, 0));
+    assert_eq!(
+        array.msp().dtype(),
+        &DType::Primitive(logical_ptype, nullability)
+    );
+    assert_eq!(array.msp().is::<Widen>(), stored_ptype < logical_ptype);
+    let written = session.array_serialize(&decoded)?.unwrap();
+    assert_eq!(
+        written.children[0].dtype().as_ptype(),
+        if stored_ptype < logical_ptype {
+            stored_ptype
+        } else {
+            logical_ptype
+        }
+    );
+    let expected = DecimalArray::from_option_iter(
+        if nullability == Nullability::Nullable {
+            vec![Some(-99i64), None, Some(99)]
+        } else {
+            vec![Some(-99i64), Some(0), Some(99)]
+        },
+        DecimalDType::new(precision, 0),
+    )
+    .into_array()
+    .cast(dtype)?;
+    assert_arrays_eq!(decoded, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[rstest]
+fn wider_legacy_msp_checked_cast(#[values(false, true)] v2: bool) -> VortexResult<()> {
+    let session = session();
+    let mut ctx = session.create_execution_ctx();
+    let dtype = DType::Decimal(DecimalDType::new(4, 2), Nullability::Nullable);
+    let metadata = if v2 {
+        v2_metadata(vec![])
+    } else {
+        v1_metadata(0)
+    };
+    let id = if v2 {
+        decimal_byte_parts_v2_id()
+    } else {
+        decimal_byte_parts_v1_id()
+    };
+    let children = vec![
+        PrimitiveArray::new(
+            buffer![99i64, i64::MAX, -99],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array(),
+    ];
+    let decoded = DecimalBytePartsPlugin.deserialize(
+        ArrayDeserialization::new(id, &dtype, 3, &metadata, &[], &children),
+        &session,
+    )?;
+    let msp = decoded
+        .as_opt::<DecimalByteParts>()
+        .unwrap()
+        .msp()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_eq!(msp.as_slice::<i16>(), &[99, 0, -99]);
+
+    let children = vec![buffer![99i64, i64::MAX, -99].into_array()];
+    let dtype = dtype.with_nullability(Nullability::NonNullable);
+    let result = DecimalBytePartsPlugin.deserialize(
+        ArrayDeserialization::new(id, &dtype, 3, &metadata, &[], &children),
+        &session,
+    );
+    assert!(result.is_err());
+
+    Ok(())
 }
