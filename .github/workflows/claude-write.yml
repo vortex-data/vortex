@@ -14,10 +14,12 @@ name: Claude Code (Write)
 #    - CLAUDE_APP_LOGIN
 #      Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
 #    - ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID, ANTHROPIC_FEDERATION_RULE_WRITE
-#      Identifiers, not credentials. The write rule matches only this workflow.
+#      Identifiers, not credentials. The write rule matches only this workflow and
+#      fuzzer-fix-automation.yml, and only in the `claude-automation` environment.
 #
 # Why this workflow exists separately
-# - This is the only workflow that can read the GitHub App private key.
+# - This workflow and fuzzer-fix-automation.yml are the only workflows that can
+#   read the GitHub App private key.
 # - It is primarily issue-driven. The only PR path it allows is a follow-up comment
 #   on a same-repo PR that was already opened by the Claude GitHub App.
 # - Claude uses a short-lived GitHub App installation token, not GITHUB_TOKEN, so
@@ -198,8 +200,9 @@ jobs:
         id: claude
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
         with:
-          # The environment puts `environment:claude-automation` in the OIDC subject,
-          # which is all the `vortex-claude-write` rule matches. Unreachable elsewhere.
+          # The environment puts `environment:claude-automation` in the OIDC subject.
+          # The `vortex-claude-write` rule matches that subject, and it also requires
+          # this workflow or fuzzer-fix-automation.yml as `job_workflow_ref`.
           anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
           anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
