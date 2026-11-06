@@ -125,6 +125,7 @@ mod arrays {
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
+    use crate::common::arrays::full_width_lower_part_count;
 
     pub(super) static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
@@ -133,7 +134,8 @@ mod arrays {
     fn dbp_assemble(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
         let decimal = decimal_array(values_type, len, Validity::NonNullable);
         let mut ctx = SESSION.create_execution_ctx();
-        let parts = split_decimal(&decimal, &mut ctx).vortex_expect("split benchmark input");
+        let parts = split_decimal(&decimal, full_width_lower_part_count(values_type), &mut ctx)
+            .vortex_expect("split benchmark input");
         bench_parts(
             bencher,
             parts.msp,
@@ -146,15 +148,8 @@ mod arrays {
     fn dbp_assemble_narrowed(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
         let (precision, lower_parts) = match values_type {
             DecimalType::I64 => (18, vec![]),
-            DecimalType::I128 => (38, vec![buffer![u8::MAX; len].into_array()]),
-            DecimalType::I256 => (
-                76,
-                vec![
-                    buffer![u8::MAX; len].into_array(),
-                    buffer![u16::MAX; len].into_array(),
-                    buffer![u32::MAX; len].into_array(),
-                ],
-            ),
+            DecimalType::I128 => (38, vec![buffer![u64::MAX; len].into_array()]),
+            DecimalType::I256 => (76, vec![buffer![u64::MAX; len].into_array(); 3]),
             _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
         };
         bench_parts(

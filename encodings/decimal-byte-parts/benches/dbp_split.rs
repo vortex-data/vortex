@@ -94,6 +94,7 @@ mod arrays {
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
+    use crate::common::arrays::full_width_lower_part_count;
 
     pub(super) static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
@@ -118,11 +119,13 @@ mod arrays {
     fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity: Validity) {
         let decimal = decimal_array(values_type, len, validity);
         mark_optimized(decimal.as_array(), &SESSION).vortex_expect("mark the decimal as optimized");
+        let lower_part_count = full_width_lower_part_count(values_type);
 
         bencher
             .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {
-                split_decimal(black_box(&decimal), ctx).vortex_expect("split decimal array")
+                split_decimal(black_box(&decimal), lower_part_count, ctx)
+                    .vortex_expect("split decimal array")
             });
     }
 }

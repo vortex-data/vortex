@@ -23,6 +23,7 @@
 #![allow(clippy::cast_possible_truncation, clippy::tests_outside_test_module)]
 
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -47,6 +48,7 @@ use vortex_array::display::TreeExtractor;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -159,6 +161,17 @@ fn corpus() -> VortexResult<Vec<(&'static str, ArrayRef)>> {
         ("string_low_cardinality", string_low_cardinality()),
         ("binary_low_cardinality", binary_low_cardinality()),
         ("decimal_prices", decimal_prices()),
+        (
+            "decimal_wide_dtype_small_values",
+            decimal_wide_dtype_small_values(),
+        ),
+        ("decimal_nullable", decimal_nullable(120, None)),
+        ("decimal_negative", decimal_negative()),
+        ("decimal_wide_p40", decimal_wide_p40()),
+        (
+            "decimal_null_slot_values",
+            decimal_nullable(123, Some(1i64 << 40..1i64 << 48)),
+        ),
         ("temporal_timestamp_micros", temporal_timestamp_micros()),
         ("bool_random", bool_random()),
         ("struct_mixed", struct_mixed()?),
@@ -369,6 +382,60 @@ fn decimal_prices() -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(115);
     let values: Buffer<i64> = (0..N).map(|_| rng.random_range(0..10_000_000i64)).collect();
     DecimalArray::new(values, DecimalDType::new(12, 2), Validity::NonNullable).into_array()
+}
+
+/// [`decimal_prices`] at a precision whose canonical width is `i128`: the values fit `i64`, so the
+/// byte parts need no lower part.
+fn decimal_wide_dtype_small_values() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(119);
+    let values: Buffer<i128> = (0..N)
+        .map(|_| rng.random_range(0..10_000_000i128))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(38, 2), Validity::NonNullable).into_array()
+}
+
+/// Seeded prices with a tenth of the rows null. Null slots hold zeros unless a range is supplied.
+fn decimal_nullable(seed: u64, null_slot_range: Option<Range<i64>>) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut validity: Vec<bool> = Vec::with_capacity(N);
+    let values: Buffer<i64> = (0..N)
+        .map(|_| {
+            let valid = rng.random_range(0..10) != 0;
+            validity.push(valid);
+            if valid {
+                rng.random_range(0..10_000_000i64)
+            } else if let Some(range) = &null_slot_range {
+                rng.random_range(range.clone())
+            } else {
+                0
+            }
+        })
+        .collect();
+    DecimalArray::new(
+        values,
+        DecimalDType::new(12, 2),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
+    )
+    .into_array()
+}
+
+/// Decimals of mixed sign: the most significant part stays signed.
+fn decimal_negative() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(121);
+    let values: Buffer<i64> = (0..N)
+        .map(|_| rng.random_range(-100_000..=100_000i64))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(10, 2), Validity::NonNullable).into_array()
+}
+
+/// Decimals at a precision whose canonical width is `i256`, with values from 2^64 to 2^100: they
+/// need more than 64 bits but fit `i128`.
+fn decimal_wide_p40() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(122);
+    let values: Buffer<i256> = (0..N)
+        .map(|_| i256::from_i128(rng.random_range(1i128 << 64..1i128 << 100)))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(40, 2), Validity::NonNullable).into_array()
 }
 
 /// Near-monotone microsecond timestamps: TemporalScheme (datetime-parts) habitat.

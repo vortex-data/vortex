@@ -31,7 +31,7 @@ pub struct DecimalBytePartsV2Metadata {
     /// Ptype of the most significant part.
     #[prost(enumeration = "PType", tag = "1")]
     pub(super) msp_ptype: i32,
-    /// Ptypes of the lower parts, ordered most significant first.
+    /// Ptypes of the lower parts, ordered most significant first. Readers accept only `U64`.
     #[prost(enumeration = "PType", repeated, tag = "2")]
     pub(super) lower_part_ptypes: Vec<i32>,
 }
@@ -93,8 +93,8 @@ pub(super) fn deserialize(parts: ArrayDeserialization<'_>) -> VortexResult<Decim
         let ptype = PType::try_from(raw_ptype)
             .map_err(|_| vortex_err!("invalid PType {raw_ptype} for lower part {idx}"))?;
         vortex_ensure!(
-            ptype.is_unsigned_int(),
-            "lower part {idx} must have an unsigned integer dtype, got {ptype}"
+            ptype == PType::U64,
+            "lower part {idx} must have dtype u64, got {ptype}"
         );
         slots.push(Some(parts.children.get(
             1 + idx,
