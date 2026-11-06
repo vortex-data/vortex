@@ -158,6 +158,8 @@ pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
     pub use vortex_btrblocks::CompressionSession;
     pub use vortex_btrblocks::CompressionSessionExt;
+    pub use vortex_btrblocks::PlanReuse;
+    pub use vortex_btrblocks::PlanReuseOptions;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeId;
 }

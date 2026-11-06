@@ -14,6 +14,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutId;
 use crate::LayoutRef;
+use crate::layouts::compressed::PlanReuseScope;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -79,6 +80,7 @@ pub struct LayoutWriterContext {
     allowed_layouts: Option<Arc<HashSet<LayoutId>>>,
     nullable_ancestor: bool,
     buffered_bytes: BufferedBytesTracker,
+    plan_reuse_scope: Option<PlanReuseScope>,
 }
 
 impl LayoutWriterContext {
@@ -90,6 +92,7 @@ impl LayoutWriterContext {
             allowed_layouts: None,
             nullable_ancestor: false,
             buffered_bytes: BufferedBytesTracker::new(),
+            plan_reuse_scope: None,
         }
     }
 
@@ -152,6 +155,22 @@ impl LayoutWriterContext {
     pub fn with_buffered_bytes_tracker(mut self, tracker: BufferedBytesTracker) -> Self {
         self.buffered_bytes = tracker;
         self
+    }
+
+    /// Makes the compressing strategies below this write share their scheme decisions through
+    /// `scope`.
+    ///
+    /// A strategy that splits one column into many short streams, such as the runs of a
+    /// dictionary layout, uses this to let each stream continue from the decisions of the earlier
+    /// streams instead of selecting schemes again.
+    pub(crate) fn with_plan_reuse_scope(mut self, scope: PlanReuseScope) -> Self {
+        self.plan_reuse_scope = Some(scope);
+        self
+    }
+
+    /// Returns the scope that shares scheme decisions between streams, if a strategy set one.
+    pub(crate) fn plan_reuse_scope(&self) -> Option<&PlanReuseScope> {
+        self.plan_reuse_scope.as_ref()
     }
 
     /// Returns the array serialization context.

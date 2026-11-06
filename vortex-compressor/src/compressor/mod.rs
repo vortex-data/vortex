@@ -5,9 +5,14 @@
 
 mod cascade;
 mod constant;
+pub(crate) mod plan;
+mod reuse;
 mod sample;
 mod select;
 mod structural;
+
+pub use reuse::PlanReuse;
+pub use reuse::PlanReuseOptions;
 
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
