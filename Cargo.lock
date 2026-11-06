@@ -11596,6 +11596,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fearless_simd",
  "fearless_simd_macros",
+ "hegeltest",
  "itertools 0.14.0",
  "memmap2",
  "mimalloc",
