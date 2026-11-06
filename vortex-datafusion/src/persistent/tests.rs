@@ -724,6 +724,74 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
     Ok(())
 }
 
+/// With a scan concurrency of 0, a V2 scan runs every chunk on its own run as another root. Each
+/// root needs an IO session of its own: the run clears a root's session when the root retires, so
+/// a shared session left the remaining chunks waiting for reads that were never issued.
+#[tokio::test]
+async fn v2_inline_chunks_read_through_their_own_sessions() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+    let session = VortexSession::default();
+    let path = object_store::path::Path::parse("/inline-chunks.vortex")?;
+
+    let chunk_len = 1_000_i32;
+    let chunk_count = 4;
+    let chunks = (0..chunk_count).map(|chunk| {
+        let start = chunk * chunk_len;
+        StructArray::try_new(
+            ["value"].into(),
+            vec![Buffer::from_iter(start..start + chunk_len).into_array()],
+            usize::try_from(chunk_len).expect("chunk length is positive"),
+            Validity::NonNullable,
+        )
+        .expect("chunk is a valid struct")
+        .into_array()
+    });
+    let table = ChunkedArray::from_iter(chunks).into_array();
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+    ));
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
+    session
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2: true,
+            scan_concurrency: Some(0),
+            ..Default::default()
+        }),
+    );
+    let mut state = SessionStateBuilder::new()
+        .with_config(SessionConfig::new().with_target_partitions(1))
+        .with_default_features()
+        .with_object_store(&url::Url::try_from("file://")?, store);
+    if let Some(file_formats) = state.file_formats() {
+        file_formats.push(factory as _);
+    }
+    let ctx = SessionContext::new_with_state(state.build()).enable_url_table();
+
+    let batches = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        ctx.sql("SELECT value FROM '/inline-chunks.vortex' ORDER BY value")
+            .await?
+            .collect()
+            .await
+    })
+    .await
+    .map_err(|_| anyhow!("inline V2 scan did not finish"))??;
+
+    assert_eq!(
+        batch_values(&batches),
+        (0..chunk_count * chunk_len).collect::<Vec<_>>()
+    );
+
+    Ok(())
+}
+
 /// Roundtrip an `arrow.uuid` extension column through a Vortex file: write the column directly
 /// via the session-aware Arrow→Vortex conversion, then `SELECT *` and assert both the field
 /// metadata and the underlying values survive the trip.
