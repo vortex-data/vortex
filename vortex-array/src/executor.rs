@@ -252,13 +252,9 @@ impl ArrayRef {
 
             // Step 1b: parent-reduce rules against the suspended parent.
             //
-            // The optimizer only tried the child's parent-reduce rules with the child it saw
-            // before execution. Once execution rewrites the child into another encoding, a rule
-            // can match that did not before: a slice over a run-end array executes into the
-            // run-end array, whose `RunEndScalarFnRule` pushes the suspended scalar function
-            // into the run values instead of decoding every row.
-            //
-            // Skipped while a builder is active at either level, for the same reason as Step 2a.
+            // Once execution rewrites the child into another encoding, its parent-reduce rules
+            // can match where they did not before, such as a slice that executed into a run-end
+            // array. Skipped while a builder is active at either level, as in Step 2a.
             if child_rewritten
                 && current_builder.is_none()
                 && stack
