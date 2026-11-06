@@ -21,6 +21,10 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::WidenArray;
+use vortex::array::dtype::DType;
+use vortex::array::dtype::Nullability;
+use vortex::array::dtype::PType;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DecimalDType;
@@ -141,6 +145,9 @@ fn canonical<T: NativeDecimalType>(values: Buffer<T>, decimal_dtype: DecimalDTyp
 
 fn decimal_byte_parts<T: NativePType>(msp: Buffer<T>, decimal_dtype: DecimalDType) -> ArrayRef {
     let msp = PrimitiveArray::new(msp, Validity::NonNullable).into_array();
+    let msp = WidenArray::try_new(msp, DType::Primitive(PType::I64, Nullability::NonNullable))
+        .vortex_expect("benchmark MSP is narrower than i64")
+        .into_array();
     DecimalByteParts::try_new(msp, decimal_dtype)
         .vortex_expect("the MSP of every benchmark input is a signed integer array")
         .into_array()

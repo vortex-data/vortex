@@ -21,6 +21,7 @@ use vortex_array::ExecutionCtx;
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
 
+/// Compatibility coverage for decimals stored with lower parts.
 pub struct DecimalBytePartsV2Fixture;
 
 impl FlatLayoutFixture for DecimalBytePartsV2Fixture {

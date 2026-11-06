@@ -31,7 +31,9 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -218,9 +220,22 @@ impl Input {
             .msp_validity
             .clone()
             .map_or(Validity::NonNullable, Validity::from);
-        let msp =
-            PrimitiveArray::from_byte_buffer(self.msp_values.clone(), self.msp_ptype, validity);
-        let array = DecimalByteParts::try_new(msp.into_array(), self.decimal_dtype)
+        let msp = PrimitiveArray::from_byte_buffer(
+            self.msp_values.clone(),
+            self.msp_ptype,
+            validity.clone(),
+        );
+        let msp = if self.msp_ptype < PType::I64 {
+            WidenArray::try_new(
+                msp.into_array(),
+                DType::Primitive(PType::I64, validity.nullability()),
+            )
+            .vortex_expect("benchmark MSP must be narrower than its logical dtype")
+            .into_array()
+        } else {
+            msp.into_array()
+        };
+        let array = DecimalByteParts::try_new(msp, self.decimal_dtype)
             .vortex_expect("the MSP of every benchmark input is a signed integer array")
             .into_array();
         mark_optimized(&array, &SESSION).vortex_expect("mark the benchmark input as optimized");

@@ -70,10 +70,20 @@ pub fn write_compressed(
     chunk: ArrayRef,
     strategy: Arc<dyn LayoutStrategy>,
 ) -> VortexResult<()> {
+    write_compressed_with_session(path, chunk, strategy, &VortexSession::default())
+}
+
+/// Writes a file using a fixture-specific session, including any legacy wire adapters.
+pub fn write_compressed_with_session(
+    path: &Path,
+    chunk: ArrayRef,
+    strategy: Arc<dyn LayoutStrategy>,
+    session: &VortexSession,
+) -> VortexResult<()> {
     let stream = ArrayStreamAdapter::new(chunk.dtype().clone(), stream::iter([Ok(chunk)]));
 
     runtime()?.block_on(async {
-        let session = VortexSession::default().with_tokio();
+        let session = session.clone().with_tokio();
         let mut file = tokio::fs::File::create(path)
             .await
             .map_err(|e| vortex_err!("failed to create {}: {e}", path.display()))?;

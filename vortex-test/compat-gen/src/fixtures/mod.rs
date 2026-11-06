@@ -11,6 +11,7 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
+use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::session::VortexSession;
 use vortex_array::ExecutionCtx;
 use vortex_arrow::ArrowSession;
@@ -62,6 +63,13 @@ pub trait FlatLayoutFixture {
         self.build(ctx)
     }
 
+    /// The writer session, with any adapters needed to preserve a legacy wire form.
+    ///
+    /// Adapters must preserve the logical values returned by [`Self::build_written`].
+    fn writer_session(&self) -> VortexSession {
+        VortexSession::default()
+    }
+
     /// Encoding IDs that must appear somewhere in the array tree produced by
     /// [`Self::build_written`].
     ///
@@ -100,9 +108,19 @@ pub trait DatasetFixture {
 pub struct FlatLayoutAdapter(pub Box<dyn FlatLayoutFixture>);
 
 impl FlatLayoutAdapter {
-    fn write_array(&self, dir: &Path, array: ArrayRef) -> VortexResult<Vec<FixtureEntry>> {
+    fn write_array(
+        &self,
+        dir: &Path,
+        array: ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Vec<FixtureEntry>> {
         let path = dir.join(self.name());
-        adapter::write_file(&path, array)?;
+        adapter::write_compressed_with_session(
+            &path,
+            array,
+            Arc::new(FlatLayoutStrategy::default()),
+            session,
+        )?;
         Ok(vec![FixtureEntry {
             name: self.name().to_string(),
             description: self.description().to_string(),
@@ -123,7 +141,7 @@ impl Fixture for FlatLayoutAdapter {
         let array = self.0.build_written(ctx)?;
         check_expected_encodings(&array, self.0.as_ref())?;
         compute_all_stats(&array, ctx)?;
-        self.write_array(dir, array)
+        self.write_array(dir, array, &self.0.writer_session())
     }
 
     fn write_expected(
@@ -133,7 +151,7 @@ impl Fixture for FlatLayoutAdapter {
     ) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.0.build(ctx)?;
         compute_all_stats(&array, ctx)?;
-        self.write_array(dir, array)
+        self.write_array(dir, array, &VortexSession::default())
     }
 }
 

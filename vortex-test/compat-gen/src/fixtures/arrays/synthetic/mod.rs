@@ -17,8 +17,10 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Decimal;
     use vortex_array::arrays::DecimalArray;
@@ -67,7 +69,11 @@ mod tests {
 
             check_expected_encodings(&written, fixture.as_ref())?;
             adapter::compute_all_stats(&written, &mut ctx)?;
-            let bytes = adapter::write_file_to_bytes(written)?;
+            let bytes = adapter::write_compressed_to_bytes_with_session(
+                &fixture.writer_session(),
+                written,
+                Arc::new(FlatLayoutStrategy::default()),
+            )?;
             let roundtripped = adapter::read_file(bytes)?;
             assert_arrays_eq!(roundtripped, expected, &mut ctx);
         }
