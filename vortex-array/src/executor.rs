@@ -144,6 +144,11 @@ impl ArrayRef {
     ///     - root activation   -> return current_array
     ///     - ExecuteSlot frame -> pop, reattach child, resume parent
     ///
+    ///   Step 1b: if current_array was rewritten under stack.top and no builder is active:
+    ///               reattach it, try its parent-reduce rules against the parent
+    ///     - rewritten -> pop, the result replaces the parent
+    ///     - none      -> detach it again
+    ///
     ///   Step 2: current_builder active?
     ///     - yes -> skip Step 2a / 2b
     ///     - no  -> try parent kernels
@@ -194,6 +199,9 @@ impl ArrayRef {
         let mut current_array = optimizer.optimize_array(&self)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
+        // Whether `current_array` was rewritten since its parent was suspended, so its
+        // parent-reduce rules have not yet seen it under that parent.
+        let mut child_rewritten = false;
         let kernels = ctx_kernels.execute_parent.as_ref();
         let max_iterations = max_iterations();
 
@@ -235,10 +243,63 @@ impl ArrayRef {
                     Some(frame) => {
                         let _slot_idx = frame.slot_idx;
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
+                        child_rewritten = false;
                         trace_op!(record_execute_until_pop_frame(_slot_idx, &current_array));
                         continue;
                     }
                 }
+            }
+
+            // Step 1b: parent-reduce rules against the suspended parent.
+            //
+            // The optimizer only tried the child's parent-reduce rules with the child it saw
+            // before execution. Once execution rewrites the child into another encoding, a rule
+            // can match that did not before: a slice over a run-end array executes into the
+            // run-end array, whose `RunEndScalarFnRule` pushes the suspended scalar function
+            // into the run values instead of decoding every row.
+            //
+            // Skipped while a builder is active at either level, for the same reason as Step 2a.
+            if child_rewritten
+                && current_builder.is_none()
+                && stack
+                    .last()
+                    .is_some_and(|frame| frame.parent_builder.is_none())
+            {
+                child_rewritten = false;
+                let frame = stack.pop().vortex_expect("just peeked");
+                let slot_idx = frame.slot_idx;
+                // SAFETY: `current_array` is the executed slot, so it has the slot's dtype and len.
+                let parent = unsafe {
+                    frame
+                        .parent_array
+                        .put_slot_unchecked(slot_idx, current_array)
+                }?;
+                if let Some(reduced) = optimizer.reduce_parent_of_slot(&parent, slot_idx)? {
+                    let child = parent.slots()[slot_idx]
+                        .as_ref()
+                        .vortex_expect("slot was just put back");
+                    log_parent_rewrite(
+                        ctx,
+                        "stack_reduce_parent",
+                        slot_idx,
+                        &parent,
+                        child,
+                        &reduced,
+                    );
+                    reduced.statistics().inherit_from(parent.statistics());
+                    current_array = optimizer.optimize_array(&reduced)?;
+                    current_builder = frame.parent_builder;
+                    // The rewrite replaced the parent, which is the child of the next frame.
+                    child_rewritten = true;
+                    continue;
+                }
+                // SAFETY: the slot is put back unchanged before the parent leaves the executor.
+                let (parent, child) = unsafe { parent.take_slot_unchecked(slot_idx) }?;
+                stack.push(StackFrame {
+                    parent_array: parent,
+                    ..frame
+                });
+                current_array = child;
             }
 
             // Step 2a: execute_parent against the suspended parent from ExecuteSlot.
@@ -269,6 +330,7 @@ impl ArrayRef {
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
+                child_rewritten = !stack.is_empty();
                 continue;
             }
             if current_builder.is_none() && stack.last().is_some() {
@@ -286,6 +348,7 @@ impl ArrayRef {
                 let optimized = optimizer.optimize_array(&rewritten)?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
+                child_rewritten = !stack.is_empty();
                 continue;
             }
             if current_builder.is_none() {
@@ -319,6 +382,7 @@ impl ArrayRef {
                     });
                     current_array = optimizer.optimize_array(&child)?;
                     current_builder = None;
+                    child_rewritten = false;
                 }
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
@@ -365,6 +429,7 @@ impl ArrayRef {
                     // Kernels build their results with lazy constructors, such as a cast that only
                     // changes nullability. Reduce them before execute-parent kernels see them.
                     current_array = optimizer.optimize_array(&current_array)?;
+                    child_rewritten = !stack.is_empty();
                 }
             }
         }
