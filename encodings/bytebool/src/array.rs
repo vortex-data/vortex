@@ -7,11 +7,14 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
@@ -25,7 +28,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -113,22 +115,59 @@ impl VTable for ByteBool {
         ))
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ByteBoolSlots::NAMES[idx].to_string()
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // convert truthy values to set/unset bits
+        let boolean_buffer = BitBufferMut::from(array.truthy_bytes()).freeze();
+        let validity = array.validity()?;
+        Ok(ExecutionResult::done(
+            BoolArray::new(boolean_buffer, validity).into_array(),
+        ))
+    }
+}
+
+impl ArrayPlugin for ByteBool {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        _array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         if !metadata.is_empty() {
             vortex_bail!(
                 "ByteBoolArray expects empty metadata, got {} bytes",
@@ -151,34 +190,14 @@ impl VTable for ByteBool {
 
         let data = ByteBoolData::new(buffer);
         let slots = ByteBoolData::make_slots(&validity, len);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        ByteBoolSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // convert truthy values to set/unset bits
-        let boolean_buffer = BitBufferMut::from(array.truthy_bytes()).freeze();
-        let validity = array.validity()?;
-        Ok(ExecutionResult::done(
-            BoolArray::new(boolean_buffer, validity).into_array(),
-        ))
+        ))?
+        .into_array())
     }
 }
 

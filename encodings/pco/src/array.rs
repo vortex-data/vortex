@@ -19,11 +19,14 @@ use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -39,7 +42,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -194,26 +196,67 @@ impl VTable for Pco {
         ))
     }
 
-    fn serialize(
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        PcoSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let unsliced_validity = array.unsliced_validity();
+        Ok(ExecutionResult::done(
+            array
+                .data()
+                .decompress(&unsliced_validity, ctx)?
+                .into_array(),
+        ))
+    }
+
+    fn reduce_parent(
         array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Pco {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
         vortex_ensure!(
-            array.slice_start() == 0 && array.slice_stop() == array.unsliced_n_rows(),
+            view.slice_start() == 0 && view.slice_stop() == view.unsliced_n_rows(),
             "cannot serialize sliced PCO arrays; materialize the slice first"
         );
-        Ok(Some(array.metadata.clone().encode_to_vec()))
+        let metadata = view.metadata.clone().encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         let metadata = PcoMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -249,35 +292,14 @@ impl VTable for Pco {
         // publishing the array.
         let data =
             unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        PcoSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let unsliced_validity = array.unsliced_validity();
-        Ok(ExecutionResult::done(
-            array
-                .data()
-                .decompress(&unsliced_validity, ctx)?
-                .into_array(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

@@ -14,11 +14,14 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::EqMode;
@@ -39,7 +42,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_varbin_builder;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -217,63 +219,6 @@ impl VTable for Zstd {
         ))
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.clone().encode_to_vec()))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ZstdMetadata::decode(metadata)?;
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
-        };
-
-        let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
-            // no dictionary
-            (
-                None,
-                buffers
-                    .iter()
-                    .map(|b| b.clone().try_to_host_sync())
-                    .collect::<VortexResult<Vec<_>>>()?,
-            )
-        } else {
-            // with dictionary
-            (
-                Some(buffers[0].clone().try_to_host_sync()?),
-                buffers[1..]
-                    .iter()
-                    .map(|b| b.clone().try_to_host_sync())
-                    .collect::<VortexResult<Vec<_>>>()?,
-            )
-        };
-
-        let slots = smallvec![validity_to_child(&validity, len)];
-        let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ZstdSlots::NAMES[idx].to_string()
     }
@@ -317,6 +262,83 @@ impl VTable for Zstd {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Zstd {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = view.metadata.clone().encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
+        let metadata = ZstdMetadata::decode(metadata)?;
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
+        };
+
+        let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
+            // no dictionary
+            (
+                None,
+                buffers
+                    .iter()
+                    .map(|b| b.clone().try_to_host_sync())
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )
+        } else {
+            // with dictionary
+            (
+                Some(buffers[0].clone().try_to_host_sync()?),
+                buffers[1..]
+                    .iter()
+                    .map(|b| b.clone().try_to_host_sync())
+                    .collect::<VortexResult<Vec<_>>>()?,
+            )
+        };
+
+        let slots = smallvec![validity_to_child(&validity, len)];
+        let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
+        .into_array())
     }
 }
 

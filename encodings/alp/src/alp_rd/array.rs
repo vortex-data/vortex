@@ -11,11 +11,14 @@ use ::alp::MAX_DICT_SIZE;
 use itertools::Itertools;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
@@ -37,7 +40,6 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -152,117 +154,6 @@ impl VTable for ALPRD {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let dict = array
-            .left_parts_dictionary()
-            .iter()
-            .map(|&i| i as u32)
-            .collect::<Vec<_>>();
-
-        Ok(Some(
-            ALPRDMetadata {
-                right_bit_width: array.right_bit_width() as u32,
-                dict_len: array.left_parts_dictionary().len() as u32,
-                dict,
-                left_parts_ptype: array.left_parts().dtype().as_ptype() as i32,
-                patches: array
-                    .left_parts_patches()
-                    .map(|p| p.to_metadata(array.len(), p.dtype()))
-                    .transpose()?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ALPRDMetadata::decode(metadata)?;
-        let left_parts_ptype = metadata.get_left_parts_ptype()?;
-        if children.len() < 2 {
-            vortex_bail!(
-                "Expected at least 2 children for ALPRD encoding, found {}",
-                children.len()
-            );
-        }
-
-        // Stored metadata is untrusted: dict_len must stay within the stored entries.
-        if metadata.dict_len as usize > metadata.dict.len() {
-            vortex_bail!(
-                "ALP-RD dictionary length {} exceeds the {} stored entries",
-                metadata.dict_len,
-                metadata.dict.len()
-            );
-        }
-
-        let left_parts_dtype = DType::Primitive(left_parts_ptype, dtype.nullability());
-        let left_parts = children.get(0, &left_parts_dtype, len)?;
-        let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
-            [0..metadata.dict_len as usize]
-            .iter()
-            .map(|&i| {
-                u16::try_from(i)
-                    .map_err(|_| vortex_err!("left_parts_dictionary code {i} does not fit in u16"))
-            })
-            .try_collect()?;
-
-        let right_parts_dtype = match &dtype {
-            DType::Primitive(PType::F32, _) => {
-                DType::Primitive(PType::U32, Nullability::NonNullable)
-            }
-            DType::Primitive(PType::F64, _) => {
-                DType::Primitive(PType::U64, Nullability::NonNullable)
-            }
-            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
-        };
-        let right_parts = children.get(1, &right_parts_dtype, len)?;
-
-        let left_parts_patches = metadata
-            .patches
-            .map(|p| {
-                let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
-                let values = children.get(3, &left_parts_dtype.as_nonnullable(), p.len()?)?;
-
-                Patches::new(
-                    len,
-                    p.offset()?,
-                    indices,
-                    values,
-                    // TODO(0ax1): handle chunk offsets
-                    None,
-                    &mut session.create_execution_ctx(),
-                )
-            })
-            .transpose()?;
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
-        let data = ALPRDData::new(
-            left_parts_dictionary,
-            u8::try_from(metadata.right_bit_width).map_err(|_| {
-                vortex_err!(
-                    "right_bit_width {} out of u8 range",
-                    metadata.right_bit_width
-                )
-            })?,
-            left_parts_patches,
-        );
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ALPRDSlots::NAMES[idx].to_string()
     }
@@ -342,6 +233,134 @@ impl VTable for ALPRD {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for ALPRD {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let dict = view
+            .left_parts_dictionary()
+            .iter()
+            .map(|&i| i as u32)
+            .collect::<Vec<_>>();
+
+        let metadata = ALPRDMetadata {
+            right_bit_width: view.right_bit_width() as u32,
+            dict_len: view.left_parts_dictionary().len() as u32,
+            dict,
+            left_parts_ptype: view.left_parts().dtype().as_ptype() as i32,
+            patches: view
+                .left_parts_patches()
+                .map(|p| p.to_metadata(view.len(), p.dtype()))
+                .transpose()?,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
+        let metadata = ALPRDMetadata::decode(metadata)?;
+        let left_parts_ptype = metadata.get_left_parts_ptype()?;
+        if children.len() < 2 {
+            vortex_bail!(
+                "Expected at least 2 children for ALPRD encoding, found {}",
+                children.len()
+            );
+        }
+
+        // Stored metadata is untrusted: dict_len must stay within the stored entries.
+        if metadata.dict_len as usize > metadata.dict.len() {
+            vortex_bail!(
+                "ALP-RD dictionary length {} exceeds the {} stored entries",
+                metadata.dict_len,
+                metadata.dict.len()
+            );
+        }
+
+        let left_parts_dtype = DType::Primitive(left_parts_ptype, dtype.nullability());
+        let left_parts = children.get(0, &left_parts_dtype, len)?;
+        let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
+            [0..metadata.dict_len as usize]
+            .iter()
+            .map(|&i| {
+                u16::try_from(i)
+                    .map_err(|_| vortex_err!("left_parts_dictionary code {i} does not fit in u16"))
+            })
+            .try_collect()?;
+
+        let right_parts_dtype = match &dtype {
+            DType::Primitive(PType::F32, _) => {
+                DType::Primitive(PType::U32, Nullability::NonNullable)
+            }
+            DType::Primitive(PType::F64, _) => {
+                DType::Primitive(PType::U64, Nullability::NonNullable)
+            }
+            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+        };
+        let right_parts = children.get(1, &right_parts_dtype, len)?;
+
+        let left_parts_patches = metadata
+            .patches
+            .map(|p| {
+                let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(3, &left_parts_dtype.as_nonnullable(), p.len()?)?;
+
+                Patches::new(
+                    len,
+                    p.offset()?,
+                    indices,
+                    values,
+                    // TODO(0ax1): handle chunk offsets
+                    None,
+                    &mut session.create_execution_ctx(),
+                )
+            })
+            .transpose()?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
+        let data = ALPRDData::new(
+            left_parts_dictionary,
+            u8::try_from(metadata.right_bit_width).map_err(|_| {
+                vortex_err!(
+                    "right_bit_width {} out of u8 range",
+                    metadata.right_bit_width
+                )
+            })?,
+            left_parts_patches,
+        );
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
+        .into_array())
     }
 }
 
@@ -637,6 +656,7 @@ mod test {
     use prost::Message;
     use rstest::rstest;
     use vortex_array::ArrayDeserialization;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -723,11 +743,14 @@ mod test {
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
         let result = ALPRD.deserialize(
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+            ArrayDeserialization::new(
+                VTable::id(&ALPRD),
+                &DType::Primitive(PType::F64, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {
@@ -752,10 +775,9 @@ mod test {
         metadata: &ALPRDMetadata,
         children: Vec<ArrayRef>,
     ) -> VortexResult<ArrayRef> {
-        vortex_array::ArrayPlugin::deserialize(
-            &ALPRD,
+        ALPRD.deserialize(
             ArrayDeserialization::new(
-                ALPRD.id(),
+                VTable::id(&ALPRD),
                 dtype,
                 len,
                 &metadata.encode_to_vec(),

@@ -14,9 +14,12 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -39,7 +42,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod operations;
 mod validity;
@@ -113,19 +115,6 @@ impl VTable for List {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            ListMetadata {
-                elements_len: array.elements().len() as u64,
-                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         _data: &ListData,
@@ -156,16 +145,71 @@ impl VTable for List {
         Ok(())
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ListSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            list_view_from_list(array, ctx)?.into_array(),
+        ))
+    }
+
+    // The complexity comes from the expansion of `match_each_list_builder!`.
+    #[expect(clippy::cognitive_complexity)]
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match match_each_list_builder!(&mut *builder, |b| b.append_list_array(array, ctx)) {
+            Some(result) => result,
+            None => vortex_bail!(
+                "cannot append a List array of dtype {} to a {} builder",
+                array.dtype(),
+                builder.dtype()
+            ),
+        }
+    }
+}
+
+impl ArrayPlugin for List {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = ListMetadata {
+            elements_len: view.elements().len() as u64,
+            offset_ptype: PType::try_from(view.offsets().dtype())? as i32,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
         let metadata = ListMetadata::decode(metadata)?;
         let offset_ptype = metadata.get_offset_ptype()?;
         let validity = if children.len() == 2 {
@@ -199,40 +243,14 @@ impl VTable for List {
             &mut session.create_execution_ctx(),
         )?;
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        ListSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            list_view_from_list(array, ctx)?.into_array(),
-        ))
-    }
-
-    // The complexity comes from the expansion of `match_each_list_builder!`.
-    #[expect(clippy::cognitive_complexity)]
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        match match_each_list_builder!(&mut *builder, |b| b.append_list_array(array, ctx)) {
-            Some(result) => result,
-            None => vortex_bail!(
-                "cannot append a List array of dtype {} to a {} builder",
-                array.dtype(),
-                builder.dtype()
-            ),
-        }
+        ))?
+        .into_array())
     }
 }
 
@@ -251,6 +269,8 @@ mod tests {
     use super::List;
     use super::ListMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -270,7 +290,10 @@ mod tests {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = List.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        let result = List.deserialize(
+            ArrayDeserialization::new(VTable::id(&List), &dtype, 0, &metadata, &[], &children),
+            &SESSION,
+        );
         assert!(result.is_err_and(|err| {
             err.to_string()
                 .contains("ListMetadata offset_ptype must be a known PType, got 11")

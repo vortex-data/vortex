@@ -9,11 +9,14 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ArraySlots;
-use crate::ArrayVTable;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -33,7 +36,6 @@ use crate::builders::NullBuilder;
 use crate::dtype::DType;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 pub(crate) mod compute;
@@ -42,9 +44,11 @@ pub(crate) mod compute;
 pub type NullArray = Array<Null>;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Dict.id(), Null, TakeExecuteAdaptor(Null));
+    session.kernels().register_execute_parent_kernel(
+        VTable::id(&Dict),
+        Null,
+        TakeExecuteAdaptor(Null),
+    );
 }
 
 impl VTable for Null {
@@ -93,37 +97,6 @@ impl VTable for Null {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NullArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            EmptyArrayData,
-            ArraySlots::new(),
-        ))
-    }
-
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -146,6 +119,51 @@ impl VTable for Null {
         };
         builder.append_nulls(array.len());
         Ok(())
+    }
+}
+
+impl ArrayPlugin for Null {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            ..
+        } = parts;
+
+        vortex_ensure!(
+            metadata.is_empty(),
+            "NullArray expects empty metadata, got {} bytes",
+            metadata.len()
+        );
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            ArraySlots::new(),
+        ))?
+        .into_array())
     }
 }
 

@@ -15,9 +15,13 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ArrayDeserialization;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -36,7 +40,6 @@ use crate::dtype::StructFields;
 use crate::proto::dtype as pb;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
@@ -125,28 +128,64 @@ impl VTable for Variant {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match VariantSlots::NAMES.get(idx) {
+            Some(name) => (*name).to_string(),
+            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
+        }
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+
+    fn reduce_parent(
         array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Variant {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let shredded_dtype = array.slots()[VariantSlots::SHREDDED]
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let shredded_dtype = view.slots()[VariantSlots::SHREDDED]
             .as_ref()
             .map(|shredded| shredded.dtype().try_into())
             .transpose()?;
-        Ok(Some(
-            VariantMetadataProto { shredded_dtype }.encode_to_vec(),
-        ))
+        let metadata = VariantMetadataProto { shredded_dtype }.encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         vortex_ensure!(
             buffers.is_empty(),
             "VariantArray expects 0 buffers, got {}",
@@ -165,7 +204,7 @@ impl VTable for Variant {
         let shredded = shredded_dtype
             .map(|dtype| children.get(1, &dtype, len))
             .transpose()?;
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
@@ -175,26 +214,8 @@ impl VTable for Variant {
                 shredded,
             }
             .into_slots(),
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match VariantSlots::NAMES.get(idx) {
-            Some(name) => (*name).to_string(),
-            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
-        }
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

@@ -16,10 +16,13 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
@@ -43,7 +46,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 /// A [`Masked`]-encoded Vortex array.
 pub type MaskedArray = Array<Masked>;
@@ -115,63 +117,6 @@ impl VTable for Masked {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "MaskedArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        if !buffers.is_empty() {
-            vortex_bail!("Expected 0 buffer, got {}", buffers.len());
-        }
-
-        vortex_ensure!(
-            children.len() == 1 || children.len() == 2,
-            "`MaskedArray::build` expects 1 or 2 children, got {}",
-            children.len()
-        );
-
-        let child = children.get(0, &dtype.as_nonnullable(), len)?;
-
-        let validity = if children.len() == 2 {
-            let validity = children.get(1, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            Validity::from(dtype.nullability())
-        };
-
-        let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(
-            len,
-            child.all_valid(&mut session.create_execution_ctx())?,
-            validity,
-        )?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            smallvec![Some(child), validity_slot],
-        ))
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.child(), MaskedSlots::CHILD => AnyCanonical);
 
@@ -206,6 +151,79 @@ impl VTable for Masked {
     }
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         MaskedSlots::NAMES[idx].to_string()
+    }
+}
+
+impl ArrayPlugin for Masked {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "MaskedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
+        if !buffers.is_empty() {
+            vortex_bail!("Expected 0 buffer, got {}", buffers.len());
+        }
+
+        vortex_ensure!(
+            children.len() == 1 || children.len() == 2,
+            "`MaskedArray::build` expects 1 or 2 children, got {}",
+            children.len()
+        );
+
+        let child = children.get(0, &dtype.as_nonnullable(), len)?;
+
+        let validity = if children.len() == 2 {
+            let validity = children.get(1, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            Validity::from(dtype.nullability())
+        };
+
+        let validity_slot = validity_to_child(&validity, len);
+        let data = MaskedData::try_new(
+            len,
+            child.all_valid(&mut session.create_execution_ctx())?,
+            validity,
+        )?;
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            smallvec![Some(child), validity_slot],
+        ))?
+        .into_array())
     }
 }
 

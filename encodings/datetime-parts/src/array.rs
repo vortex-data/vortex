@@ -9,11 +9,14 @@ use std::hash::Hasher;
 use prost::Message;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -27,7 +30,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -130,29 +132,71 @@ impl VTable for DateTimeParts {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DateTimePartsMetadata {
-                days_ptype: PType::try_from(array.days().dtype())? as i32,
-                seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
-                subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
-            }
-            .encode_to_vec(),
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        DateTimePartsSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
+        let array =
+            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
+        let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+
+        let dtype = array.dtype().clone();
+        let parts = array.into_parts();
+
+        Ok(ExecutionResult::done(
+            decode_to_temporal(parts, &dtype, ctx)?.into_array(),
         ))
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for DateTimeParts {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = DateTimePartsMetadata {
+            days_ptype: PType::try_from(view.days().dtype())? as i32,
+            seconds_ptype: PType::try_from(view.seconds().dtype())? as i32,
+            subseconds_ptype: PType::try_from(view.subseconds().dtype())? as i32,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
         let metadata = DateTimePartsMetadata::decode(metadata)?;
         if children.len() != 3 {
             vortex_bail!(
@@ -179,39 +223,14 @@ impl VTable for DateTimeParts {
 
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        DateTimePartsSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
-        let array =
-            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
-        let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
-
-        let dtype = array.dtype().clone();
-        let parts = array.into_parts();
-
-        Ok(ExecutionResult::done(
-            decode_to_temporal(parts, &dtype, ctx)?.into_array(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

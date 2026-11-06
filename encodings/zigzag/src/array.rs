@@ -6,11 +6,14 @@ use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -24,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -92,47 +94,6 @@ impl VTable for ZigZag {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        if !metadata.is_empty() {
-            vortex_bail!(
-                "ZigZagArray expects empty metadata, got {} bytes",
-                metadata.len()
-            );
-        }
-        if children.len() != 1 {
-            vortex_bail!("Expected 1 child, got {}", children.len());
-        }
-
-        let ptype = PType::try_from(dtype)?;
-        let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
-
-        let encoded = children.get(0, &encoded_type, len)?;
-        let slots = smallvec![Some(encoded.clone())];
-        let data = ZigZagData::try_new(encoded.dtype())?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ZigZagSlots::NAMES[idx].to_string()
     }
@@ -149,6 +110,63 @@ impl VTable for ZigZag {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for ZigZag {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "ZigZagArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
+        if children.len() != 1 {
+            vortex_bail!("Expected 1 child, got {}", children.len());
+        }
+
+        let ptype = PType::try_from(dtype)?;
+        let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
+
+        let encoded = children.get(0, &encoded_type, len)?;
+        let slots = smallvec![Some(encoded.clone())];
+        let data = ZigZagData::try_new(encoded.dtype())?;
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
+        .into_array())
     }
 }
 

@@ -16,13 +16,17 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -39,7 +43,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
 mod operations;
@@ -126,20 +129,6 @@ impl VTable for ListView {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            ListViewMetadata {
-                elements_len: array.elements().len() as u64,
-                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-                size_ptype: PType::try_from(array.sizes().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         _data: &ListViewData,
@@ -174,16 +163,79 @@ impl VTable for ListView {
         Ok(())
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ListViewSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+
+    // The complexity comes from the expansion of `match_each_list_builder!`.
+    #[expect(clippy::cognitive_complexity)]
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match match_each_list_builder!(&mut *builder, |b| b.append_listview_array(array, ctx)) {
+            Some(result) => result,
+            None => vortex_bail!(
+                "cannot append a ListView array of dtype {} to a {} builder",
+                array.dtype(),
+                builder.dtype()
+            ),
+        }
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for ListView {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = ListViewMetadata {
+            elements_len: view.elements().len() as u64,
+            offset_ptype: PType::try_from(view.offsets().dtype())? as i32,
+            size_ptype: PType::try_from(view.sizes().dtype())? as i32,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         let metadata = ListViewMetadata::decode(metadata)?;
         let offset_ptype = metadata.get_offset_ptype()?;
         let size_ptype = metadata.get_size_ptype()?;
@@ -238,46 +290,14 @@ impl VTable for ListView {
         )?;
         let data = ListViewData::try_new()?;
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        ListViewSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
-    }
-
-    // The complexity comes from the expansion of `match_each_list_builder!`.
-    #[expect(clippy::cognitive_complexity)]
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        match match_each_list_builder!(&mut *builder, |b| b.append_listview_array(array, ctx)) {
-            Some(result) => result,
-            None => vortex_bail!(
-                "cannot append a ListView array of dtype {} to a {} builder",
-                array.dtype(),
-                builder.dtype()
-            ),
-        }
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 
@@ -294,6 +314,8 @@ mod tests {
     use super::ListView;
     use super::ListViewMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -323,7 +345,10 @@ mod tests {
         );
         let metadata = with_ptype(11).encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = ListView.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        let result = ListView.deserialize(
+            ArrayDeserialization::new(VTable::id(&ListView), &dtype, 0, &metadata, &[], &children),
+            &SESSION,
+        );
         assert!(result.is_err_and(|err| err.to_string().contains(expected)));
 
         assert_eq!(get_ptype(&with_ptype(PType::U32 as i32))?, PType::U32);

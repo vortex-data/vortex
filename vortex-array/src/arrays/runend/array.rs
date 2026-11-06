@@ -20,11 +20,14 @@ use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::Array;
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayId;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ArrayView;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -52,7 +55,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::require_child;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -139,30 +141,64 @@ impl VTable for RunEnd {
         crate::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        RunEndSlots::NAMES[idx].to_string()
+    }
+
+    fn reduce_parent(
         array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.ends(), RunEndSlots::ENDS => Primitive);
+        let array = require_child!(array, array.values(), RunEndSlots::VALUES => AnyCanonical);
+        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+    }
+}
+
+impl ArrayPlugin for RunEnd {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            RunEndMetadata {
-                ends_ptype: PType::try_from(array.ends().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-                num_runs: array.ends().len() as u64,
-                offset: array.offset() as u64,
-            }
-            .encode_to_vec(),
-        ))
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = RunEndMetadata {
+            ends_ptype: PType::try_from(view.ends().dtype()).vortex_expect("Must be a valid PType")
+                as i32,
+            num_runs: view.ends().len() as u64,
+            offset: view.offset() as u64,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
         let metadata = RunEndMetadata::decode(metadata)?;
         let ends_ptype = metadata.get_ends_ptype()?;
         let ends_dtype = DType::Primitive(ends_ptype, Nullability::NonNullable);
@@ -180,31 +216,14 @@ impl VTable for RunEnd {
         )?;
         let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(offset);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        RunEndSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.ends(), RunEndSlots::ENDS => Primitive);
-        let array = require_child!(array, array.values(), RunEndSlots::VALUES => AnyCanonical);
-        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+        ))?
+        .into_array())
     }
 }
 
@@ -596,6 +615,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
     use crate::arrays::ListArray;
@@ -956,11 +977,14 @@ mod tests {
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
         let result = RunEnd.deserialize(
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+            ArrayDeserialization::new(
+                VTable::id(&RunEnd),
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

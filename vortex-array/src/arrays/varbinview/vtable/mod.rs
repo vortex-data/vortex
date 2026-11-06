@@ -15,11 +15,15 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -36,7 +40,6 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::match_each_varbin_builder;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
 mod operations;
@@ -152,23 +155,70 @@ impl VTable for VarBinView {
         ))
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        VarBinViewSlots::NAMES[idx].to_string()
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
+            return builder.append_varbinview_array(&array.into_owned(), ctx);
+        }
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
+        {
+            return result;
+        }
+        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+}
+
+impl ArrayPlugin for VarBinView {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        _array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         if !metadata.is_empty() {
             vortex_bail!(
                 "VarBinViewArray expects empty metadata, got {} bytes",
@@ -209,13 +259,14 @@ impl VTable for VarBinView {
                 validity.clone(),
             )?;
             let slots = VarBinViewData::make_slots(&validity, len);
-            return Ok(ArrayParts::new(
+            return Ok(Array::<Self>::try_from_parts(ArrayParts::new(
                 self.clone(),
                 dtype.clone(),
                 len,
                 data,
                 slots,
-            ));
+            ))?
+            .into_array());
         }
 
         let data_buffers = data_handles
@@ -232,45 +283,14 @@ impl VTable for VarBinView {
             &mut session.create_execution_ctx(),
         )?;
         let slots = VarBinViewData::make_slots(&validity, len);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        VarBinViewSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
-            return builder.append_varbinview_array(&array.into_owned(), ctx);
-        }
-        if let Some(result) =
-            match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
-        {
-            return result;
-        }
-        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+        ))?
+        .into_array())
     }
 }
 

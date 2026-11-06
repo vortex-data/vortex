@@ -3,8 +3,11 @@
 
 use prost::Message;
 
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayPlugin;
+use crate::ArraySerialization;
 mod kernels;
 mod operations;
 mod slice;
@@ -50,7 +53,6 @@ use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::require_child;
-use crate::serde::ArrayChildren;
 
 /// A [`Patched`]-encoded Vortex array.
 pub type PatchedArray = Array<Patched>;
@@ -136,60 +138,6 @@ impl VTable for Patched {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         with_empty_buffers(self, array, buffers)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            PatchedMetadata {
-                n_patches: u32::try_from(array.patch_indices().len())?,
-                n_lanes: u32::try_from(array.n_lanes())?,
-                offset: u32::try_from(array.offset())?,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PatchedMetadata::decode(metadata)?;
-        let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
-        let offset = metadata.offset as usize;
-
-        // n_chunks should correspond to the chunk in the `inner`.
-        // After slicing when offset > 0, there may be additional chunks.
-        let n_chunks = (len + offset).div_ceil(1024);
-
-        let inner = children.get(0, dtype, len)?;
-        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
-        let indices = children.get(2, PType::U16.into(), n_patches)?;
-        let values = children.get(3, dtype, n_patches)?;
-
-        let data = PatchedData { n_lanes, offset };
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
-        }
-        .into_slots();
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
     }
 
     fn append_to_builder(
@@ -314,6 +262,77 @@ impl VTable for Patched {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Patched {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = PatchedMetadata {
+            n_patches: u32::try_from(view.patch_indices().len())?,
+            n_lanes: u32::try_from(view.n_lanes())?,
+            offset: u32::try_from(view.offset())?,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
+        let metadata = PatchedMetadata::decode(metadata)?;
+        let n_patches = metadata.n_patches as usize;
+        let n_lanes = metadata.n_lanes as usize;
+        let offset = metadata.offset as usize;
+
+        // n_chunks should correspond to the chunk in the `inner`.
+        // After slicing when offset > 0, there may be additional chunks.
+        let n_chunks = (len + offset).div_ceil(1024);
+
+        let inner = children.get(0, dtype, len)?;
+        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
+        let indices = children.get(2, PType::U16.into(), n_patches)?;
+        let values = children.get(3, dtype, n_patches)?;
+
+        let data = PatchedData { n_lanes, offset };
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets,
+            patch_indices: indices,
+            patch_values: values,
+        }
+        .into_slots();
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
+        .into_array())
     }
 }
 

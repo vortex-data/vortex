@@ -8,14 +8,10 @@ use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::IntoArray;
-use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -108,6 +104,14 @@ impl<'a> ArrayDeserialization<'a> {
 ///
 /// A plugin can retain historical read IDs after it stops writing them. A reader that predates a
 /// newer ID has no registration for it and reports it as unknown.
+///
+/// [`VTable`] does not serialize, so each encoding opts in to serde with its own implementation of
+/// this trait. An encoding with one wire form usually implements this trait on its vtable type. An
+/// encoding with several wire forms, or one whose wire form belongs to another encoding, uses a
+/// separate plugin type. In-memory-only encodings, such as lazy compute arrays, do not implement
+/// this trait at all, so they cannot be registered.
+///
+/// [`VTable`]: crate::array::VTable
 pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID of the in-memory encoding that this plugin writes.
     fn id(&self) -> ArrayId;
@@ -117,20 +121,31 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     /// [`ArraySession::register`](crate::session::ArraySession::register) makes this plugin the
     /// reader of each ID. An ID can stay in this list after the plugin stops writing it, so that
     /// old files stay readable.
-    fn read_ids(&self) -> Vec<ArrayId>;
+    ///
+    /// By default, a plugin reads only its in-memory [`id`](Self::id).
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
 
     /// Returns the wire IDs that [`serialize`](Self::serialize) may return.
     ///
     /// An ID in this list does not have to be in [`read_ids`](Self::read_ids). A plugin can write
     /// its arrays in the wire form of another encoding. The plugin that owns that form reads it.
     /// The node must hold the logical values of the array under the dtype of the array.
-    fn write_ids(&self) -> Vec<ArrayId>;
+    ///
+    /// By default, a plugin writes only its in-memory [`id`](Self::id).
+    fn write_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
 
     /// Serialize `array` to its wire representation.
     ///
-    /// This function is called only for arrays whose in-memory encoding matches [`id`](Self::id).
-    /// The returned ID must be declared by [`write_ids`](Self::write_ids). Return
-    /// `Ok(None)` when the array cannot be serialized.
+    /// Callers **must** pass an array whose in-memory encoding matches [`id`](Self::id). An
+    /// implementation may panic otherwise. The returned ID must be declared by
+    /// [`write_ids`](Self::write_ids).
+    ///
+    /// Return `Ok(None)` when the array cannot be serialized, and let the caller decide how to
+    /// report it. Return an error only when an array that can be serialized fails to serialize.
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -139,11 +154,18 @@ pub trait ArrayPlugin: 'static + Send + Sync {
 
     /// Deserialize one recognized wire representation into the current in-memory array.
     ///
-    /// `serialized_id` identifies the exact representation encountered on disk. The returned
-    /// array does not necessarily have to use this plugin's in-memory ID; this supports legacy
-    /// representations that are normalized into another current in-memory array. Implementations
-    /// must validate the contract of that exact ID rather than accepting every form understood by
-    /// the current in-memory representation under an older ID.
+    /// `serialized_id` identifies the exact representation encountered on disk. Callers **must**
+    /// pass an ID from [`read_ids`](Self::read_ids), which the session's registry guarantees. A
+    /// plugin that reads one ID can therefore ignore `serialized_id`. Passing another ID gives an
+    /// error or an incorrect array.
+    ///
+    /// The returned array does not necessarily have to use this plugin's in-memory ID; this
+    /// supports legacy representations that are normalized into another current in-memory array.
+    /// Implementations must validate the contract of that exact ID rather than accepting every
+    /// form understood by the current in-memory representation under an older ID.
+    ///
+    /// Use `session` to resolve plugin-owned metadata, such as extension dtypes, instead of global
+    /// state.
     fn deserialize(
         &self,
         parts: ArrayDeserialization<'_>,
@@ -162,55 +184,5 @@ pub trait ArrayPlugin: 'static + Send + Sync {
 impl Debug for dyn ArrayPlugin {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ArrayPlugin").field(&self.id()).finish()
-    }
-}
-
-impl<V: VTable> ArrayPlugin for V {
-    fn id(&self) -> ArrayId {
-        VTable::id(self)
-    }
-
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
-    fn serialize(
-        &self,
-        array: &ArrayRef,
-        session: &VortexSession,
-    ) -> VortexResult<Option<ArraySerialization>> {
-        vortex_ensure_eq!(
-            self.id(),
-            array.encoding_id(),
-            "array plugin cannot serialize an in-memory array of another encoding",
-        );
-        Ok(V::serialize(array.as_::<V>(), session)?
-            .map(|metadata| ArraySerialization::from_array(self.id(), array, metadata)))
-    }
-
-    fn deserialize(
-        &self,
-        parts: ArrayDeserialization<'_>,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayRef> {
-        vortex_ensure_eq!(
-            self.id(),
-            parts.serialized_id,
-            "array plugin does not recognize the serialized ID",
-        );
-        Ok(Array::<V>::try_from_parts(V::deserialize(
-            self,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)?
-        .into_array())
     }
 }

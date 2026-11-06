@@ -242,16 +242,6 @@ fn serde_roundtrip(
     Ok(())
 }
 
-#[test]
-fn vtable_serde_requires_plugin() -> VortexResult<()> {
-    let values = PrimitiveArray::from_iter([1u8, 2, 3]).into_array();
-    let array = BitPackedData::encode(&values, 2, &mut SESSION.create_execution_ctx())?;
-    let session = VortexSession::empty();
-    session.arrays().register(BitPacked);
-    assert!(session.array_serialize(&array.into_array())?.is_none());
-    Ok(())
-}
-
 /// Values whose 1024-value blocks need 2 to 6 bits.
 fn drifting() -> PrimitiveArray {
     PrimitiveArray::from_iter((0..5000u32).map(|i| i % (4 << (i / 1024))))

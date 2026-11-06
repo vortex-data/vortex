@@ -13,8 +13,11 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -36,7 +39,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_varbin_builder;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 pub(crate) mod canonical;
 mod kernel;
@@ -155,67 +157,6 @@ impl VTable for VarBin {
         ))
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            VarBinMetadata {
-                offsets_ptype: PType::try_from(array.offsets().dtype())
-                    .vortex_expect("Must be a valid PType") as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = VarBinMetadata::decode(metadata)?;
-        let offsets_ptype = metadata.get_offsets_ptype()?;
-        let validity = if children.len() == 1 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 2 {
-            let validity = children.get(1, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", children.len());
-        };
-
-        let offsets = children.get(
-            0,
-            &DType::Primitive(offsets_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let bytes = buffers[0].clone().try_to_host_sync()?;
-
-        let data = VarBinData::try_build(
-            offsets.clone(),
-            bytes,
-            dtype.clone(),
-            validity.clone(),
-            &mut session.create_execution_ctx(),
-        )?;
-        let slots = VarBinData::make_slots(offsets, &validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinSlots::NAMES[idx].to_string()
     }
@@ -251,6 +192,85 @@ impl VTable for VarBin {
         Ok(ExecutionResult::done(
             varbin_to_canonical(array.as_view(), ctx)?.into_array(),
         ))
+    }
+}
+
+impl ArrayPlugin for VarBin {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = VarBinMetadata {
+            offsets_ptype: PType::try_from(view.offsets().dtype())
+                .vortex_expect("Must be a valid PType") as i32,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
+        let metadata = VarBinMetadata::decode(metadata)?;
+        let offsets_ptype = metadata.get_offsets_ptype()?;
+        let validity = if children.len() == 1 {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 2 {
+            let validity = children.get(1, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 1 or 2 children, got {}", children.len());
+        };
+
+        let offsets = children.get(
+            0,
+            &DType::Primitive(offsets_ptype, Nullability::NonNullable),
+            len + 1,
+        )?;
+
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+        let bytes = buffers[0].clone().try_to_host_sync()?;
+
+        let data = VarBinData::try_build(
+            offsets.clone(),
+            bytes,
+            dtype.clone(),
+            validity.clone(),
+            &mut session.create_execution_ctx(),
+        )?;
+        let slots = VarBinData::make_slots(offsets, &validity, len);
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))?
+        .into_array())
     }
 }
 
@@ -296,6 +316,8 @@ mod tests {
     use super::VarBin;
     use super::VarBinMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -308,11 +330,14 @@ mod tests {
         let metadata = VarBinMetadata { offsets_ptype: 11 }.encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
         let result = VarBin.deserialize(
-            &DType::Utf8(Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+            ArrayDeserialization::new(
+                VTable::id(&VarBin),
+                &DType::Utf8(Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| {

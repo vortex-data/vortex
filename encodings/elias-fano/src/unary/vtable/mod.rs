@@ -7,11 +7,14 @@ use std::hash::Hasher;
 use num_traits::AsPrimitive;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
@@ -24,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_buffer::BitBuffer;
@@ -134,28 +136,54 @@ impl VTable for Unary {
         ))
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        // Validity, once added, can take an optional slot 0, as in Bool. See `Unary`.
+        vortex_panic!("UnaryArray has no slots, got index {idx}")
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(unary_decode(&array).into_array()))
+    }
+}
+
+impl ArrayPlugin for Unary {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            UnaryMetadata {
-                num_ones: num_ones_of(array)?,
-                offset: u32::try_from(array.meta.offset())?,
-            }
-            .encode_to_vec(),
-        ))
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = UnaryMetadata {
+            num_ones: num_ones_of(view)?,
+            offset: u32::try_from(view.meta.offset())?,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         vortex_ensure_eq!(buffers.len(), 1);
         vortex_ensure_eq!(children.len(), 0);
         let metadata = UnaryMetadata::decode(metadata)?;
@@ -165,22 +193,14 @@ impl VTable for Unary {
             usize::try_from(metadata.offset)?,
             len,
         )?;
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             ArraySlots::new(),
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        // Validity, once added, can take an optional slot 0, as in Bool. See `Unary`.
-        vortex_panic!("UnaryArray has no slots, got index {idx}")
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(unary_decode(&array).into_array()))
+        ))?
+        .into_array())
     }
 }
 

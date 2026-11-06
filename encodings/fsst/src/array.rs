@@ -15,16 +15,20 @@ use fsst::Symbol;
 use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
@@ -187,133 +191,6 @@ impl VTable for FSST {
         ))
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let codes_offsets = array.codes_offsets();
-        Ok(Some(
-            FSSTMetadata {
-                uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
-                codes_offsets_ptype: codes_offsets.dtype().as_ptype().into(),
-            }
-            .encode_to_vec(),
-        ))
-    }
-
-    /// Deserializes an FSST array from its serialized components.
-    ///
-    /// Supports two serialization formats:
-    ///
-    /// ## Legacy format (2 buffers, 2 children)
-    ///
-    /// The original FSST layout stored the compressed codes as a full `VarBinArray` child.
-    /// - **Buffers**: `[symbols, symbol_lengths]`
-    /// - **Children**: `[codes (VarBinArray), uncompressed_lengths (Primitive)]`
-    ///
-    /// The codes VarBinArray child is decomposed: its bytes become the `codes_bytes` buffer,
-    /// and its offsets/validity are extracted into slots.
-    /// See `FSST::deserialize_legacy`.
-    ///
-    /// ## Current format (3 buffers, 2-3 children)
-    ///
-    /// The current layout stores the compressed bytes as a raw buffer alongside the symbol
-    /// table, with offsets and validity as separate children.
-    /// - **Buffers**: `[symbols, symbol_lengths, compressed_codes_bytes]`
-    /// - **Children**: `[uncompressed_lengths, codes_offsets, (optional) codes_validity]`
-    ///
-    /// The `codes_bytes` buffer is stored directly in `FSSTData`. A `VarBinArray` for the
-    /// codes can be reconstructed on demand via [`FSSTArrayExt::codes()`] using the bytes
-    /// from `FSSTData` combined with offsets and validity from the array's slots.
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = FSSTMetadata::decode(metadata)?;
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
-
-        let mut ctx = session.create_execution_ctx();
-        if buffers.len() == 2 {
-            return Self::deserialize_legacy(
-                self,
-                dtype,
-                len,
-                &metadata,
-                &symbols,
-                &symbol_lengths,
-                children,
-                &mut ctx,
-            );
-        }
-
-        if buffers.len() == 3 {
-            let uncompressed_lengths = children.get(
-                0,
-                &DType::Primitive(
-                    metadata.get_uncompressed_lengths_ptype()?,
-                    Nullability::NonNullable,
-                ),
-                len,
-            )?;
-
-            let codes_bytes = buffers[2].clone();
-            let codes_offsets = children.get(
-                1,
-                &DType::Primitive(
-                    PType::try_from(metadata.codes_offsets_ptype)?,
-                    Nullability::NonNullable,
-                ),
-                // VarBin offsets are len + 1
-                len + 1,
-            )?;
-
-            let codes_validity = if children.len() == 2 {
-                Validity::from(dtype.nullability())
-            } else if children.len() == 3 {
-                let validity = children.get(2, &Validity::DTYPE, len)?;
-                Validity::Array(validity)
-            } else {
-                vortex_bail!("Expected 2 or 3 children, got {}", children.len());
-            };
-
-            FSSTData::validate_parts(
-                symbols.as_slice(),
-                symbol_lengths.as_slice(),
-                &codes_offsets,
-                dtype.nullability(),
-                &uncompressed_lengths,
-                dtype,
-                len,
-            )?;
-            FSSTData::validate_codes_bounds(&codes_bytes, &codes_offsets, &mut ctx)?;
-            let slots = FSSTSlots {
-                uncompressed_lengths,
-                codes_offsets,
-                codes_validity: validity_to_child(&codes_validity, len),
-            }
-            .into_slots();
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
-            return Ok(ArrayParts::new(
-                self.clone(),
-                dtype.clone(),
-                len,
-                data,
-                slots,
-            ));
-        }
-
-        vortex_bail!(
-            "InvalidArgument: Expected 2 or 3 buffers, got {}",
-            buffers.len()
-        );
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         FSSTSlots::NAMES[idx].to_string()
     }
@@ -375,6 +252,128 @@ impl VTable for FSST {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for FSST {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let codes_offsets = view.codes_offsets();
+        let metadata = FSSTMetadata {
+            uncompressed_lengths_ptype: view.uncompressed_lengths().dtype().as_ptype().into(),
+            codes_offsets_ptype: codes_offsets.dtype().as_ptype().into(),
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
+        let metadata = FSSTMetadata::decode(metadata)?;
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
+
+        let mut ctx = session.create_execution_ctx();
+        if buffers.len() == 2 {
+            let legacy = Self::deserialize_legacy(
+                self,
+                dtype,
+                len,
+                &metadata,
+                &symbols,
+                &symbol_lengths,
+                children,
+                &mut ctx,
+            )?;
+            return Ok(Array::<Self>::try_from_parts(legacy)?.into_array());
+        }
+
+        if buffers.len() == 3 {
+            let uncompressed_lengths = children.get(
+                0,
+                &DType::Primitive(
+                    metadata.get_uncompressed_lengths_ptype()?,
+                    Nullability::NonNullable,
+                ),
+                len,
+            )?;
+
+            let codes_bytes = buffers[2].clone();
+            let codes_offsets = children.get(
+                1,
+                &DType::Primitive(
+                    PType::try_from(metadata.codes_offsets_ptype)?,
+                    Nullability::NonNullable,
+                ),
+                // VarBin offsets are len + 1
+                len + 1,
+            )?;
+
+            let codes_validity = if children.len() == 2 {
+                Validity::from(dtype.nullability())
+            } else if children.len() == 3 {
+                let validity = children.get(2, &Validity::DTYPE, len)?;
+                Validity::Array(validity)
+            } else {
+                vortex_bail!("Expected 2 or 3 children, got {}", children.len());
+            };
+
+            FSSTData::validate_parts(
+                symbols.as_slice(),
+                symbol_lengths.as_slice(),
+                &codes_offsets,
+                dtype.nullability(),
+                &uncompressed_lengths,
+                dtype,
+                len,
+            )?;
+            FSSTData::validate_codes_bounds(&codes_bytes, &codes_offsets, &mut ctx)?;
+            let slots = FSSTSlots {
+                uncompressed_lengths,
+                codes_offsets,
+                codes_validity: validity_to_child(&codes_validity, len),
+            }
+            .into_slots();
+            let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
+            return Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+                self.clone(),
+                dtype.clone(),
+                len,
+                data,
+                slots,
+            ))?
+            .into_array());
+        }
+
+        vortex_bail!(
+            "InvalidArgument: Expected 2 or 3 buffers, got {}",
+            buffers.len()
+        );
     }
 }
 

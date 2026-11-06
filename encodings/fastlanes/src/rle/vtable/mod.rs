@@ -6,11 +6,14 @@ use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -21,7 +24,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -155,33 +157,55 @@ impl VTable for RLE {
         RLESlots::NAMES[idx].to_string()
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            RLEMetadata {
-                values_len: array.values().len() as u64,
-                indices_len: array.indices().len() as u64,
-                indices_ptype: PType::try_from(array.indices().dtype())? as i32,
-                values_idx_offsets_len: array.values_idx_offsets().len() as u64,
-                values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())?
-                    as i32,
-                offset: array.offset() as u64,
-            }
-            .encode_to_vec(),
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            rle_decompress(&array, ctx)?.into_array(),
         ))
+    }
+}
+
+impl ArrayPlugin for RLE {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = RLEMetadata {
+            values_len: view.values().len() as u64,
+            indices_len: view.indices().len() as u64,
+            indices_ptype: PType::try_from(view.indices().dtype())? as i32,
+            values_idx_offsets_len: view.values_idx_offsets().len() as u64,
+            values_idx_offsets_ptype: PType::try_from(view.values_idx_offsets().dtype())? as i32,
+            offset: view.offset() as u64,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         let metadata = RLEMetadata::decode(metadata)?;
         let indices_ptype = metadata.get_indices_ptype()?;
         let values_idx_offsets_ptype = metadata.get_values_idx_offsets_ptype()?;
@@ -215,19 +239,14 @@ impl VTable for RLE {
         }
         .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            rle_decompress(&array, ctx)?.into_array(),
-        ))
+        ))?
+        .into_array())
     }
 }
 
@@ -349,6 +368,8 @@ fn validate_parts(
 mod tests {
     use prost::Message;
     use rstest::rstest;
+    use vortex_array::ArrayDeserialization;
+    use vortex_array::ArrayPlugin;
     use vortex_array::ArrayRef;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -397,11 +418,14 @@ mod tests {
         let metadata = with_ptype(11).encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
         let result = RLE.deserialize(
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-            0,
-            &metadata,
-            &[],
-            &children,
+            ArrayDeserialization::new(
+                VTable::id(&RLE),
+                &DType::Primitive(PType::U32, Nullability::NonNullable),
+                0,
+                &metadata,
+                &[],
+                &children,
+            ),
             &SESSION,
         );
         assert!(result.is_err_and(|err| err.to_string().contains(expected)));

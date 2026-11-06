@@ -13,10 +13,13 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ArraySlots;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -52,7 +55,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 pub(crate) mod canonical;
 mod operations;
 mod validity;
@@ -131,42 +133,6 @@ impl VTable for Constant {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
-        // metadata at all.
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        _metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
-
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bytes: &[u8] = buffer.as_ref();
-
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ConstantData::new(scalar),
-            ArraySlots::new(),
-        ))
     }
 
     fn reduce_parent(
@@ -280,6 +246,56 @@ impl VTable for Constant {
         }
 
         Ok(())
+    }
+}
+
+impl ArrayPlugin for Constant {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
+        // metadata at all.
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
+    }
+
+    fn deserialize(
+        &self,
+        parts: ArrayDeserialization<'_>,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            buffers,
+            ..
+        } = parts;
+
+        vortex_ensure_eq!(buffers.len(), 1);
+
+        let buffer = buffers[0].clone().try_to_host_sync()?;
+        let bytes: &[u8] = buffer.as_ref();
+
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
+        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
+
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ConstantData::new(scalar),
+            ArraySlots::new(),
+        ))?
+        .into_array())
     }
 }
 

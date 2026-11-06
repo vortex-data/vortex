@@ -66,7 +66,7 @@ impl DecimalMetadata {
 /// [`WidenArray::from_stored_decimal`], which scans its valid values on the host, so a legacy node
 /// in device memory fails to read.
 ///
-/// The [`Decimal`] vtable does not serialize or deserialize, so the default [`ArraySession`]
+/// The [`Decimal`] vtable does not implement [`ArrayPlugin`], so the default [`ArraySession`]
 /// registers this plugin in its place.
 ///
 /// [`DecimalArray`]: super::DecimalArray

@@ -9,11 +9,14 @@ use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
@@ -34,7 +37,6 @@ use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -113,33 +115,75 @@ impl VTable for ALP {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let exponents = array.exponents();
-        Ok(Some(
-            ALPMetadata {
-                exp_e: exponents.e as u32,
-                exp_f: exponents.f as u32,
-                patches: array
-                    .patches()
-                    .map(|p| p.to_metadata(array.len(), array.dtype()))
-                    .transpose()?,
-            }
-            .encode_to_vec(),
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        ALPSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
+        require_patches!(
+            array,
+            ALPSlots::PATCH_INDICES,
+            ALPSlots::PATCH_VALUES,
+            ALPSlots::PATCH_CHUNK_OFFSETS
+        );
+
+        Ok(ExecutionResult::done(
+            execute_decompress(array, ctx)?.into_array(),
         ))
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for ALP {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let exponents = view.exponents();
+        let metadata = ALPMetadata {
+            exp_e: exponents.e as u32,
+            exp_f: exponents.f as u32,
+            patches: view
+                .patches()
+                .map(|p| p.to_metadata(view.len(), view.dtype()))
+                .transpose()?,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
         let metadata = ALPMetadata::decode(metadata)?;
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
@@ -177,39 +221,14 @@ impl VTable for ALP {
             },
             patches,
         );
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        ALPSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
-        require_patches!(
-            array,
-            ALPSlots::PATCH_INDICES,
-            ALPSlots::PATCH_VALUES,
-            ALPSlots::PATCH_CHUNK_OFFSETS
-        );
-
-        Ok(ExecutionResult::done(
-            execute_decompress(array, ctx)?.into_array(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

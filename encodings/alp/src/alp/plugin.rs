@@ -6,7 +6,6 @@
 //!
 //! This enables zero-cost backward compatibility with previously written datasets.
 
-use vortex_array::Array;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayPlugin;
@@ -18,7 +17,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ALP;
@@ -65,16 +63,7 @@ impl ArrayPlugin for ALPPatchedPlugin {
             self.id(),
             "ALP plugin does not recognize serialized ID"
         );
-        let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
-            &ALP,
-            parts.dtype,
-            parts.len,
-            parts.metadata,
-            parts.buffers,
-            parts.children,
-            session,
-        )?)
-        .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
+        let alp_array = ALP.deserialize(parts, session)?.downcast::<ALP>();
 
         // Check if there are interior patches to externalize.
         let Some(patches) = alp_array.patches() else {

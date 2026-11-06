@@ -14,13 +14,17 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::ArrayDeserialization;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -33,7 +37,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
 mod operations;
@@ -99,13 +102,6 @@ impl VTable for FixedSizeList {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
     fn validate(
         &self,
         data: &FixedSizeListData,
@@ -142,16 +138,57 @@ impl VTable for FixedSizeList {
         Ok(())
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        FixedSizeListSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
+            vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
+        };
+        builder.append_fixed_size_list_array(&array.into_owned(), ctx)
+    }
+}
+
+impl ArrayPlugin for FixedSizeList {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
+    }
+
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         if !metadata.is_empty() {
             vortex_bail!(
                 "FixedSizeListArray expects empty metadata, got {} bytes",
@@ -187,31 +224,13 @@ impl VTable for FixedSizeList {
         let data =
             FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
         let slots = FixedSizeListData::make_slots(&elements, &validity, len);
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        FixedSizeListSlots::NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
-    }
-
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
-            vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
-        };
-        builder.append_fixed_size_list_array(&array.into_owned(), ctx)
+        ))?
+        .into_array())
     }
 }

@@ -3,9 +3,12 @@
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
@@ -16,7 +19,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::proto::dtype as pb;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -176,33 +178,64 @@ impl VTable for ParquetVariant {
         ParquetVariantSlots::NAMES[idx].to_string()
     }
 
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let shredded = array
+            .typed_value()
+            .cloned()
+            .map(|typed_value| {
+                logical_shredded_from_parquet_typed_value(array.metadata(), typed_value, ctx)
+            })
+            .transpose()?;
+        let core_storage = core_storage_without_typed_value(&array)?;
+        Ok(ExecutionResult::done(
+            VariantArray::try_new(core_storage, shredded)?.into_array(),
+        ))
+    }
+}
+
+impl ArrayPlugin for ParquetVariant {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let typed_value_dtype = array
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let typed_value_dtype = view
             .typed_value()
             .map(|tv| tv.dtype().try_into())
             .transpose()?;
-        Ok(Some(
-            ParquetVariantMetadataProto {
-                has_value: array.value().is_some(),
-                typed_value_dtype,
-                value_nullable: array.value().is_some_and(|v| v.dtype().is_nullable()),
-            }
-            .encode_to_vec(),
-        ))
+        let metadata = ParquetVariantMetadataProto {
+            has_value: view.value().is_some(),
+            typed_value_dtype,
+            value_nullable: view.value().is_some_and(|v| v.dtype().is_nullable()),
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         vortex_ensure!(
             buffers.is_empty(),
             "ParquetVariantArray expects 0 buffers, got {}",
@@ -265,27 +298,14 @@ impl VTable for ParquetVariant {
             typed_value,
         }
         .into_slots();
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             EmptyArrayData,
             slots,
-        ))
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let shredded = array
-            .typed_value()
-            .cloned()
-            .map(|typed_value| {
-                logical_shredded_from_parquet_typed_value(array.metadata(), typed_value, ctx)
-            })
-            .transpose()?;
-        let core_storage = core_storage_without_typed_value(&array)?;
-        Ok(ExecutionResult::done(
-            VariantArray::try_new(core_storage, shredded)?.into_array(),
-        ))
+        ))?
+        .into_array())
     }
 }
 

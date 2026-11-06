@@ -10,16 +10,20 @@ use num_traits::AsPrimitive;
 use prost::Message;
 use smallvec::smallvec;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
 use vortex_array::ProbeState;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -35,7 +39,6 @@ use vortex_array::proto::scalar::ScalarValue as ProtoScalarValue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -337,27 +340,61 @@ impl VTable for Sequence {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let metadata = SequenceMetadata {
-            base: Some((&array.base()).into()),
-            multiplier: Some((&array.multiplier()).into()),
-        };
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
 
-        Ok(Some(metadata.encode_to_vec()))
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Sequence {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = SequenceMetadata {
+            base: Some((&view.base()).into()),
+            multiplier: Some((&view.multiplier()).into()),
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         vortex_ensure!(
             buffers.is_empty(),
             "SequenceArray expects 0 buffers, got {}",
@@ -408,29 +445,14 @@ impl VTable for Sequence {
 
         let data =
             SequenceData::try_new(base, multiplier, *output_ptype, dtype.nullability(), len)?;
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             ArraySlots::new(),
-        ))
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        sequence_decompress(&array).map(ExecutionResult::done)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

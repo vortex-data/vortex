@@ -15,16 +15,18 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
@@ -531,41 +533,68 @@ impl VTable for ZstdBuffers {
         format!("child_{idx}")
     }
 
+    // with_slots handles child replacement via the slots mechanism
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let session = ctx.session();
+        let inner_array = ZstdBuffers::decompress_and_build_inner(&array, session)?;
+        inner_array
+            .execute::<ArrayRef>(ctx)
+            .map(ExecutionResult::done)
+    }
+}
+
+impl ArrayPlugin for ZstdBuffers {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        let children: Vec<&ArrayRef> = array.slots().iter().flatten().collect();
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let children: Vec<&ArrayRef> = view.slots().iter().flatten().collect();
         let child_dtypes = children
             .iter()
             .map(|child| child.dtype().try_into())
             .collect::<VortexResult<Vec<_>>>()?;
         let child_lens = children.iter().map(|child| child.len() as u64).collect();
 
-        Ok(Some(
-            ZstdBuffersMetadata {
-                inner_encoding_id: array.inner_encoding_id.to_string(),
-                inner_metadata: array.inner_metadata.clone(),
-                uncompressed_sizes: array.uncompressed_sizes.clone(),
-                buffer_alignments: array.buffer_alignments.clone(),
-                child_dtypes,
-                child_lens,
-                inner_child_count: Some(u32::try_from(array.inner_child_count)?),
-                validity_child: array.validity_slot.map(u32::try_from).transpose()?,
-            }
-            .encode_to_vec(),
-        ))
+        let metadata = ZstdBuffersMetadata {
+            inner_encoding_id: view.inner_encoding_id.to_string(),
+            inner_metadata: view.inner_metadata.clone(),
+            uncompressed_sizes: view.uncompressed_sizes.clone(),
+            buffer_alignments: view.buffer_alignments.clone(),
+            child_dtypes,
+            child_lens,
+            inner_child_count: Some(u32::try_from(view.inner_child_count)?),
+            validity_child: view.validity_slot.map(u32::try_from).transpose()?,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         let metadata = ZstdBuffersMetadata::decode(metadata)?;
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
@@ -616,23 +645,14 @@ impl VTable for ZstdBuffers {
             None => {}
         }
 
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots.into(),
-        ))
-    }
-
-    // with_slots handles child replacement via the slots mechanism
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let session = ctx.session();
-        let inner_array = ZstdBuffers::decompress_and_build_inner(&array, session)?;
-        inner_array
-            .execute::<ArrayRef>(ctx)
-            .map(ExecutionResult::done)
+        ))?
+        .into_array())
     }
 }
 
@@ -860,24 +880,27 @@ mod tests {
         let input = make_nullable_primitive_array();
         let compressed = ZstdBuffers::compress(&input, 3, &session)?;
 
-        let mut metadata = ZstdBuffersMetadata::decode(
-            ZstdBuffers::serialize(compressed.as_view(), &session)?
-                .vortex_expect("metadata")
-                .as_slice(),
-        )?;
+        let serialization = ZstdBuffers
+            .serialize(compressed.as_array(), &session)?
+            .vortex_expect("ZstdBuffers always serializes");
+        let mut metadata = ZstdBuffersMetadata::decode(serialization.metadata.as_slice())?;
         metadata.inner_child_count = None;
         metadata.validity_child = None;
 
         let children: Vec<ArrayRef> = compressed.slots().iter().flatten().cloned().collect();
-        let parts = ZstdBuffers.deserialize(
-            input.dtype(),
-            input.len(),
-            &metadata.encode_to_vec(),
-            &compressed.data().compressed_buffers,
-            &children.as_slice(),
-            &session,
-        )?;
-        let decoded = Array::try_from_parts(parts)?;
+        let decoded = ZstdBuffers
+            .deserialize(
+                ArrayDeserialization::new(
+                    VTable::id(&ZstdBuffers),
+                    input.dtype(),
+                    input.len(),
+                    &metadata.encode_to_vec(),
+                    &compressed.data().compressed_buffers,
+                    &children.as_slice(),
+                ),
+                &session,
+            )?
+            .downcast::<ZstdBuffers>();
         assert!(decoded.data().validity_slot.is_some());
 
         let mut ctx = session.create_execution_ctx();

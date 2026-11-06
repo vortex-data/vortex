@@ -130,15 +130,3 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     );
     Ok(())
 }
-
-#[test]
-fn vtable_serde_requires_plugin() -> VortexResult<()> {
-    let array = FoR::encode(
-        PrimitiveArray::from_iter([1u8, 2, 3]),
-        &mut SESSION.create_execution_ctx(),
-    )?;
-    let session = VortexSession::empty();
-    session.arrays().register(FoR);
-    assert!(session.array_serialize(&array.into_array())?.is_none());
-    Ok(())
-}

@@ -6,11 +6,14 @@ use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySerialization;
 use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
@@ -22,7 +25,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::require_child;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::validity_to_child;
@@ -134,28 +136,53 @@ impl VTable for Delta {
         DeltaSlots::NAMES[idx].to_string()
     }
 
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            DeltaMetadata {
-                deltas_len: array.deltas().len() as u64,
-                offset: array.offset() as u32,
-            }
-            .encode_to_vec(),
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
+        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
+        Ok(ExecutionResult::done(
+            delta_decompress(&array, ctx)?.into_array(),
         ))
+    }
+}
+
+impl ArrayPlugin for Delta {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        let view = array.as_::<Self>();
+        let metadata = DeltaMetadata {
+            deltas_len: view.deltas().len() as u64,
+            offset: view.offset() as u32,
+        }
+        .encode_to_vec();
+
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            metadata,
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            buffers,
+            children,
+            ..
+        } = parts;
+
         vortex_ensure!(
             buffers.is_empty(),
             "DeltaArray expects 0 buffers, got {}",
@@ -193,21 +220,14 @@ impl VTable for Delta {
             validity_child,
         }
         .into_slots();
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             data,
             slots,
-        ))
-    }
-
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.bases(), DeltaSlots::BASES => Primitive);
-        let array = require_child!(array, array.deltas(), DeltaSlots::DELTAS => Primitive);
-        Ok(ExecutionResult::done(
-            delta_decompress(&array, ctx)?.into_array(),
-        ))
+        ))?
+        .into_array())
     }
 }
 

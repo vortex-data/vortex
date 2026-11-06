@@ -7,9 +7,13 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayDeserialization;
+use crate::ArrayPlugin;
 use crate::ArrayRef;
+use crate::ArraySerialization;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
+use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
@@ -24,7 +28,6 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::StructBuilder;
 use crate::dtype::DType;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
 mod operations;
@@ -131,23 +134,68 @@ impl VTable for Struct {
         with_empty_buffers(self, array, buffers)
     }
 
+    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
+        if idx == StructSlots::VALIDITY {
+            "validity".to_string()
+        } else {
+            array.dtype().as_struct_fields().names()[idx - StructSlots::FIELDS_OFFSET].to_string()
+        }
+    }
+
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() else {
+            vortex_bail!("append_to_builder for Struct requires a StructBuilder");
+        };
+        builder.append_struct_array(&array.into_owned(), ctx)
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+impl ArrayPlugin for Struct {
+    fn id(&self) -> ArrayId {
+        VTable::id(self)
+    }
+
     fn serialize(
-        _array: ArrayView<'_, Self>,
+        &self,
+        array: &ArrayRef,
         _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(Some(ArraySerialization::from_array(
+            ArrayPlugin::id(self),
+            array,
+            vec![],
+        )))
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        parts: ArrayDeserialization<'_>,
         _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
+    ) -> VortexResult<ArrayRef> {
+        let ArrayDeserialization {
+            dtype,
+            len,
+            metadata,
+            children,
+            ..
+        } = parts;
+
         if !metadata.is_empty() {
             vortex_bail!(
                 "StructArray expects empty metadata, got {} bytes",
@@ -184,44 +232,14 @@ impl VTable for Struct {
             )?));
         }
 
-        Ok(ArrayParts::new(
+        Ok(Array::<Self>::try_from_parts(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
             EmptyArrayData,
             slots,
-        ))
-    }
-
-    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == StructSlots::VALIDITY {
-            "validity".to_string()
-        } else {
-            array.dtype().as_struct_fields().names()[idx - StructSlots::FIELDS_OFFSET].to_string()
-        }
-    }
-
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
-    }
-
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() else {
-            vortex_bail!("append_to_builder for Struct requires a StructBuilder");
-        };
-        builder.append_struct_array(&array.into_owned(), ctx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
+        ))?
+        .into_array())
     }
 }
 

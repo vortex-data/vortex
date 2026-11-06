@@ -5,11 +5,14 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex::array::Array;
+use vortex::array::ArrayDeserialization;
 use vortex::array::ArrayEq;
 use vortex::array::ArrayHash;
 use vortex::array::ArrayId;
 use vortex::array::ArrayParts;
+use vortex::array::ArrayPlugin;
 use vortex::array::ArrayRef;
+use vortex::array::ArraySerialization;
 use vortex::array::ArrayView;
 use vortex::array::EqMode;
 use vortex::array::ExecutionCtx;
@@ -19,7 +22,6 @@ use vortex::array::ProbeState;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::serde::ArrayChildren;
 use vortex::array::validity::Validity;
 use vortex::array::with_empty_buffers;
 use vortex::dtype::DType;
@@ -93,32 +95,35 @@ impl VTable for PythonVTable {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        bytes: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        _ = bytes;
-        vortex_bail!("PythonArray deserialization is not supported");
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
         vortex_panic!("PythonArray has no slots")
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         vortex_bail!("PythonArray execution is not supported");
+    }
+}
+
+/// Python encodings register their IDs with the session, but have no wire form.
+impl ArrayPlugin for PythonVTable {
+    fn id(&self) -> ArrayId {
+        self.id
+    }
+
+    fn serialize(
+        &self,
+        _array: &ArrayRef,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArraySerialization>> {
+        Ok(None)
+    }
+
+    fn deserialize(
+        &self,
+        _parts: ArrayDeserialization<'_>,
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        vortex_bail!("PythonArray deserialization is not supported");
     }
 }
 

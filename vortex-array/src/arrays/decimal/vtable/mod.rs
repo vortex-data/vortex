@@ -3,8 +3,10 @@
 
 //! The [`Decimal`] vtable and the plugin that owns its wire form.
 //!
-//! The vtable does not serialize or deserialize. [`DecimalPlugin`] reads and writes the
+//! The vtable does not implement [`ArrayPlugin`]. [`DecimalPlugin`] reads and writes the
 //! `vortex.decimal` wire form, including legacy nodes.
+//!
+//! [`ArrayPlugin`]: crate::array::ArrayPlugin
 
 mod kernel;
 mod operations;
@@ -42,7 +44,6 @@ use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::serde::ArrayChildren;
 
 /// A [`Decimal`]-encoded Vortex array.
 pub type DecimalArray = Array<Decimal>;
@@ -103,13 +104,6 @@ impl VTable for Decimal {
         ))
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
     fn validate(
         &self,
         data: &DecimalData,
@@ -136,18 +130,6 @@ impl VTable for Decimal {
         }
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Decimal deserialization requires DecimalPlugin")
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -180,7 +162,9 @@ impl VTable for Decimal {
 
 /// The vtable of [`DecimalArray`].
 ///
-/// This vtable does not serialize or deserialize. A session **must** register [`DecimalPlugin`]
-/// in its place to read or write decimal arrays.
+/// This vtable does not implement [`ArrayPlugin`]. A session **must** register [`DecimalPlugin`]
+/// to read or write decimal arrays.
+///
+/// [`ArrayPlugin`]: crate::array::ArrayPlugin
 #[derive(Clone, Debug)]
 pub struct Decimal;
