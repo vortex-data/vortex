@@ -553,7 +553,11 @@ fn group_rows(row_keys: &RowKeys) -> VortexResult<(BufferMut<u32>, Vec<i64>)> {
     if row_keys.bits <= DENSE_KEY_BITS && (1usize << row_keys.bits) <= keys.len().max(1024) * 8 {
         let mut groups = vec![u32::MAX; 1 << row_keys.bits];
         for (row, &key) in keys.iter().enumerate() {
-            let group = &mut groups[usize::try_from(key)?];
+            // A key past the table means codes beyond the dictionary: a malformed file.
+            let group = usize::try_from(key)
+                .ok()
+                .and_then(|key| groups.get_mut(key))
+                .ok_or_else(|| vortex_err!("dictionary code {key} is out of range"))?;
             if *group == u32::MAX {
                 *group = u32::try_from(counts.len())?;
                 representatives.push(u32::try_from(row)?);
