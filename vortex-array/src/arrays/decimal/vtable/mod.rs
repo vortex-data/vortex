@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Decimal`] vtable and the plugin that owns its wire form.
-//!
-//! [`DecimalPlugin`] reads and writes the `vortex.decimal` wire form, including legacy nodes.
+//! The [`Decimal`] vtable. Its plugin reads and writes the `vortex.decimal` wire form, including
+//! legacy nodes.
 
 mod kernel;
 mod operations;
-
 mod plugin;
-pub use plugin::DecimalPlugin;
-
 mod validity;
 
 use std::hash::Hash;
@@ -158,7 +154,5 @@ impl VTable for Decimal {
 }
 
 /// The vtable of [`DecimalArray`].
-///
-/// A session **must** register [`DecimalPlugin`] to read or write decimal arrays.
 #[derive(Clone, Debug)]
 pub struct Decimal;

@@ -22,7 +22,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use super::DecimalMetadata;
-use super::DecimalPlugin;
 use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -85,7 +84,7 @@ fn read_node(
     Ok(ReadNode { array, stored_ptr })
 }
 
-/// Deserializes the parts of a node through [`DecimalPlugin`].
+/// Deserializes the parts of a node through the [`Decimal`] plugin.
 fn deserialize(
     dtype: &DType,
     len: usize,
@@ -93,10 +92,10 @@ fn deserialize(
     buffers: &[BufferHandle],
     children: &[ArrayRef],
 ) -> VortexResult<ArrayRef> {
-    let id = DecimalPlugin.id();
+    let id = ArrayPlugin::id(&Decimal);
     let parts = ArrayDeserialization::new(id, dtype, len, metadata, buffers, &children);
 
-    DecimalPlugin.deserialize(parts, &SESSION)
+    ArrayPlugin::deserialize(&Decimal, parts, &SESSION)
 }
 
 /// Serializes `array` through the session, then decodes it with the dtype `dtype`.

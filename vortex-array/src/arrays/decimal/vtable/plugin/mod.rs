@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serde for `vortex.decimal` nodes, including legacy nodes.
+//! [`ArrayPlugin`] implementation for [`Decimal`], including legacy nodes.
 //!
-//! [`StoredDecimal::is_legacy`] defines a legacy node, which [`DecimalPlugin`] reads as the
-//! canonical array or a [`Widen`].
+//! [`Decimal`] writes a [`DecimalArray`] as a `vortex.decimal` node, and reads every such node as
+//! the canonical decimal array or a decimal [`Widen`]. [`StoredDecimal::is_legacy`] defines a
+//! legacy node.
+//!
+//! A canonical node keeps its buffer without a copy or a scan, so the buffer can stay on a device,
+//! and its valid values are trusted to fit the precision. A legacy node goes through
+//! [`WidenArray::from_stored_decimal`], which scans its valid values on the host, so a legacy node
+//! in device memory fails to read.
 //!
 //! Each legacy read scans the valid values once, because the deserializer attaches stored
 //! statistics only after the plugin returns. This cost is not limited to old files, because IPC
 //! and writes without a compressor still write a decimal `Widen` as a legacy node.
+//!
+//! [`DecimalArray`]: super::DecimalArray
 
 mod stored;
 
@@ -58,25 +66,9 @@ impl DecimalMetadata {
     }
 }
 
-/// Writes a [`DecimalArray`] as a `vortex.decimal` node, and reads every such node as the
-/// canonical decimal array or a decimal [`Widen`].
-///
-/// A canonical node keeps its buffer without a copy or a scan, so the buffer can stay on a device,
-/// and its valid values are trusted to fit the precision. A legacy node goes through
-/// [`WidenArray::from_stored_decimal`], which scans its valid values on the host, so a legacy node
-/// in device memory fails to read.
-///
-/// The [`Decimal`] vtable does not implement [`ArrayPlugin`], so the default [`ArraySession`]
-/// registers this plugin in its place.
-///
-/// [`DecimalArray`]: super::DecimalArray
-/// [`ArraySession`]: crate::session::ArraySession
-#[derive(Clone, Debug)]
-pub struct DecimalPlugin;
-
-impl ArrayPlugin for DecimalPlugin {
+impl ArrayPlugin for Decimal {
     fn id(&self) -> ArrayId {
-        VTable::id(&Decimal)
+        VTable::id(self)
     }
 
     fn serialize(
@@ -86,7 +78,7 @@ impl ArrayPlugin for DecimalPlugin {
     ) -> VortexResult<Option<ArraySerialization>> {
         let Some(decimal) = array.as_opt::<Decimal>() else {
             vortex_bail!(
-                "DecimalPlugin serializes only Decimal arrays, got {}",
+                "Decimal plugin serializes only Decimal arrays, got {}",
                 array.encoding_id()
             );
         };
@@ -95,7 +87,7 @@ impl ArrayPlugin for DecimalPlugin {
         };
 
         Ok(Some(ArraySerialization::from_array(
-            self.id(),
+            ArrayPlugin::id(self),
             array,
             metadata.encode_to_vec(),
         )))
@@ -108,8 +100,8 @@ impl ArrayPlugin for DecimalPlugin {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            self.id(),
-            "DecimalPlugin reads only its own serialized ID",
+            ArrayPlugin::id(self),
+            "Decimal plugin reads only its own serialized ID",
         );
 
         let stored = StoredDecimal::deserialize(
