@@ -55,6 +55,7 @@ use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
+use vortex_layout::sequence::fully_defined;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -310,7 +311,7 @@ impl VortexWriteOptions {
             dtype.clone(),
             stream
                 .try_filter(|chunk| ready(!chunk.is_empty()))
-                .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
+                .map(move |result| result.map(|chunk| fully_defined(ptr.advance(), chunk))),
         )
         .sendable();
         let omit_statistics = matches!(&self.file_statistics, Some(stats) if stats.is_empty())
