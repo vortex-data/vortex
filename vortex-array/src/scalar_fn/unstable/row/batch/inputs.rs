@@ -11,7 +11,10 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 
 /// The same-length input columns of one row-function execution, borrowed by index.
-pub(crate) trait RowInputs {
+///
+/// It is `pub` only because the `pub`, sealed `DecodedSource` trait uses it as a bound. The private
+/// `batch` module keeps it out of the public API.
+pub trait RowInputs {
     /// Return the number of input columns.
     fn num_inputs(&self) -> usize;
 

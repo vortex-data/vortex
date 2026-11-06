@@ -33,6 +33,10 @@ impl<'a> BatchInputs<'a> {
     /// Execute this batch under `plan` when at most one call to `kernel` can finish it. Otherwise
     /// return it as a [`PartiallyValidBatch`] that needs a dense retry or valid-row execution.
     ///
+    /// Dense execution can offer `kernel` an array-backed batch validity through the
+    /// `&mut Option<Validity>` argument. A kernel that takes it **must** return a nullable output
+    /// that carries it. If the kernel leaves it, dense execution masks the output instead.
+    ///
     /// A deferred kernel does not report which row failed, and `kernel` returns its failure as an
     /// error. That is correct here because this method runs a deferred kernel only when no row is
     /// null, so the failing row is valid.
@@ -40,7 +44,11 @@ impl<'a> BatchInputs<'a> {
         self,
         arg_dtypes: &[DType],
         plan: BatchPlan,
-        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Result<ArrayRef, PartiallyValidBatch<'a>>> {
         // Every output row is null, so skip the kernel. Checking `has_null_const` as well keeps

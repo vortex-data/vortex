@@ -17,6 +17,15 @@
 //! several kernel calls, which the existing strategies already run through their own visitors. So
 //! it comes back as [`Fused::Partial`] and still dispatches twice.
 //!
+//! A Boolean visit also skips the rest of the general path for a _direct_ batch (see
+//! [`BatchProbe::into_direct_validity`]). The general path copies the inputs into [`BatchInputs`],
+//! checks each input for a batch constant again, checks the output, and masks it with an
+//! array-backed validity, which builds the column twice. The direct path reuses the probe's
+//! classification on the borrowed inputs and attaches the validity as it builds the column.
+//!
+//! [#11220] measured comparisons without the single dispatch and the direct path: on small arrays,
+//! they were 10% to 16% slower than the old comparison kernels.
+//!
 //! [#11220]: https://github.com/vortex-data/vortex/pull/11220
 
 use vortex_error::VortexResult;
@@ -49,7 +58,9 @@ use crate::scalar_fn::unstable::row::execute::execute_owned;
 use crate::scalar_fn::unstable::row::execute::execute_owned_bool;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible;
 use crate::scalar_fn::unstable::row::execute::execute_owned_infallible_bool;
+use crate::scalar_fn::unstable::row::execute::execute_row_inputs_infallible_bool;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
+use crate::validity::Validity;
 
 /// The result of a fused planning and execution visit.
 pub(crate) enum Fused<'a> {
@@ -104,7 +115,11 @@ impl<'a, 'ctx, F: RowFn, I: RowInputs + ?Sized> ExecuteFused<'a, 'ctx, F, I> {
         self,
         storage_dtype: DType,
         policy: RowPolicy,
-        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(
+            BorrowedRowFnArgs<'_>,
+            &mut Option<Validity>,
+            &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef>,
     ) -> VortexResult<Fused<'a>> {
         let plan = BatchPlan::new(storage_dtype, self.output_dtype, policy)?;
         let batch = BatchInputs::new(RowFn::id(self.function), self.probe, self.inputs);
@@ -143,12 +158,14 @@ impl<'a, F: RowFn, I: RowInputs + ?Sized> RowVisitor for ExecuteFused<'a, '_, F,
         self.execute(
             storage_dtype,
             RowPolicy::for_owned_output::<Args>(),
-            |args, ctx| execute_owned_infallible::<Args, Out, Prepared>(&args, ctx, prepare, apply),
+            |args, _validity, ctx| {
+                execute_owned_infallible::<Args, Out, Prepared>(&args, ctx, prepare, apply)
+            },
         )
     }
 
     fn visit_bool<Args, const MULTIVERSIONED: bool>(
-        self,
+        mut self,
         apply: impl Fn(Args::Elems<'_>) -> bool,
     ) -> VortexResult<Self::VisitResult>
     where
@@ -156,12 +173,42 @@ impl<'a, F: RowFn, I: RowInputs + ?Sized> RowVisitor for ExecuteFused<'a, '_, F,
     {
         const { assert_owned_visit_contract::<F, Args, bool>() };
         let storage_dtype = validate_owned_visit::<Args, bool>(self.dtypes)?;
+        let policy = RowPolicy::for_owned_output::<Args>();
 
-        self.execute(
-            storage_dtype,
-            RowPolicy::for_owned_output::<Args>(),
-            |args, ctx| execute_owned_infallible_bool::<Args, MULTIVERSIONED>(&args, ctx, apply),
-        )
+        // The direct path cannot relabel its output, so a declared output dtype rules it out.
+        if self.output_dtype.is_none() {
+            let const_mask = self.probe.const_mask();
+            match self
+                .probe
+                .into_direct_validity(self.inputs.num_inputs(), policy)
+            {
+                Ok(validity) => {
+                    // The collector builds the final canonical `BoolArray`, so no plan or output
+                    // check is needed.
+                    return execute_row_inputs_infallible_bool::<Args, I, MULTIVERSIONED>(
+                        self.inputs,
+                        const_mask,
+                        self.ctx,
+                        validity,
+                        apply,
+                    )
+                    .map(Fused::Done);
+                }
+                Err(probe) => self.probe = probe,
+            }
+        }
+
+        // Attach an offered validity while packing, as the direct path does. Only a dense batch
+        // that the direct path rejects gets an offer, for example with a declared output dtype or
+        // with masked constant inputs.
+        self.execute(storage_dtype, policy, |args, validity, ctx| {
+            execute_owned_infallible_bool::<Args, MULTIVERSIONED>(
+                &args,
+                ctx,
+                validity.take().unwrap_or(Validity::NonNullable),
+                apply,
+            )
+        })
     }
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(
@@ -181,7 +228,7 @@ impl<'a, F: RowFn, I: RowInputs + ?Sized> RowVisitor for ExecuteFused<'a, '_, F,
         self.execute(
             storage_dtype,
             RowPolicy::for_sink::<Args, ApplyResult>(),
-            |args, ctx| {
+            |args, _validity, ctx| {
                 execute_sink::<Args, Prepared, Sink, ApplyResult>(
                     &args, &params, ctx, prepare, apply,
                 )
@@ -206,7 +253,7 @@ impl<'a, F: RowFn, I: RowInputs + ?Sized> RowVisitor for ExecuteFused<'a, '_, F,
         self.execute(
             storage_dtype,
             RowPolicy::for_deferred_output::<Args>(),
-            |args, ctx| {
+            |args, _validity, ctx| {
                 execute_owned::<Args, Out, Prepared, Fail>(
                     &args,
                     ctx,
@@ -234,7 +281,7 @@ impl<'a, F: RowFn, I: RowInputs + ?Sized> RowVisitor for ExecuteFused<'a, '_, F,
         self.execute(
             storage_dtype,
             RowPolicy::for_deferred_output::<Args>(),
-            |args, ctx| {
+            |args, _validity, ctx| {
                 execute_owned_bool::<Args, Prepared, Fail, MULTIVERSIONED>(
                     &args,
                     ctx,

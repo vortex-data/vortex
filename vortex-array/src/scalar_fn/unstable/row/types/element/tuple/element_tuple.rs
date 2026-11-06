@@ -51,6 +51,31 @@ impl<T: InputElement> ArgColumn<T> {
         Ok(Self(ArgColumnKind::Column(T::decode(array, ctx)?)))
     }
 
+    /// Decode `array` with the [`is_batch_const`] result that the caller already has.
+    ///
+    /// Unlike [`Self::decode`], it skips the second constant check and the `ArrayRef` clone for a
+    /// column.
+    #[inline]
+    pub(super) fn decode_classified(
+        array: &ArrayRef,
+        is_const: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        if is_const {
+            // Only a non-empty plain `Constant` decodes directly, and `decode` handles the rest.
+            if array.is::<Constant>() && !array.is_empty() {
+                return Ok(Self(ArgColumnKind::Const(T::decode_constant(
+                    array.clone(),
+                    ctx,
+                )?)));
+            }
+
+            return Self::decode(array.clone(), ctx);
+        }
+
+        Ok(Self(ArgColumnKind::Column(T::decode_ref(array, ctx)?)))
+    }
+
     fn decode_null_tolerant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         // Batch execution short-circuits null constants before selecting a strategy.
         if let Some(const_array) = batch_const(&array)
