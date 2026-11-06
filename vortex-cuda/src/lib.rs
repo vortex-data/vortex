@@ -133,8 +133,9 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(Slice.id(), &SliceExecutor);
 }
 
-/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with all array session
-/// variables plus a default [`CudaSession`], for use in CUDA tests and benchmarks.
+/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with a default
+/// [`CudaSession`] for CUDA tests and benchmarks. Array session variables are initialized
+/// with their defaults on first use.
 ///
 /// Each call returns an independent session with its own kernel registry and stream pool.
 /// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
