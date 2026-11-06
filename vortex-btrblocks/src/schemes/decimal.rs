@@ -10,7 +10,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
 use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -43,15 +45,12 @@ pub(crate) static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
-/// Splits the canonical decimal into a signed most significant part (MSP) and as many unsigned
-/// lower parts as its valid values need (see [`lower_part_count`]), then compresses each part
-/// independently. Only the MSP of an array without lower parts narrows: it takes the smallest
-/// signed integer type that holds its valid values. The decimal itself is never narrowed, and the
-/// lower parts stay `u64`, which the constructor requires.
+/// Uses the [DBP layout](vortex_decimal_byte_parts) and narrows each MSP with an integer
+/// [`Widen`], including MSPs next to lower parts. The narrow child is compressed before it is
+/// wrapped, because [`Compressor::compress_child`] executes its input to its canonical form.
 ///
-/// The v1 mode leaves an array canonical when a valid value is wider than `i64`; v2 splits it into
-/// an `i64` MSP and one or three lower parts. Single-part arrays serialize as v1 in either mode,
-/// while arrays with lower parts serialize as v2.
+/// The v1 mode leaves an array canonical when a valid value needs lower parts. Single-part
+/// arrays serialize as v1 in either mode, while arrays with lower parts serialize as v2.
 ///
 /// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
 /// otherwise.
@@ -146,28 +145,25 @@ impl Scheme for DecimalScheme {
 
         let parts = split_decimal(&decimal, lower_part_count, exec_ctx)?;
 
-        let msp = if lower_part_count == 0 {
-            #[expect(
-                deprecated,
-                reason = "TODO(connor)[Widen]: decide whether the MSP narrows its dtype or becomes a Widen (#10733)"
-            )]
-            let msp = WidenArray::encode_values(
-                parts.msp.execute::<PrimitiveArray>(exec_ctx)?,
+        let msp = WidenArray::encode(parts.msp.execute::<PrimitiveArray>(exec_ctx)?, exec_ctx)?;
+        let msp = if let Some(widen) = msp.as_opt::<Widen>() {
+            let child = compressor.compress_child(
+                widen.values(),
+                &compress_ctx,
+                self.id(),
+                DecimalBytePartsSlots::MSP,
                 exec_ctx,
             )?;
-            msp.into_array()
+            WidenArray::try_new(child, msp.dtype().clone())?.into_array()
         } else {
-            // NB: narrowing an MSP next to lower parts would change the v2 output.
-            parts.msp
+            compressor.compress_child(
+                &msp,
+                &compress_ctx,
+                self.id(),
+                DecimalBytePartsSlots::MSP,
+                exec_ctx,
+            )?
         };
-
-        let msp = compressor.compress_child(
-            &msp,
-            &compress_ctx,
-            self.id(),
-            DecimalBytePartsSlots::MSP,
-            exec_ctx,
-        )?;
         let lower_parts = parts
             .lower_parts
             .iter()
