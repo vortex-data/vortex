@@ -31,14 +31,6 @@ impl ArrayPlugin for Pco {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -46,7 +38,7 @@ impl ArrayPlugin for Pco {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Pco plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Pco>();
@@ -56,7 +48,7 @@ impl ArrayPlugin for Pco {
         );
         let metadata = array.metadata.clone().encode_to_vec();
         Ok(Some(ArraySerialization::from_array(
-            VTable::id(self),
+            ArrayPlugin::id(self),
             array.array(),
             metadata,
         )))
@@ -69,7 +61,7 @@ impl ArrayPlugin for Pco {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Pco plugin does not recognize the serialized ID",
         );
         let ArrayDeserialization {

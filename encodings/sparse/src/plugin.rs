@@ -32,14 +32,6 @@ impl ArrayPlugin for Sparse {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -47,7 +39,7 @@ impl ArrayPlugin for Sparse {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Sparse plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<Sparse>();
@@ -56,7 +48,7 @@ impl ArrayPlugin for Sparse {
 
         // Note that we DO NOT serialize the fill value since that is stored in the buffers.
         Ok(Some(ArraySerialization::from_array(
-            VTable::id(self),
+            ArrayPlugin::id(self),
             array.array(),
             metadata.encode_to_vec(),
         )))
@@ -69,7 +61,7 @@ impl ArrayPlugin for Sparse {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Sparse plugin does not recognize the serialized ID",
         );
         let ArrayDeserialization {

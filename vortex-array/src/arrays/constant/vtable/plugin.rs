@@ -27,14 +27,6 @@ impl ArrayPlugin for Constant {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -42,13 +34,13 @@ impl ArrayPlugin for Constant {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Constant plugin cannot serialize an array of another encoding",
         );
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.
         Ok(Some(ArraySerialization::from_array(
-            VTable::id(self),
+            ArrayPlugin::id(self),
             array,
             vec![],
         )))
@@ -61,7 +53,7 @@ impl ArrayPlugin for Constant {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Constant plugin does not recognize the serialized ID",
         );
         let ArrayDeserialization {

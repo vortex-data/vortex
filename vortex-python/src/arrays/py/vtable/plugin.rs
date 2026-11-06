@@ -20,14 +20,6 @@ impl ArrayPlugin for PythonVTable {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         _array: &ArrayRef,

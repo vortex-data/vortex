@@ -27,14 +27,6 @@ impl ArrayPlugin for Extension {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -42,11 +34,11 @@ impl ArrayPlugin for Extension {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Extension plugin cannot serialize an array of another encoding",
         );
         Ok(Some(ArraySerialization::from_array(
-            VTable::id(self),
+            ArrayPlugin::id(self),
             array,
             vec![],
         )))
@@ -59,7 +51,7 @@ impl ArrayPlugin for Extension {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "Extension plugin does not recognize the serialized ID",
         );
         let ArrayDeserialization {

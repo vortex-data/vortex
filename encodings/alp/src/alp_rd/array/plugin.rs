@@ -37,14 +37,6 @@ impl ArrayPlugin for ALPRD {
         VTable::id(self)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![VTable::id(self)]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
@@ -52,7 +44,7 @@ impl ArrayPlugin for ALPRD {
     ) -> VortexResult<Option<ArraySerialization>> {
         vortex_ensure_eq!(
             array.encoding_id(),
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "ALPRD plugin cannot serialize an array of another encoding",
         );
         let array = array.as_::<ALPRD>();
@@ -74,7 +66,7 @@ impl ArrayPlugin for ALPRD {
         }
         .encode_to_vec();
         Ok(Some(ArraySerialization::from_array(
-            VTable::id(self),
+            ArrayPlugin::id(self),
             array.array(),
             metadata,
         )))
@@ -87,7 +79,7 @@ impl ArrayPlugin for ALPRD {
     ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             parts.serialized_id,
-            VTable::id(self),
+            ArrayPlugin::id(self),
             "ALPRD plugin does not recognize the serialized ID",
         );
         let ArrayDeserialization {

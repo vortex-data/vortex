@@ -113,14 +113,22 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     /// [`ArraySession::register`](crate::session::ArraySession::register) makes this plugin the
     /// reader of each ID. An ID can stay in this list after the plugin stops writing it, so that
     /// old files stay readable.
-    fn read_ids(&self) -> Vec<ArrayId>;
+    ///
+    /// By default, a plugin reads only its in-memory [`id`](Self::id).
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
 
     /// Returns the wire IDs that [`serialize`](Self::serialize) may return.
     ///
     /// An ID in this list does not have to be in [`read_ids`](Self::read_ids). A plugin can write
     /// its arrays in the wire form of another encoding. The plugin that owns that form reads it.
     /// The node must hold the logical values of the array under the dtype of the array.
-    fn write_ids(&self) -> Vec<ArrayId>;
+    ///
+    /// By default, a plugin writes only its in-memory [`id`](Self::id).
+    fn write_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
 
     /// Serialize `array` to its wire representation.
     ///

@@ -79,14 +79,6 @@ impl ArrayPlugin for DecimalPlugin {
         VTable::id(&Decimal)
     }
 
-    fn read_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
-    fn write_ids(&self) -> Vec<ArrayId> {
-        vec![self.id()]
-    }
-
     fn serialize(
         &self,
         array: &ArrayRef,
