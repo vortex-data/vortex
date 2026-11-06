@@ -453,7 +453,6 @@ fn serde_roundtrip_sliced_chunked_patches(
     } else {
         sliced
     };
-    // The slice kernel slices the patches lazily, and only optimized arrays serialize.
     let sliced = sliced.optimize_ctx(&PLUGIN_SESSION)?;
     let read = roundtrip(&sliced)?;
     assert_eq!(read.as_::<BitPacked>().bit_widths().is_global(), !blocked);

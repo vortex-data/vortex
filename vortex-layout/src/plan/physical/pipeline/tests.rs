@@ -83,7 +83,6 @@ struct Store {
 impl Store {
     fn flat(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
         let ctx = ArrayContext::empty();
-        // Tests hand in lazy slices, which have no serialized form until optimized away.
         let array = array.optimize_ctx(&SESSION)?;
         let buffers = array.serialize(
             &ctx,

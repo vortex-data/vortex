@@ -51,7 +51,6 @@ impl RowFnExecutionArgs<'_> {
             .batch
             .inputs
             .iter()
-            // The kernel checks each input for a constant, so reduce the filter first.
             .map(|input| input.filter(filter_mask.clone())?.optimize_ctx(ctx))
             .collect::<VortexResult<_>>()?;
 

@@ -193,8 +193,6 @@ impl ListViewArray {
 
         let (elements, offsets) =
             drop_unreferenced_elements(self.elements(), starts, end, &null_runs, ctx.allocator())?;
-        // The kept elements are a lazy slice or filter. Reduce them so that callers, such as
-        // `reset_offsets`, see the encoding of the elements.
         let elements = elements.optimize_ctx(ctx)?;
         let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable)
             .reinterpret_cast(offsets_ptype)
