@@ -1143,6 +1143,92 @@ fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
     (in_datafusion, in_scan)
 }
 
+/// Plans string functions over dictionary-encoded label columns in SQL, as DataFusion coerces
+/// them, and checks where the filter runs and that the rows match an in-memory oracle.
+///
+/// DataFusion casts a plain dictionary argument of `contains`, `strpos`, `ends_with`, and the
+/// `LIKE` that constant `starts_with` becomes, to `Utf8`. That cast can overflow, so the filter
+/// stays in DataFusion, also when the dictionary comes from `lower`, which keeps the encoding.
+/// REE columns are cast to `Utf8View`, which cannot overflow, so their filters are pushed down.
+#[rstest]
+#[case::lower_eq("lower(labels) = 'comm_0'", true, true)]
+#[case::contains("contains(labels, 'omm_')", false, true)]
+#[case::contains_lower("contains(lower(labels), 'comm_')", false, true)]
+#[case::strpos("strpos(labels, 'm_1') > 0", false, true)]
+#[case::ends_with("ends_with(labels, '_1')", false, true)]
+#[case::starts_with("starts_with(labels, 'Comm')", false, true)]
+#[tokio::test]
+async fn test_string_function_on_dictionary_labels(
+    #[case] predicate: &str,
+    #[case] pushed_on_dictionary: bool,
+    #[case] pushed_on_runs: bool,
+    #[values(false, true)] runs: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let labels = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![
+            Some(0),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+            Some(5),
+        ]),
+        Arc::new(StringArray::from(vec![
+            "comm_0", "Comm_1", "COMM_0", "other", "ΟΣ_1", "comm_1", "unused",
+        ])),
+    )?;
+    let labels: Arc<dyn Array> = if runs {
+        Arc::new(RunArray::<Int32Type>::try_new(
+            &Int32Array::from_iter_values(1..=7),
+            &labels,
+        )?)
+    } else {
+        Arc::new(labels)
+    };
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("labels", labels.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(Int32Array::from_iter_values(0..7)), labels],
+    )?;
+    ctx.write_arrow_batch("labels.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/labels.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    let pushed = if runs {
+        pushed_on_runs
+    } else {
+        pushed_on_dictionary
+    };
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (!pushed, pushed),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    let actual = batch_values(&actual.collect().await?);
+    let expected = batch_values(&ctx.session.sql(&query("oracle")).await?.collect().await?);
+    assert!(!expected.is_empty());
+    assert_eq!(actual, expected);
+    Ok(())
+}
+
 /// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
 /// the scan and return the same rows as DataFusion.
 #[rstest]
