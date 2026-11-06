@@ -438,8 +438,12 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
+    use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::arrays::shared::Shared;
+    use crate::arrays::shared::SharedArrayExt;
+    use crate::layouts::dict::reader::DictReader;
     use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
     use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
@@ -787,6 +791,21 @@ mod tests {
         })
     }
 
+    /// Whether the dictionary reader's shared values array has decoded every value.
+    fn shared_values_decoded(reader: &LayoutReaderRef) -> bool {
+        reader
+            .as_any()
+            .downcast_ref::<DictReader>()
+            .and_then(|dict| dict.values_array.get())
+            .and_then(|values| values.peek().cloned())
+            .and_then(Result::ok)
+            .is_some_and(|values| {
+                values
+                    .as_opt::<Shared>()
+                    .is_some_and(|shared| shared.is_computed())
+            })
+    }
+
     fn many_values() -> ArrayRef {
         VarBinArray::from_iter(
             (0..16384)
@@ -815,11 +834,13 @@ mod tests {
                 .projection_evaluation(&rows, &expression, MaskFuture::ready(sparse.clone()))?
                 .await?;
             assert_arrays_eq!(actual, array.filter(sparse)?, &mut ctx);
+            assert!(!shared_values_decoded(&reader));
 
             let actual = reader
                 .projection_evaluation(&rows, &expression, MaskFuture::new_true(array.len()))?
                 .await?;
             assert_arrays_eq!(actual, array, &mut ctx);
+            assert!(shared_values_decoded(&reader));
             Ok(())
         })
     }
@@ -853,6 +874,7 @@ mod tests {
                 .await?;
             let expected = expected.fill_null(false)?.execute::<Mask>(&mut ctx)?;
             assert_eq!(actual, expected);
+            assert!(!shared_values_decoded(&reader));
             Ok(())
         })
     }
