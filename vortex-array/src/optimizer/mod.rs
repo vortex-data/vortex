@@ -2,39 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The optimizer applies metadata-only rewrite rules (`reduce` and `reduce_parent`) in a
-//! fixpoint loop until no more transformations are possible.
+//! fixpoint loop until no more rules apply.
 //!
-//! Optimization runs between execution steps, which is what enables cross-step optimizations:
-//! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
+//! Optimization runs between execution steps. After a child is decoded, `reduce_parent` rules
+//! that did not match before can match.
 //!
-//! Parent-reduce rules live in the session's [`kernels::ArrayKernels`] registry, keyed by the
-//! parent and child encoding ids, as execute-parent kernels are. There are two public entry
-//! points on [`ArrayOptimizer`], and both take the session, or an [`ExecutionCtx`] created from it,
-//! which reuses the kernels it snapshotted from the session (see [`AsOptimizerKernels`]):
+//! Parent-reduce rules come from the session's [`kernels::ArrayKernels`]. To optimize, use
+//! [`ArrayOptimizer::optimize_ctx`] with the session or with an [`ExecutionCtx`] created from it.
 //!
-//! - [`ArrayOptimizer::optimize_ctx`] optimizes the root array node and the descendants below it
-//!   that were never optimized.
-//! - [`ArrayOptimizer::optimize_recursive`] does the same. Optimizing a node also optimizes every
-//!   descendant that was never optimized, so the root's mark covers the whole tree.
+//! Array constructors do not optimize. The optimizer works top down: it tries the rules of a node,
+//! then optimizes the children that were never optimized, and tries the rules of the node again if
+//! a child changed. Thus a rule for a child encoding sees that encoding, not a lazy wrapper around
+//! it. The nodes that a rule builds are optimized before the next pass, so two rules that are
+//! inverses of each other cannot rewrite a node back and forth.
 //!
-//! Array constructors such as [`ArrayRef::slice`](crate::ArrayRef::slice) do not optimize: they
-//! return the wrapped array. The optimizer works top down. It first tries the rules of a node on its
-//! children as they are, so a rule that drops or replaces a child does not optimize that child
-//! first. Then it optimizes the children that were never optimized, and if any child changed, it
-//! tries the rules of the node again. Thus a parent rule or kernel keyed on a child's encoding
-//! still sees that encoding rather than a lazy wrapper around it, such as a slice of an FSST array
-//! under a `LIKE`. Children already optimized are left without visiting their subtrees.
-//!
-//! Whenever a rule rewrites a node, the nodes the rule built are optimized bottom up before the
-//! next pass on the node. Otherwise two rules that are inverses of each other, such as
-//! `slice(get_item(s))` and `get_item(slice(s))`, could rewrite the node back and forth.
-//!
-//! Each array records whether the optimizer has taken it to its fixpoint. A new array starts
-//! unoptimized, and the optimizer marks the arrays it returns, so optimizing an array again returns
-//! it without trying any rule. The optimizer marks a node only after it optimized the children of
-//! the node, so the descendants of a marked node are marked too. The mark does not record the
-//! session: an array optimized with one session is not optimized again with a session that
-//! registers more kernels.
+//! The optimizer marks the arrays that it returns. Optimizing a marked array again tries no rule.
 
 use std::hash::Hash;
 use std::hash::Hasher;

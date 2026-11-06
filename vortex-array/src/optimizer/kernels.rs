@@ -1,27 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Session-scoped registry for optimizer kernels.
+//! Session-scoped registry of parent kernels.
 //!
-//! [`ArrayKernels`] stores the parent-reduce rules and parent-execution kernels that participate in
-//! array optimization and execution without adding them to an encoding vtable. The optimizer
-//! consults it for every parent-reduce rewrite, and the executor consults it for parent execution,
-//! so a session can add support for an extension encoding or register a rule ahead of a built-in
-//! one. When several entries are registered for the same key and kind, they are tried in
+//! [`ArrayKernels`] holds two kinds of kernels. Each kernel is registered for a parent and a child:
+//!
+//! - The optimizer uses parent-reduce rules to rewrite a parent array from one of its children,
+//!   without decoding data.
+//! - The executor uses execute-parent kernels to execute a parent array through one of its
+//!   children.
+//!
+//! The parent is the encoding of the parent array, or the function of a scalar function array.
+//! When more than one kernel is registered for the same parent and child, they are tried in
 //! registration order until one applies.
 //!
-//! Kernel entries are addressed by `(outer_id, child_id)`. For parent-reduce and execute-parent
-//! kernels, `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is
-//! the child array's `encoding_id()`. For [`ScalarFn`] parents, the
-//! parent id is the scalar function id.
-//!
-//! Because registered functions have different signatures for each kernel kind, the registry
-//! maintains one storage map per function type rather than a single type-erased map.
-//!
-//! [`KernelSession`] is the session variable that owns this registry. Its [`Default`]
-//! implementation installs vortex-array's built-in parent-reduce and execute-parent kernels, so a
-//! session built with [`KernelSession`] participates in the same optimizations and fused execution
-//! as the built-in encodings.
+//! [`KernelSession`] is the session variable that holds the registry. Its [`Default`]
+//! implementation registers the built-in kernels of `vortex-array`.
 
 use std::any::Any;
 use std::any::TypeId;
@@ -140,10 +134,8 @@ where
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(child) = child.as_opt::<V>() else {
-            return Ok(None);
-        };
-        let Some(parent) = R::Parent::try_match(parent) else {
+        let (Some(child), Some(parent)) = (child.as_opt::<V>(), R::Parent::try_match(parent))
+        else {
             return Ok(None);
         };
         self.rule.reduce_parent(child, parent, child_idx)
@@ -294,18 +286,12 @@ impl ReduceParent<AnyScalarFn> for AnyScalarFn {
     }
 }
 
-/// Session-scoped registry of optimizer kernel functions.
+/// Session-scoped registry of parent-reduce rules and execute-parent kernels.
 ///
-/// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
-/// functions for an existing key appends them to that key's ordered list.
+/// Kernels registered for the same parent and child are tried in registration order.
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
-    /// The optimizer reads the kernels each time it is called without an execution context, from
-    /// many threads at once. Borrowing the current value does not write to a shared reference
-    /// count. Registration replaces the whole value.
     reduce_parent: Arc<ArcSwap<ParentReduceKernels>>,
-    /// Execute-parent kernels keyed by hashed `(parent, child)` pair, read and replaced in the
-    /// same way.
     execute_parent: Arc<ArcSwap<ParentExecutionKernels>>,
 }
 
