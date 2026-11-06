@@ -324,7 +324,8 @@ impl DataSource for VortexCountBySource {
     }
 
     fn output_partitioning(&self) -> Partitioning {
-        self.config.output_partitioning()
+        // The scan's partitioning names the file's columns, not the partial aggregate's.
+        Partitioning::UnknownPartitioning(self.config.output_partitioning().partition_count())
     }
 
     fn eq_properties(&self) -> EquivalenceProperties {
