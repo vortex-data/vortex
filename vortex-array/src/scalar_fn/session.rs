@@ -93,6 +93,8 @@ impl Default for ScalarFnSession {
         this.register(Select);
         this.register(StatFn);
         this.register(StringFn::Lower);
+        this.register(StringFn::LowerEquals);
+        this.register(StringFn::LowerBoundExcludes);
         this.register(StringFn::LowerMinBound);
         this.register(StringFn::LowerMaxBound);
         this.register(StringFn::Strpos);
