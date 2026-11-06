@@ -11,27 +11,35 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::decimal::copy_to_canonical_width;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::i256;
+use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_signed_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use super::DecimalBytePartsData;
 use super::LOWER_PART_BITS;
 use super::MAX_LOWER_PARTS;
 
-/// Reassemble validated decimal parts at their natural integer width.
+/// Reassemble validated parts into the canonical decimal array.
 ///
-/// See [`DecimalBytePartsData::validate`] for the part requirements. A lone MSP reuses its buffer.
-/// One lower part assembles into `i128`, and two or three assemble into `i256`.
+/// See [`DecimalBytePartsData::validate`] for the part requirements. A lone MSP stored at the
+/// canonical width reuses its executed buffer. Narrow MSP storage assembles directly from the
+/// integer [`Widen`]'s child, avoiding an intermediate widening copy. Other shapes assemble at
+/// their natural width, then copy into the canonical width when it is wider. No value-range scan is
+/// needed. See the [encoding contract](crate).
 ///
 /// Returns an error if validation or part execution fails.
 pub fn assemble_decimal(
@@ -44,10 +52,14 @@ pub fn assemble_decimal(
     DecimalBytePartsData::validate(msp, lower_parts.iter(), decimal_dtype, &dtype, msp.len())?;
 
     // TODO(connor): Broadcast constant parts directly instead of materializing their buffers.
-    let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
+    let stored_msp = match msp.as_opt::<Widen>() {
+        Some(widen) => widen.values().clone(),
+        None => msp.clone(),
+    };
+    let msp = stored_msp.execute::<PrimitiveArray>(exec_ctx)?;
     let validity = msp.validity()?;
 
-    let (values, values_type) = if lower_parts.is_empty() {
+    let (mut values, values_type) = if lower_parts.is_empty() {
         (
             msp.buffer_handle().clone(),
             DecimalType::try_from(msp.ptype())?,
@@ -60,7 +72,16 @@ pub fn assemble_decimal(
         assemble_natural_width(&msp, &lower_parts)
     };
 
-    Ok(DecimalArray::try_new_handle(values, values_type, decimal_dtype, validity)?.into_array())
+    let canonical_type = decimal_dtype.canonical_values_type();
+    if values_type < canonical_type {
+        let mask = Mask::new_true(msp.len());
+        values = match_each_decimal_value_type!(values_type, |T| {
+            let values = Buffer::<T>::from_byte_buffer(values.as_host().clone());
+            copy_to_canonical_width(&values, &mask, decimal_dtype)?
+        });
+    }
+
+    Ok(DecimalArray::try_new_handle(values, canonical_type, decimal_dtype, validity)?.into_array())
 }
 
 /// Assemble the MSP and one to three `u64` lower parts at their natural width: `i128` for one

@@ -20,6 +20,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::Widen;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -237,7 +238,13 @@ impl VTable for DecimalByteParts {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let mut array = require_child!(array, array.msp(), DecimalBytePartsSlots::MSP => Primitive);
+        let mut array = if array.msp().is::<Widen>() {
+            // Keep the MSP wrapped so `assemble_decimal` can read its narrow child. Executing the
+            // `Widen` here would add an intermediate widening copy.
+            array
+        } else {
+            require_child!(array, array.msp(), DecimalBytePartsSlots::MSP => Primitive)
+        };
         for idx in 0..array.lower_parts().len() {
             array = require_child!(
                 array,

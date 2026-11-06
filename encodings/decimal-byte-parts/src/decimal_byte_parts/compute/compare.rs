@@ -103,6 +103,8 @@ fn compare_constant_wide(
             .vortex_expect("every DecimalValue fits i256")
     });
 
+    // TODO(connor): Check the constant MSP against the Widen child's range to restore the
+    // whole-answer shortcut for narrow storage next to lower parts.
     let split = match split_constant(constant, lower_parts.len(), msp_ptype) {
         Ok(split) => split,
         Err(sign) => {

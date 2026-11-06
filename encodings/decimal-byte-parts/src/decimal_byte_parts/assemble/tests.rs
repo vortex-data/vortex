@@ -10,9 +10,13 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
@@ -20,15 +24,20 @@ use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::match_each_decimal_value_type;
+use vortex_array::test_harness::trace::trace_op;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use super::assemble_decimal;
+use crate::DecimalByteParts;
+use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::split_decimal;
 use crate::decimal_byte_parts::testing::full_width_lower_part_count;
+use crate::decimal_byte_parts::testing::widen_msp;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
@@ -213,4 +222,138 @@ fn test_assemble_validates_parts() {
             .is_err_and(|err| err.to_string().contains("must have dtype u64")),
         "expected the lower-part dtype check to reject a u32 part, got {result:?}"
     );
+}
+
+#[rstest]
+#[case::i8(2, PType::I8)]
+#[case::i16(4, PType::I16)]
+#[case::i32(9, PType::I32)]
+#[case::i64(18, PType::I64)]
+#[case::i128(38, PType::I64)]
+#[case::i256(76, PType::I64)]
+fn test_msp_assembly_is_canonical(
+    #[case] precision: u8,
+    #[case] logical_ptype: PType,
+    #[values(false, true)] narrow: bool,
+    #[values(Validity::NonNullable, Validity::AllValid, Validity::AllInvalid)] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let child_ptype = if narrow { PType::I8 } else { logical_ptype };
+    let msp = PrimitiveArray::new(buffer![-99i64, 0, 99], validity.clone())
+        .into_array()
+        .cast(DType::Primitive(child_ptype, validity.nullability()))?
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let ptr = msp.buffer_handle().as_host().as_ptr();
+    let msp = if child_ptype < logical_ptype {
+        widen_msp(msp.into_array(), decimal_dtype)?
+    } else {
+        msp.into_array()
+    };
+    let decoded = assemble_decimal(&msp, &[], decimal_dtype, &mut ctx)?;
+    assert!(decoded.is::<Decimal>());
+    let decoded = decoded.execute::<DecimalArray>(&mut ctx)?;
+    assert_eq!(decoded.values_type(), decimal_dtype.canonical_values_type());
+    if child_ptype == logical_ptype && precision <= 18 {
+        assert_eq!(decoded.buffer_handle().as_host().as_ptr(), ptr);
+    }
+    assert_arrays_eq!(
+        decoded,
+        DecimalArray::new(buffer![-99i64, 0, 99], decimal_dtype, validity),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::p38_one(38, 1)]
+#[case::p40_one(40, 1)]
+#[case::p76_two(76, 2)]
+#[case::p76_three(76, 3)]
+fn test_lower_parts_sign_extend_to_canonical_width(
+    #[case] precision: u8,
+    #[case] lower_count: usize,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let msp = widen_msp(buffer![-1i8, 0, 1].into_array(), decimal_dtype)?;
+    let lower = vec![buffer![u64::MAX, 0, 0].into_array(); lower_count];
+    let decoded = assemble_decimal(&msp, &lower, decimal_dtype, &mut ctx)?;
+    assert!(decoded.is::<Decimal>());
+    let expected_high = i256::ONE << (64 * lower_count);
+    assert_arrays_eq!(
+        decoded,
+        DecimalArray::new(
+            buffer![-i256::ONE, i256::ZERO, expected_high],
+            decimal_dtype,
+            Validity::NonNullable,
+        ),
+        &mut ctx
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::msp_only_at_p18(18, 0)]
+#[case::msp_only_at_p38(38, 0)]
+#[case::one_lower_at_p38(38, 1)]
+#[case::one_lower_at_p40(40, 1)]
+#[case::two_lower_at_p76(76, 2)]
+#[case::three_lower_at_p76(76, 3)]
+fn test_decode_uses_widen_msp_child(
+    #[case] precision: u8,
+    #[case] lower_count: usize,
+    #[values(false, true)] direct_assembly: bool,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(precision, 0);
+    let child = DictArray::try_new(
+        PrimitiveArray::from_option_iter([Some(0u8), None, Some(2)]).into_array(),
+        buffer![-1i8, 0, 1].into_array(),
+    )?
+    .into_array();
+    let array = DecimalByteParts::try_new_with_lower_parts(
+        widen_msp(child, decimal_dtype)?,
+        vec![buffer![u64::MAX, 0, 0].into_array(); lower_count],
+        decimal_dtype,
+    )?;
+    let traced = trace_op(|| {
+        let decoded = if direct_assembly {
+            assemble_decimal(
+                array.msp(),
+                &array.lower_parts().to_vec(),
+                decimal_dtype,
+                &mut ctx,
+            )?
+        } else {
+            array.into_array()
+        };
+        decoded.execute::<DecimalArray>(&mut ctx)
+    })?;
+    let trace = traced.trace.to_string();
+    assert!(!trace.contains("execute encoding=vortex.widen"), "{trace}");
+    assert_eq!(
+        traced.output.values_type(),
+        decimal_dtype.canonical_values_type()
+    );
+
+    let high = i256::ONE << (64 * lower_count);
+    let expected = match_each_decimal_value_type!(decimal_dtype.canonical_values_type(), |T| {
+        let values = [-i256::ONE, i256::ZERO, high]
+            .into_iter()
+            .map(|value| {
+                <T as BigCast>::from(value).vortex_expect("fixture values fit the canonical width")
+            })
+            .collect::<Buffer<T>>();
+        DecimalArray::new(
+            values,
+            decimal_dtype,
+            Validity::from_iter([true, false, true]),
+        )
+    });
+    assert_arrays_eq!(traced.output, expected, &mut ctx);
+
+    Ok(())
 }
