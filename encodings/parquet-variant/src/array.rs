@@ -258,7 +258,6 @@ fn logical_shredded_from_parquet_field(
         let typed_value = if validity.definitely_no_nulls() {
             typed_value.clone()
         } else {
-            // The code below checks the encoding of `typed_value`, so reduce the mask first.
             typed_value
                 .clone()
                 .mask(validity.to_array(typed_value.len()))?
