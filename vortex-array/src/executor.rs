@@ -335,6 +335,10 @@ impl ArrayRef {
                     trace_op!(record_append_child(i, &parent, &child));
                     trace_op!(record_builder_append(&child));
 
+                    // `append_to_builder` optimizes the child itself. The shared optimizer here
+                    // also reuses a shared node that an earlier step of this execution rewrote.
+                    let child = optimizer.optimize_array(&child)?;
+
                     // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
                     child.append_to_builder(

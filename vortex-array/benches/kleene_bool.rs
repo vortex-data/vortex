@@ -18,6 +18,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -225,7 +226,11 @@ fn bool_nullable(true_every: usize, null_every: usize, offset: usize) -> ArrayRe
     if offset == 0 {
         array
     } else {
-        array.slice(offset..offset + LEN).unwrap()
+        array
+            .slice(offset..offset + LEN)
+            .unwrap()
+            .optimize_ctx(&SESSION)
+            .unwrap()
     }
 }
 
