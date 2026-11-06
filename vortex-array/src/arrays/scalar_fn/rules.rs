@@ -30,8 +30,8 @@ pub(super) const RULES: ReduceRuleSet<ScalarFn> =
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_scalar_fn_reduce_parent_rule(Filter, ScalarFilterPushdownRule);
-    kernels.register_scalar_fn_reduce_parent_rule(Slice, ScalarFnSliceReduceRule);
+    kernels.register_scalar_fn_reduce_parent_rule(Filter, const { &ScalarFilterPushdownRule });
+    kernels.register_scalar_fn_reduce_parent_rule(Slice, const { &ScalarFnSliceReduceRule });
 }
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.

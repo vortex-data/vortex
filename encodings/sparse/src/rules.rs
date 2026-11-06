@@ -19,8 +19,8 @@ use crate::SparseExt as _;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, Sparse, CastReduceAdaptor(Sparse));
-    kernels.register_reduce_parent_rule(Not, Sparse, NotReduceAdaptor(Sparse));
+    kernels.register_reduce_parent_rule(Cast, Sparse, const { &CastReduceAdaptor(Sparse) });
+    kernels.register_reduce_parent_rule(Not, Sparse, const { &NotReduceAdaptor(Sparse) });
 }
 
 impl NotReduce for Sparse {

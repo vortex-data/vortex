@@ -31,11 +31,11 @@ use crate::validity::Validity;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, Struct, StructCastRule);
-    kernels.register_reduce_parent_rule(GetItem, Struct, StructGetItemRule);
-    kernels.register_reduce_parent_rule(MaskFn, Struct, MaskReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Slice, Struct, SliceReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Dict, Struct, TakeReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Cast, Struct, const { &StructCastRule });
+    kernels.register_reduce_parent_rule(GetItem, Struct, const { &StructGetItemRule });
+    kernels.register_reduce_parent_rule(MaskFn, Struct, const { &MaskReduceAdaptor(Struct) });
+    kernels.register_reduce_parent_rule(Slice, Struct, const { &SliceReduceAdaptor(Struct) });
+    kernels.register_reduce_parent_rule(Dict, Struct, const { &TakeReduceAdaptor(Struct) });
 }
 
 /// Casts a struct by casting its fields, when the cast only changes what the validity can hold.

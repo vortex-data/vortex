@@ -12,6 +12,6 @@ use crate::delta::vtable::Delta;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice, Delta, SliceReduceAdaptor(Delta));
-    kernels.register_reduce_parent_rule(Cast, Delta, CastReduceAdaptor(Delta));
+    kernels.register_reduce_parent_rule(Slice, Delta, const { &SliceReduceAdaptor(Delta) });
+    kernels.register_reduce_parent_rule(Cast, Delta, const { &CastReduceAdaptor(Delta) });
 }

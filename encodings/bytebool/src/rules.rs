@@ -14,7 +14,7 @@ use crate::ByteBool;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, ByteBool, CastReduceAdaptor(ByteBool));
-    kernels.register_reduce_parent_rule(MaskFn, ByteBool, MaskReduceAdaptor(ByteBool));
-    kernels.register_reduce_parent_rule(Slice, ByteBool, SliceReduceAdaptor(ByteBool));
+    kernels.register_reduce_parent_rule(Cast, ByteBool, const { &CastReduceAdaptor(ByteBool) });
+    kernels.register_reduce_parent_rule(MaskFn, ByteBool, const { &MaskReduceAdaptor(ByteBool) });
+    kernels.register_reduce_parent_rule(Slice, ByteBool, const { &SliceReduceAdaptor(ByteBool) });
 }

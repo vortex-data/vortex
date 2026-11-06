@@ -34,12 +34,32 @@ use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter, DateTimeParts, DTPFilterPushDownRule);
-    kernels.register_reduce_parent_rule(AnyScalarFn, DateTimeParts, DTPComparisonPushDownRule);
-    kernels.register_reduce_parent_rule(Cast, DateTimeParts, CastReduceAdaptor(DateTimeParts));
-    kernels.register_reduce_parent_rule(Filter, DateTimeParts, FilterReduceAdaptor(DateTimeParts));
-    kernels.register_reduce_parent_rule(MaskFn, DateTimeParts, MaskReduceAdaptor(DateTimeParts));
-    kernels.register_reduce_parent_rule(Slice, DateTimeParts, SliceReduceAdaptor(DateTimeParts));
+    kernels.register_reduce_parent_rule(Filter, DateTimeParts, const { &DTPFilterPushDownRule });
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        DateTimeParts,
+        const { &DTPComparisonPushDownRule },
+    );
+    kernels.register_reduce_parent_rule(
+        Cast,
+        DateTimeParts,
+        const { &CastReduceAdaptor(DateTimeParts) },
+    );
+    kernels.register_reduce_parent_rule(
+        Filter,
+        DateTimeParts,
+        const { &FilterReduceAdaptor(DateTimeParts) },
+    );
+    kernels.register_reduce_parent_rule(
+        MaskFn,
+        DateTimeParts,
+        const { &MaskReduceAdaptor(DateTimeParts) },
+    );
+    kernels.register_reduce_parent_rule(
+        Slice,
+        DateTimeParts,
+        const { &SliceReduceAdaptor(DateTimeParts) },
+    );
 }
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields

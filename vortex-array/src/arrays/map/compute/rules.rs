@@ -18,9 +18,9 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter, Map, FilterReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Cast, Map, CastReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(MaskFn, Map, MaskReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Slice, Map, SliceReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Dict, Map, TakeReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(Filter, Map, const { &FilterReduceAdaptor(Map) });
+    kernels.register_reduce_parent_rule(Cast, Map, const { &CastReduceAdaptor(Map) });
+    kernels.register_reduce_parent_rule(MaskFn, Map, const { &MaskReduceAdaptor(Map) });
+    kernels.register_reduce_parent_rule(Slice, Map, const { &SliceReduceAdaptor(Map) });
+    kernels.register_reduce_parent_rule(Dict, Map, const { &TakeReduceAdaptor(Map) });
 }

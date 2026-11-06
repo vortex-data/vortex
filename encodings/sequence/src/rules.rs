@@ -14,11 +14,11 @@ use crate::Sequence;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, Sequence, CastReduceAdaptor(Sequence));
+    kernels.register_reduce_parent_rule(Cast, Sequence, const { &CastReduceAdaptor(Sequence) });
     kernels.register_reduce_parent_rule(
         ListContains,
         Sequence,
-        ListContainsElementReduceAdaptor(Sequence),
+        const { &ListContainsElementReduceAdaptor(Sequence) },
     );
-    kernels.register_reduce_parent_rule(Slice, Sequence, SliceReduceAdaptor(Sequence));
+    kernels.register_reduce_parent_rule(Slice, Sequence, const { &SliceReduceAdaptor(Sequence) });
 }

@@ -12,6 +12,6 @@ use crate::alp_rd::ALPRD;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast, ALPRD, CastReduceAdaptor(ALPRD));
-    kernels.register_reduce_parent_rule(MaskFn, ALPRD, MaskReduceAdaptor(ALPRD));
+    kernels.register_reduce_parent_rule(Cast, ALPRD, const { &CastReduceAdaptor(ALPRD) });
+    kernels.register_reduce_parent_rule(MaskFn, ALPRD, const { &MaskReduceAdaptor(ALPRD) });
 }

@@ -21,26 +21,26 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(
         Cast,
         DecimalByteParts,
-        CastReduceAdaptor(DecimalByteParts),
+        const { &CastReduceAdaptor(DecimalByteParts) },
     );
     kernels.register_reduce_parent_rule(
         Filter,
         DecimalByteParts,
-        FilterReduceAdaptor(DecimalByteParts),
+        const { &FilterReduceAdaptor(DecimalByteParts) },
     );
     kernels.register_reduce_parent_rule(
         MaskFn,
         DecimalByteParts,
-        MaskReduceAdaptor(DecimalByteParts),
+        const { &MaskReduceAdaptor(DecimalByteParts) },
     );
     kernels.register_reduce_parent_rule(
         Slice,
         DecimalByteParts,
-        SliceReduceAdaptor(DecimalByteParts),
+        const { &SliceReduceAdaptor(DecimalByteParts) },
     );
     kernels.register_reduce_parent_rule(
         Dict,
         DecimalByteParts,
-        TakeReduceAdaptor(DecimalByteParts),
+        const { &TakeReduceAdaptor(DecimalByteParts) },
     );
 }
