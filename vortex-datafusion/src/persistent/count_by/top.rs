@@ -70,6 +70,7 @@ use datafusion_physical_plan::execution_plan::ReplaceChildrenOptions;
 use datafusion_physical_plan::metrics::BaselineMetrics;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::metrics::Time;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::stream;
@@ -193,12 +194,18 @@ impl ExecutionPlan for VortexTopCountExec {
         if partition != 0 {
             return internal_err!("VortexTopCountExec has one partition, not {partition}");
         }
+        let baseline = BaselineMetrics::new(&self.metrics, partition);
         let partials = (0..self.input.output_partitioning().partition_count())
             .map(|partition| {
                 let stream = self.input.execute(partition, Arc::clone(&context))?;
                 let reservation = MemoryConsumer::new(format!("VortexTopCountExec[{partition}]"))
                     .register(context.memory_pool());
-                Ok(SpawnedTask::spawn(hash_partials(stream, reservation)))
+                let elapsed_compute = baseline.elapsed_compute().clone();
+                Ok(SpawnedTask::spawn(hash_partials(
+                    stream,
+                    reservation,
+                    elapsed_compute,
+                )))
             })
             .collect::<DFResult<Vec<_>>>()?;
         let merge_reservation =
@@ -206,7 +213,6 @@ impl ExecutionPlan for VortexTopCountExec {
         let schema = Arc::clone(&self.schema);
         let fetch = self.fetch;
         let merge_all_rows = self.merge_all_rows;
-        let baseline = BaselineMetrics::new(&self.metrics, partition);
         let top = async move {
             let mut hashed = Vec::with_capacity(partials.len());
             let mut reservations = Vec::with_capacity(partials.len());
@@ -223,7 +229,9 @@ impl ExecutionPlan for VortexTopCountExec {
                 .flat_map(|partial| &partial.batches)
                 .map(RecordBatch::num_rows)
                 .sum::<usize>();
-            merge_reservation.try_grow(rows.saturating_mul(MERGE_BYTES_PER_ROW))?;
+            if rows > merge_all_rows {
+                merge_reservation.try_grow(rows.saturating_mul(PRUNE_BYTES_PER_ROW))?;
+            }
             let elapsed_compute = baseline.elapsed_compute().clone();
             let merge = move || {
                 let _timer = elapsed_compute.timer();
@@ -316,6 +324,7 @@ const HASH_STATE: RandomState = RandomState::with_seed(0);
 async fn hash_partials(
     mut stream: SendableRecordBatchStream,
     reservation: MemoryReservation,
+    elapsed_compute: Time,
 ) -> DFResult<(HashedPartials, MemoryReservation)> {
     let mut hashed = HashedPartials::new();
     while let Some(batch) = stream.next().await.transpose()? {
@@ -323,15 +332,16 @@ async fn hash_partials(
             reservation.try_grow(
                 batch.get_array_memory_size() + batch.num_rows() * size_of::<HashedRow>(),
             )?;
+            let _timer = elapsed_compute.timer();
             hashed.push(batch)?;
         }
     }
     Ok((hashed, reservation))
 }
 
-/// The memory the merge takes for each partial row: the row's copy in its shard, the sum of
+/// The memory the pruning takes for each partial row: the row's copy in its shard, the sum of
 /// its hash, and its hash's entry in the shard's table.
-const MERGE_BYTES_PER_ROW: usize = 2 * size_of::<HashedRow>() + 3 * size_of::<i64>();
+const PRUNE_BYTES_PER_ROW: usize = 2 * size_of::<HashedRow>() + 3 * size_of::<i64>();
 
 /// The grouping columns and the count column of a batch of partial counts.
 fn split_counts(batch: &RecordBatch) -> DFResult<(&[ArrowArrayRef], &Int64Array)> {
@@ -589,6 +599,7 @@ mod tests {
     use datafusion_execution::memory_pool::MemoryPool;
     use datafusion_execution::memory_pool::MemoryReservation;
     use datafusion_execution::memory_pool::UnboundedMemoryPool;
+    use datafusion_physical_plan::metrics::Time;
     use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
     use futures::stream;
     use rstest::rstest;
@@ -687,7 +698,7 @@ mod tests {
         ));
         let pool: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(64));
         let reservation = MemoryConsumer::new("test").register(&pool);
-        let err = hash_partials(input, reservation)
+        let err = hash_partials(input, reservation, Time::new())
             .await
             .err()
             .ok_or_else(|| internal_datafusion_err!("64 bytes held a batch"))?;
@@ -702,7 +713,7 @@ mod tests {
         ));
         let pool: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(1 << 20));
         let reservation = MemoryConsumer::new("test").register(&pool);
-        let (hashed, reservation) = hash_partials(input, reservation).await?;
+        let (hashed, reservation) = hash_partials(input, reservation, Time::new()).await?;
         assert_eq!(hashed.batches.len(), 1);
         assert!(reservation.size() > 0);
         Ok(())
