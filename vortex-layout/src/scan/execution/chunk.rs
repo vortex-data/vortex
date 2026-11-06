@@ -126,7 +126,7 @@ impl Planner for ChunkPlanner {
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
             let scope = WorkScope {
-                file_ordinal: 0,
+                file_ordinal: self.scan.file_ordinal(),
                 rows: chunk,
             };
             if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)

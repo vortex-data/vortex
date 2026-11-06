@@ -23,6 +23,7 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
+async-channel = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 roaring = { workspace = true }

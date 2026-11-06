@@ -102,12 +102,19 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// The ordinal of the file within its table, carried in every scope the scan emits.
+    pub(super) file_ordinal: u64,
 }
 
 impl PreparedScan {
     /// The rows of the file's row domain the scan covers.
     pub fn rows(&self) -> &Range<u64> {
         &self.rows
+    }
+
+    /// The ordinal of the file within its table, carried in every scope the scan emits.
+    pub fn file_ordinal(&self) -> u64 {
+        self.file_ordinal
     }
 
     /// The rows of [`rows`](Self::rows) the scan selects.

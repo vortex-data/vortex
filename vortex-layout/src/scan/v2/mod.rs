@@ -99,6 +99,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    file_ordinal: u64,
     skip_unselective_dynamic: bool,
 }
 
@@ -113,6 +114,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            file_ordinal: 0,
             skip_unselective_dynamic: false,
         }
     }
@@ -166,6 +168,13 @@ impl ScanBuilder {
     /// Selects rows by strictly sorted file-local indices.
     pub fn with_row_indices(self, row_indices: StrictSortedBuffer<u64>) -> Self {
         self.with_selection(Selection::IncludeByIndex(row_indices))
+    }
+
+    /// The ordinal of the file within its table, carried in the scope of every planner and
+    /// batch the scan emits. Zero by default.
+    pub fn with_file_ordinal(mut self, file_ordinal: u64) -> Self {
+        self.file_ordinal = file_ordinal;
+        self
     }
 
     /// Sets the root row offset used by row-index expressions.
@@ -253,6 +262,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            file_ordinal: self.file_ordinal,
         })
     }
 }
