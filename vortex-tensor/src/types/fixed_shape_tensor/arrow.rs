@@ -53,10 +53,9 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
 use crate::types::arrow::drop_masked_nulls;
-use crate::types::arrow::to_logical;
-use crate::types::arrow::to_physical;
 use crate::types::fixed_shape_tensor::FixedShapeTensor;
 use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
+use crate::types::fixed_shape_tensor::FixedShapeTensorStoredMetadata;
 
 /// Canonical Arrow extension name of fixed-shape tensors.
 const ARROW_EXTENSION_NAME: &str = "arrow.fixed_shape_tensor";
@@ -110,18 +109,16 @@ fn to_vortex(
     element_ptype: PType,
     shape: &[usize],
 ) -> VortexResult<FixedShapeTensorMetadata> {
-    let permutation = tensor.permutations();
-    let mut metadata =
-        FixedShapeTensorMetadata::new(element_ptype, to_logical(shape, permutation)?);
+    let stored = FixedShapeTensorStoredMetadata::from_physical(
+        shape,
+        tensor.dimension_names(),
+        tensor.permutations(),
+    )?;
 
-    if let Some(names) = tensor.dimension_names() {
-        metadata = metadata.with_dim_names(to_logical(names, permutation)?)?;
-    }
-    if let Some(permutation) = permutation {
-        metadata = metadata.with_permutation(permutation.to_vec())?;
-    }
-
-    Ok(metadata)
+    Ok(FixedShapeTensorMetadata::from_stored_metadata(
+        element_ptype,
+        stored,
+    ))
 }
 
 impl ArrowExtVTable for FixedShapeTensor {
@@ -152,9 +149,7 @@ impl ArrowExtVTable for FixedShapeTensor {
         let permutation = metadata.permutation();
         let out = ArrowMetadataOut {
             shape: metadata.physical_shape().collect(),
-            dim_names: metadata
-                .dim_names()
-                .map(|names| to_physical(names, permutation)),
+            dim_names: metadata.physical_dim_names(),
             permutations: permutation,
         };
 
