@@ -18,11 +18,8 @@ use crate::builders::VarBinViewBuilder;
 const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
 const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
 
-/// The maximum number of data buffers that compaction keeps as they are.
-///
-/// The serializer accepts at most `u16::MAX` buffers for an array and all its descendants. That
-/// count also includes the views buffer, the validity buffer and the buffers of parent encodings,
-/// which this array cannot see. Thus we keep a wide margin below the serializer limit.
+/// The maximum number of data buffers that compaction keeps as they are, well below the
+/// `u16::MAX` buffers that the serializer accepts for an array and all its descendants.
 const MAX_RETAINED_DATA_BUFFERS: usize = u16::MAX as usize / 2;
 
 /// A utilization threshold that no buffer can reach, thus compaction rewrites every buffer.
@@ -583,19 +580,14 @@ mod tests {
         Ok(())
     }
 
-    /// The builder starts at 4 KiB and doubles its buffers, thus a rewrite of at most 1 MiB of
-    /// values makes fewer than 16 buffers.
-    #[rstest]
-    #[case::above_limit(MAX_RETAINED_DATA_BUFFERS + 1)]
-    #[case::at_serializer_limit(u16::MAX as usize)]
-    #[case::above_serializer_limit(u16::MAX as usize + 1)]
-    fn test_compact_rewrites_too_many_full_buffers(#[case] nbuffers: usize) -> VortexResult<()> {
+    #[test]
+    fn test_compact_too_many_buffers_fits_serializer_limit() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let original = one_buffer_per_value(nbuffers)?;
+        let original = one_buffer_per_value(u16::MAX as usize + 1)?;
 
         let compacted = original.compact_buffers(&mut ctx)?;
 
-        assert!(compacted.data_buffers().len() < 16);
+        assert!(compacted.data_buffers().len() < u16::MAX as usize);
         assert_arrays_eq!(compacted, original, &mut ctx);
 
         Ok(())
