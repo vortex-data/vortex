@@ -8,6 +8,7 @@
 //! This crate keeps CUDA out of `vortex-ffi` and exports borrowed `vx_array` handles as the
 //! `ArrowSchema + ArrowDeviceArray` pair that callers pass to cuDF's Arrow Device import APIs.
 
+use std::ffi::c_void;
 use std::os::raw::c_int;
 use std::ptr;
 
@@ -114,6 +115,35 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
             register_cuda_layout(&session);
             session
         }))
+    })
+}
+
+/// Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+///
+/// Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+/// Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+/// a successful call clears `error_out`.
+///
+/// # Safety
+///
+/// `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+/// from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+/// The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+/// must be writable for one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_session_mem_pool(
+    session: *const vx_session,
+    error_out: *mut *mut vx_error,
+) -> *mut c_void {
+    try_or(error_out, ptr::null_mut(), || {
+        // SAFETY: The caller supplies a live borrowed session handle.
+        let session = unsafe { vx_session_ref(session) }?;
+        Ok(session
+            .get::<CudaSession>()
+            .stream()?
+            .context()
+            .mem_pool()
+            .cast())
     })
 }
 
@@ -1284,12 +1314,27 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_cuda_session_mem_pool_rejects_null_session() {
+        let mut error = ptr::null_mut();
+        // SAFETY: Null sessions are rejected; the error output is writable.
+        let pool = unsafe { vx_cuda_session_mem_pool(ptr::null(), &raw mut error) };
+        assert!(pool.is_null());
+        // SAFETY: This call owns the returned error and frees it exactly once.
+        let message = unsafe { take_error_message(error) }.expect("missing FFI error");
+        assert!(message.contains("null vx_session"), "{message}");
+    }
+
     #[cuda_test]
     fn test_cuda_session_new_export() -> VortexResult<()> {
         let mut error = ptr::null_mut();
         let session = unsafe { vx_cuda_session_new(&raw mut error) };
         assert!(error.is_null());
         assert!(!session.is_null());
+
+        // SAFETY: The session remains live until cleanup below; error is writable.
+        let pool = unsafe { vx_cuda_session_mem_pool(session, &raw mut error) };
+        assert!(error.is_null());
 
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         // SAFETY: Both handles remain live until cleanup below.
@@ -1309,6 +1354,11 @@ mod tests {
             PrimitiveArray::from_iter(0u32..5),
             &mut VortexSession::default().create_execution_ctx()
         );
+
+        // SAFETY: The same session is still live; error is writable.
+        let pool_after_export = unsafe { vx_cuda_session_mem_pool(session, &raw mut error) };
+        assert!(error.is_null());
+        assert_eq!(pool_after_export, pool);
 
         unsafe {
             release_device_array(&mut device_array);
