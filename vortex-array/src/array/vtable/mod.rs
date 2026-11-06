@@ -148,9 +148,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// The default implementation executes the full array to [`Canonical`] and appends that result.
     /// Encodings may override this to avoid materializing an intermediate canonical array.
-    ///
-    /// [`ArrayRef::append_to_builder`] optimizes the array before it calls this function, so the
-    /// array is already in the encoding that it reduces to.
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
