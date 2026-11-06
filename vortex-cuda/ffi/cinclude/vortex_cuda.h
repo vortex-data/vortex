@@ -110,6 +110,22 @@ void vx_cuda_release_file_mappings(void);
 vx_session *vx_cuda_session_new(vx_error **error_out);
 
 /**
+ * Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+ *
+ * Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+ * Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+ * a successful call clears `error_out`.
+ *
+ * # Safety
+ *
+ * `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+ * from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+ * The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+ * must be writable for one error pointer.
+ */
+void *vx_cuda_session_mem_pool(const vx_session *session, vx_error **error_out);
+
+/**
  * Open a Vortex file sink configured to produce CUDA-readable files.
  *
  * Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
