@@ -65,7 +65,11 @@ use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::ExecutionPlanProperties;
 use datafusion_physical_plan::PlanProperties;
 use datafusion_physical_plan::execution_plan::ChildrenPropertiesMode;
+use datafusion_physical_plan::execution_plan::EmissionType;
 use datafusion_physical_plan::execution_plan::ReplaceChildrenOptions;
+use datafusion_physical_plan::metrics::BaselineMetrics;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::metrics::MetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::stream;
@@ -89,6 +93,7 @@ pub struct VortexTopCountExec {
     /// Up to this many partial rows, it merges them all rather than pruning them first.
     merge_all_rows: usize,
     properties: Arc<PlanProperties>,
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl VortexTopCountExec {
@@ -107,7 +112,8 @@ impl VortexTopCountExec {
         let properties = PlanProperties::new(
             EquivalenceProperties::new_with_orderings(Arc::clone(&schema), ordering),
             Partitioning::UnknownPartitioning(1),
-            input.pipeline_behavior(),
+            // It emits only once it has merged its whole input.
+            EmissionType::Final,
             input.boundedness(),
         );
         Self {
@@ -117,6 +123,7 @@ impl VortexTopCountExec {
             options,
             merge_all_rows,
             properties: Arc::new(properties),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 }
@@ -149,11 +156,14 @@ impl ExecutionPlan for VortexTopCountExec {
 
     fn replace_children(
         self: Arc<Self>,
-        mut children: Vec<Arc<dyn ExecutionPlan>>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
         _options: ReplaceChildrenOptions,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
+        let [input] = <[_; 1]>::try_from(children).map_err(|children| {
+            internal_datafusion_err!("VortexTopCountExec has one child, not {}", children.len())
+        })?;
         Ok(Arc::new(Self::new(
-            children.remove(0),
+            input,
             Arc::clone(&self.schema),
             self.fetch,
             self.options,
@@ -169,6 +179,10 @@ impl ExecutionPlan for VortexTopCountExec {
             children,
             ReplaceChildrenOptions::new(ChildrenPropertiesMode::Recompute),
         )
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
     }
 
     fn execute(
@@ -192,6 +206,7 @@ impl ExecutionPlan for VortexTopCountExec {
         let schema = Arc::clone(&self.schema);
         let fetch = self.fetch;
         let merge_all_rows = self.merge_all_rows;
+        let baseline = BaselineMetrics::new(&self.metrics, partition);
         let top = async move {
             let mut hashed = Vec::with_capacity(partials.len());
             let mut reservations = Vec::with_capacity(partials.len());
@@ -209,16 +224,25 @@ impl ExecutionPlan for VortexTopCountExec {
                 .map(RecordBatch::num_rows)
                 .sum::<usize>();
             merge_reservation.try_grow(rows.saturating_mul(MERGE_BYTES_PER_ROW))?;
-            // The merge runs threads of its own; keep it off the runtime's workers. The
-            // reservations last until it returns.
-            SpawnedTask::spawn_blocking(move || {
-                let top = top_counts(hashed, &schema, fetch, merge_all_rows);
+            let elapsed_compute = baseline.elapsed_compute().clone();
+            let merge = move || {
+                let _timer = elapsed_compute.timer();
+                let top = top_counts(hashed, &schema, fetch, merge_all_rows, &merge_reservation);
                 drop((reservations, merge_reservation));
                 top
-            })
-            .join_unwind()
-            .await
-            .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))?
+            };
+            let top = if rows <= merge_all_rows {
+                merge()?
+            } else {
+                // The pruning runs threads of its own; keep it off the runtime's workers.
+                SpawnedTask::spawn_blocking(merge)
+                    .join_unwind()
+                    .await
+                    .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??
+            };
+            baseline.record_output(top.num_rows());
+            baseline.done();
+            Ok(top)
         };
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             Arc::clone(&self.schema),
@@ -327,6 +351,7 @@ fn top_counts(
     schema: &SchemaRef,
     fetch: usize,
     merge_all_rows: usize,
+    reservation: &MemoryReservation,
 ) -> DFResult<RecordBatch> {
     // Number the batches of every partition together.
     let mut offsets = Vec::with_capacity(partials.len());
@@ -341,7 +366,7 @@ fn top_counts(
     let rows = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
     if rows <= merge_all_rows {
         let rows = concat_batches(&first.schema(), batches.iter().copied())?;
-        return top_groups(group_exactly(rows)?, schema, fetch);
+        return top_groups(group_exactly(rows, reservation)?, schema, fetch);
     }
 
     // The hashes with the `widest + 1` largest sums hold at least `widest + 1 > fetch` groups,
@@ -358,14 +383,22 @@ fn top_counts(
     } else {
         i64::MIN
     };
-    let mut totals = merge_exactly(&batches, &shards, least)?.totals;
+    let groups = merge_exactly(&batches, &shards, least, reservation)?;
+    if least == i64::MIN {
+        return top_groups(groups, schema, fetch);
+    }
+    let mut totals = groups.totals;
     let threshold = match totals.len().checked_sub(fetch) {
         Some(kth) => *totals.select_nth_unstable(kth).1,
         None => i64::MIN,
     };
 
     // A group whose hash sums to less than the threshold totals less than it.
-    top_groups(merge_exactly(&batches, &shards, threshold)?, schema, fetch)
+    top_groups(
+        merge_exactly(&batches, &shards, threshold, reservation)?,
+        schema,
+        fetch,
+    )
 }
 
 /// The `fetch` groups with the largest totals, in descending order.
@@ -489,6 +522,7 @@ fn merge_exactly(
     batches: &[&RecordBatch],
     shards: &[ShardSums],
     least: i64,
+    reservation: &MemoryReservation,
 ) -> DFResult<ExactGroups> {
     let selected = shards
         .iter()
@@ -501,11 +535,12 @@ fn merge_exactly(
                 .map(|(row, _)| (row.batch as usize, row.row as usize))
         })
         .collect::<Vec<_>>();
-    group_exactly(interleave_record_batch(batches, &selected)?)
+    group_exactly(interleave_record_batch(batches, &selected)?, reservation)
 }
 
-/// Merges partial counts by their grouping values.
-fn group_exactly(rows: RecordBatch) -> DFResult<ExactGroups> {
+/// Merges partial counts by their grouping values, reserving the copies it makes of them.
+fn group_exactly(rows: RecordBatch, reservation: &MemoryReservation) -> DFResult<ExactGroups> {
+    reservation.try_grow(rows.get_array_memory_size())?;
     let (keys, counts) = split_counts(&rows)?;
     let converter = RowConverter::new(
         keys.iter()
@@ -513,6 +548,7 @@ fn group_exactly(rows: RecordBatch) -> DFResult<ExactGroups> {
             .collect(),
     )?;
     let converted = converter.convert_columns(keys)?;
+    reservation.try_grow(converted.size())?;
     let mut groups = HashMap::<_, usize>::default();
     let mut representatives = Vec::new();
     let mut totals = Vec::<i64>::new();
@@ -551,6 +587,8 @@ mod tests {
     use datafusion_execution::memory_pool::GreedyMemoryPool;
     use datafusion_execution::memory_pool::MemoryConsumer;
     use datafusion_execution::memory_pool::MemoryPool;
+    use datafusion_execution::memory_pool::MemoryReservation;
+    use datafusion_execution::memory_pool::UnboundedMemoryPool;
     use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
     use futures::stream;
     use rstest::rstest;
@@ -604,7 +642,13 @@ mod tests {
         ])?;
         let third = partials(&[(Some("b"), 1), (Some("c"), 1), (Some("c"), 1)])?;
 
-        let top = top_counts(vec![first, second, third], &schema(), 3, merge_all_rows)?;
+        let top = top_counts(
+            vec![first, second, third],
+            &schema(),
+            3,
+            merge_all_rows,
+            &unbounded(),
+        )?;
         let urls = top
             .column(0)
             .as_any()
@@ -625,7 +669,7 @@ mod tests {
         #[values(0, usize::MAX)] merge_all_rows: usize,
     ) -> DFResult<()> {
         let only = partials(&[(Some("a"), 1), (Some("b"), 3), (Some("a"), 1)])?;
-        let top = top_counts(vec![only], &schema(), 10, merge_all_rows)?;
+        let top = top_counts(vec![only], &schema(), 10, merge_all_rows, &unbounded())?;
         let counts = top.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
         assert_eq!(counts.values().to_vec(), vec![3, 2]);
         Ok(())
@@ -664,11 +708,48 @@ mod tests {
         Ok(())
     }
 
+    fn unbounded() -> MemoryReservation {
+        let pool: Arc<dyn MemoryPool> = Arc::new(UnboundedMemoryPool::default());
+        MemoryConsumer::new("test").register(&pool)
+    }
+
+    /// A group whose count is spread over partitions, each part below another group's single
+    /// count, still totals the most: the threshold bounds a group by its hash's summed counts,
+    /// not by its largest partial count.
+    #[rstest]
+    fn top_counts_keeps_a_group_split_across_partitions(
+        #[values(0, usize::MAX)] merge_all_rows: usize,
+    ) -> DFResult<()> {
+        let small = (0..20).map(|i| format!("small-{i}")).collect::<Vec<_>>();
+        let mut first = vec![(Some("split"), 4), (Some("big"), 10), (Some("mid"), 9)];
+        first.extend(small.iter().map(|key| (Some(key.as_str()), 1)));
+        let first = partials(&first)?;
+        let second = partials(&[(Some("split"), 4)])?;
+        let third = partials(&[(Some("split"), 4)])?;
+
+        let top = top_counts(
+            vec![first, second, third],
+            &schema(),
+            1,
+            merge_all_rows,
+            &unbounded(),
+        )?;
+        let urls = top
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let counts = top.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(urls.value(0), "split");
+        assert_eq!(counts.values().to_vec(), vec![12]);
+        Ok(())
+    }
+
     /// A `LIMIT 0` returns no groups rather than indexing past the merged totals.
     #[rstest]
     fn top_counts_of_zero_is_empty(#[values(0, usize::MAX)] merge_all_rows: usize) -> DFResult<()> {
         let only = partials(&[(Some("a"), 1), (Some("b"), 3)])?;
-        let top = top_counts(vec![only], &schema(), 0, merge_all_rows)?;
+        let top = top_counts(vec![only], &schema(), 0, merge_all_rows, &unbounded())?;
         assert_eq!(top.num_rows(), 0);
         Ok(())
     }
@@ -678,7 +759,13 @@ mod tests {
     fn top_counts_of_no_partials_is_empty(
         #[values(0, usize::MAX)] merge_all_rows: usize,
     ) -> DFResult<()> {
-        let top = top_counts(vec![HashedPartials::new()], &schema(), 3, merge_all_rows)?;
+        let top = top_counts(
+            vec![HashedPartials::new()],
+            &schema(),
+            3,
+            merge_all_rows,
+            &unbounded(),
+        )?;
         assert_eq!(top.num_rows(), 0);
         Ok(())
     }
