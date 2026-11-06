@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Reassembling decimal arrays and values from their parts.
+//!
+//! Assembly preserves the [encoding contract](crate) and returns the canonical width. The natural
+//! part width can be smaller, in which case the canonical-width copy sign-extends the values.
 
 use std::ops::BitOr;
 use std::ops::Shl;

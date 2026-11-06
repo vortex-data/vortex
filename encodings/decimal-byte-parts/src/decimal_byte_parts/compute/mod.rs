@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Compute on the integer parts of a decimal.
+//!
+//! Row operations preserve the [part layout](crate). Comparisons and aggregates work on the parts,
+//! while operations that need canonical values use the execution fallback.
+
 pub(crate) mod aggregate;
 mod between;
 mod cast;

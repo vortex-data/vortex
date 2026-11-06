@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Splitting canonical decimal arrays into signed and unsigned parts.
+//!
+//! The valid values choose the part count, while the [MSP rule](crate) fixes the logical integer
+//! width. Null payloads do not choose the shape, and copies zero their output slots.
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -42,9 +45,8 @@ impl DecimalByteParts {
     ///
     /// # Errors
     ///
-    /// Returns an error if the validity cannot be executed, or if a valid value needs more lower
-    /// parts than the canonical width of the dtype allows (see
-    /// [`super::DecimalBytePartsData::validate`]). Only a value outside the precision needs them.
+    /// Returns an error if splitting fails or the parts violate
+    /// [`super::DecimalBytePartsData::validate`].
     pub fn encode(
         decimal: &DecimalArray,
         exec_ctx: &mut ExecutionCtx,

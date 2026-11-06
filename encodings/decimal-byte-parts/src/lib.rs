@@ -3,9 +3,22 @@
 
 //! An encoding that compresses decimals with integer compression schemes.
 //!
-//! A decimal is split into a signed most significant part (MSP) plus up to three `u64` lower
-//! parts, and each part can be compressed independently. Only the MSP narrows: it can use the
-//! smallest signed integer dtype that holds its values, while every lower part stays `u64`.
+//! A decimal is split into a signed most significant part (MSP) plus up to three non-nullable
+//! `u64` lower parts. The MSP has the decimal's nullability and the signed integer dtype at the
+//! canonical width of its precision, capped at `i64`. Lower parts exist only above precision 18.
+//! Precision 19 to 38 allows at most one lower part, and precision 39 to 76 allows up to three.
+//!
+//! Narrow MSP storage uses an integer [`Widen`] over a child that can be compressed. The canonical
+//! width of precision `p` is the smallest width that holds `10^p - 1`, so every value of a narrower
+//! signed integer fits the precision. Values assembled below that width also fit and sign-extend.
+//! The MSP therefore needs no precision label or range scan. Operations work on the parts when
+//! possible, and decoding produces the canonical decimal array only when a consumer needs it.
+//!
+//! The wire stores the child of an MSP `Widen`, so older readers need no new format. Readers wrap
+//! a narrower stored MSP without scanning. Only a wider legacy MSP needs a checked host copy.
+//!
+//! [`Widen`]: vortex_array::arrays::Widen
+
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;

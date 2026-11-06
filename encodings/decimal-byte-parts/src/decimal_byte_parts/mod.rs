@@ -13,7 +13,8 @@
 //!
 //! This is exactly the two's complement bit pattern of the decimal value cut on 64-bit
 //! boundaries. [`DecimalBytePartsData`] owns the rules for the part dtypes and count, and
-//! [`assemble_decimal`] owns the rules that pick the decoded form.
+//! [`assemble_decimal`] owns canonical decoding. The [crate documentation](crate) explains the
+//! logical MSP dtype and why narrow storage needs no scan.
 //!
 //! [`assemble_decimal`]: assemble::assemble_decimal
 
@@ -83,6 +84,7 @@ pub use split::split_decimal;
 
 #[doc(hidden)]
 pub mod _benchmarking {
+    //! Internal entry points for the assembly and split microbenchmarks.
     pub use super::assemble::assemble_decimal;
     pub use super::assemble::assemble_wide_decimal;
     pub use super::split::i128_to_parts;

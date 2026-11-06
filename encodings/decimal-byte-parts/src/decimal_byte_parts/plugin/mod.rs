@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! ArrayPlugin implementation for DBP that handles different wire formats.
+//! Wire translation for the two DBP formats.
+//!
+//! The plugin restores the [MSP contract](crate) on read and writes the stored integer child.
+//! Each version owns its metadata schema.
 
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayId;

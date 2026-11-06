@@ -133,9 +133,9 @@ pub struct DecimalDataParts {
     pub values: BufferHandle,
     /// Actual storage type, retained to interpret input before canonical conversion.
     ///
-    /// Legacy `vortex.decimal` nodes and DecimalByteParts assembly can use a different width from
-    /// [`DecimalDType::canonical_values_type`]. Comparing the widths identifies noncanonical
-    /// storage, not the age of the data: current [`WidenPlugin`] writes use that wire form too.
+    /// Legacy `vortex.decimal` nodes can use a different width from
+    /// [`DecimalDType::canonical_values_type`]. A differing width identifies the legacy storage
+    /// form, not the age of the data, because current [`WidenPlugin`] writes use that form too.
     ///
     /// [`WidenPlugin`]: crate::arrays::widen::WidenPlugin
     pub values_type: DecimalType,

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The DecimalByteParts encoding and its validated part layout.
+//!
+//! Construction establishes the [part contract](crate). The vtable and row operations preserve it.
 
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -49,22 +51,11 @@ use super::msp_ptype;
 /// A [`DecimalByteParts`]-encoded Vortex array.
 pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 
-/// This array encodes decimals by splitting them between 1-4 columns of primitive typed children.
+/// Decimal values stored in independently compressed integer parts.
 ///
-/// The most significant part (MSP) stores the most significant decimal bits. It is a signed integer
-/// of at most 64 bits, and it is nullable iff the decimal is nullable. Only the MSP may use a
-/// narrower dtype when its values fit.
-///
-/// Every lower part is a non-nullable `u64` array holding a 64-bit window of the value. The lower
-/// parts never assemble wider than the canonical width of the decimal dtype: precision up to 18
-/// allows no lower parts, precision 19 to 38 allows at most one, and precision 39 to 76 allows
-/// up to three.
-///
-/// Executing the array reassembles its integer parts. See [`assemble_decimal`].
-///
-/// e.g. for a decimal i128 \[ 127..64 | 63..0 \] msp = 127..64 and lower_part\[0\] = 63..0
-///
-/// All parts live in slots, so the array carries no additional data.
+/// See the [crate documentation](crate) for the part layout and MSP invariant, and
+/// [`DecimalBytePartsData::validate`] for construction requirements. All parts live in child slots.
+/// Valid values must fit the decimal precision. Construction checks the layout, not the values.
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsData;
 
@@ -89,10 +80,10 @@ impl DecimalBytePartsData {
     ///
     /// # Errors
     ///
-    /// Returns an error if the MSP is not a signed integer array of length `len`, if `dtype`
-    /// does not match the MSP's nullability, if the lower parts assemble wider than the canonical
-    /// width of `decimal_dtype`, or if any lower part is not a non-nullable `u64` array of length
-    /// `len`.
+    /// Returns an error unless the MSP has the logical ptype from the [MSP rule](crate), the
+    /// nullability of `dtype`, and length `len`. The decimal dtype must match `decimal_dtype`.
+    /// Every lower part must be a non-nullable `u64` array of length `len`, and their count must
+    /// fit the canonical decimal width.
     pub fn validate<'a>(
         msp: &ArrayRef,
         lower_parts: impl ExactSizeIterator<Item = &'a ArrayRef>,
@@ -134,7 +125,7 @@ impl DecimalByteParts {
     ///
     /// # Errors
     ///
-    /// Returns an error if the MSP is not a signed integer array.
+    /// Returns an error if the MSP violates [`DecimalBytePartsData::validate`].
     pub fn try_new(
         msp: ArrayRef,
         decimal_dtype: DecimalDType,
@@ -259,6 +250,7 @@ impl VTable for DecimalByteParts {
     }
 }
 
+/// The integer children of a [`DecimalBytePartsArray`].
 #[array_slots(DecimalByteParts)]
 pub struct DecimalBytePartsSlots {
     /// The most significant parts of the decimal values.
@@ -269,6 +261,7 @@ pub struct DecimalBytePartsSlots {
     pub lower_parts: Vec<ArrayRef>,
 }
 
+/// Operations that preserve the validated decimal part layout.
 pub(crate) trait DecimalBytePartsArrayExt: DecimalBytePartsArraySlotsExt {
     /// The decimal dtype of this array.
     fn decimal_dtype(&self) -> DecimalDType {
@@ -296,7 +289,7 @@ pub(crate) trait DecimalBytePartsArrayExt: DecimalBytePartsArraySlotsExt {
         DecimalByteParts::try_new_with_lower_parts(msp, lower_parts, self.decimal_dtype())
     }
 
-    /// Rebuild the array with a replacement MSP, preserving its lower parts, precision and scale.
+    /// Rebuild the array with a replacement MSP, preserving its lower parts, precision, and scale.
     ///
     /// Use this for operations such as masking and nullability casts that only affect the MSP.
     /// The replacement MSP determines the result's nullability.
@@ -321,8 +314,6 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     ) -> VortexResult<Scalar> {
         let scalar = array.msp().execute_scalar(index, ctx)?;
 
-        // Widen the MSP's signed value (i8/i16/i32/i64) to i64 for scalar reconstruction.
-        // The array retains its original MSP storage type.
         let primitive_scalar = scalar.as_primitive();
         let msp = primitive_scalar.as_::<i64>().vortex_expect("non-null");
 
@@ -359,7 +350,6 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
 
 impl ValidityChild<DecimalByteParts> for DecimalByteParts {
     fn validity_child(array: ArrayView<'_, DecimalByteParts>) -> ArrayRef {
-        // validity stored in 0th child
         array.msp().clone()
     }
 }
