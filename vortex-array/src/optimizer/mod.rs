@@ -41,6 +41,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -240,6 +241,27 @@ impl<'a> Optimizer<'a> {
         }
 
         Ok(optimized)
+    }
+
+    /// Tries the parent-reduce rules of the child in `slot_idx` against `parent`, session kernels
+    /// first, without trying the rules of `parent`'s other children.
+    pub(crate) fn reduce_parent_of_slot(
+        &self,
+        parent: &ArrayRef,
+        slot_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let child = parent.slots()[slot_idx]
+            .as_ref()
+            .vortex_expect("parent-reduce needs a present slot");
+
+        if let Some(session_kernels) = self.session_kernels
+            && let Some(new_array) =
+                try_session_parent_reduce(session_kernels, parent, child, slot_idx)?
+        {
+            return Ok(Some(new_array));
+        }
+
+        child.reduce_parent(parent, slot_idx)
     }
 
     /// Optimizes the root of `array` top down: first the root, then the descendants below it that
