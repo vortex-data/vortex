@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -303,6 +302,9 @@ pub fn bit_width_histogram(
     })
 }
 
+/// Number of independent counter sets in [`count_interleaved`].
+const HISTOGRAM_LANES: usize = 4;
+
 fn bit_width_histogram_typed<T: NativePType + PrimInt>(
     array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
@@ -317,28 +319,59 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         .bit_buffer()
     {
         AllOr::All => {
-            // All values are valid.
-            for v in array.as_slice::<T>() {
-                bit_widths[bit_width(*v)] += 1;
-            }
+            // All values are valid
+            count_interleaved(array.as_slice::<T>(), bit_width, &mut bit_widths);
         }
         AllOr::None => {
             // All values are invalid
             bit_widths[0] = array.len();
         }
         AllOr::Some(buffer) => {
-            // Some values are valid
-            for (is_valid, v) in buffer.iter().zip_eq(array.as_slice::<T>()) {
-                if is_valid {
-                    bit_widths[bit_width(*v)] += 1;
-                } else {
-                    bit_widths[0] += 1;
-                }
+            // Some values are valid. Invalid values count as bit width 0. Visit only the smaller
+            // of the valid and the invalid sets one index at a time.
+            let values = array.as_slice::<T>();
+            let invalid_count = buffer.false_count();
+
+            if invalid_count <= values.len() / 2 {
+                count_interleaved(values, bit_width, &mut bit_widths);
+
+                buffer.for_each_unset_index(|index| {
+                    bit_widths[bit_width(values[index])] -= 1;
+                });
+            } else {
+                buffer.for_each_set_index(|index| {
+                    bit_widths[bit_width(values[index])] += 1;
+                });
             }
+
+            bit_widths[0] += invalid_count;
         }
     }
 
     Ok(bit_widths)
+}
+
+/// Add the bit width of each value in `values` to `histogram`.
+///
+/// Most values share a bit width, so one counter set makes each increment wait for the store
+/// before it. Interleaved counter sets break that chain.
+fn count_interleaved<T: Copy>(values: &[T], bit_width: fn(T) -> usize, histogram: &mut [usize]) {
+    let mut lanes = [[0usize; 65]; HISTOGRAM_LANES];
+    let (chunks, remainder) = values.as_chunks::<HISTOGRAM_LANES>();
+
+    for chunk in chunks {
+        for (lane, v) in lanes.iter_mut().zip(chunk) {
+            lane[bit_width(*v)] += 1;
+        }
+    }
+
+    for v in remainder {
+        lanes[0][bit_width(*v)] += 1;
+    }
+
+    for (width, count) in histogram.iter_mut().enumerate() {
+        *count += lanes.iter().map(|lane| lane[width]).sum::<usize>();
+    }
 }
 
 pub fn find_best_bit_width(ptype: PType, bit_width_freq: &[usize]) -> VortexResult<u8> {
@@ -428,6 +461,7 @@ mod test {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
@@ -457,6 +491,35 @@ mod test {
             best_bit_width(&freq, bytes_per_exception(PType::U8)).unwrap(),
             3
         );
+    }
+
+    /// Invalid positions hold wide values, which must count as bit width 0. The cases cover
+    /// mostly valid and mostly invalid arrays, with lengths that are not a multiple of the lane
+    /// count.
+    #[rstest]
+    #[case::mostly_valid(
+        [1u8, 255, 3, 255, 7, 255, 15, 255, 31],
+        [true, false, true, false, true, false, true, false, true],
+        vec![4, 1, 1, 1, 1, 1, 0, 0, 0],
+    )]
+    #[case::mostly_invalid(
+        [255u8, 3, 255, 255, 255, 15, 255, 255, 255],
+        [false, true, false, false, false, true, false, false, false],
+        vec![7, 0, 1, 0, 1, 0, 0, 0, 0],
+    )]
+    fn bit_width_histogram_nullable(
+        #[case] values: [u8; 9],
+        #[case] validity: [bool; 9],
+        #[case] expected: Vec<usize>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let array = PrimitiveArray::new(Buffer::from_iter(values), Validity::from_iter(validity));
+        let histogram = bit_width_histogram(array.as_view(), &mut ctx)?;
+
+        assert_eq!(histogram, expected);
+
+        Ok(())
     }
 
     #[test]
