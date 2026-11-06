@@ -85,15 +85,13 @@ pub(crate) fn code_boundary_at(
 /// per-row `codes_offsets` boundaries plus the codes they bound.
 ///
 /// `slice` keeps the full `codes` child and only narrows `codes_offsets`, so
-/// for a sliced array the window starts at `offsets[0] > 0`; [`row`] resolves
-/// row indices relative to that start. Built once per query by the
-/// compressed-domain compare kernel.
-///
-/// [`row`]: CodesWindow::row
+/// for a sliced array the `codes_offsets` start past zero. The window holds
+/// only the codes of its rows and rebases the offsets to them. Built once per
+/// query by the compressed-domain compare and like kernels.
 pub(crate) struct CodesWindow {
+    /// The row boundaries, rebased so that they index into `codes`.
     offsets: Buffer<u64>,
     codes: Buffer<u16>,
-    code_start: usize,
 }
 
 impl CodesWindow {
@@ -102,10 +100,20 @@ impl CodesWindow {
         &self.codes[self.local(i)..self.local(i + 1)]
     }
 
-    /// Offset `i` rebased into the window's local `codes` slice. Offsets are
-    /// bounded by `codes.len()` (a `usize`), so the conversion never truncates.
+    /// The codes of all rows.
+    pub(crate) fn codes(&self) -> &[u16] {
+        &self.codes
+    }
+
+    /// The `len + 1` row boundaries, which index into [`codes`](Self::codes).
+    pub(crate) fn offsets(&self) -> &[u64] {
+        &self.offsets
+    }
+
+    /// Offset `i` as an index into `codes`. Offsets are bounded by `codes.len()`
+    /// (a `usize`), so the conversion never truncates.
     fn local(&self, i: usize) -> usize {
-        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize") - self.code_start
+        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize")
     }
 }
 
@@ -137,9 +145,14 @@ pub(crate) fn collect_codes_window(
         array.codes().len()
     );
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    Ok(CodesWindow {
-        offsets,
-        codes,
-        code_start,
-    })
+
+    // A sliced array keeps the full `codes` child, so its offsets start past zero.
+    let offsets = if offsets[0] == 0 {
+        offsets
+    } else {
+        let start = offsets[0];
+        offsets.iter().map(|offset| offset - start).collect()
+    };
+
+    Ok(CodesWindow { offsets, codes })
 }

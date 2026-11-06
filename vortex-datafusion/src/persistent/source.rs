@@ -45,6 +45,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::scan_v2::ChunkPool;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
@@ -208,6 +209,8 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// The chunks every partition of the scan takes work from.
+    chunk_pool: Arc<ChunkPool>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -248,6 +251,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            chunk_pool: Arc::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             dynamic_filters: Arc::new(DashMap::default()),
@@ -376,6 +380,7 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
             scan_caches: Arc::clone(&self.scan_caches),
+            chunk_pool: Arc::clone(&self.chunk_pool),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             dynamic_filters: Arc::clone(&self.dynamic_filters),

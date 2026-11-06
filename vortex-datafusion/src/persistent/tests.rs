@@ -26,6 +26,7 @@ use datafusion_common::arrow::compute::concat_batches;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::ExecutionPlanProperties;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
@@ -582,6 +583,98 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
     assert_eq!(serial_values, expected);
     assert_eq!(repartitioned_values, serial_values);
 
+    Ok(())
+}
+
+/// Writes `values` as a Vortex file at `path`, in chunks of `chunk_len` rows.
+async fn write_values(
+    store: &Arc<dyn ObjectStore>,
+    path: &str,
+    values: std::ops::Range<i32>,
+    chunk_len: i32,
+) -> anyhow::Result<()> {
+    let chunks = values
+        .clone()
+        .step_by(usize::try_from(chunk_len)?)
+        .map(|start| -> anyhow::Result<_> {
+            let end = (start + chunk_len).min(values.end);
+            Ok(StructArray::try_new(
+                ["value"].into(),
+                vec![Buffer::from_iter(start..end).into_array()],
+                usize::try_from(end - start)?,
+                Validity::NonNullable,
+            )?
+            .into_array())
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let path = object_store::path::Path::parse(path)?;
+    let mut writer = ObjectStoreWrite::new(Arc::clone(store), &path).await?;
+    VortexSession::default()
+        .write_options()
+        .write(
+            &mut writer,
+            ChunkedArray::from_iter(chunks)
+                .into_array()
+                .to_array_stream(),
+        )
+        .await?;
+    writer.shutdown().await?;
+    Ok(())
+}
+
+/// One file is much larger than the others, so the partitions of the small files finish first and
+/// run chunks of the large one from the shared pool. Every kept row must come out of exactly one
+/// partition.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn skewed_files_return_each_row_once_across_partitions() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+    let large = 0..1_200_000;
+    write_values(&store, "/skew/large.vortex", large.clone(), 100_000).await?;
+    let mut small = Vec::new();
+    for file in 0..3 {
+        let start = 2_000_000 * (file + 1);
+        small.push(start..start + 50_000);
+        write_values(
+            &store,
+            &format!("/skew/small_{file}.vortex"),
+            start..start + 50_000,
+            50_000,
+        )
+        .await?;
+    }
+
+    let ctx = make_session(Arc::clone(&store), false, true);
+    ctx.sql("CREATE EXTERNAL TABLE skew (value INT NOT NULL) STORED AS vortex LOCATION '/skew/'")
+        .await?;
+    let plan = ctx
+        .sql("SELECT value FROM skew WHERE value % 3 <> 1")
+        .await?
+        .create_physical_plan()
+        .await?;
+    assert!(plan.output_partitioning().partition_count() > 1);
+
+    // Every partition runs at once, as under a real plan, so they take each other's chunks.
+    let partitions = (0..plan.output_partitioning().partition_count())
+        .map(|partition| {
+            let stream = plan.execute(partition, ctx.task_ctx())?;
+            Ok(tokio::spawn(datafusion_physical_plan::common::collect(
+                stream,
+            )))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut values = Vec::new();
+    for partition in partitions {
+        values.extend(batch_values(&partition.await??));
+    }
+    values.sort_unstable();
+
+    let expected = std::iter::once(large)
+        .chain(small)
+        .flatten()
+        .filter(|value| value % 3 != 1)
+        .collect::<Vec<_>>();
+    assert_eq!(values, expected);
     Ok(())
 }
 

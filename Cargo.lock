@@ -2814,6 +2814,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "rstest",
  "tokio",
  "url",
  "vortex",
@@ -2821,6 +2822,7 @@ dependencies = [
  "vortex-bench",
  "vortex-datafusion",
  "vortex-metrics",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -7663,11 +7665,11 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onpair"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5362b0df3c0d019c103db2c25eab441ef5b74886e0219764022933c844707e60"
+version = "0.2.1"
+source = "git+https://github.com/spiraldb/onpair?rev=2dc2601911bce7d3d952884aeac6bf3c416ffa81#2dc2601911bce7d3d952884aeac6bf3c416ffa81"
 dependencies = [
  "hashbrown 0.17.1",
+ "memchr",
  "rand 0.10.3",
 ]
 
@@ -11815,6 +11817,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "parking_lot",
  "rstest",
  "tempfile",
  "tokio",
@@ -12249,6 +12252,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-fsst",
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod any_groups_limit;
 pub mod metrics;
+mod mixed_distinct;
+mod topk_distinct;
 pub mod tracer;
 
 use std::sync::Arc;
@@ -26,6 +29,38 @@ use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_utils::parallelism::get_available_parallelism;
+
+/// The environment variables that override the defaults of [`session_config`].
+const TARGET_PARTITIONS_VAR: &str = "DATAFUSION_EXECUTION_TARGET_PARTITIONS";
+const SKIP_PARTIAL_RATIO_VAR: &str =
+    "DATAFUSION_EXECUTION_SKIP_PARTIAL_AGGREGATION_PROBE_RATIO_THRESHOLD";
+
+/// The DataFusion configuration from the environment, with two defaults for the aggregations of
+/// the benchmarks when the environment does not set them:
+///
+/// - One and a half partitions per core. A partition that waits on its input leaves its core to
+///   another one, which keeps the cores busy through the hash aggregations.
+/// - A partial aggregation stops when it has more than one group per five rows. A partial
+///   aggregation over keys of high cardinality, such as `UserID`, costs a hash table update per
+///   row and reduces the rows little, so the final aggregation can do the work alone.
+fn session_config() -> datafusion::common::Result<SessionConfig> {
+    let mut config = SessionConfig::from_env()?;
+
+    if std::env::var_os(TARGET_PARTITIONS_VAR).is_none() {
+        let cores = get_available_parallelism().unwrap_or(1);
+        config = config.with_target_partitions(cores * 3 / 2);
+    }
+
+    if std::env::var_os(SKIP_PARTIAL_RATIO_VAR).is_none() {
+        config
+            .options_mut()
+            .execution
+            .skip_partial_aggregation_probe_ratio_threshold = 0.2;
+    }
+
+    Ok(config)
+}
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -40,9 +75,12 @@ pub fn get_session_context() -> SessionContext {
     let factory = VortexFormatFactory::new().with_options(vortex_table_options());
 
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
+        .with_config(session_config().expect("shouldn't fail"))
         .with_runtime_env(rt)
-        .with_default_features();
+        .with_default_features()
+        .with_optimizer_rule(Arc::new(any_groups_limit::AnyGroupsLimit))
+        .with_optimizer_rule(Arc::new(topk_distinct::TopKDistinct))
+        .with_optimizer_rule(Arc::new(mixed_distinct::MixedDistinctToGroupBy));
 
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(

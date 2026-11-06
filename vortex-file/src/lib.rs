@@ -130,6 +130,7 @@ pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
+use vortex_layout::arrays::shared;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
 pub use writer::*;
@@ -173,6 +174,7 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
     vortex_onpair::initialize(session);
+    shared::initialize(session);
     vortex_zigzag::initialize(session);
     #[cfg(feature = "zstd")]
     vortex_zstd::initialize(session);

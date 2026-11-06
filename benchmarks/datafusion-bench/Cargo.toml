@@ -19,7 +19,6 @@ path = "src/main.rs"
 test = false
 
 [lib]
-test = false
 
 [dependencies]
 anyhow = { workspace = true }
@@ -48,6 +47,10 @@ vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [build-dependencies]
 custom-labels = { workspace = true }

@@ -84,6 +84,8 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::scan_v2::ChunkPool;
+use crate::persistent::scan_v2::FinishBatch;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
@@ -127,6 +129,9 @@ pub(crate) struct VortexOpener {
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, pruned zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// The chunks of the files the scan's partitions have open, which every partition of the
+    /// scan takes work from.
+    pub chunk_pool: Arc<ChunkPool>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -226,6 +231,7 @@ impl FileOpener for VortexOpener {
         let layout_readers = Arc::clone(&self.layout_readers);
         let segment_sources = Arc::clone(&self.segment_sources);
         let scan_caches = Arc::clone(&self.scan_caches);
+        let chunk_pool = Arc::clone(&self.chunk_pool);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
@@ -485,19 +491,46 @@ impl FileOpener for VortexOpener {
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
+            let pooled_path = file.object_meta.location.clone();
+            let has_residual_filter = residual_filter.is_some();
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk| {
-                let mut ctx = session.create_execution_ctx();
-                let arrow_session = ctx.session().clone();
-                let arrow = arrow_session.arrow().execute_arrow(
-                    chunk,
-                    Some(&stream_target_field),
-                    &mut ctx,
-                )?;
-                Ok(RecordBatch::from(arrow.as_struct().clone()))
-            };
+            let map_batch =
+                move |chunk: vortex::array::ArrayRef| -> vortex::error::VortexResult<RecordBatch> {
+                    let mut ctx = session.create_execution_ctx();
+                    let arrow_session = ctx.session().clone();
+                    let arrow = arrow_session.arrow().execute_arrow(
+                        chunk,
+                        Some(&stream_target_field),
+                        &mut ctx,
+                    )?;
+                    Ok(RecordBatch::from(arrow.as_struct().clone()))
+                };
+            // Applies the residual filter and the leftover projection of this file, and gives the
+            // batch the scan's output schema. `None` means the residual filter kept no rows.
+            let finish = Arc::new(move |batch: RecordBatch| -> DFResult<Option<RecordBatch>> {
+                let mut batch = batch;
+                if let Some(residual) = &residual_filter {
+                    batch = batch_filter(&batch, residual).map_err(|e| {
+                        exec_datafusion_err!(
+                            "Failed to evaluate residual filter {residual} in {residual_path}: {e}"
+                        )
+                    })?;
+                    // Do not evaluate the projection on batches the residual filter emptied.
+                    if batch.num_rows() == 0 {
+                        return Ok(None);
+                    }
+                }
+                let batch = projector.project_batch(&batch)?;
+
+                let (_, columns, row_count) = batch.into_parts();
+                Ok(Some(RecordBatch::try_new_with_options(
+                    Arc::clone(&output_schema),
+                    columns,
+                    &RecordBatchOptions::new().with_row_count(Some(row_count)),
+                )?))
+            });
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
@@ -563,6 +596,31 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
+                // Unordered and unlimited, the partitions of the scan share the chunks of the files
+                // they open, so the files a filter keeps the rows of do not leave the other
+                // partitions idle.
+                if !has_output_ordering && native_limit.is_none() {
+                    let watching = file_pruner
+                        .as_ref()
+                        .is_some_and(|file_pruner| file_pruner.is_watching());
+                    let pooled_finish = {
+                        let finish = Arc::clone(&finish);
+                        Arc::new(move |chunk| match map_batch(chunk) {
+                            Ok(batch) => finish(batch),
+                            Err(e) => Err(DataFusionError::External(Box::new(e.with_context(
+                                format!("Failed to read Vortex file: {pooled_path}"),
+                            )))),
+                        }) as FinishBatch
+                    };
+                    let stream = chunk_pool.run(scan, root, pooled_finish, !watching);
+                    return Ok(match file_pruner {
+                        Some(file_pruner) if watching => {
+                            PrunableStream::new(file_pruner, stream).boxed()
+                        }
+                        _ => stream,
+                    });
+                }
+
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
                 Ok(driver.run(scan, root, map_batch))
             } else {
@@ -604,7 +662,7 @@ impl FileOpener for VortexOpener {
                 }
                 // Residual filters need the full scan output before DataFusion applies the limit.
                 if let Some(limit) = limit
-                    && residual_filter.is_none()
+                    && !has_residual_filter
                 {
                     scan_builder = scan_builder.with_limit(limit);
                 }
@@ -642,28 +700,7 @@ impl FileOpener for VortexOpener {
                     file.object_meta.location
                 ))))
             })
-            .map(move |batch| -> DFResult<Option<RecordBatch>> {
-                let mut batch = batch?;
-                if let Some(residual) = &residual_filter {
-                    batch = batch_filter(&batch, residual).map_err(|e| {
-                        exec_datafusion_err!(
-                            "Failed to evaluate residual filter {residual} in {residual_path}: {e}"
-                        )
-                    })?;
-                    // Do not evaluate the projection on batches the residual filter emptied.
-                    if batch.num_rows() == 0 {
-                        return Ok(None);
-                    }
-                }
-                let batch = projector.project_batch(&batch)?;
-
-                let (_, columns, row_count) = batch.into_parts();
-                Ok(Some(RecordBatch::try_new_with_options(
-                    Arc::clone(&output_schema),
-                    columns,
-                    &RecordBatchOptions::new().with_row_count(Some(row_count)),
-                )?))
-            })
+            .map(move |batch| -> DFResult<Option<RecordBatch>> { finish(batch?) })
             .filter_map(|batch| ready(batch.transpose()))
             .boxed();
 
@@ -1216,6 +1253,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1627,6 +1665,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1720,6 +1759,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1904,6 +1944,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1970,6 +2011,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2187,6 +2229,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            chunk_pool: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2470,3 +2513,4 @@ mod tests {
         Ok(())
     }
 }
+

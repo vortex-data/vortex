@@ -96,6 +96,11 @@ impl SharedData {
             async_compute_lock: Arc::new(AsyncMutex::new(())),
         }
     }
+
+    /// Whether the source has been computed into the cached form.
+    pub(super) fn is_computed(&self) -> bool {
+        self.cached.get().is_some()
+    }
 }
 
 impl Default for SharedData {
