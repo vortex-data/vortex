@@ -42,6 +42,7 @@ use vortex_cuda_driver::DevicePtrMut;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_cuda_driver::sys::CUdevice_attribute;
+use vortex_cuda_driver::sys::CUevent_flags;
 
 #[cfg(target_os = "linux")]
 use self::direct::DirectFileReadBackend;
@@ -66,10 +67,14 @@ const MAPPED_COPY_THREADS: u32 = 256;
 #[cfg(target_os = "linux")]
 static MAPPED_FILL: Mutex<()> = Mutex::new(());
 
-/// Releases a closed reader's mapping once its copy stream has drained.
+/// Releases a mapping: a closed reader's once its copy stream has drained, or an evicted one.
 type MappedRelease = Box<dyn FnOnce() + Send>;
 
-/// Releases of mapped files, each run once its copy stream has drained, off the scan's threads.
+/// Releases of mapped files, run in order off the scan's threads.
+///
+/// Dropping the last reference to a [`FileMapping`] unmaps it on the dropping thread, so every
+/// mapping is unmapped here or by [`release_file_mappings`], and is unmapped once the jobs
+/// queued before it have run.
 static MAPPED_RELEASE_QUEUE: LazyLock<Option<mpsc::Sender<MappedRelease>>> = LazyLock::new(|| {
     let (sender, receiver) = mpsc::channel::<MappedRelease>();
     std::thread::Builder::new()
@@ -183,6 +188,9 @@ const FILE_MAPPINGS_CACHED_MAX: usize = 64;
 /// on other threads wait for that lock while holding the driver's: on NDS-H SF10 Q10, every
 /// thread stalled for the first ~2 ms of each query. Reusing the mapping also keeps its page
 /// tables filled, so hot scans skip most of the fill work.
+///
+/// Each cached mapping retains a file descriptor for deletion checks, so the cache can
+/// retain up to 64 descriptors between scans.
 static FILE_MAPPINGS: LazyLock<Mutex<FileMappingCache>> =
     LazyLock::new(|| Mutex::new(VecDeque::with_capacity(FILE_MAPPINGS_CACHED_MAX + 1)));
 
@@ -214,9 +222,12 @@ impl FileVersion {
 }
 
 /// A read-only mapping of one file version, shared by every open of that version.
+///
+/// Unmapped when the last reference drops, only after every user's copies have drained.
 struct FileMapping {
-    /// Present until drop; unmapped only after every user's copies have drained.
-    mapping: Option<Mmap>,
+    mapping: Mmap,
+    /// The mapped file, kept to notice its deletion.
+    file: File,
 }
 
 impl FileMapping {
@@ -225,6 +236,10 @@ impl FileMapping {
     fn open(file: &File) -> VortexResult<Option<Arc<Self>>> {
         let version = FileVersion::of(file)?;
         let mut mappings = FILE_MAPPINGS.lock();
+        let deleted = take_deleted(&mut mappings);
+        if !deleted.is_empty() {
+            release_in_background(Box::new(move || drop(deleted)));
+        }
         if let Some(index) = mappings.iter().position(|(cached, _)| *cached == version) {
             let entry = mappings.remove(index).vortex_expect("index is in bounds");
             let mapping = Arc::clone(&entry.1);
@@ -242,20 +257,72 @@ impl FileMapping {
             }
         };
         let mapping = Arc::new(Self {
-            mapping: Some(mapping),
+            mapping,
+            file: file.try_clone()?,
         });
         mappings.push_back((version, Arc::clone(&mapping)));
-        if mappings.len() > FILE_MAPPINGS_CACHED_MAX {
+        if mappings.len() > FILE_MAPPINGS_CACHED_MAX
+            && let Some((_, evicted)) = mappings.pop_front()
+        {
             // Users still holding the evicted mapping keep it alive until their copies drain.
-            drop(mappings.pop_front());
+            release_in_background(Box::new(move || drop(evicted)));
         }
         Ok(Some(mapping))
     }
 
     fn mapping(&self) -> &Mmap {
-        self.mapping
-            .as_ref()
-            .vortex_expect("mapping is present until drop")
+        &self.mapping
+    }
+
+    /// Whether the mapped file was deleted, whose disk space the mapping keeps allocated.
+    fn is_deleted(&self) -> bool {
+        // If the file cannot be checked, keep the mapping, which stays usable.
+        self.file
+            .metadata()
+            .is_ok_and(|metadata| metadata.nlink() == 0)
+    }
+}
+
+/// Removes the cached mappings of deleted files, which would keep their disk space allocated.
+fn take_deleted(mappings: &mut FileMappingCache) -> Vec<Arc<FileMapping>> {
+    let mut deleted = Vec::new();
+    mappings.retain(|(_, mapping)| {
+        if mapping.is_deleted() {
+            deleted.push(Arc::clone(mapping));
+            false
+        } else {
+            true
+        }
+    });
+    deleted
+}
+
+/// Waits until the release thread has run every release queued so far.
+fn wait_for_releases() {
+    let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() else {
+        return;
+    };
+    let (sender, receiver) = mpsc::sync_channel::<()>(1);
+    if queue
+        .send(Box::new(move || {
+            let _ = sender.send(());
+        }))
+        .is_ok()
+    {
+        // An error means the release thread is gone, leaving nothing to wait for.
+        let _ = receiver.recv();
+    }
+}
+
+/// Runs `release` on the release thread, or here if that thread is unavailable.
+fn release_in_background(release: MappedRelease) {
+    match MAPPED_RELEASE_QUEUE.as_ref() {
+        Some(queue) => {
+            if let Err(unsent) = queue.send(release) {
+                (unsent.0)();
+            }
+        }
+        None => release(),
     }
 }
 
@@ -269,44 +336,15 @@ impl FileMapping {
 /// readers close.
 pub fn release_file_mappings() {
     // Closed readers hand their mappings to the release queue; wait until it has dropped them.
-    if let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() {
-        let (sender, receiver) = mpsc::sync_channel::<()>(1);
-        if queue
-            .send(Box::new(move || {
-                let _ = sender.send(());
-            }))
-            .is_ok()
-        {
-            // An error means the release thread is gone, leaving nothing to wait for.
-            let _ = receiver.recv();
-        }
-    }
+    wait_for_releases();
     let released: Vec<_> = FILE_MAPPINGS
         .lock()
         .drain(..)
         .map(|(_, mapping)| mapping)
         .collect();
-    for mapping in released {
-        if let Ok(mut mapping) = Arc::try_unwrap(mapping) {
-            // Unmap on this thread, not in the background, so the pages are unmapped on return.
-            drop(mapping.mapping.take());
-        }
-    }
-}
-
-impl Drop for FileMapping {
-    fn drop(&mut self) {
-        let Some(mapping) = self.mapping.take() else {
-            return;
-        };
-        // Unmapping filled page tables costs milliseconds per GiB; keep it off the caller. If
-        // the thread cannot start, the returned closure unmaps here.
-        drop(
-            std::thread::Builder::new()
-                .name("vortex-unmap".to_string())
-                .spawn(move || drop(mapping)),
-        );
-    }
+    // Dropping the last reference unmaps on this thread, so the pages are unmapped on return.
+    // Readers that still use a mapping keep it, and release it through the queue on close.
+    drop(released);
 }
 
 /// A buffered file whose page-cache pages the device copies directly.
@@ -459,21 +497,27 @@ impl Drop for MappedFile {
         // drops when the scan has requested its last segment, typically on the thread that
         // decodes the scan's batches; waiting there for the copy stream to drain stalled every
         // decode and selection launch behind the scan's remaining copies.
+        // Wait only for the copies queued so far, not for later work of other scans sharing the
+        // pooled stream, which would delay this and every later release.
+        let copies = self.stream.record_event(Some(CUevent_flags(
+            CUevent_flags::CU_EVENT_BLOCKING_SYNC.0 | CUevent_flags::CU_EVENT_DISABLE_TIMING.0,
+        )));
         let stream = self.stream.clone();
-        let release: MappedRelease = Box::new(move || {
-            if stream.synchronize().is_err() {
+        release_in_background(Box::new(move || {
+            let copied = match copies {
+                Ok(copies) => copies.synchronize(),
+                Err(_) => stream.synchronize(),
+            };
+            if copied.is_err() {
                 // Without proof the copies finished, never unmap memory the device may read.
                 let _leaked = ManuallyDrop::new(file);
+                return;
             }
-        });
-        match MAPPED_RELEASE_QUEUE.as_ref() {
-            Some(queue) => {
-                if let Err(unsent) = queue.send(release) {
-                    (unsent.0)();
-                }
-            }
-            None => release(),
-        }
+            drop(file);
+            // The file may have been deleted while this reader used it.
+            let deleted = take_deleted(&mut FILE_MAPPINGS.lock());
+            drop(deleted);
+        }));
     }
 }
 

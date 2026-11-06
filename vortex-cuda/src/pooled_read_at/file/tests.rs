@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex_cuda_driver::stream::launch_host_function;
 
 use super::*;
 use crate::CudaSessionExt;
@@ -525,6 +526,102 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     drop(cache);
     assert!(mapping.upgrade().is_none());
     assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
+/// A mapping removed from the cache while a reader uses it is unmapped when releasing cached
+/// mappings returns after that reader closed, as cold-cache eviction needs.
+#[crate::test]
+async fn uncached_mappings_are_unmapped_before_release_returns() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    // Remove the cache's reference while the reader still holds the mapping.
+    FILE_MAPPINGS.lock().clear();
+    drop(reader);
+    release_file_mappings();
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    assert!(!maps.contains(&*file.path().to_string_lossy()));
+    Ok(())
+}
+
+/// Whether `path` is mapped into this process.
+fn is_mapped(path: &Path) -> VortexResult<bool> {
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    Ok(maps.contains(&*path.to_string_lossy()))
+}
+
+/// Closing the last reader of a deleted file unmaps it, returning its disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_when_their_readers_close() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let path = file.path().to_owned();
+    file.close()?;
+    drop(reader);
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// Opening a file unmaps the idle mappings of deleted files, returning their disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_by_later_opens() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    drop(reader);
+    wait_for_releases();
+    let path = file.path().to_owned();
+    assert!(is_mapped(&path)?);
+    file.close()?;
+    let _other = mapped_reader()?;
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// A closed reader's mapping is released once its own copies complete, without waiting for
+/// later work on the stream it shares with other scans.
+#[crate::test]
+async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let stream = reader.stream.clone();
+    // Hold the release thread so the reader's release runs only after the stream is blocked.
+    let (resume, held) = mpsc::channel::<()>();
+    release_in_background(Box::new(move || {
+        let _ = held.recv_timeout(WAIT);
+    }));
+    drop(reader);
+    let (unblock, blocked) = mpsc::channel::<()>();
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("{e}"))?;
+    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
+        // SAFETY: Registration transfers sole ownership of the boxed receiver here.
+        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
+        let _ = blocked.recv_timeout(WAIT);
+    }
+    let data = Box::into_raw(Box::new(blocked));
+    // SAFETY: The stream is live, and the host function owns `data` once registered.
+    unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) }
+        .map_err(|e| vortex_err!("{e}"))?;
+    drop(resume);
+    let start = std::time::Instant::now();
+    wait_for_releases();
+    assert!(start.elapsed() < WAIT / 2);
+    drop(unblock);
     Ok(())
 }
 
