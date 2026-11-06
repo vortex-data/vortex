@@ -227,9 +227,6 @@ impl ArrayRef {
     }
 
     /// Performs a constant-time slice of the array.
-    ///
-    /// The result is a lazy [`SliceArray`] unless the slice is empty or covers the whole array;
-    /// optimizing it with a session pushes the slice into the child where a rule allows.
     pub fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         let len = self.len();
         let start = range.start;
