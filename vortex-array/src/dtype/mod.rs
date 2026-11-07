@@ -23,6 +23,7 @@ mod f16;
 mod field;
 mod field_mask;
 mod field_names;
+mod footprint;
 mod map;
 mod native_dtype;
 mod nullability;

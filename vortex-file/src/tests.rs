@@ -18,6 +18,7 @@ use rand::rngs::StdRng;
 use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -29,6 +30,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -48,6 +50,9 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::dtype::i256;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
@@ -3475,5 +3480,110 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .await?;
 
     assert_arrays_eq!(result, mk_struct(vec![big])?, &mut ctx);
+    Ok(())
+}
+
+/// An extension type that the test session does not register.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct UnregisteredExt;
+
+impl ExtVTable for UnregisteredExt {
+    type Metadata = EmptyMetadata;
+    type NativeValue<'a> = &'a ScalarValue;
+
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
+    fn id(&self) -> ExtId {
+        ExtId::new("test.unregistered")
+    }
+
+    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        Ok(Vec::new())
+    }
+
+    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
+    }
+
+    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        _ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        Ok(storage_value)
+    }
+}
+
+/// Writes `{a: i64, b: {<ext_field>: UnregisteredExt}}` without file statistics.
+async fn write_unregistered_extension_file(ext_field: &str) -> VortexResult<ByteBuffer> {
+    let ext_dtype = ExtDType::<UnregisteredExt>::try_new(
+        EmptyMetadata,
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    )?
+    .erased();
+    let ext = ExtensionArray::new(ext_dtype, buffer![1i64, 2, 3].into_array()).into_array();
+    let array = StructArray::from_fields(&[
+        ("a", buffer![1i64, 2, 3].into_array()),
+        (
+            "b",
+            StructArray::from_fields(&[(ext_field, ext)])?.into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .disable_editions()
+        .with_file_statistics(Vec::new())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    Ok(buf.freeze())
+}
+
+#[tokio::test]
+async fn opens_file_with_unregistered_extension_in_unread_field() -> VortexResult<()> {
+    let file = SESSION
+        .open_options()
+        .open_buffer(write_unregistered_extension_file("ext").await?)?;
+    assert!(
+        file.footer()
+            .approx_byte_size()
+            .is_some_and(|size| size > 0)
+    );
+    let result = file
+        .scan()?
+        .with_projection(bind_scan_expr(&file, select(["a"], root())))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_eq!(result.len(), 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn supplied_dtype_is_charged_to_the_footer() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("a", buffer![1i64, 2, 3].into_array())])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_file_statistics(Vec::new())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    // Once the open consumes the supplied dtype, the footer is its only owner.
+    let name = "a".repeat(1 << 20);
+    let dtype = DType::Struct(
+        StructFields::from_iter([(name, DType::Primitive(PType::I64, Nullability::NonNullable))]),
+        Nullability::NonNullable,
+    );
+    let file = SESSION.open_options().with_dtype(dtype).open_buffer(buf)?;
+    let size = file.footer().approx_byte_size().unwrap_or_default();
+    assert!(
+        size >= 1 << 20,
+        "a footer holding a 1 MiB field name weighs {size} bytes"
+    );
     Ok(())
 }

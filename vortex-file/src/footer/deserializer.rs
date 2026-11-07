@@ -167,6 +167,7 @@ impl FooterDeserializer {
             .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
+        let dtype_bytes = dtype.approx_resident_bytes();
         // File statistics are optional, so ones that can't be read are dropped rather than
         // failing the open.
         let file_stats = postscript.statistics.as_ref().and_then(|segment| {
@@ -213,9 +214,9 @@ impl FooterDeserializer {
 
         Ok(DeserializeStep::Done(self.parse_footer(
             initial_offset,
-            &self.buffer,
             postscript,
             dtype,
+            dtype_bytes,
             file_stats,
             metadata,
         )?))
@@ -301,18 +302,18 @@ impl FooterDeserializer {
     fn parse_footer(
         &self,
         initial_offset: u64,
-        initial_read: &[u8],
         postscript: &Postscript,
         dtype: DType,
+        dtype_bytes: usize,
         file_stats: Option<FileStatistics>,
         metadata: Arc<[(String, SegmentSpec)]>,
     ) -> VortexResult<Footer> {
         let footer_segment = &postscript.footer;
-        let footer_bytes = checked_segment_slice(initial_read, initial_offset, footer_segment)?;
+        let footer_bytes = checked_segment_slice(&self.buffer, initial_offset, footer_segment)?;
 
         let layout_segment = &postscript.layout;
         let layout_bytes = FlatBuffer::copy_from(checked_segment_slice(
-            initial_read,
+            &self.buffer,
             initial_offset,
             layout_segment,
         )?);
@@ -321,6 +322,7 @@ impl FooterDeserializer {
             footer_bytes,
             layout_bytes,
             dtype,
+            dtype_bytes,
             file_stats,
             metadata,
             &self.session,
