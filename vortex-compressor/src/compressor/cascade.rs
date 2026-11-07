@@ -82,7 +82,7 @@ impl Selection {
         Selection::Unchanged(data.into_array(), null_count)
     }
 
-    /// Returns the compression ratio against `before_nbytes`, which is 1 for an unchanged array.
+    /// Returns the compression ratio against `before_nbytes`.
     fn ratio(&self, before_nbytes: u64) -> f64 {
         match self {
             Selection::Compressed(array) => before_nbytes as f64 / array.nbytes().max(1) as f64,
@@ -90,7 +90,7 @@ impl Selection {
         }
     }
 
-    /// Returns the decision that gives this selection, when `scheme` made the selection.
+    /// Returns the decision for this selection, when `scheme` made it.
     fn decision(&self, scheme: SchemeId) -> Decision {
         match self {
             Selection::Compressed(_) => Decision::Scheme(scheme),
@@ -121,8 +121,7 @@ impl CascadingCompressor {
         self.compress_root(array, CompressorContext::new(), exec_ctx)
     }
 
-    /// Compresses an array like [`compress`](Self::compress), replaying and recording scheme
-    /// decisions through `plan`.
+    /// Like [`compress`](Self::compress), but replays and records decisions through `plan`.
     pub(super) fn compress_in_plan(
         &self,
         array: &ArrayRef,
@@ -444,9 +443,8 @@ impl CascadingCompressor {
             return Ok(Selection::Unchanged(array, None));
         }
 
-        // A replayed plan skips the scheme selection at the positions that it covers. A planned
-        // scheme that is no longer eligible, or that rejects this array, falls back to the full
-        // selection.
+        // A planned scheme that is no longer eligible, or that rejects the array, falls back to
+        // the full selection.
         let Some(plan) = compress_ctx.plan() else {
             return self.select_and_compress(
                 &eligible_schemes,
@@ -475,7 +473,7 @@ impl CascadingCompressor {
                     && let Some(replayed) =
                         self.replay(scheme, &array, before_nbytes, &compress_ctx, exec_ctx)?
                 {
-                    // The caller of the root checks the ratio of the root and selects again.
+                    // `compress_reusing` checks the root ratio itself.
                     let replayed_ratio = replayed.ratio(before_nbytes);
                     if compress_ctx.cascade_history().is_empty()
                         || plan.accepts(replayed_ratio, &planned)
@@ -483,8 +481,7 @@ impl CascadingCompressor {
                         return Ok(replayed);
                     }
 
-                    // The data of this child changed. Select again for this child only, and keep
-                    // the smaller result.
+                    // The child data changed: select again and keep the smaller result.
                     let replayed_decision = replayed.decision(id);
                     let selected = self.select_and_compress(
                         &eligible_schemes,
@@ -552,12 +549,9 @@ impl CascadingCompressor {
         )
     }
 
-    /// Compresses `array` with the replayed `scheme`, or returns `None` if the scheme rejects the
-    /// array.
+    /// Compresses `array` with the replayed `scheme`, or returns `None` if the scheme rejects it.
     ///
-    /// The scheme still gives its cheap verdict and runs its deferred callback, because some
-    /// schemes check their preconditions there. Only the sampling is skipped. The stats are
-    /// generated for this scheme alone.
+    /// Only sampling is skipped: some schemes check preconditions in their verdict or callback.
     fn replay(
         &self,
         scheme: &'static dyn Scheme,
@@ -585,7 +579,7 @@ impl CascadingCompressor {
             return Ok(None);
         }
 
-        // A failed replay is not an error: the full selection compresses the array again.
+        // On failure, the caller falls back to the full selection.
         Ok(self
             .compress_with_winner(
                 scheme,
@@ -610,8 +604,8 @@ impl CascadingCompressor {
     ) -> VortexResult<Selection> {
         // Run the winning scheme's `encode` and compress the children it registers, unless an
         // estimate already produced its complete output. On failure, emit an ERROR event carrying
-        // the scheme name and cascade history before propagating. A failed replay is not reported,
-        // because the caller selects again.
+        // the scheme name and cascade history before propagating. Replays are not reported, because
+        // the caller falls back to the full selection.
         let error_ctx = trace::enabled_error_context(&compress_ctx);
         let plan_ctx = compress_ctx.clone();
         let _winner_span = trace::winner_compress_span(winner.id(), before_nbytes).entered();
@@ -690,8 +684,7 @@ impl CascadingCompressor {
     }
 }
 
-/// Records `decision`, which gave the compression `ratio`, at the cascade position of
-/// `compress_ctx`, if the context carries a plan.
+/// Records `decision` at the cascade position of `compress_ctx`, if it carries a plan.
 fn record_decision(compress_ctx: &CompressorContext, decision: Decision, ratio: f64) {
     if let Some(plan) = compress_ctx.plan() {
         plan.record(compress_ctx.cascade_history(), decision, ratio);

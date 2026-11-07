@@ -41,9 +41,7 @@ pub struct CompressorContext {
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
 
-    /// The plan to replay and record into, if the caller asked for one.
-    ///
-    /// Sample compression never carries a plan, so samples neither replay nor record decisions.
+    /// The plan to replay and record into. Sample compression never carries one.
     plan: Option<Arc<PlanState>>,
 }
 
