@@ -21,7 +21,6 @@
 //! - **Hive-style partitioning**: Extract partition values from file paths (e.g. `year=2024/month=01/`)
 //!   and expose them as virtual columns.
 //! - **Virtual columns**: `filename`, `file_row_number`, `file_index`.
-//! - **Per-file statistics**: Merge column statistics across sources for planner hints.
 //! - **Error resilience**: Skip failed sources instead of aborting the entire scan.
 
 use std::any::Any;
@@ -78,6 +77,15 @@ pub trait LayoutReaderFactory: 'static + Send + Sync {
     async fn open(&self) -> VortexResult<Option<LayoutReaderRef>>;
 }
 
+/// Statistics of the fields of every child of a [`MultiLayoutDataSource`], such as the merged
+/// footer statistics of the files it scans.
+#[async_trait]
+pub trait FieldStatisticsProvider: 'static + Send + Sync {
+    /// The statistics of `field_path` across all children. Statistics that are not known for
+    /// every child are left out.
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
+}
+
 /// A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
 ///
 /// Readers may be pre-opened or deferred via [`LayoutReaderFactory`]. Deferred readers are opened
@@ -91,6 +99,7 @@ pub struct MultiLayoutDataSource {
     session: VortexSession,
     children: Arc<[MultiLayoutChild]>,
     concurrency: usize,
+    field_statistics: Option<Arc<dyn FieldStatisticsProvider>>,
 }
 
 pub enum MultiLayoutChild {
@@ -162,6 +171,7 @@ impl MultiLayoutDataSource {
             session: session.clone(),
             children: children.into(),
             concurrency,
+            field_statistics: None,
         }
     }
 
@@ -199,6 +209,7 @@ impl MultiLayoutDataSource {
                 .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
             concurrency,
+            field_statistics: None,
         }
     }
 
@@ -212,6 +223,13 @@ impl MultiLayoutDataSource {
     /// Defaults to the number of available CPU cores.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
+        self
+    }
+
+    /// Sets the source of [`DataSource::field_statistics`]. Without one, no field statistics
+    /// are reported.
+    pub fn with_field_statistics(mut self, provider: Arc<dyn FieldStatisticsProvider>) -> Self {
+        self.field_statistics = Some(provider);
         self
     }
 }
@@ -326,8 +344,11 @@ impl DataSource for MultiLayoutDataSource {
         }))
     }
 
-    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
-        Ok(StatsSet::default())
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet> {
+        match &self.field_statistics {
+            Some(provider) => provider.field_statistics(field_path).await,
+            None => Ok(StatsSet::default()),
+        }
     }
 }
 
