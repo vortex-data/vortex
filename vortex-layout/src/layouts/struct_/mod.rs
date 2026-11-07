@@ -6,7 +6,9 @@ pub mod writer;
 
 use std::sync::Arc;
 
+pub(crate) use reader::Item;
 use reader::StructReader;
+pub(crate) use reader::step_into_struct_field;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
