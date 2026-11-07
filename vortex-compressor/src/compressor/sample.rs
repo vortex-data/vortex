@@ -163,6 +163,12 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         canonical.into_array()
     };
 
+    // A sample that misses every non-null value cannot predict the cost of encoding those values.
+    // In particular, a tiny all-null result must not outbid a full-array sparse estimate.
+    if sample_array.all_invalid(exec_ctx)? {
+        return Ok(EstimateScore::FiniteCompression(1.0));
+    }
+
     let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();
