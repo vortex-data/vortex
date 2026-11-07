@@ -31,6 +31,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::RunEnd;
 use crate::arrays::StructArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -445,6 +446,10 @@ fn reference_sums(
     Ok(builder.finish())
 }
 
+fn run_end(ends: ArrayRef, values: ArrayRef) -> ArrayRef {
+    RunEnd::new(ends, values, &mut SESSION.create_execution_ctx()).into_array()
+}
+
 fn chunked(chunks: Vec<ArrayRef>) -> ArrayRef {
     let dtype = chunks[0].dtype().clone();
     ChunkedArray::try_new(chunks, dtype)
@@ -496,6 +501,39 @@ fn chunked(chunks: Vec<ArrayRef>) -> ArrayRef {
         PrimitiveArray::from_iter([4u8, 5, 6]).into_array(),
     ]),
     vec![(0, 6), (2, 2), (1, 4)],
+    Validity::NonNullable,
+)]
+#[case::run_end(
+    run_end(
+        buffer![2u32, 5, 6, 9].into_array(),
+        PrimitiveArray::from_option_iter([Some(3u64), None, Some(7), Some(1)]).into_array(),
+    ),
+    vec![(0, 9), (1, 3), (2, 4), (5, 0), (8, 1), (3, 2)],
+    Validity::from_iter([true, true, true, true, true, false]),
+)]
+#[case::run_end_bool(
+    run_end(
+        buffer![3u8, 4, 8].into_array(),
+        BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
+    ),
+    vec![(0, 8), (2, 3), (4, 4)],
+    Validity::NonNullable,
+)]
+#[case::run_end_sliced(
+    run_end(
+        buffer![2u32, 5, 6, 9].into_array(),
+        PrimitiveArray::from_option_iter([Some(-3i32), Some(4), None, Some(9)]).into_array(),
+    )
+    .slice(1..8)?,
+    vec![(0, 7), (1, 4), (6, 1)],
+    Validity::NonNullable,
+)]
+#[case::run_end_overflow(
+    run_end(
+        buffer![2u32, 4].into_array(),
+        PrimitiveArray::from_iter([i64::MAX / 2, 1]).into_array(),
+    ),
+    vec![(0, 4), (0, 1), (1, 2)],
     Validity::NonNullable,
 )]
 fn grouped_kernels_match_per_group_sums(
