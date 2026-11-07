@@ -188,9 +188,9 @@ impl LayoutStrategy for DictStrategy {
             None => None, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
-                    .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
+                let compressed =
+                    self.probe_compressor
+                        .compress_chunk(&sample, None, &mut exec_ctx)?;
                 let sample_size =
                     u64::try_from(uncompressed_size_in_bytes(&sample, &mut exec_ctx)?)
                         .map_err(|e| vortex_err!("probe size does not fit in u64: {e}"))?;
