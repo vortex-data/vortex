@@ -70,6 +70,7 @@ impl CompressionMode {
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
                     integer::IntRLEScheme.id(),
+                    integer::RunEndSequenceScheme.id(),
                     float::ALPRDScheme.id(),
                     float::FloatRLEScheme.id(),
                     float::NullDominatedSparseScheme.id(),
