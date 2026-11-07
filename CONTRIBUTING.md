@@ -98,20 +98,25 @@ crate's `[package.metadata.cargo-shear]` `ignored` list, with a comment explaini
 
 ### Dependency release cooldown
 
-New releases wait 7 days before they reach the lock files, so most malicious publishes are found
-and removed upstream first. Renovate applies the wait to the updates it proposes, and uv applies
-it to `uv.lock` through `exclude-newer` in the root `pyproject.toml`.
+New releases wait 7 days before they reach the Python and JavaScript lock files, so most malicious
+publishes are found and removed upstream first. Renovate applies the wait to the version updates
+that it proposes. For lock file refreshes, uv applies the wait to `uv.lock` through `exclude-newer`
+in the root `pyproject.toml`. npm and Bun apply it to the JavaScript lock files, as `renovate.json`
+describes. `Cargo.lock` has no such wait. The weekly Rust lock file maintenance takes the latest
+compatible crate releases at once.
 
-Renovate opens security updates at once, but uv still refuses a fix released less than 7 days ago,
-so the security PR reports that it could not update `uv.lock`. To take the fix, add the package to
-the PR's `pyproject.toml` and run `uv lock`:
+Renovate opens security updates at once, but uv still refuses a fix released less than 7 days ago.
+The security PR then reports that it could not update `uv.lock`. To take the fix, add this
+exception to the PR's `pyproject.toml`:
 
 ```toml
 [tool.uv]
 exclude-newer-package = { <package> = false }
 ```
 
-Remove the line once that release is 7 days old.
+Then run `uv lock --upgrade-package <package>`. Plain `uv lock` keeps the vulnerable version if it
+still satisfies the constraints, for example for a transitive dependency. Remove the exception once
+that release is 7 days old.
 
 ### Python bindings
 
