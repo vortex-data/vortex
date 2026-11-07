@@ -244,6 +244,7 @@ fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
     assert_eq!(
         newly_enabled,
         [
+            Id::from("vortex.approx_distinct.hll"),
             Id::from("vortex.bloom_filter.sbbf"),
             Id::from("vortex.sum_v2")
         ]

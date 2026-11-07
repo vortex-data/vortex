@@ -23,6 +23,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinct;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -1673,6 +1674,97 @@ async fn uncompressed_size_follows_editions(
     let field_stats = fb.field_stats().vortex_expect("field_stats is written");
     assert_eq!(field_stats.get(0).uncompressed_size_in_bytes(), three_i32);
 
+    Ok(())
+}
+
+/// The value of the approximate distinct count recorded in `aggregates`, if any.
+fn approx_distinct_value(aggregates: &AggregateStats) -> Option<u64> {
+    aggregates
+        .iter()
+        .find(|stat| stat.aggregate_fn().is::<ApproxDistinct>())
+        .and_then(|stat| stat.value().clone().as_exact())
+        .and_then(|value| u64::try_from(&value).ok())
+}
+
+/// The nested statistics record a HyperLogLog distinct count of every supported column when the
+/// enabled editions include it, unless the writer opts out. The legacy layout has no slot for it.
+#[rstest]
+#[case::core(false, true, false, false)]
+#[case::unstable(true, true, false, true)]
+#[case::opted_out(true, true, true, false)]
+#[case::legacy_only(true, false, false, false)]
+#[tokio::test]
+async fn approx_distinct_count_roundtrips(
+    #[case] unstable: bool,
+    #[case] nested: bool,
+    #[case] opt_out: bool,
+    #[case] recorded: bool,
+) -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    if unstable {
+        session.enable_edition(UNSTABLE)?;
+    }
+
+    let ints = PrimitiveArray::from_option_iter(
+        (0..20_000i64).map(|i| (i % 10 != 0).then_some(i % 3_001)),
+    )
+    .into_array();
+    let strings = VarBinViewArray::from_iter_str((0..20_000).map(|i| format!("value {}", i % 50)))
+        .into_array();
+    let array = StructArray::try_new(
+        ["ints", "strings"].into(),
+        vec![ints, strings],
+        20_000,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let mut options = session.write_options();
+    if nested {
+        options = options.include_nested_statistics();
+    }
+    if opt_out {
+        options = options.exclude_distinct_count_statistics();
+    }
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let file = session.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let stats = file
+        .file_stats()
+        .expect("file statistics should be present");
+    for (field, distinct) in [("ints", 3_001u64), ("strings", 50)] {
+        let (aggregates, _) = stats
+            .get_by_path(&FieldPath::from_name(field))
+            .expect("field entry");
+        // The other statistics are unaffected.
+        assert_eq!(
+            stat_value(aggregates, Stat::NullCount),
+            Precision::exact(ScalarValue::from(if field == "ints" {
+                2_000u64
+            } else {
+                0
+            }))
+        );
+        match approx_distinct_value(aggregates) {
+            Some(estimate) => {
+                assert!(recorded, "{field} records an unexpected distinct count");
+                assert!(
+                    estimate.abs_diff(distinct) * 20 <= distinct,
+                    "{field}: estimate {estimate} for {distinct} distinct values"
+                );
+            }
+            None => assert!(!recorded, "{field} has no distinct count"),
+        }
+    }
     Ok(())
 }
 

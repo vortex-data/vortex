@@ -25,6 +25,7 @@ layouts = [
 ]
 dtypes = []
 aggregates = [
+    "vortex.approx_distinct.hll",
     "vortex.bloom_filter.sbbf",
     "vortex.sum_v2",
 ]
@@ -45,6 +46,7 @@ layouts = [
 ]
 dtypes = []
 aggregates = [
+    "vortex.approx_distinct.hll",
     "vortex.bloom_filter.sbbf",
     "vortex.sum_v2",
 ]

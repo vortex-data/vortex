@@ -39,6 +39,7 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
         EditionMember::array(&"vortex.patched"),
         EditionMember::array(&"vortex.union"),
         EditionMember::layout(&"vortex.list"),
+        EditionMember::aggregate(&"vortex.approx_distinct.hll"),
         EditionMember::aggregate(&"vortex.bloom_filter.sbbf"),
         EditionMember::aggregate(&"vortex.sum_v2"),
     ],

@@ -13,9 +13,12 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AccumulatorRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinct;
+use vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinctOptions;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -58,6 +61,9 @@ use crate::sequence::SequentialStreamExt;
 /// `write_nested_stats` and `write_legacy_stats` select which footer layouts are recorded; see
 /// [`FileStatsAccumulator`].
 ///
+/// `write_distinct_counts` selects whether the defaults include the [`ApproxDistinct`] sketch,
+/// which only the nested layout records. It has no effect on an explicit `stats` list.
+///
 /// # Errors
 ///
 /// Returns an error if nested stats are written and `stats` contains an aggregate `ctx` forbids.
@@ -67,6 +73,7 @@ pub fn accumulate_stats(
     session: &VortexSession,
     write_nested_stats: bool,
     write_legacy_stats: bool,
+    write_distinct_counts: bool,
     ctx: &LayoutWriterContext,
 ) -> VortexResult<(FileStatsAccumulator, SendableSequentialStream)> {
     let accumulator = FileStatsAccumulator::try_new(
@@ -74,6 +81,7 @@ pub fn accumulate_stats(
         stats,
         write_nested_stats,
         write_legacy_stats,
+        write_distinct_counts,
         ctx,
     )?;
     let dtype = stream.dtype().clone();
@@ -250,6 +258,14 @@ fn fills_legacy_stat_slot(aggregate_fn: &AggregateFnRef) -> bool {
         })
 }
 
+/// Restricts `allowed` to the aggregates the legacy layout can hold, so that an accumulator that
+/// only feeds the legacy layout computes nothing it would drop, such as a distinct-count sketch.
+fn legacy_allowed(
+    allowed: &dyn Fn(&AggregateFnRef) -> bool,
+) -> impl Fn(&AggregateFnRef) -> bool + '_ {
+    move |aggregate_fn| allowed(aggregate_fn) && fills_legacy_stat_slot(aggregate_fn)
+}
+
 /// Accumulates write-time statistics for a single file column.
 struct StatsAccumulator {
     aggregates: Vec<(AggregateFnRef, AccumulatorRef)>,
@@ -385,13 +401,22 @@ fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
     };
 
     // `Sum` is left out until the footer records the overflow-aware `SumV2`.
-    vec![
+    let mut aggregate_fns = vec![
         max,
         min,
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
-    ]
+    ];
+    // Only recorded where the writer context permits it, i.e. when an edition including it is
+    // enabled; see `FileStatsAccumulator::accumulates`.
+    if ApproxDistinct
+        .return_dtype(&ApproxDistinctOptions::default(), dtype)
+        .is_some()
+    {
+        aggregate_fns.push(ApproxDistinct.bind(ApproxDistinctOptions::default()));
+    }
+    aggregate_fns
 }
 
 /// Computes the post-order sequence of `(FieldPath, DType)` entries that file-level statistics
@@ -495,7 +520,11 @@ impl StatsNode {
                 if let Self::Container { own, .. } = child
                     && matches!(**own, Self::Skipped)
                 {
-                    **own = Self::LegacyOnly(StatsAccumulator::new(&field_dtype, stats, allowed));
+                    **own = Self::LegacyOnly(StatsAccumulator::new(
+                        &field_dtype,
+                        stats,
+                        &legacy_allowed(allowed),
+                    ));
                 }
             }
         }
@@ -511,6 +540,7 @@ impl StatsNode {
         stats: Option<&[AggregateFnRef]>,
         allowed: &dyn Fn(&AggregateFnRef) -> bool,
     ) -> Self {
+        let allowed = &legacy_allowed(allowed);
         let Some(struct_fields) = dtype.as_struct_fields_opt() else {
             return Self::LegacyOnly(StatsAccumulator::new(dtype, stats, allowed));
         };
@@ -686,6 +716,7 @@ pub struct FileStatsAccumulator {
     stats: Option<Arc<[AggregateFnRef]>>,
     write_nested_stats: bool,
     write_legacy_stats: bool,
+    write_distinct_counts: bool,
     writer_ctx: LayoutWriterContext,
 }
 
@@ -695,6 +726,7 @@ impl FileStatsAccumulator {
         stats: Option<Arc<[AggregateFnRef]>>,
         write_nested_stats: bool,
         write_legacy_stats: bool,
+        write_distinct_counts: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
         let accumulates = |aggregate_fn: &AggregateFnRef| {
@@ -712,41 +744,47 @@ impl FileStatsAccumulator {
             }
         }
 
-        let root = StatsNode::build_root(
-            dtype,
-            stats.as_deref(),
-            &accumulates,
-            write_nested_stats,
-            write_legacy_stats,
-        );
-
-        Ok(Self {
-            root: Arc::new(Mutex::new(root)),
+        let this = Self {
+            root: Arc::new(Mutex::new(StatsNode::Skipped)),
             dtype: dtype.clone(),
             stats,
             write_nested_stats,
             write_legacy_stats,
+            write_distinct_counts,
             writer_ctx: writer_ctx.clone(),
-        })
+        };
+        *this.root.lock() = this.build_root();
+        Ok(this)
+    }
+
+    /// Builds an empty tree of accumulators for this file's dtype and aggregates.
+    fn build_root(&self) -> StatsNode {
+        StatsNode::build_root(
+            &self.dtype,
+            self.stats.as_deref(),
+            &|aggregate_fn| self.computes(aggregate_fn),
+            self.write_nested_stats,
+            self.write_legacy_stats,
+        )
+    }
+
+    /// Returns whether the accumulators compute `aggregate_fn`: those [`Self::accumulates`]
+    /// permits, except a default distinct-count sketch that the writer opted out of.
+    fn computes(&self, aggregate_fn: &AggregateFnRef) -> bool {
+        Self::accumulates(
+            &self.writer_ctx,
+            self.write_nested_stats,
+            self.write_legacy_stats,
+            aggregate_fn,
+        ) && (self.write_distinct_counts
+            || self.stats.is_some()
+            || !aggregate_fn.is::<ApproxDistinct>())
     }
 
     /// Computes the stats of one chunk into a new tree of accumulators, to [merge](Self::merge)
     /// later.
     fn chunk_stats(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StatsNode> {
-        let mut node = StatsNode::build_root(
-            &self.dtype,
-            self.stats.as_deref(),
-            &|aggregate_fn| {
-                Self::accumulates(
-                    &self.writer_ctx,
-                    self.write_nested_stats,
-                    self.write_legacy_stats,
-                    aggregate_fn,
-                )
-            },
-            self.write_nested_stats,
-            self.write_legacy_stats,
-        );
+        let mut node = self.build_root();
         node.push_chunk(chunk, ctx)?;
         Ok(node)
     }
@@ -1281,6 +1319,7 @@ mod tests {
             ])),
             true,
             true,
+            true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
 
@@ -1317,6 +1356,7 @@ mod tests {
             Some(Arc::from([agg(Stat::NullCount)])),
             true,
             true,
+            true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
 
@@ -1347,6 +1387,7 @@ mod tests {
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             Some(Arc::from([agg(Stat::NullCount), agg(Stat::Max)])),
+            true,
             true,
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
@@ -1380,6 +1421,7 @@ mod tests {
             Some(Arc::from([agg(Stat::Min), agg(Stat::Max)])),
             true,
             false,
+            true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
 
@@ -1417,9 +1459,16 @@ mod tests {
         let stats: Arc<[AggregateFnRef]> =
             Arc::from([agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)]);
         let ctx = LayoutWriterContext::new(ArrayContext::empty());
-        let both =
-            FileStatsAccumulator::try_new(&dtype, Some(Arc::clone(&stats)), true, true, &ctx)?;
-        let legacy_only = FileStatsAccumulator::try_new(&dtype, Some(stats), false, true, &ctx)?;
+        let both = FileStatsAccumulator::try_new(
+            &dtype,
+            Some(Arc::clone(&stats)),
+            true,
+            true,
+            true,
+            &ctx,
+        )?;
+        let legacy_only =
+            FileStatsAccumulator::try_new(&dtype, Some(stats), false, true, true, &ctx)?;
 
         push(&both, &chunk, &mut exec_ctx)?;
         push(&legacy_only, &chunk, &mut exec_ctx)?;
@@ -1515,7 +1564,7 @@ mod tests {
         }
         let ctx =
             LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(aggregates);
-        let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, &ctx)?;
+        let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, true, &ctx)?;
         for values in [buffer![1i32, 2, 3], buffer![4i32, 5]] {
             let len = values.len();
             let chunk = StructArray::new(
@@ -1563,6 +1612,7 @@ mod tests {
             Some(Arc::from([agg(Stat::Sum)])),
             true,
             true,
+            true,
             &ctx,
         )
         .err()
@@ -1570,7 +1620,7 @@ mod tests {
         assert!(error.to_string().contains("not permitted by ctx"));
 
         // The defaults leave a forbidden aggregate out of both the nested and the legacy stats.
-        let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, &ctx)?;
+        let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, true, &ctx)?;
         let chunk = StructArray::new(
             FieldNames::from(["a"]),
             [buffer![1i32, 2, 3].into_array()],
@@ -1607,6 +1657,7 @@ mod tests {
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             None,
+            true,
             true,
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),

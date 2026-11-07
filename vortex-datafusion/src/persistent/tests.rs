@@ -22,7 +22,10 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use datafusion_common::Statistics;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_common::stats::Precision;
+use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_physical_plan::ExecutionPlan;
@@ -30,11 +33,15 @@ use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::memory::InMemory;
+use object_store::path::Path;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
@@ -42,6 +49,7 @@ use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
 use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
@@ -54,6 +62,7 @@ use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
 
+use crate::VortexFormat;
 use crate::VortexFormatFactory;
 use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
@@ -484,7 +493,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
 ) -> anyhow::Result<()> {
     let store = Arc::new(InMemory::new()) as _;
     let session = VortexSession::default();
-    let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
+    let path = Path::parse("/split-aligned-repartition.vortex")?;
 
     let chunk_1_len = 2_000;
     let chunk_2_len = 5_000;
@@ -896,5 +905,83 @@ async fn test_ree_dict_predicate_memtable_oracle(
     let actual = actual.collect().await?;
     let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
     assert_eq!(batch_values(&actual), batch_values(&expected));
+    Ok(())
+}
+
+/// Writes a file of a column with 5,000 distinct values among 20,000 rows, a nullable column with
+/// one distinct value, and a constant column, and returns its inferred DataFusion statistics.
+async fn distinct_count_statistics(
+    session: VortexSession,
+    nested: bool,
+) -> anyhow::Result<Statistics> {
+    let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    let rows = 20_000;
+    let keys = PrimitiveArray::from_iter((0..rows).map(|i| i % 5_000)).into_array();
+    let sparse = PrimitiveArray::from_option_iter((0..rows).map(|i| (i % 2 == 0).then_some(1i32)))
+        .into_array();
+    let constant = ConstantArray::new(7i32, 20_000).into_array();
+    let array = StructArray::try_new(
+        ["keys", "sparse", "constant"].into(),
+        vec![keys, sparse, constant],
+        20_000,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let path = Path::from("ndv.vortex");
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
+    let options = session.write_options();
+    let options = if nested {
+        options.include_nested_statistics()
+    } else {
+        options
+    };
+    options.write(&mut writer, array.to_array_stream()).await?;
+    writer.shutdown().await?;
+
+    let ctx = SessionContext::new();
+    let state = ctx.state();
+    let format = VortexFormat::new(session);
+    let object = store.head(&path).await?;
+    let schema = format
+        .infer_schema(&state, &store, std::slice::from_ref(&object))
+        .await?;
+    Ok(format.infer_stats(&state, &store, schema, &object).await?)
+}
+
+/// A file with a distinct-count sketch reports an inexact distinct count, capped at the non-null
+/// rows; a file without one reports none, beyond the exact count of a constant column.
+#[rstest]
+#[case::sketch(true, true)]
+#[case::core_edition(false, true)]
+#[case::legacy_statistics(true, false)]
+#[tokio::test]
+async fn infer_stats_reports_approx_distinct_count(
+    #[case] unstable: bool,
+    #[case] nested: bool,
+) -> anyhow::Result<()> {
+    let session = VortexSession::default();
+    if unstable {
+        session.enable_edition(UNSTABLE)?;
+    }
+    let stats = distinct_count_statistics(session, nested).await?;
+    let [keys, sparse, constant] = stats.column_statistics.as_slice() else {
+        panic!("expected three columns");
+    };
+
+    if unstable && nested {
+        let Precision::Inexact(estimate) = keys.distinct_count else {
+            panic!(
+                "expected an inexact distinct count, got {:?}",
+                keys.distinct_count
+            );
+        };
+        assert!(estimate.abs_diff(5_000) <= 250, "estimate {estimate}");
+        assert_eq!(sparse.distinct_count, Precision::Inexact(1));
+    } else {
+        assert_eq!(keys.distinct_count, Precision::Absent);
+        assert_eq!(sparse.distinct_count, Precision::Absent);
+    }
+    assert_eq!(constant.distinct_count, Precision::Exact(1));
     Ok(())
 }
