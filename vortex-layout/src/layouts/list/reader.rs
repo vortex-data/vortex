@@ -16,12 +16,15 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
@@ -224,6 +227,7 @@ impl ListReader {
                 elements,
                 offsets,
                 create_validity(validity, nullability),
+                split.fields.as_ref(),
                 &mut session.create_execution_ctx(),
             )?;
             lists.apply_bound(&split.outer)
@@ -303,6 +307,7 @@ impl ListReader {
                 elements,
                 offsets,
                 create_validity(validity, nullability),
+                split.fields.as_ref(),
                 &mut ctx,
             )?;
             lists.apply_bound(&split.outer)
@@ -493,11 +498,13 @@ fn kept_elements(offsets: &[u64], keep: &Mask) -> VortexResult<(Mask, BufferMut<
     Ok((elements, kept_offsets))
 }
 
-/// The lists over `elements`, sharing `offsets` and `validity`.
+/// The lists over `elements`, or when the elements are a pack of `fields`, a struct of one list
+/// per field, all sharing `offsets` and `validity`.
 fn lists_over(
     elements: ArrayRef,
     offsets: ArrayRef,
     validity: Validity,
+    fields: Option<&FieldNames>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let end = offsets
@@ -507,9 +514,27 @@ fn lists_over(
         .vortex_expect("offset value fits in u64");
     vortex_ensure_eq!(elements.len(), usize::try_from(end)?);
     // SAFETY: the offsets are the file's, or `select_lists`'s prefix sums over them, so they are
-    // monotonic; the last one was just checked against the elements read; and the validity covers
-    // the same lists.
-    Ok(unsafe { ListArray::new_unchecked(elements, offsets, validity) }.into_array())
+    // monotonic; the last one was just checked against the elements read, which give one value
+    // per element; and the validity covers the same lists.
+    let Some(fields) = fields else {
+        return Ok(unsafe { ListArray::new_unchecked(elements, offsets, validity) }.into_array());
+    };
+    let len = offsets.len() - 1;
+    let root = BoundExpression::new_root(elements.dtype().clone());
+    let lists = fields
+        .iter()
+        .map(|field| {
+            let values = elements
+                .clone()
+                .apply_bound(&bound::get_item(field.clone(), root.clone()))?;
+            // SAFETY: as above, for each field of the elements.
+            Ok(
+                unsafe { ListArray::new_unchecked(values, offsets.clone(), validity.clone()) }
+                    .into_array(),
+            )
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(StructArray::try_new(fields.clone(), lists, len, Validity::NonNullable)?.into_array())
 }
 
 fn selected_row_range(mask: &Mask) -> Option<Range<usize>> {
@@ -1598,9 +1623,9 @@ mod tests {
         "l.elements.g.elements.i",
     ];
 
-    /// A list read through one `list_transform` lambda reads only the element columns its body
-    /// uses, through nested lists too, whether or not the body can fail. Reading the list whole
-    /// beside a lambda, or through two lambdas, reads whole elements.
+    /// A list read through `list_transform` lambdas reads only the element columns their bodies
+    /// use, through nested lists too, whether or not the bodies can fail. Reading the list whole
+    /// beside a lambda reads whole elements.
     #[rstest]
     #[case::field(transform(get_item("f", var("x"))), &["l.offsets", "l.elements.f"])]
     #[case::under_another_fn(
@@ -1631,7 +1656,7 @@ mod tests {
             [("a", transform(get_item("a", var("x")))), ("f", transform(get_item("f", var("x"))))],
             Nullability::NonNullable,
         ),
-        EVERY_LIST_COLUMN,
+        &["l.offsets", "l.elements.a", "l.elements.f"],
     )]
     #[case::same_lambda_twice(
         pack(
