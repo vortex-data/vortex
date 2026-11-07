@@ -41,6 +41,8 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::limit::RowLimit;
+use crate::scan::metrics::ScanCounterSnapshot;
+use crate::scan::metrics::ScanMetrics;
 use crate::scan::scan_builder::ScanBuilder;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
@@ -48,7 +50,7 @@ pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_max_row_count: u64,
-    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    metrics: Option<ScanMetrics>,
 }
 
 impl LayoutReaderDataSource {
@@ -63,7 +65,7 @@ impl LayoutReaderDataSource {
             reader,
             session,
             split_max_row_count: u64::MAX,
-            metrics_registry: None,
+            metrics: None,
         }
     }
 
@@ -77,15 +79,15 @@ impl LayoutReaderDataSource {
         self
     }
 
-    /// Sets the metrics registry for tracking scan performance.
+    /// Registers aggregate counters once for this data source.
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
-        self.metrics_registry = Some(metrics);
+        self.metrics = Some(ScanMetrics::new(metrics.as_ref()));
         self
     }
 
-    /// Optionally sets the metrics registry for tracking scan performance.
+    /// Registers aggregate counters once for this data source, or clears them.
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
-        self.metrics_registry = metrics;
+        self.metrics = metrics.as_deref().map(ScanMetrics::new);
         self
     }
 }
@@ -145,8 +147,7 @@ impl DataSource for LayoutReaderDataSource {
             return Ok(Box::new(Empty { dtype, row_count }));
         }
 
-        // Check file-level pruning: if the filter can be proven false for the entire row range
-        // using file-level statistics (e.g. via FileStatsLayoutReader), skip the scan entirely.
+        // If statistics reject the entire requested range, skip the scan before partition construction.
         if let Some(filter) = &filter {
             let mask = Mask::new_true(
                 usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
@@ -158,6 +159,31 @@ impl DataSource for LayoutReaderDataSource {
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()
             {
+                if let Some(metrics) = &self.metrics
+                    && scan_request.limit != Some(0)
+                    && scan_request.selection.row_count_in_range(&row_range) != 0
+                {
+                    let file_pruned = self.reader.can_prune_file(filter)?;
+                    // The eager check covers the requested range. Only whole-file statistics
+                    // justify a file rejection. Other rejections count as one range attempt.
+                    let snapshot = if file_pruned {
+                        ScanCounterSnapshot {
+                            file_scans_attempted: 1,
+                            file_scans_pruned: 1,
+                            ..Default::default()
+                        }
+                    } else {
+                        let statistics = self.reader.split_pruning_is_statistics(filter)?;
+                        ScanCounterSnapshot {
+                            file_scans_attempted: 1,
+                            splits_attempted: 1,
+                            splits_pruned: u64::from(statistics),
+                            splits_empty_after_predicate: u64::from(!statistics),
+                            ..Default::default()
+                        }
+                    };
+                    metrics.record(snapshot);
+                }
                 return Ok(Box::new(Empty {
                     dtype,
                     row_count: 0,
@@ -182,7 +208,7 @@ impl DataSource for LayoutReaderDataSource {
             row_limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
-            metrics_registry: self.metrics_registry.clone(),
+            metrics: self.metrics.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_max_row_count,
@@ -208,7 +234,7 @@ struct LayoutReaderScan {
     row_limit: Option<RowLimit>,
     ordered: bool,
     selection: Selection,
-    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    metrics: Option<ScanMetrics>,
     next_row: u64,
     end_row: u64,
     split_size: u64,
@@ -278,7 +304,7 @@ impl Stream for LayoutReaderScan {
             ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
-            metrics_registry: this.metrics_registry.clone(),
+            metrics: this.metrics.clone(),
         }) as PartitionRef;
 
         this.next_row = split_end;
@@ -311,7 +337,7 @@ struct LayoutReaderSplit {
     ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
-    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    metrics: Option<ScanMetrics>,
 }
 
 impl Partition for LayoutReaderSplit {
@@ -346,7 +372,7 @@ impl Partition for LayoutReaderSplit {
             .with_selection(self.selection)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
-            .with_some_metrics_registry(self.metrics_registry)
+            .with_some_scan_metrics(self.metrics)
             .with_ordered(self.ordered);
         let builder = match self.row_limit {
             Some(row_limit) => builder.with_shared_limit(row_limit),
@@ -436,6 +462,9 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
+    use vortex_metrics::DefaultMetricsRegistry;
+    use vortex_metrics::MetricValue;
+    use vortex_metrics::MetricsRegistry;
     use vortex_scan::DataSource;
     use vortex_scan::ScanRequest;
     use vortex_scan::selection::Selection;
@@ -445,6 +474,84 @@ mod tests {
     use crate::scan::test::TestLayoutReader;
     use crate::scan::test::collect_scan_values;
     use crate::scan::test::session_with_handle;
+
+    fn counter_values(registry: &DefaultMetricsRegistry) -> Vec<u64> {
+        registry
+            .snapshot()
+            .iter()
+            .map(|metric| match metric.value() {
+                MetricValue::Counter(counter) => counter.value(),
+                _ => panic!("expected a scan counter"),
+            })
+            .collect()
+    }
+
+    #[rstest]
+    #[case::file_statistics(true, true, None, true, [0, 0, 0, 1, 1])]
+    #[case::range_statistics(false, true, None, true, [1, 1, 0, 1, 0])]
+    #[case::range_predicate(false, false, None, true, [1, 0, 1, 1, 0])]
+    #[case::zero_limit(true, true, Some(0), true, [0, 0, 0, 0, 0])]
+    #[case::empty_selection(true, true, None, false, [0, 0, 0, 0, 0])]
+    fn early_rejection_counts_once(
+        #[case] whole_file: bool,
+        #[case] statistics: bool,
+        #[case] limit: Option<u64>,
+        #[case] selected: bool,
+        #[case] expected: [u64; 5],
+    ) -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let registry = Arc::new(DefaultMetricsRegistry::default());
+        let reader = TestLayoutReader::new(8).with_pruning_rejection(whole_file, statistics);
+        let source = LayoutReaderDataSource::new(Arc::new(reader), session)
+            .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry));
+        for execution in 1..=2 {
+            let scan = runtime.block_on(source.scan(ScanRequest {
+                filter: Some(root()),
+                limit,
+                selection: if selected {
+                    Selection::All
+                } else {
+                    Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::empty())?)
+                },
+                ..Default::default()
+            }))?;
+            let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+            for partition in partitions {
+                let arrays = runtime.block_on(partition.execute()?.try_collect::<Vec<_>>())?;
+                assert!(arrays.is_empty());
+            }
+            assert_eq!(
+                counter_values(&registry),
+                expected.map(|count| count * execution)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn partitions_and_scans_share_aggregate_handles() -> VortexResult<()> {
+        let runtime = SingleThreadRuntime::default();
+        let session = session_with_handle(runtime.handle());
+        let registry = Arc::new(DefaultMetricsRegistry::default());
+        let source = LayoutReaderDataSource::new(Arc::new(TestLayoutReader::new(8)), session)
+            .with_split_max_row_count(2)
+            .with_metrics_registry(Arc::<DefaultMetricsRegistry>::clone(&registry));
+        for execution in 1..=2 {
+            let scan = runtime.block_on(source.scan(ScanRequest::default()))?;
+            let partitions = runtime.block_on(scan.partitions().try_collect::<Vec<_>>())?;
+            assert_eq!(partitions.len(), 4);
+            for partition in partitions {
+                let arrays = runtime.block_on(partition.execute()?.try_collect::<Vec<_>>())?;
+                assert_eq!(arrays.iter().map(|array| array.len()).sum::<usize>(), 2);
+            }
+            assert_eq!(
+                counter_values(&registry),
+                [4 * execution, 0, 0, 4 * execution, 0]
+            );
+        }
+        Ok(())
+    }
 
     /// An unordered limit is shared by every partition of the scan, so the partitions together
     /// return no more rows than the limit.
