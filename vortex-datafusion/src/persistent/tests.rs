@@ -582,6 +582,51 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
     Ok(())
 }
 
+/// A V2 scan of a local store reads through the native file reader, resolving paths under the
+/// store's prefix, and returns every row once whether or not the file is split into byte ranges.
+#[rstest]
+#[tokio::test]
+async fn test_local_store_scan_reads_byte_range_partitions(
+    #[values(false, true)] scan_v2: bool,
+    #[values(false, true)] repartition: bool,
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let store: Arc<dyn ObjectStore> = Arc::new(
+        object_store::local::LocalFileSystem::new_with_prefix(dir.path())?,
+    );
+    let session = VortexSession::default();
+    let row_count = 50_000_i32;
+    let table = ChunkedArray::from_iter((0..5).map(|chunk| {
+        let start = chunk * (row_count / 5);
+        StructArray::try_new(
+            ["value"].into(),
+            vec![Buffer::from_iter(start..start + row_count / 5).into_array()],
+            usize::try_from(row_count / 5).expect("chunk length fits usize"),
+            Validity::NonNullable,
+        )
+        .expect("valid struct")
+        .into_array()
+    }))
+    .into_array();
+    let path = object_store::path::Path::parse("local-prefix.vortex")?;
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
+    session
+        .write_options()
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let ctx = make_session(store, repartition, scan_v2);
+    let sql = "SELECT value FROM '/local-prefix.vortex' ORDER BY value";
+    if repartition {
+        assert!(count_query_partitions(&ctx, sql).await? > 1);
+    }
+    let batches = ctx.sql(sql).await?.collect().await?;
+
+    assert_eq!(batch_values(&batches), (0..row_count).collect::<Vec<_>>());
+    Ok(())
+}
+
 /// Roundtrip an `arrow.uuid` extension column through a Vortex file: write the column directly
 /// via the session-aware Arrow→Vortex conversion, then `SELECT *` and assert both the field
 /// metadata and the underlying values survive the trip.

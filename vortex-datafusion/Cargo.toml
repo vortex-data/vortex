@@ -31,10 +31,11 @@ datafusion-physical-plan = { workspace = true }
 datafusion-pruning = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-object_store = { workspace = true }
+object_store = { workspace = true, features = ["fs"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
+url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-arrow = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
@@ -46,7 +47,6 @@ insta = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
-url = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-json = { workspace = true }
 

@@ -35,6 +35,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::io::std_file::FileReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
@@ -50,6 +51,7 @@ use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
+use crate::persistent::reader::LocalFileReaders;
 use crate::persistent::reader::VortexReaderFactory;
 
 /// File scan implementation for reading one or more `.vortex` files.
@@ -208,6 +210,9 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// Shared V2 native readers of local files, keyed by path and alive only while a scan reads
+    /// the file.
+    local_readers: Arc<DashMap<Path, Weak<FileReadAt>>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -248,6 +253,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            local_readers: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             dynamic_filters: Arc::new(DashMap::default()),
@@ -356,10 +362,21 @@ impl VortexSource {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultPhysicalExprAdapterFactory));
 
-        let vortex_reader_factory = self
-            .vortex_reader_factory
-            .clone()
-            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+        let vortex_reader_factory = self.vortex_reader_factory.clone().unwrap_or_else(|| {
+            // V2 scans read local files natively rather than through the object store.
+            let local = self
+                .options
+                .scan_v2
+                .then(|| {
+                    LocalFileReaders::try_new(
+                        &base_config.object_store_url,
+                        object_store.as_ref(),
+                        Arc::clone(&self.local_readers),
+                    )
+                })
+                .flatten();
+            Arc::new(DefaultVortexReaderFactory::new(object_store).with_local_file_readers(local))
+        });
 
         let opener = VortexOpener {
             partition,
@@ -615,6 +632,7 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_datasource::PartitionedFile;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -624,8 +642,12 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
+    use object_store::local::LocalFileSystem;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
+    use vortex::io::CoalesceConfig;
+    use vortex::io::VortexReadAt;
 
     use super::*;
     use crate::convert::exprs::ProcessedProjection;
@@ -749,6 +771,47 @@ mod tests {
             &opener.expression_converter,
             &expression_converter
         ));
+        Ok(())
+    }
+
+    /// Only V2 scans of a local object store read files natively; V1 scans and other stores keep
+    /// the object store reader.
+    #[rstest]
+    #[case::v2_local(true, Arc::new(LocalFileSystem::new()) as Arc<dyn ObjectStore>, CoalesceConfig::file())]
+    #[case::v1_local(false, Arc::new(LocalFileSystem::new()) as Arc<dyn ObjectStore>, CoalesceConfig::object_storage())]
+    #[case::v2_memory(true, Arc::new(InMemory::new()) as Arc<dyn ObjectStore>, CoalesceConfig::object_storage())]
+    #[tokio::test]
+    async fn create_vortex_opener_reads_local_files_natively_for_v2(
+        #[case] scan_v2: bool,
+        #[case] object_store: Arc<dyn ObjectStore>,
+        #[case] expected: CoalesceConfig,
+    ) -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("data.vortex");
+        std::fs::write(&path, b"vortex")?;
+        let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let source = VortexSource::new(TableSchema::from(file_schema), VortexSession::default())
+            .with_options(VortexTableOptions {
+                scan_v2,
+                ..Default::default()
+            });
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .build();
+
+        let opener = source.create_vortex_opener(object_store, &config, 0)?;
+        let location = Path::from_filesystem_path(&path)?;
+        let file = PartitionedFile::new(location.to_string(), 6);
+        let reader = opener
+            .vortex_reader_factory
+            .create_reader(&file, &opener.session)?;
+
+        assert_eq!(
+            reader.coalesce_config().map(|config| config.max_size),
+            Some(expected.max_size)
+        );
         Ok(())
     }
 
