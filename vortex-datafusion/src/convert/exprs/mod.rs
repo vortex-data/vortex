@@ -22,6 +22,7 @@ use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions::unicode::substr::SubstrFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
@@ -39,6 +40,7 @@ use vortex::dtype::Nullability;
 use vortex::expr::Expression;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
+use vortex::expr::fill_null;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -48,6 +50,7 @@ use vortex::expr::list_sum_opts;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
+use vortex::expr::or_collect;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
@@ -302,6 +305,39 @@ impl DefaultExpressionConverter {
         input_dtype: &DType,
     ) -> Conversion<Expression> {
         if let Some(binary_expr) = expr.downcast_ref::<df_expr::BinaryExpr>() {
+            // An OR of equalities on one value becomes a single membership test.
+            if *binary_expr.op() == DFOperator::Or
+                && let Some((value, literals)) = rewrite::or_equality_terms(expr)
+            {
+                let in_list = df_expr::InListExpr::try_new(
+                    Arc::clone(value),
+                    literals.into_iter().cloned().collect(),
+                    false,
+                    schema,
+                );
+                if let Ok(in_list) = in_list {
+                    match self.convert_in_list(&in_list, schema, input_dtype) {
+                        Err(Unconverted::Unsupported) => {}
+                        result => return result,
+                    }
+                }
+            }
+            if *binary_expr.op() == DFOperator::Eq {
+                for (function, literal) in [
+                    (binary_expr.left(), binary_expr.right()),
+                    (binary_expr.right(), binary_expr.left()),
+                ] {
+                    if let Some((input, length)) = substr_prefix(function) {
+                        return self.convert_prefix_membership(
+                            input,
+                            length,
+                            std::slice::from_ref(literal),
+                            schema,
+                            input_dtype,
+                        );
+                    }
+                }
+            }
             let operator =
                 try_operator_from_df(binary_expr.op()).ok_or(Unconverted::Unsupported)?;
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);
@@ -524,6 +560,15 @@ impl DefaultExpressionConverter {
         {
             return Err(Unconverted::Unsupported);
         }
+        if let Some((input, length)) = substr_prefix(in_list.expr()) {
+            let membership =
+                self.convert_prefix_membership(input, length, in_list.list(), schema, input_dtype)?;
+            return Ok(if in_list.negated() {
+                not(membership)
+            } else {
+                membership
+            });
+        }
         let value = self.convert_expr(in_list.expr(), schema, input_dtype)?;
         // Boolean rewrites may skip evaluating the input, particularly for all-null lists.
         if !is_infallible(&value) {
@@ -555,6 +600,52 @@ impl DefaultExpressionConverter {
         } else {
             membership
         })
+    }
+
+    /// Converts `substr(input, 1, length) IN (values)` to an OR of `input LIKE 'value%'`.
+    ///
+    /// `substr` counts UTF-8 characters, and a string whose first `length` characters equal a
+    /// value of exactly `length` characters is a string with that value as a byte prefix. Other
+    /// values, including nulls, are unsupported. A LIKE prefix pattern also prunes zones.
+    fn convert_prefix_membership(
+        &self,
+        input: &Arc<dyn PhysicalExpr>,
+        length: usize,
+        values: &[Arc<dyn PhysicalExpr>],
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        if !matches!(
+            input.data_type(schema)?,
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+        ) {
+            return Err(Unconverted::Unsupported);
+        }
+        let patterns = values
+            .iter()
+            .map(|value| {
+                value
+                    .downcast_ref::<df_expr::Literal>()
+                    .and_then(|literal| literal.value().try_as_str().flatten())
+                    .filter(|value| value.chars().count() == length)
+                    .map(like_prefix_pattern)
+                    .ok_or(Unconverted::Unsupported)
+            })
+            .collect::<Conversion<Vec<_>>>()?;
+        let input = self.convert_expr(input, schema, input_dtype)?;
+        if !is_infallible(&input) {
+            return Err(Unconverted::Unsupported);
+        }
+        or_collect(patterns.into_iter().unique().map(|pattern| {
+            Like.new_expr(
+                LikeOptions::default(),
+                [
+                    input.clone(),
+                    lit(Scalar::utf8(pattern, Nullability::NonNullable)),
+                ],
+            )
+        }))
+        .ok_or(Unconverted::Unsupported)
     }
 
     fn convert_scalar_function(
@@ -659,12 +750,54 @@ impl DefaultExpressionConverter {
         Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
 
+    /// Converts `CASE WHEN value IS NOT NULL THEN value ELSE literal END`, which DataFusion
+    /// simplifies `coalesce(value, literal)` to, into `fill_null`.
+    ///
+    /// DataFusion evaluates the literal only where the value is null, and evaluating a literal
+    /// cannot fail. Only types with a Vortex `fill_null` kernel are supported, and the literal must
+    /// have the value's type. Returns `None` for any other `CASE`.
+    fn try_convert_fill_null(
+        &self,
+        case_expr: &df_expr::CaseExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Option<Expression>> {
+        let ([(when_expr, then_expr)], Some(fill)) =
+            (case_expr.when_then_expr(), case_expr.else_expr())
+        else {
+            return Ok(None);
+        };
+        let Some(fill) = fill.downcast_ref::<df_expr::Literal>() else {
+            return Ok(None);
+        };
+        if case_expr.expr().is_some()
+            || !when_expr
+                .downcast_ref::<df_expr::IsNotNullExpr>()
+                .is_some_and(|is_not_null| **is_not_null.arg() == **then_expr)
+        {
+            return Ok(None);
+        }
+        let data_type = then_expr.data_type(schema)?;
+        if fill.value().is_null()
+            || fill.value().data_type() != data_type
+            || !supports_fill_null(&data_type)
+        {
+            return Ok(None);
+        }
+        let value = self.convert_expr(then_expr, schema, input_dtype)?;
+        let fill = self.import_literal(fill, &*fill.return_field(schema)?)?;
+        Ok(Some(fill_null(value, lit(fill))))
+    }
+
     fn convert_case_expr(
         &self,
         case_expr: &df_expr::CaseExpr,
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if let Some(fill_null) = self.try_convert_fill_null(case_expr, schema, input_dtype)? {
+            return Ok(fill_null);
+        }
         // Only the searched form (CASE WHEN cond THEN value ...) is supported.
         if case_expr.expr().is_some() {
             return Err(Unconverted::Unsupported);
@@ -761,6 +894,40 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
         (Boolean | Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64, Float64) => {
             CastPushdown::Keep
         }
+        // Every string and binary encoding is one Vortex dtype. Only casts whose target offsets
+        // cannot overflow, so that they cannot fail in DataFusion, are dropped.
+        (Utf8, Utf8View | LargeUtf8)
+        | (Utf8View, LargeUtf8)
+        | (Binary, BinaryView | LargeBinary)
+        | (BinaryView, LargeBinary) => CastPushdown::Drop,
+        // Rescaling to at least as many integer digits keeps every valid value in range.
+        (
+            Decimal32(from_precision, from_scale)
+            | Decimal64(from_precision, from_scale)
+            | Decimal128(from_precision, from_scale)
+            | Decimal256(from_precision, from_scale),
+            Decimal32(to_precision, to_scale)
+            | Decimal64(to_precision, to_scale)
+            | Decimal128(to_precision, to_scale)
+            | Decimal256(to_precision, to_scale),
+        ) if to_scale >= from_scale
+            && i16::from(*to_precision) - i16::from(*to_scale)
+                >= i16::from(*from_precision) - i16::from(*from_scale) =>
+        {
+            CastPushdown::Keep
+        }
+        // An integer fits when the decimal has as many integer digits as the integer type.
+        (
+            Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64,
+            Decimal32(precision, scale)
+            | Decimal64(precision, scale)
+            | Decimal128(precision, scale)
+            | Decimal256(precision, scale),
+        ) if i16::from(*precision) - i16::from(*scale)
+            >= integer_digits(source).ok_or(Unconverted::Unsupported)? =>
+        {
+            CastPushdown::Keep
+        }
         // A list cast casts each element. Vortex has no `FixedSizeList` to `List` cast.
         (List(from) | LargeList(from), List(to) | LargeList(to))
             if to.is_nullable() || !from.is_nullable() =>
@@ -768,6 +935,19 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
             classify_cast_types(from.data_type(), to.data_type())?
         }
         _ => return Err(Unconverted::Unsupported),
+    })
+}
+
+/// The number of decimal digits needed for every value of an integer type.
+fn integer_digits(data_type: &DataType) -> Option<i16> {
+    use DataType::*;
+    Some(match data_type {
+        Int8 | UInt8 => 3,
+        Int16 | UInt16 => 5,
+        Int32 | UInt32 => 10,
+        Int64 => 19,
+        UInt64 => 20,
+        _ => return None,
     })
 }
 
@@ -843,6 +1023,50 @@ fn supported_data_types(dt: &DataType) -> bool {
     is_supported
 }
 
+/// Whether Vortex can fill the nulls of values of this type: booleans, numbers and strings.
+fn supports_fill_null(data_type: &DataType) -> bool {
+    use DataType::*;
+    data_type.is_numeric()
+        || matches!(
+            data_type,
+            Boolean | Utf8 | LargeUtf8 | Utf8View | Binary | LargeBinary | BinaryView
+        )
+}
+
+/// Returns the input and length of `substr(input, 1, length)` with a positive literal length.
+fn substr_prefix(expr: &Arc<dyn PhysicalExpr>) -> Option<(&Arc<dyn PhysicalExpr>, usize)> {
+    let scalar_fn = expr.downcast_ref::<ScalarFunctionExpr>()?;
+    ScalarFunctionExpr::try_downcast_func::<SubstrFunc>(scalar_fn)?;
+    let [input, start, length] = scalar_fn.args() else {
+        return None;
+    };
+    let int64 =
+        |expr: &Arc<dyn PhysicalExpr>| match expr.downcast_ref::<df_expr::Literal>()?.value() {
+            ScalarValue::Int64(Some(value)) => Some(*value),
+            _ => None,
+        };
+    if int64(start)? != 1 {
+        return None;
+    }
+    let length = usize::try_from(int64(length)?)
+        .ok()
+        .filter(|length| *length > 0)?;
+    Some((input, length))
+}
+
+/// A LIKE pattern matching strings that start with `prefix`.
+fn like_prefix_pattern(prefix: &str) -> String {
+    let mut pattern = String::with_capacity(prefix.len() + 1);
+    for c in prefix.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
 /// Returns the list argument of an `array_length` call that can be rewritten to `list_length`:
 /// the single-argument form `array_length(arr)` or the equivalent explicit first dimension
 /// `array_length(arr, 1)`. Other dimensions are unsupported (`None`); other arities are errors.
@@ -863,5 +1087,6 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> DFResult<Option<&Arc<dy
     }
 }
 
+pub(crate) mod rewrite;
 #[cfg(test)]
 mod tests;

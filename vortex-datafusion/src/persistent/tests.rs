@@ -864,21 +864,31 @@ async fn test_predicate_memtable_oracle(
     Ok(())
 }
 
-/// Returns whether `plan` filters rows in DataFusion and whether a Vortex scan accepted a
-/// predicate.
+/// Returns whether `plan` filters the rows of a Vortex scan in DataFusion and whether a Vortex
+/// scan accepted a predicate.
 fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
-    let mut in_datafusion = plan.downcast_ref::<FilterExec>().is_some();
-    let mut in_scan = plan
+    let (in_datafusion, in_scan, _) = vortex_filter_placement(plan);
+    (in_datafusion, in_scan)
+}
+
+/// Like [`filter_placement`], and also whether `plan` contains a Vortex scan.
+fn vortex_filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool, bool) {
+    let source = plan
         .downcast_ref::<DataSourceExec>()
         .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
-        .and_then(|config| config.file_source.downcast_ref::<VortexSource>())
-        .is_some_and(|source| source.predicate().is_some());
+        .and_then(|config| config.file_source.downcast_ref::<VortexSource>());
+    let mut has_scan = source.is_some();
+    let mut in_scan = source.is_some_and(|source| source.predicate().is_some());
+    let mut in_datafusion = false;
     for child in plan.children() {
-        let (child_in_datafusion, child_in_scan) = filter_placement(child.as_ref());
+        let (child_in_datafusion, child_in_scan, child_has_scan) =
+            vortex_filter_placement(child.as_ref());
         in_datafusion |= child_in_datafusion;
         in_scan |= child_in_scan;
+        has_scan |= child_has_scan;
     }
-    (in_datafusion, in_scan)
+    in_datafusion |= has_scan && plan.downcast_ref::<FilterExec>().is_some();
+    (in_datafusion, in_scan, has_scan)
 }
 
 /// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
@@ -1050,5 +1060,92 @@ async fn test_hash_join_dynamic_filter_filters_scan_rows_exactly(
         "{}",
         DisplayableExecutionPlan::with_metrics(plan.as_ref()).indent(true)
     );
+    Ok(())
+}
+
+/// Predicates whose conversion relies on a rewrite return the same rows as DataFusion, and are
+/// removed from DataFusion's `FilterExec` when pushed down.
+#[rstest]
+#[case::subquery_eq("a = (SELECT max(a) - 2 FROM oracle)")]
+#[case::subquery_cast_range(
+    "CAST(a AS BIGINT) >= (SELECT min(a) FROM oracle) AND CAST(a AS BIGINT) <= (SELECT max(a) - 1 FROM oracle)"
+)]
+#[case::subquery_null("a = (SELECT max(a) FROM oracle WHERE a > 100)")]
+#[case::int_to_decimal("CAST(a AS DECIMAL(12, 2)) > CAST(2.5 AS DECIMAL(12, 2))")]
+#[case::utf8_to_view("arrow_cast(s, 'Utf8View') = '2412'")]
+#[case::coalesce_int("coalesce(a, 0) = 0")]
+#[case::coalesce_string("coalesce(s, 'none') IN ('none', '2412')")]
+#[case::or_equalities("a = 1 OR a = 4 OR a = 4")]
+#[case::repeated_disjunction("(a = 2 OR a = 4) AND (a = 2 OR a = 4 OR a = 4)")]
+#[case::implied_disjunction("a IN (1, 2, 4) AND (a = 4 OR a = 1)")]
+#[case::substr_in("substr(s, 1, 5) IN ('24128', '76232', 'a%c_e', 'äöü12')")]
+#[case::substr_not_in("substr(s, 1, 5) NOT IN ('24128', 'äöü12')")]
+#[case::substr_eq("substr(s, 1, 4) = '2412'")]
+#[case::substr_or("substr(s, 1, 3) = 'äöü' OR substr(s, 1, 3) = 'a%c'")]
+#[tokio::test]
+async fn test_rewritten_predicate_memtable_oracle(
+    #[case] predicate: &str,
+    #[values(false, true)] pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        scan_v2,
+        projection_pushdown: pushdown,
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    let batch = arrow_array::record_batch!(
+        ("id", Int32, vec![0, 1, 2, 3, 4, 5]),
+        (
+            "a",
+            Int32,
+            vec![Some(1), Some(2), None, Some(4), Some(5), Some(2)]
+        ),
+        (
+            "s",
+            Utf8,
+            vec![
+                Some("24128-1"),
+                Some("2412"),
+                None,
+                Some("a%c_ef"),
+                Some("äöü12"),
+                Some("76232")
+            ]
+        )
+    )?;
+    ctx.write_arrow_batch("rewritten.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider(
+            "actual",
+            "/rewritten.vortex",
+            batch.schema().as_ref().clone(),
+        )
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            batch.schema(),
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    let (in_datafusion, in_scan) = filter_placement(plan.as_ref());
+    assert_eq!(
+        (in_datafusion, in_scan),
+        (!pushdown, pushdown),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    let actual = actual.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }

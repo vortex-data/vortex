@@ -44,10 +44,14 @@ use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::ScalarUDF;
+use datafusion_expr::physical_planning_context::ScalarSubqueryResults;
+use datafusion_expr::physical_planning_context::SubqueryIndex;
 use datafusion_functions::core::coalesce::CoalesceFunc;
+use datafusion_functions::unicode::substr::SubstrFunc;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
+use datafusion_physical_expr::scalar_subquery::ScalarSubqueryExpr;
 use datafusion_physical_plan::expressions as df_expr;
 use insta::assert_snapshot;
 use rstest::rstest;
@@ -63,10 +67,14 @@ use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::fill_null::FillNull;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
 
+use super::rewrite::PendingSubquery;
+use super::rewrite::drop_implied_conjuncts;
+use super::rewrite::substitute_scalar_subqueries;
 use super::*;
 use crate::common_tests::TestSessionContext;
 use crate::convert::TryToDataFusion;
@@ -2415,6 +2423,491 @@ fn test_fallible_boolean_rhs_is_residual(
     ));
     // DataFusion selects the one row that needs RHS evaluation at this selectivity.
     expr.evaluate(&batch)?;
+    assert!(!converts(&expr, &batch.schema())?);
+    Ok(())
+}
+
+fn scalar_subquery(value: Option<ScalarValue>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let results = ScalarSubqueryResults::new(1);
+    if let Some(value) = value {
+        results.set(SubqueryIndex::new(0), value)?;
+    }
+    Ok(Arc::new(ScalarSubqueryExpr::new(
+        DataType::Int64,
+        true,
+        SubqueryIndex::new(0),
+        results,
+    )))
+}
+
+/// `CAST(a AS Int64) >= (SELECT ...)`, the shape of TPC-DS Q54's date filter.
+fn subquery_predicate(subquery: Arc<dyn PhysicalExpr>) -> Arc<dyn PhysicalExpr> {
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            DataType::Int64,
+            None,
+        )),
+        DFOperator::GtEq,
+        subquery,
+    ))
+}
+
+#[rstest]
+#[case::resolved(
+    Some(ScalarValue::Int64(Some(2))),
+    PendingSubquery::Keep,
+    Some(ScalarValue::Int64(Some(2)))
+)]
+#[case::resolved_null(
+    Some(ScalarValue::Int64(None)),
+    PendingSubquery::Keep,
+    Some(ScalarValue::Int64(None))
+)]
+#[case::pending_kept(None, PendingSubquery::Keep, None)]
+#[case::pending_placeholder(None, PendingSubquery::Placeholder, Some(ScalarValue::Int64(Some(0))))]
+fn test_substitute_scalar_subqueries(
+    #[case] value: Option<ScalarValue>,
+    #[case] pending: PendingSubquery,
+    #[case] expected: Option<ScalarValue>,
+) -> anyhow::Result<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let predicate = subquery_predicate(scalar_subquery(value)?);
+    assert!(!converts(&predicate, &schema)?);
+
+    let substituted = substitute_scalar_subqueries(Arc::clone(&predicate), pending)?;
+    let binary = substituted
+        .downcast_ref::<df_expr::BinaryExpr>()
+        .ok_or_else(|| anyhow::anyhow!("Expected a binary expression"))?;
+    let literal = binary
+        .right()
+        .downcast_ref::<df_expr::Literal>()
+        .map(|literal| literal.value().clone());
+    assert_eq!(literal, expected);
+    assert_eq!(converts(&substituted, &schema)?, expected.is_some());
+    if expected.is_none() {
+        assert!(Arc::ptr_eq(&substituted, &predicate));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_substituted_scalar_subquery_matches_datafusion() -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3), None]))?;
+    let predicate = subquery_predicate(scalar_subquery(Some(ScalarValue::Int64(Some(2))))?);
+    let substituted = substitute_scalar_subqueries(Arc::clone(&predicate), PendingSubquery::Keep)?;
+    assert_eq!(
+        substituted
+            .evaluate(&batch)?
+            .into_array(batch.num_rows())?
+            .as_ref(),
+        predicate
+            .evaluate(&batch)?
+            .into_array(batch.num_rows())?
+            .as_ref(),
+    );
+    assert_native_matches(substituted, batch)
+}
+
+fn decimal128(values: Vec<Option<i128>>, precision: u8, scale: i8) -> arrow_array::ArrayRef {
+    Arc::new(
+        arrow_array::Decimal128Array::from(values)
+            .with_precision_and_scale(precision, scale)
+            .expect("valid decimal precision and scale"),
+    )
+}
+
+#[rstest]
+#[case::decimal_scale_up(
+    decimal128(vec![Some(-99_999), Some(99_999), Some(0), None], 7, 2),
+    DataType::Decimal128(9, 4)
+)]
+#[case::decimal_precision_up(
+    decimal128(vec![Some(-99_999), Some(99_999), None], 7, 2),
+    DataType::Decimal128(15, 2)
+)]
+#[case::decimal_to_decimal256(
+    decimal128(vec![Some(-99_999), Some(99_999), None], 7, 2),
+    DataType::Decimal256(40, 3)
+)]
+#[case::i32_to_decimal(
+    Arc::new(Int32Array::from(vec![Some(i32::MIN), Some(i32::MAX), None])),
+    DataType::Decimal128(12, 2)
+)]
+#[case::u64_to_decimal(
+    Arc::new(UInt64Array::from(vec![Some(u64::MAX), Some(0), None])),
+    DataType::Decimal128(20, 0)
+)]
+#[case::i8_to_decimal(
+    Arc::new(Int8Array::from(vec![Some(i8::MIN), Some(i8::MAX), None])),
+    DataType::Decimal128(3, 0)
+)]
+fn test_native_decimal_cast(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    assert_native_matches(
+        Arc::new(df_expr::CastExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            target,
+            None,
+        )),
+        batch,
+    )
+}
+
+#[rstest]
+#[case::utf8_to_view(DataType::Utf8, DataType::Utf8View)]
+#[case::utf8_to_large(DataType::Utf8, DataType::LargeUtf8)]
+#[case::view_to_large(DataType::Utf8View, DataType::LargeUtf8)]
+#[case::binary_to_view(DataType::Binary, DataType::BinaryView)]
+fn test_string_encoding_cast_is_dropped(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> anyhow::Result<()> {
+    let values = cast(
+        &StringArray::from(vec![Some("a"), None, Some("long enough to be out of line")]),
+        &source,
+    )?;
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(!contains_cast(&converted), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::decimal_scale_down(DataType::Decimal128(7, 2), DataType::Decimal128(7, 1))]
+#[case::decimal_fewer_integer_digits(DataType::Decimal128(7, 2), DataType::Decimal128(8, 4))]
+#[case::i64_to_small_decimal(DataType::Int64, DataType::Decimal128(18, 0))]
+#[case::i32_to_small_decimal(DataType::Int32, DataType::Decimal128(10, 1))]
+#[case::view_to_utf8(DataType::Utf8View, DataType::Utf8)]
+#[case::large_to_view(DataType::LargeUtf8, DataType::Utf8View)]
+#[case::date_to_timestamp(
+    DataType::Date32,
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, None)
+)]
+fn test_fallible_cast_falls_back(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+/// Plans `coalesce(a, fill)` as DataFusion does: simplified to
+/// `CASE WHEN a IS NOT NULL THEN a ELSE fill END`.
+fn coalesce_expr(args: Vec<Arc<dyn PhysicalExpr>>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let [value, fill] = <[_; 2]>::try_from(args)
+        .map_err(|_| exec_datafusion_err!("coalesce_expr takes two arguments"))?;
+    Ok(Arc::new(df_expr::CaseExpr::try_new(
+        None,
+        vec![(
+            Arc::new(df_expr::IsNotNullExpr::new(Arc::clone(&value))) as Arc<dyn PhysicalExpr>,
+            value,
+        )],
+        Some(fill),
+    )?))
+}
+
+#[rstest]
+#[case::int(
+    Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])),
+    ScalarValue::Int32(Some(0))
+)]
+#[case::decimal(
+    decimal128(vec![Some(-1), None, Some(99_999)], 7, 2),
+    ScalarValue::Decimal128(Some(12_345), 7, 2)
+)]
+#[case::utf8_view(
+    cast(&StringArray::from(vec![Some("a"), None, Some("c")]), &DataType::Utf8View)?,
+    ScalarValue::Utf8View(Some("none".into()))
+)]
+#[case::boolean(
+    Arc::new(BooleanArray::from(vec![Some(true), None, Some(false)])),
+    ScalarValue::Boolean(Some(false))
+)]
+#[case::no_nulls(Arc::new(Int32Array::from(vec![1, 2])), ScalarValue::Int32(Some(0)))]
+fn test_native_coalesce(
+    #[case] values: arrow_array::ArrayRef,
+    #[case] fill: ScalarValue,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([("a", values)])?;
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Literal::new(fill)),
+    ])?;
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<FillNull>());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::null_fill(DataType::Int32, ScalarValue::Int32(None))]
+#[case::date(DataType::Date32, ScalarValue::Date32(Some(1)))]
+#[case::timestamp(
+    DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+    ScalarValue::TimestampMillisecond(Some(1), None)
+)]
+fn test_coalesce_without_fill_null(
+    #[case] data_type: DataType,
+    #[case] fill: ScalarValue,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", data_type, true)]);
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Literal::new(fill)),
+    ])?;
+    let converted = DefaultExpressionConverter::default().try_convert(&expr, &schema)?;
+    assert!(!converted.is_some_and(|converted| converted.is::<FillNull>()));
+    Ok(())
+}
+
+#[test]
+fn test_coalesce_of_columns_is_not_fill_null() -> DFResult<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, true),
+        Field::new("b", DataType::Int32, true),
+    ]);
+    let expr = coalesce_expr(vec![
+        Arc::new(df_expr::Column::new("a", 0)),
+        Arc::new(df_expr::Column::new("b", 1)),
+    ])?;
+    assert!(!convert(expr, &schema)?.is::<FillNull>());
+    Ok(())
+}
+
+fn column_eq(value: i32) -> Arc<dyn PhysicalExpr> {
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(value)))),
+    ))
+}
+
+fn or_all(exprs: impl IntoIterator<Item = Arc<dyn PhysicalExpr>>) -> Arc<dyn PhysicalExpr> {
+    exprs
+        .into_iter()
+        .reduce(|left, right| Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Or, right)))
+        .expect("at least one disjunct")
+}
+
+fn in_list_expr(values: &[i32], schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals(values.iter().copied().map(Some)),
+        false,
+        schema,
+    )?))
+}
+
+#[rstest]
+#[case::equalities(vec![column_eq(3), column_eq(1), column_eq(1)])]
+#[case::reversed(vec![
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(3)))),
+        DFOperator::Eq,
+        Arc::new(df_expr::Column::new("a", 0)),
+    )) as Arc<dyn PhysicalExpr>,
+    column_eq(7),
+])]
+#[case::with_null(vec![
+    column_eq(3),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(None))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+fn test_or_of_equalities_converts_to_membership(
+    #[case] disjuncts: Vec<Arc<dyn PhysicalExpr>>,
+) -> anyhow::Result<()> {
+    let batch =
+        arrow_array::record_batch!(("a", Int32, vec![Some(1), Some(3), Some(7), None, Some(9)]))?;
+    let expr = or_all(disjuncts);
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(!converted.is::<Binary>(), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::different_columns(vec![
+    column_eq(1),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+#[case::other_comparison(vec![
+    column_eq(1),
+    Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+    )) as Arc<dyn PhysicalExpr>,
+])]
+fn test_mixed_or_stays_binary(#[case] disjuncts: Vec<Arc<dyn PhysicalExpr>>) -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(
+        ("a", Int32, vec![Some(1), Some(3), Some(7), None]),
+        ("b", Int32, vec![Some(2), None, Some(1), Some(2)])
+    )?;
+    let expr = or_all(disjuncts);
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<Binary>());
+    assert_native_matches(expr, batch)
+}
+
+#[test]
+fn test_drop_implied_conjuncts() -> DFResult<()> {
+    let schema = Schema::new(vec![
+        Field::new("a", DataType::Int32, true),
+        Field::new("b", DataType::Int32, true),
+    ]);
+    let small = or_all([column_eq(3), column_eq(1)]);
+    // TPC-DS Q13 repeats the same disjunction with a duplicate term.
+    let duplicate = or_all([column_eq(3), column_eq(1), column_eq(1)]);
+    let superset = in_list_expr(&[1, 2, 3], &schema)?;
+    let disjoint = in_list_expr(&[1, 4], &schema)?;
+    let other: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+    ));
+    let other_copy: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        DFOperator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+    ));
+    let conjuncts = vec![
+        &superset,
+        &duplicate,
+        &other,
+        &disjoint,
+        &small,
+        &other_copy,
+    ];
+    let kept = drop_implied_conjuncts(conjuncts);
+    // `duplicate` and `small` have the same set, so the earlier one stays.
+    assert_eq!(
+        kept.iter().map(|expr| expr.to_string()).collect_vec(),
+        [&duplicate, &other, &disjoint]
+            .iter()
+            .map(|expr| expr.to_string())
+            .collect_vec()
+    );
+    Ok(())
+}
+
+fn contains_like(expr: &Expression) -> bool {
+    expr.is::<Like>() || expr.children().iter().any(contains_like)
+}
+
+fn substr_expr(start: i64, length: i64, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(ScalarFunctionExpr::try_new(
+        Arc::new(ScalarUDF::from(SubstrFunc::new())),
+        vec![
+            Arc::new(df_expr::Column::new("s", 0)),
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(start)))),
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(length)))),
+        ],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
+}
+
+fn string_batch(data_type: &DataType) -> anyhow::Result<RecordBatch> {
+    let values = StringArray::from(vec![
+        Some("24128-0001"),
+        Some("2412"),
+        Some("24128"),
+        None,
+        Some("a%c_e"),
+        Some("abcde"),
+        Some("äöüßx"),
+        Some("äöü"),
+        Some("a\\c_e!"),
+    ]);
+    Ok(RecordBatch::try_from_iter([(
+        "s",
+        cast(&values, data_type)?,
+    )])?)
+}
+
+fn string_literals(values: &[&str], data_type: &DataType) -> DFResult<Vec<Arc<dyn PhysicalExpr>>> {
+    values
+        .iter()
+        .map(|value| {
+            Ok(Arc::new(df_expr::Literal::new(
+                ScalarValue::Utf8(Some((*value).to_owned())).cast_to(data_type)?,
+            )) as Arc<dyn PhysicalExpr>)
+        })
+        .collect()
+}
+
+#[rstest]
+#[case::zip(&["24128", "76232"])]
+#[case::metacharacters(&["a%c_e", "a\\c_e"])]
+#[case::multibyte(&["äöüßx"])]
+fn test_substr_membership_converts_to_prefix_like(
+    #[case] values: &[&str],
+    #[values(DataType::Utf8, DataType::Utf8View, DataType::LargeUtf8)] data_type: DataType,
+    #[values(false, true)] negated: bool,
+) -> anyhow::Result<()> {
+    let batch = string_batch(&data_type)?;
+    let length = i64::try_from(values[0].chars().count())?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
+        substr_expr(1, length, &batch.schema())?,
+        string_literals(values, &data_type)?,
+        negated,
+        &batch.schema(),
+    )?);
+    let converted = convert(Arc::clone(&expr), &batch.schema())?;
+    assert!(contains_like(&converted), "{}", converted.display_tree());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+fn test_substr_equality_converts_to_prefix_like(
+    #[values(DataType::Utf8, DataType::Utf8View)] data_type: DataType,
+) -> anyhow::Result<()> {
+    let batch = string_batch(&data_type)?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        string_literals(&["äöü"], &data_type)?.remove(0),
+        DFOperator::Eq,
+        substr_expr(1, 3, &batch.schema())?,
+    ));
+    assert!(convert(Arc::clone(&expr), &batch.schema())?.is::<Like>());
+    assert_native_matches(expr, batch)
+}
+
+#[rstest]
+#[case::shorter_value(1, 5, &["2412"])]
+#[case::mixed_lengths(1, 5, &["24128", "2412"])]
+#[case::longer_value(1, 3, &["abcd"])]
+#[case::later_start(2, 4, &["4128"])]
+#[case::zero_length(1, 0, &[""])]
+fn test_substr_membership_falls_back(
+    #[case] start: i64,
+    #[case] length: i64,
+    #[case] values: &[&str],
+) -> anyhow::Result<()> {
+    let batch = string_batch(&DataType::Utf8)?;
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::InListExpr::try_new(
+        substr_expr(start, length, &batch.schema())?,
+        string_literals(values, &DataType::Utf8)?,
+        false,
+        &batch.schema(),
+    )?);
     assert!(!converts(&expr, &batch.schema())?);
     Ok(())
 }
