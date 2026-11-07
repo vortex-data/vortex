@@ -25,6 +25,7 @@
 mod cache;
 pub(crate) mod io;
 mod retain;
+mod rows;
 #[cfg(test)]
 mod tests;
 
@@ -240,6 +241,8 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let decoded = cache.decoded(&file.layout)?;
+        let liveness = cache.liveness();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -252,6 +255,8 @@ impl ScanBuilder {
             filter,
             row_offset: self.row_offset,
             values,
+            decoded,
+            liveness,
             chunk_rows,
         })
     }

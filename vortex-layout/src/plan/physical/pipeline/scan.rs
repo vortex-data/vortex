@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 
 use super::DEFAULT_CAPACITY;
 use super::compile::Chain;
+use super::decoded::DecodedSegments;
 use super::port::Arena;
 use super::port::PipelineId;
 use super::port::PortId;
@@ -288,6 +289,8 @@ pub(crate) struct Core {
     pub(crate) segments: Vec<SegmentId>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
+    /// Decoded segments shared with every scan of the file while live work covers their rows.
+    pub(crate) decoded: DecodedSegments,
 }
 
 impl Core {
@@ -307,6 +310,7 @@ impl Core {
             dirty_flags: Vec::new(),
             segments: Vec::new(),
             values: ValueCache::default(),
+            decoded: DecodedSegments::default(),
         }
     }
 
@@ -682,6 +686,13 @@ impl Scan {
     /// Shares whole values, such as dictionary values, with the other scans given `values`.
     pub fn with_value_cache(mut self, values: ValueCache) -> Self {
         self.core.values = values;
+        self
+    }
+
+    /// Shares decoded segments with the other scans given `decoded`, so a segment several of
+    /// them read is decoded once while live work still covers its rows.
+    pub fn with_decoded_segments(mut self, decoded: DecodedSegments) -> Self {
+        self.core.decoded = decoded;
         self
     }
 

@@ -286,6 +286,16 @@ impl Planner for FilterPlanner {
                 rows,
                 &selected.mask,
             )?;
+            // A segment another reader decoded and kept needs no read.
+            let decoded = &self.scan.decoded;
+            let predicates: Vec<_> = predicates
+                .into_iter()
+                .filter(|&segment| !decoded.contains(segment))
+                .collect();
+            let projection: Vec<_> = projection
+                .into_iter()
+                .filter(|&segment| !decoded.contains(segment))
+                .collect();
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
             let locations = &self.scan.locations;
@@ -375,7 +385,8 @@ impl Planner for FilterPlanner {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
-            .with_value_cache(self.scan.values.clone());
+            .with_value_cache(self.scan.values.clone())
+            .with_decoded_segments(self.scan.decoded.clone());
             self.active = Some((
                 index,
                 version,
