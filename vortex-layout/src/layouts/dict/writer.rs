@@ -48,6 +48,7 @@ use crate::LayoutWriterContext;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::compressed::CompressorPlugin;
+use crate::layouts::compressed::PlanReuseScope;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -173,9 +174,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
-                    .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
+                let compressed =
+                    self.probe_compressor
+                        .compress_chunk(&sample, None, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };
@@ -200,6 +201,11 @@ impl LayoutStrategy for DictStrategy {
         // Each of these pairs becomes a child dict layout.
         let runs = DictionaryTransformer::new(dict_stream);
 
+        // The runs of one column are similar, so their codes streams share scheme decisions, and
+        // so do their values streams.
+        let codes_ctx = ctx.clone().with_plan_reuse_scope(PlanReuseScope::default());
+        let values_ctx = ctx.with_plan_reuse_scope(PlanReuseScope::default());
+
         let handle = session.handle();
         let dtype2 = dtype.clone();
         let child_layouts = stream! {
@@ -208,7 +214,7 @@ impl LayoutStrategy for DictStrategy {
             while let Some((codes_stream, values_fut)) = runs.next().await {
                 let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = codes_ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |_| async move {
@@ -223,7 +229,7 @@ impl LayoutStrategy for DictStrategy {
 
                 let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
-                let ctx2 = ctx.clone();
+                let ctx2 = values_ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();

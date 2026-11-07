@@ -26,13 +26,15 @@ pub(super) enum WinnerEstimate {
     AlwaysUse,
     /// The scheme won by a ranked estimate.
     Score(EstimateScore),
+    /// The scheme came from a replayed plan, so the compressor did not estimate it.
+    Replayed,
 }
 
 impl WinnerEstimate {
     /// Returns the traceable numeric ratio for the winning estimate.
     pub(super) fn trace_ratio(self) -> Option<f64> {
         match self {
-            Self::AlwaysUse => None,
+            Self::AlwaysUse | Self::Replayed => None,
             Self::Score(score) => score.finite_ratio(),
         }
     }

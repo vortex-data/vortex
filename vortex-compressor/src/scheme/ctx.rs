@@ -4,10 +4,12 @@
 //! Compression context for recursive compression.
 
 use std::fmt;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 
 use crate::compressor::ROOT_SCHEME_ID;
+use crate::compressor::plan::PlanState;
 use crate::scheme::SchemeId;
 use crate::stats::GenerateStatsOptions;
 
@@ -38,6 +40,9 @@ pub struct CompressorContext {
     /// [`descendant_exclusions`]: crate::scheme::Scheme::descendant_exclusions
     /// [`ancestor_exclusions`]: crate::scheme::Scheme::ancestor_exclusions
     cascade_history: Vec<(SchemeId, usize)>,
+
+    /// The plan to replay and record into. Sample compression never carries one.
+    plan: Option<Arc<PlanState>>,
 }
 
 impl CompressorContext {
@@ -50,7 +55,19 @@ impl CompressorContext {
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
+            plan: None,
         }
+    }
+
+    /// Returns a context that replays and records decisions through `plan`.
+    pub(crate) fn with_plan(mut self, plan: Arc<PlanState>) -> Self {
+        self.plan = Some(plan);
+        self
+    }
+
+    /// Returns the plan state of this context, if any.
+    pub(crate) fn plan(&self) -> Option<&PlanState> {
+        self.plan.as_deref()
     }
 }
 
@@ -103,6 +120,7 @@ impl CompressorContext {
     /// Returns a context marked as sample compression.
     pub(crate) fn with_sampling(mut self) -> Self {
         self.is_sample = true;
+        self.plan = None;
         self
     }
 

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::PlanReuseOptions;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_edition::ComponentKind;
@@ -63,6 +64,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    plan_reuse: Option<PlanReuseOptions>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
@@ -82,6 +84,7 @@ impl WriteStrategyBuilder {
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
+            plan_reuse: Some(PlanReuseOptions::default()),
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
@@ -146,6 +149,13 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override how the chunks of one column reuse earlier scheme decisions, or pass `None` to
+    /// select schemes for each chunk separately. Reuse is on by default.
+    pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
+        self.plan_reuse = plan_reuse;
+        self
+    }
+
     /// Override the compressor used to probe whether a column is dict-eligible.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
@@ -181,7 +191,8 @@ impl WriteStrategyBuilder {
             ),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
+        let compressing =
+            CompressingStrategy::new(buffered, data_compressor).with_plan_reuse(self.plan_reuse);
 
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
@@ -205,7 +216,8 @@ impl WriteStrategyBuilder {
             CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
+        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor))
+            .with_plan_reuse(self.plan_reuse);
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
