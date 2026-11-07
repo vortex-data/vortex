@@ -20,27 +20,16 @@ use crate::CascadingCompressor;
 /// Configures when [`PlanReuse`] replays a plan and when it compares the plan with a new selection.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlanReuseOptions {
-    /// The largest relative deviation of the compression ratio of a replayed chunk from the
-    /// baseline ratio of the plan, between 0 and 1. A replayed ratio must be between
-    /// `baseline * (1 - max_ratio_deviation)` and `baseline / (1 - max_ratio_deviation)`. For a
-    /// chunk outside this range, the compressor also selects schemes again and keeps the smaller
-    /// result.
+    /// The largest relative deviation, between 0 and 1, of a replayed ratio from the baseline
+    /// ratio of the plan. Outside this range, the compressor also selects schemes again and keeps
+    /// the smaller result. The same limit applies to each child position of the plan.
     ///
-    /// The same limit applies to each child position of the plan, against the ratio that the
-    /// plan recorded there. For a child outside the range, the compressor selects schemes again
-    /// for that child only.
-    ///
-    /// A ratio that drops shows that the plan became worse. A ratio that rises shows that the data
-    /// changed, and a different scheme can be better. For example, bitpacking gives a higher ratio
-    /// when integers start to repeat in runs, but run-end encoding gives a much higher ratio.
+    /// Both directions count: a ratio that rises can mean that a different scheme is now better.
     pub max_ratio_deviation: f64,
 
-    /// The number of chunks that replay a plan before the compressor compares the plan with a new
-    /// selection on the next chunk, or `None` to compare only when the ratio deviates.
-    ///
-    /// The ratio check only finds a plan whose result changes. The comparison also finds a plan
-    /// that was a poor choice from the start: the sampled estimates that select the schemes are
-    /// noisy, and two schemes with close estimates can give results with very different sizes.
+    /// The number of replays before the next chunk also compares the plan with a new selection,
+    /// or `None` to compare only when the ratio deviates. This catches a plan that sampling noise
+    /// made a poor choice from the start.
     pub challenge_after: Option<usize>,
 }
 
@@ -55,15 +44,9 @@ impl Default for PlanReuseOptions {
 
 /// The scheme decisions that one stream of chunks shares.
 ///
-/// The first chunk of a stream uses the full scheme selection, and the compressor records each
-/// decision that it made as a plan. The subsequent chunks replay the plan and skip the selection.
-///
-/// Sometimes a chunk compresses with both the plan and a new selection, and keeps the smaller
-/// result: when the ratio of the replayed chunk deviates from the baseline ratio of the plan, and
-/// periodically. If the new selection gives the smaller result, its plan replaces the cached plan.
-/// Otherwise, the cached plan stays and the ratio of this chunk becomes its baseline. Thus the
-/// actual compressed sizes on the same chunk decide between the two plans, not the sampled
-/// estimates. See [`PlanReuseOptions`] for the limits.
+/// The first chunk uses the full scheme selection and records its decisions as a plan. Later chunks
+/// replay the plan. When the replayed ratio deviates, and periodically, a chunk also gets a new
+/// selection, and the smaller result decides which plan to keep. See [`PlanReuseOptions`].
 ///
 /// Use one `PlanReuse` for each stream of chunks with the same dtype and similar data, for
 /// example the chunks of one column. It is safe to share between threads.
@@ -80,10 +63,9 @@ pub struct PlanReuse {
 struct CachedPlan {
     /// The decisions to replay.
     plan: Arc<CompressionPlan>,
-    /// The baseline compression ratio of the plan: its ratio on the last chunk where it was
-    /// compared with a new selection.
+    /// The ratio of the plan on the last chunk where it was compared with a new selection.
     ratio: f64,
-    /// The number of chunks that replayed the plan since the last comparison.
+    /// The number of replays since the last comparison.
     replays: usize,
 }
 
@@ -126,10 +108,8 @@ impl PlanReuse {
         Step::Replay(entry.clone())
     }
 
-    /// Replaces the cached plan with `plan`, which gave a chunk the compression `ratio`.
-    ///
-    /// A plan without a scheme at the root, for example the plan of a constant chunk, tells
-    /// nothing about the next chunk, so the cached plan stays.
+    /// Replaces the cached plan. A plan without a scheme at the root, such as the plan of a
+    /// constant chunk, tells nothing about the next chunk, so it is ignored.
     fn replace(&self, plan: CompressionPlan, ratio: f64) {
         if !matches!(plan.root_decision(), Some(Decision::Scheme(_))) {
             return;
@@ -142,7 +122,7 @@ impl PlanReuse {
         });
     }
 
-    /// Keeps the cached plan, which won a comparison on a chunk with the compression `ratio`.
+    /// Keeps the cached plan after it won a comparison with `ratio`.
     fn keep(&self, plan: &Arc<CompressionPlan>, ratio: f64) {
         let mut cached = self.cached.lock();
         if let Some(entry) = cached.as_mut()
@@ -153,7 +133,7 @@ impl PlanReuse {
         }
     }
 
-    /// Returns `true` if a replayed chunk with `ratio` is acceptable for `plan`.
+    /// Returns `true` if a replayed `ratio` is close enough to the baseline of `plan`.
     fn accepts(&self, ratio: f64, plan: &CachedPlan) -> bool {
         ratio_within(ratio, plan.ratio, self.options.max_ratio_deviation)
     }
@@ -162,9 +142,8 @@ impl PlanReuse {
 impl CascadingCompressor {
     /// Compresses an array, reusing the scheme decisions that `reuse` holds from earlier arrays.
     ///
-    /// This gives the same result as [`compress`](Self::compress) for the first array. For each
-    /// subsequent array, the compressor replays the earlier decisions instead of estimating each
-    /// scheme. See [`PlanReuse`] for when the compressor also selects schemes again.
+    /// The first array compresses like [`compress`](Self::compress). See [`PlanReuse`] for how
+    /// later arrays replay the decisions.
     ///
     /// # Errors
     ///
@@ -207,7 +186,7 @@ impl CascadingCompressor {
         Ok(replayed)
     }
 
-    /// Compresses an array, replaying `replay` if given, and returns the decisions it made.
+    /// Compresses an array, replaying `replay` if given, and returns the recorded decisions.
     fn compress_with_plan(
         &self,
         array: &ArrayRef,

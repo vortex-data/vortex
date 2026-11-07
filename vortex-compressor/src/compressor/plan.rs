@@ -3,16 +3,9 @@
 
 //! Recording and replaying the scheme decisions that the compressor makes for one array.
 //!
-//! A [`CompressionPlan`] maps each cascade position (the chain of `(scheme, child)` pairs from the
-//! root) to the decision that the compressor made there. When the compressor replays a plan, it
-//! skips scheme estimation at each position that the plan covers and uses the recorded decision.
-//! Positions that the plan does not cover use the full selection, and the new decisions are
-//! recorded.
-//!
-//! The plan also records the compression ratio at each position. When the ratio of a replayed
-//! child position deviates too much from the recorded ratio, the compressor also selects schemes
-//! again at that position and keeps the smaller result. Thus a change in the data of one child,
-//! which the ratio of the whole array can hide, still gets a new decision.
+//! A [`CompressionPlan`] maps each cascade position to a decision and the ratio it gave. A replay
+//! skips scheme estimation at the positions that the plan covers. A replayed child whose ratio
+//! deviates too much also gets a new selection, and the smaller result wins.
 
 use std::sync::Arc;
 
@@ -38,11 +31,11 @@ pub(crate) enum Decision {
 pub(crate) struct Planned {
     /// The decision at the position.
     pub(crate) decision: Decision,
-    /// The compression ratio of the decision at the position.
+    /// The compression ratio that the decision gave.
     pub(crate) ratio: f64,
 }
 
-/// The decisions that the compressor made for one array, keyed by cascade position.
+/// The decisions that the compressor made for one array.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CompressionPlan {
     /// The decision at each cascade position.
@@ -50,7 +43,7 @@ pub(crate) struct CompressionPlan {
 }
 
 impl CompressionPlan {
-    /// Returns the decision at the root position, if the compressor made one.
+    /// Returns the decision at the root position, if any.
     pub(crate) fn root_decision(&self) -> Option<Decision> {
         self.decisions
             .get([].as_slice())
@@ -65,22 +58,20 @@ pub(crate) fn ratio_within(ratio: f64, baseline: f64, max_deviation: f64) -> boo
     ratio >= baseline * keep && ratio * keep <= baseline
 }
 
-/// The plan state that a [`CompressorContext`](crate::scheme::CompressorContext) carries.
-///
-/// It holds an optional plan to replay and a recorder for the decisions of the current call.
+/// The plan to replay and the recorder for the current call, carried by a
+/// [`CompressorContext`](crate::scheme::CompressorContext).
 #[derive(Debug)]
 pub(crate) struct PlanState {
     /// The plan to replay, if any.
     replay: Option<Arc<CompressionPlan>>,
-    /// The largest relative deviation of the ratio at a replayed child position from the ratio
-    /// in the plan, before the compressor selects schemes again at that position.
+    /// See [`PlanReuseOptions::max_ratio_deviation`](crate::PlanReuseOptions).
     max_ratio_deviation: f64,
     /// The decisions of the current call.
     recorded: Mutex<CompressionPlan>,
 }
 
 impl PlanState {
-    /// Creates a state that replays `replay` (if given) and records all decisions.
+    /// Creates a state that replays `replay`, if given, and records all decisions.
     pub(crate) fn new(replay: Option<Arc<CompressionPlan>>, max_ratio_deviation: f64) -> Self {
         Self {
             replay,
@@ -89,7 +80,7 @@ impl PlanState {
         }
     }
 
-    /// Returns the replayed decision at `position`, if the plan has one.
+    /// Returns the replayed decision at `position`, if any.
     pub(crate) fn planned(&self, position: &[(SchemeId, usize)]) -> Option<Planned> {
         self.replay
             .as_ref()
@@ -101,7 +92,7 @@ impl PlanState {
         ratio_within(ratio, planned.ratio, self.max_ratio_deviation)
     }
 
-    /// Records `decision`, which gave the compression `ratio`, at `position`.
+    /// Records `decision` and its `ratio` at `position`.
     pub(crate) fn record(&self, position: &[(SchemeId, usize)], decision: Decision, ratio: f64) {
         self.recorded
             .lock()

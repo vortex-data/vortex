@@ -37,10 +37,8 @@ use crate::sequence::SequentialStreamExt;
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Compresses one chunk of a stream. `reuse` holds the decisions made for the earlier chunks
-    /// of the same stream.
-    ///
-    /// The default ignores `reuse` and calls [`compress_chunk`](Self::compress_chunk).
+    /// Compresses one chunk of a stream, reusing the decisions of earlier chunks. The default
+    /// ignores `reuse`.
     fn compress_stream_chunk(
         &self,
         chunk: &ArrayRef,
@@ -91,20 +89,14 @@ impl CompressorPlugin for BtrBlocksCompressor {
     }
 }
 
-/// Scheme decisions that the streams of one column share.
-///
-/// Usually each stream that a [`CompressingStrategy`] writes has its own [`PlanReuse`]. A writer
-/// context with a scope makes all streams below it with the same dtype share one [`PlanReuse`].
-/// Clones share the same decisions.
+/// Shares one [`PlanReuse`] per dtype between the streams below a writer context. Clones share
+/// the same decisions.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PlanReuseScope {
-    /// The shared decisions for each stream dtype.
     reuse: Arc<Mutex<HashMap<DType, Arc<PlanReuse>>>>,
 }
 
 impl PlanReuseScope {
-    /// Returns the shared decisions for streams of `dtype`, and creates them with `options` for
-    /// the first stream.
     fn get_or_create(&self, dtype: &DType, options: PlanReuseOptions) -> Arc<PlanReuse> {
         Arc::clone(
             self.reuse

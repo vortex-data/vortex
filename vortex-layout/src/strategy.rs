@@ -157,18 +157,13 @@ impl LayoutWriterContext {
         self
     }
 
-    /// Makes the compressing strategies below this write share their scheme decisions through
-    /// `scope`.
-    ///
-    /// A strategy that splits one column into many short streams, such as the runs of a
-    /// dictionary layout, uses this to let each stream continue from the decisions of the earlier
-    /// streams instead of selecting schemes again.
+    /// Makes the compressing strategies below this write share scheme decisions through `scope`,
+    /// for example across the runs of a dictionary layout.
     pub(crate) fn with_plan_reuse_scope(mut self, scope: PlanReuseScope) -> Self {
         self.plan_reuse_scope = Some(scope);
         self
     }
 
-    /// Returns the scope that shares scheme decisions between streams, if a strategy set one.
     pub(crate) fn plan_reuse_scope(&self) -> Option<&PlanReuseScope> {
         self.plan_reuse_scope.as_ref()
     }

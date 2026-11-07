@@ -149,11 +149,8 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override how the chunks of one column reuse the scheme decisions of earlier chunks, or pass
-    /// `None` to select schemes for each chunk separately.
-    ///
-    /// Reuse is on by default. It skips most of the scheme selection for chunks with data similar
-    /// to the earlier chunks.
+    /// Override how the chunks of one column reuse earlier scheme decisions, or pass `None` to
+    /// select schemes for each chunk separately. Reuse is on by default.
     pub fn with_plan_reuse(mut self, plan_reuse: Option<PlanReuseOptions>) -> Self {
         self.plan_reuse = plan_reuse;
         self
