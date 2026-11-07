@@ -199,3 +199,49 @@ fn test_cuda_binary_zstd_follows_editions(
 
     Ok(())
 }
+
+/// The dict pre-check must never say `false` for an array that compresses to a dictionary, and it
+/// must say `false` for arrays where no dictionary scheme can win.
+#[rstest]
+#[case::unique_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
+    false,
+)]
+#[case::few_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| ["red", "green", "blue"][i % 3])).into_array(),
+    true,
+)]
+#[case::constant_strings(
+    VarBinViewArray::from_iter_str(iter::repeat_n("same", 4096)).into_array(),
+    false,
+)]
+#[case::null_strings(
+    VarBinViewArray::from_iter(iter::repeat_n(None::<&str>, 4096), DType::Utf8(Nullability::Nullable))
+        .into_array(),
+    false,
+)]
+#[case::unique_integers(PrimitiveArray::from_iter(0..4096i64).into_array(), false)]
+fn test_may_compress_to_dict(#[case] input: ArrayRef, #[case] expected: bool) -> VortexResult<()> {
+    use vortex_array::VTable;
+    use vortex_array::arrays::Dict;
+
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let may_be_dict = compressor.0.may_compress_to(&input, Dict.id(), &mut ctx)?;
+    let is_dict = compressor.compress(&input, &mut ctx)?.is::<Dict>();
+
+    assert_eq!(may_be_dict, expected);
+    assert!(
+        may_be_dict || !is_dict,
+        "the pre-check said no, but the result is a dictionary"
+    );
+
+    if expected {
+        assert!(is_dict);
+    }
+
+    Ok(())
+}

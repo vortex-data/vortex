@@ -26,6 +26,7 @@ use futures::try_join;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
@@ -173,10 +174,19 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
+
+                // A full compression is slow, so do it only if it can give a dictionary.
+                if self
                     .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
-                !compressed.is::<Dict>()
+                    .may_compress_to(&sample, Dict.id(), &mut exec_ctx)?
+                {
+                    let compressed = self
+                        .probe_compressor
+                        .compress_chunk(&sample, &mut exec_ctx)?;
+                    !compressed.is::<Dict>()
+                } else {
+                    true
+                }
             }
         };
         if should_fallback {
