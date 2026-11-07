@@ -104,11 +104,12 @@ impl Operator for PackSource {
                 .ok_or_else(|| vortex_err!("Pack computed before every inlet was ready"))?;
             len = len.min(front.len());
         }
+        let session = cx.session().clone();
         let inlets = self.states.len();
         let nullable = self.nullable;
         let mut take = |index: usize| -> VortexResult<ArrayRef> {
             let mut inlet = cx.inlet(index);
-            let array = take_rows(&mut inlet, len)?;
+            let array = take_rows(&mut inlet, len, &session)?;
             self.observe(index, &inlet);
             Ok(array)
         };

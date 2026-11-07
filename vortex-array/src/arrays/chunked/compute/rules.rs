@@ -15,7 +15,6 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -46,10 +45,11 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
             return Ok(None);
         }
 
-        let chunks = array.iter_chunks().map(|chunk| {
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
-                .into_array()
-                .optimize()
+        let chunks = array.iter_chunks().map(|chunk| -> VortexResult<ArrayRef> {
+            Ok(
+                ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
+                    .into_array(),
+            )
         });
         chunks.process_results(|chunks| {
             // SAFETY: applying the same scalar function gives every chunk the parent's dtype.
@@ -83,7 +83,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         }
 
         let mut offset = 0;
-        let chunks = array.iter_chunks().map(|chunk| {
+        let chunks = array.iter_chunks().map(|chunk| -> VortexResult<ArrayRef> {
             let range = offset..offset + chunk.len();
             offset += chunk.len();
             // Each sibling is sliced to the chunk's rows, so that every chunk shares what the
@@ -100,9 +100,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
                 })
                 .try_collect()?;
 
-            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-                .into_array()
-                .optimize()
+            Ok(ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array())
         });
         chunks.process_results(|chunks| {
             // SAFETY: applying the same scalar function gives every chunk the parent's dtype.

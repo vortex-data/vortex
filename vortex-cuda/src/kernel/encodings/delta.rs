@@ -162,6 +162,7 @@ mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::error::VortexExpect;
@@ -273,7 +274,8 @@ mod tests {
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?
             .into_array()
-            .slice(start..end)?;
+            .slice(start..end)?
+            .optimize_ctx(&SESSION)?;
         let delta = delta
             .try_downcast::<Delta>()
             .ok()
