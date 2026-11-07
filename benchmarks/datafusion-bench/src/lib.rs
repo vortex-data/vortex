@@ -13,6 +13,7 @@ use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::physical_optimizer::optimizer::PhysicalOptimizer;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
@@ -26,6 +27,7 @@ use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::optimizer::insert_join_reorder;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -43,6 +45,13 @@ pub fn get_session_context() -> SessionContext {
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
         .with_runtime_env(rt)
         .with_default_features();
+
+    // Reorder inner join trees with Vortex statistics before DataFusion's `JoinSelection`.
+    if std::env::var("VX_JOIN_REORDER").is_ok_and(|v| v == "1") {
+        let mut rules = PhysicalOptimizer::new().rules;
+        insert_join_reorder(&mut rules);
+        session_state_builder = session_state_builder.with_physical_optimizer_rules(rules);
+    }
 
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(

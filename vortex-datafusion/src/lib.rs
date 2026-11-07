@@ -89,6 +89,7 @@ use datafusion_common::stats::Precision as DFPrecision;
 use vortex::expr::stats::Precision;
 
 pub mod convert;
+pub mod optimizer;
 mod persistent;
 pub mod v2;
 
