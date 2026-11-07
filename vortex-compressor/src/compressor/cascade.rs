@@ -3,6 +3,7 @@
 
 //! Core cascading compression flow.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
@@ -35,7 +36,9 @@ use vortex_error::vortex_err;
 
 use super::CascadingCompressor;
 use super::constant;
+use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::scheme::SchemeId;
@@ -348,6 +351,87 @@ impl CascadingCompressor {
         } else {
             Ok(Selection::Unchanged(data.into_array()))
         }
+    }
+
+    /// Returns `false` if [`compress`](Self::compress) cannot return an array of `encoding` for
+    /// `array`. Returns `true` if it can, or if this check cannot tell.
+    ///
+    /// The check does not compress. A leaf array compresses to `encoding` only if a scheme that
+    /// produces `encoding` wins the selection, and a scheme whose estimate is
+    /// [`EstimateVerdict::Skip`] cannot win. Thus the check runs only the estimates of the schemes
+    /// that produce `encoding`, and only the immediate ones. A deferred estimate can need a sample
+    /// compression, so it makes the result `true`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or a statistic fails.
+    pub fn may_compress_to(
+        &self,
+        array: &ArrayRef,
+        encoding: ArrayId,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
+        let canonical = canonical.compact(exec_ctx)?;
+
+        // Only leaf arrays go directly to scheme selection at the top level.
+        if !matches!(
+            canonical,
+            Canonical::Bool(_)
+                | Canonical::Primitive(_)
+                | Canonical::Decimal(_)
+                | Canonical::VarBinView(_)
+        ) {
+            return Ok(true);
+        }
+
+        let compress_ctx = CompressorContext::new();
+
+        let eligible_schemes: Vec<&'static dyn Scheme> = self
+            .schemes
+            .iter()
+            .copied()
+            .filter(|s| s.matches(&canonical) && !self.is_excluded(*s, &compress_ctx))
+            .collect();
+
+        let candidates: Vec<&'static dyn Scheme> = eligible_schemes
+            .iter()
+            .copied()
+            .filter(|s| s.produced_encodings().contains(&encoding))
+            .collect();
+
+        if candidates.is_empty() {
+            return Ok(false);
+        }
+
+        // The compressor itself makes empty, all-null, and constant arrays, as in
+        // `choose_and_compress`.
+        let array: ArrayRef = canonical.into();
+
+        if array.is_empty() || array.all_invalid(exec_ctx)? {
+            return Ok(false);
+        }
+
+        if constant::is_constant_for_compression(&array, exec_ctx)? {
+            return Ok(false);
+        }
+
+        // Use the same statistics as the selection, so that each estimate is the same.
+        let merged_opts = eligible_schemes
+            .iter()
+            .fold(GenerateStatsOptions::default(), |acc, s| {
+                acc.merge(s.stats_options())
+            });
+        let compress_ctx = compress_ctx.with_merged_stats_options(merged_opts);
+
+        let data = ArrayAndStats::new(array, merged_opts);
+
+        Ok(candidates.iter().any(|scheme| {
+            !matches!(
+                scheme.expected_compression_ratio(&data, compress_ctx.clone(), exec_ctx),
+                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            )
+        }))
     }
 }
 

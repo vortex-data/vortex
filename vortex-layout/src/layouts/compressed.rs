@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
@@ -31,11 +32,34 @@ use crate::sequence::SequentialStreamExt;
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+
+    /// Returns `false` if [`compress_chunk`](Self::compress_chunk) cannot return an array of
+    /// `encoding` for `chunk`. Returns `true` if it can, or if the plugin cannot tell without
+    /// compressing.
+    ///
+    /// A writer can use this to skip a compression that it does only to look at the encoding.
+    fn may_compress_to(
+        &self,
+        _chunk: &ArrayRef,
+        _encoding: ArrayId,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(true)
+    }
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.as_ref().compress_chunk(chunk, ctx)
+    }
+
+    fn may_compress_to(
+        &self,
+        chunk: &ArrayRef,
+        encoding: ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        self.as_ref().may_compress_to(chunk, encoding, ctx)
     }
 }
 
@@ -51,6 +75,15 @@ where
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
+    }
+
+    fn may_compress_to(
+        &self,
+        chunk: &ArrayRef,
+        encoding: ArrayId,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        self.0.may_compress_to(chunk, encoding, ctx)
     }
 }
 
