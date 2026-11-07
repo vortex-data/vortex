@@ -63,7 +63,6 @@ use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
 use vortex::layout::scan::v2::WeakScanCache;
-use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
 use vortex::mask::Mask;
 use vortex::metrics::Label;
@@ -506,6 +505,34 @@ impl FileOpener for VortexOpener {
                     scan_file.segments,
                 );
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                // A partial byte range owns the layout chunks that start in it, so each chunk is
+                // decoded by exactly one partition.
+                let rows = match byte_range {
+                    Some(bytes) if bytes.start != 0 || bytes.end != file.object_meta.size => {
+                        let splits = natural_splits_for_file(
+                            natural_splits.as_ref(),
+                            &file.object_meta.location,
+                            || {
+                                let reader = vxf.layout_reader().map_err(|e| {
+                                    exec_datafusion_err!("Failed to create layout reader: {e}")
+                                })?;
+                                let builder = ScanBuilder::new(vxf.session().clone(), reader)
+                                    .with_projection(scan_projection.clone())
+                                    .with_some_filter(native_filter.clone());
+                                compute_natural_splits(
+                                    &builder,
+                                    file.object_meta.size,
+                                    SplitAssignment::Start,
+                                )
+                            },
+                        )?;
+                        let Some(rows) = split_aligned_row_range(bytes, splits.as_ref()) else {
+                            return Ok(stream::empty().boxed());
+                        };
+                        Some(rows)
+                    }
+                    _ => None,
+                };
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter)
@@ -513,12 +540,7 @@ impl FileOpener for VortexOpener {
                     // one applies it again, so the scan may stop evaluating one that rejects
                     // almost nothing.
                     .with_skip_unselective_dynamic(true);
-                if let Some(bytes) = byte_range {
-                    // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
-                    if rows.is_empty() {
-                        return Ok(stream::empty().boxed());
-                    }
+                if let Some(rows) = rows {
                     builder = builder.with_row_range(rows);
                 }
                 if let Some(selection) = file
@@ -615,8 +637,13 @@ impl FileOpener for VortexOpener {
                     let splits = natural_splits_for_file(
                         natural_splits.as_ref(),
                         &file.object_meta.location,
-                        &scan_builder,
-                        file.object_meta.size,
+                        || {
+                            compute_natural_splits(
+                                &scan_builder,
+                                file.object_meta.size,
+                                SplitAssignment::Midpoint,
+                            )
+                        },
                     )?;
                     let Some(rows) = split_aligned_row_range(bytes, splits.as_ref()) else {
                         return Ok(stream::empty().boxed());
@@ -713,8 +740,18 @@ pub(crate) struct NaturalSplits {
     assignment_bytes: Box<[u64]>,
 }
 
+/// Which byte of a split a DataFusion byte range must contain to own the split.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SplitAssignment {
+    /// The byte of the split's midpoint row, except the leading split, which byte 0 owns. V1
+    /// scans assign splits this way.
+    Midpoint,
+    /// The byte of the split's first row: a split belongs to the range its start falls in.
+    Start,
+}
+
 impl NaturalSplits {
-    fn new(row_boundaries: Arc<[u64]>, total_size: u64) -> Self {
+    fn new(row_boundaries: Arc<[u64]>, total_size: u64, assignment: SplitAssignment) -> Self {
         let row_count = row_boundaries.last().copied().unwrap_or_default();
         let assignment_bytes = if row_count == 0 {
             Box::default()
@@ -722,13 +759,14 @@ impl NaturalSplits {
             row_boundaries
                 .windows(2)
                 .enumerate()
-                .map(|(idx, boundaries)| {
-                    split_assignment_byte(
+                .map(|(idx, boundaries)| match assignment {
+                    SplitAssignment::Midpoint => split_assignment_byte(
                         idx,
                         &(boundaries[0]..boundaries[1]),
                         row_count,
                         total_size,
-                    )
+                    ),
+                    SplitAssignment::Start => row_to_byte(boundaries[0], row_count, total_size),
                 })
                 .collect()
         };
@@ -817,11 +855,10 @@ fn shared_segment_source(
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
-fn natural_splits_for_file<A: 'static + Send>(
+fn natural_splits_for_file(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
     path: &Path,
-    scan_builder: &ScanBuilder<A>,
-    total_size: u64,
+    compute: impl FnOnce() -> DFResult<Arc<NaturalSplits>>,
 ) -> DFResult<Arc<NaturalSplits>> {
     if let Some(splits) = natural_splits.get(path) {
         return Ok(Arc::clone(splits.value()));
@@ -833,7 +870,7 @@ fn natural_splits_for_file<A: 'static + Send>(
     match natural_splits.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
-            let splits = compute_natural_splits(scan_builder, total_size)?;
+            let splits = compute()?;
             entry.insert(Arc::clone(&splits));
             Ok(splits)
         }
@@ -845,6 +882,7 @@ fn natural_splits_for_file<A: 'static + Send>(
 fn compute_natural_splits<A: 'static + Send>(
     scan_builder: &ScanBuilder<A>,
     total_size: u64,
+    assignment: SplitAssignment,
 ) -> DFResult<Arc<NaturalSplits>> {
     let row_boundaries = scan_builder
         .full_file_splits()
@@ -853,6 +891,7 @@ fn compute_natural_splits<A: 'static + Send>(
     Ok(Arc::new(NaturalSplits::new(
         row_boundaries.into(),
         total_size,
+        assignment,
     )))
 }
 
@@ -899,9 +938,13 @@ fn split_assignment_byte(
 
 fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: u64) -> u64 {
     let midpoint_row = split_range.start + (split_range.end - split_range.start) / 2;
-    let midpoint_byte = (u128::from(midpoint_row) * u128::from(total_size)) / u128::from(row_count);
+    row_to_byte(midpoint_row, row_count, total_size)
+}
 
-    u64::try_from(midpoint_byte).vortex_expect("midpoint byte projection should fit into u64")
+/// Projects `row` onto the file's bytes, assuming rows are spread evenly over them.
+fn row_to_byte(row: u64, row_count: u64, total_size: u64) -> u64 {
+    let byte = (u128::from(row) * u128::from(total_size)) / u128::from(row_count);
+    u64::try_from(byte).vortex_expect("row byte projection should fit into u64")
 }
 
 #[cfg(test)]
@@ -951,6 +994,7 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::file::WriteStrategyBuilder;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
@@ -1020,7 +1064,7 @@ mod tests {
             row_boundaries.push(first.start);
             row_boundaries.extend(split_ranges.iter().map(|range| range.end));
         }
-        NaturalSplits::new(row_boundaries.into(), total_size)
+        NaturalSplits::new(row_boundaries.into(), total_size, SplitAssignment::Midpoint)
     }
 
     #[rstest]
@@ -1087,11 +1131,43 @@ mod tests {
     #[case(vec![], 0)]
     #[case(vec![0], 0)]
     fn test_natural_splits_empty_file(#[case] row_boundaries: Vec<u64>, #[case] total_size: u64) {
-        let splits = NaturalSplits::new(row_boundaries.clone().into(), total_size);
+        let splits = NaturalSplits::new(
+            row_boundaries.clone().into(),
+            total_size,
+            SplitAssignment::Midpoint,
+        );
 
         assert!(splits.assignment_bytes.is_empty());
         assert_eq!(splits.row_boundaries.as_ref(), row_boundaries.as_slice());
         assert_eq!(split_aligned_row_range(0..u64::MAX, &splits), None);
+    }
+
+    /// Assigned by its start, every split belongs to the byte range its first row falls in, so
+    /// consecutive byte ranges tile the splits exactly once.
+    #[rstest]
+    #[case(16, vec![0..1, 1..4, 4..10, 10..13], vec![0..4, 4..8, 8..12, 12..16], vec![Some(0..4), Some(4..10), None, Some(10..13)])]
+    #[case(100, vec![0..50, 50..100], vec![0..49, 49..51, 51..100], vec![Some(0..50), Some(50..100), None])]
+    #[case(10, vec![0..10], vec![0..5, 5..10], vec![Some(0..10), None])]
+    fn test_split_start_assignment(
+        #[case] total_size: u64,
+        #[case] split_ranges: Vec<Range<u64>>,
+        #[case] byte_ranges: Vec<Range<u64>>,
+        #[case] expected: Vec<Option<Range<u64>>>,
+    ) {
+        let mut row_boundaries = vec![0];
+        row_boundaries.extend(split_ranges.iter().map(|range| range.end));
+        let row_count = row_boundaries.last().copied().unwrap_or_default();
+        // Rows and bytes coincide when the file has as many bytes as rows.
+        let splits = NaturalSplits::new(
+            row_boundaries.into(),
+            total_size.max(row_count),
+            SplitAssignment::Start,
+        );
+        let assigned: Vec<_> = byte_ranges
+            .into_iter()
+            .map(|bytes| split_aligned_row_range(bytes, &splits))
+            .collect();
+        assert_eq!(assigned, expected);
     }
 
     #[test]
@@ -1162,8 +1238,15 @@ mod tests {
         let file_path = "rows/file.vortex";
         let values: Vec<Option<i32>> = (0..30_000).map(Some).collect();
         let batch = record_batch!(("a", Int32, values)).unwrap();
-        let data_size =
-            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        // Chunks of 3,000 rows, off the V2 scan's 8,192-row grid, so partition boundaries that
+        // ignore them would cut chunks in two.
+        let data_size = write_chunked_arrow_to_vortex(
+            Arc::clone(&object_store),
+            file_path,
+            batch.clone(),
+            3_000,
+        )
+        .await?;
         let file = PartitionedFile::new(file_path.to_string(), data_size);
         let table_schema = TableSchema::from(batch.schema());
 
@@ -1208,12 +1291,24 @@ mod tests {
                 .try_collect::<Vec<_>>()
                 .await?;
             if scan_v2 {
+                // Each partition reads exactly the layout chunks that start in its byte range.
                 let bytes = file.range.as_ref().expect("partition has a byte range");
-                let rows = partition_row_range(
+                let splits = opener
+                    .natural_splits
+                    .get(&Path::from(file_path))
+                    .map(|splits| Arc::clone(splits.value()))
+                    .ok_or_else(|| anyhow::anyhow!("V2 partition computed no splits"))?;
+                let rows = split_aligned_row_range(
                     u64::try_from(bytes.start)?..u64::try_from(bytes.end)?,
-                    data_size,
-                    batch.num_rows() as u64,
+                    &splits,
+                )
+                .unwrap_or_default();
+                assert_eq!(
+                    splits.row_boundaries.as_ref(),
+                    (0..=30_000).step_by(3_000).collect::<Vec<_>>()
                 );
+                assert!(splits.row_boundaries.contains(&rows.start));
+                assert!(splits.row_boundaries.contains(&rows.end));
                 assert_eq!(
                     concat_batches(&batch.schema(), &batches)?,
                     batch.slice(
@@ -1227,7 +1322,6 @@ mod tests {
         assert_eq!(concat_batches(&batch.schema(), &data)?, batch);
         if scan_v2 {
             assert!(opener.layout_readers.is_empty());
-            assert!(opener.natural_splits.is_empty());
         }
         Ok(())
     }
@@ -1244,6 +1338,32 @@ mod tests {
         let mut write = ObjectStoreWrite::new(object_store, &path).await?;
         let summary = SESSION
             .write_options()
+            .write(&mut write, array.to_array_stream())
+            .await?;
+        write.shutdown().await?;
+
+        Ok(summary.size())
+    }
+
+    /// Writes `rb` in layout chunks of `rows_per_chunk` rows.
+    async fn write_chunked_arrow_to_vortex(
+        object_store: Arc<dyn ObjectStore>,
+        path: &str,
+        rb: RecordBatch,
+        rows_per_chunk: usize,
+    ) -> anyhow::Result<u64> {
+        let schema = rb.schema();
+        let array = SESSION.arrow().from_arrow_record_batch(rb, &schema)?;
+        let path = Path::parse(path)?;
+        let strategy = WriteStrategyBuilder::from_session(&SESSION)
+            .with_row_block_size(rows_per_chunk)
+            .with_data_block_target_bytes(None)
+            .build();
+
+        let mut write = ObjectStoreWrite::new(object_store, &path).await?;
+        let summary = SESSION
+            .write_options()
+            .with_strategy(strategy)
             .write(&mut write, array.to_array_stream())
             .await?;
         write.shutdown().await?;
