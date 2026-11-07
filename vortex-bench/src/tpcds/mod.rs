@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 
+mod cluster;
 pub mod schema;
 pub mod tpcds_benchmark;
 pub mod tpcdsgen;

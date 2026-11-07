@@ -66,7 +66,12 @@ pub enum BenchmarkDataset {
     #[serde(rename = "tpch")]
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
-    TpcDS { scale_factor: String },
+    TpcDS {
+        scale_factor: String,
+        /// Whether the fact tables are clustered by their date and item keys.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        clustered: bool,
+    },
     #[serde(rename = "clickbench")]
     ClickBench {
         flavor: Flavor,
@@ -119,7 +124,14 @@ impl Display for BenchmarkDataset {
         match self {
             BenchmarkDataset::Appian => write!(f, "appian"),
             BenchmarkDataset::TpcH { scale_factor } => write!(f, "tpch(sf={scale_factor})"),
-            BenchmarkDataset::TpcDS { scale_factor } => write!(f, "tpcds(sf={scale_factor})"),
+            BenchmarkDataset::TpcDS {
+                scale_factor,
+                clustered: false,
+            } => write!(f, "tpcds(sf={scale_factor})"),
+            BenchmarkDataset::TpcDS {
+                scale_factor,
+                clustered: true,
+            } => write!(f, "tpcds(sf={scale_factor},clustered)"),
             BenchmarkDataset::ClickBench { flavor, files } => match (flavor, files) {
                 (Flavor::Partitioned, Some(files)) => {
                     write!(f, "clickbench-partitioned(files={files})")

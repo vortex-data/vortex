@@ -21,22 +21,42 @@ use crate::utils::split;
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
     pub scale_factor: String,
+    /// Whether the fact tables are clustered by their date and item keys. Clustered data lives in
+    /// its own `{scale_factor}-clustered` directory, next to the unclustered data.
+    pub clustered: bool,
     pub data_url: Url,
 }
 
 impl TpcDsBenchmark {
-    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(
+        scale_factor: String,
+        use_remote_data_dir: Option<String>,
+        clustered: bool,
+    ) -> Result<Self> {
         Ok(Self {
-            scale_factor: scale_factor.clone(),
-            data_url: Self::create_data_url(use_remote_data_dir.as_deref(), &scale_factor)?,
+            data_url: Self::create_data_url(
+                use_remote_data_dir.as_deref(),
+                &scale_factor,
+                clustered,
+            )?,
+            scale_factor,
+            clustered,
         })
     }
 
-    fn create_data_url(remote_data_dir: Option<&str>, scale_factor: &str) -> Result<Url> {
+    fn create_data_url(
+        remote_data_dir: Option<&str>,
+        scale_factor: &str,
+        clustered: bool,
+    ) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpcds".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor);
+                let data_dir_with_sf = if clustered {
+                    data_dir.join(format!("{scale_factor}-clustered"))
+                } else {
+                    data_dir.join(scale_factor)
+                };
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow!(
                         "Failed to create URL from directory path: {:?}",
@@ -72,12 +92,13 @@ impl Benchmark for TpcDsBenchmark {
             .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
         info!(
-            "Generating TPC-DS data with scale factor {} for format {:?}",
+            "Generating TPC-DS data with scale factor {} (clustered: {}) for format {:?}",
             self.scale_factor,
+            self.clustered,
             Format::Parquet
         );
 
-        generate_tpcds(base_data_dir, self.scale_factor.clone()).await?;
+        generate_tpcds(base_data_dir, self.scale_factor.clone(), self.clustered).await?;
 
         Ok(())
     }
@@ -85,6 +106,7 @@ impl Benchmark for TpcDsBenchmark {
     fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::TpcDS {
             scale_factor: self.scale_factor.clone(),
+            clustered: self.clustered,
         }
     }
 
@@ -93,7 +115,7 @@ impl Benchmark for TpcDsBenchmark {
     }
 
     fn dataset_display(&self) -> String {
-        format!("tpcds(sf={})", self.scale_factor)
+        self.dataset().to_string()
     }
 
     fn data_url(&self) -> &Url {
@@ -131,5 +153,48 @@ impl Benchmark for TpcDsBenchmark {
 
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(split::part_pattern(table_name, format.ext()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::BenchmarkArg;
+    use crate::Opt;
+    use crate::Opts;
+    use crate::create_benchmark;
+    use crate::v3::benchmark_dataset_dims;
+
+    /// `--opt tpcds-cluster=true` selects the clustered data directory and reports a distinct
+    /// dataset, while the default keeps the unclustered data.
+    #[rstest]
+    #[case::default(&[], "1.0", "tpcds(sf=1.0)", None)]
+    #[case::unclustered(&["tpcds-cluster=false"], "1.0", "tpcds(sf=1.0)", None)]
+    #[case::clustered(
+        &["scale-factor=10", "tpcds-cluster=true"],
+        "10-clustered",
+        "tpcds(sf=10,clustered)",
+        Some("clustered")
+    )]
+    fn test_create_benchmark_tpcds_cluster_opt(
+        #[case] opts: &[&str],
+        #[case] data_dir: &str,
+        #[case] display: &str,
+        #[case] variant: Option<&str>,
+    ) -> Result<()> {
+        let opts = opts
+            .iter()
+            .map(|opt| opt.parse::<Opt>())
+            .collect::<Result<Opts>>()?;
+        let benchmark = create_benchmark(BenchmarkArg::TpcDS, &opts)?;
+        let expected = Url::from_directory_path("tpcds".to_data_path().join(data_dir))
+            .map_err(|_| anyhow!("invalid data path"))?;
+        assert_eq!(benchmark.data_url(), &expected);
+        assert_eq!(benchmark.dataset_display(), display);
+        let (_, dataset_variant, _) = benchmark_dataset_dims(&benchmark.dataset());
+        assert_eq!(dataset_variant.as_deref(), variant);
+        Ok(())
     }
 }
