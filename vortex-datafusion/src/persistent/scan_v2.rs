@@ -33,7 +33,6 @@ use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
-use vortex_utils::parallelism::get_available_parallelism;
 
 /// Maps a scan's batches to Arrow on the task that produced them.
 type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>;
@@ -41,7 +40,8 @@ type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>
 /// Runs one partition's V2 scan on DataFusion's runtime.
 pub(crate) struct ScanDriver {
     handle: Handle,
-    /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
+    /// Chunks of the partition that run beside each other, each on a task of its own; at 1 or
+    /// fewer they run on the scan's own run.
     concurrency: usize,
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
@@ -65,7 +65,9 @@ impl ScanDriver {
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
-        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        // The opener already sized the concurrency against the engine's partitions, which each
+        // run a driver of their own: scaling it by the cores again would oversubscribe them.
+        let in_flight = self.concurrency;
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
