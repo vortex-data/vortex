@@ -58,7 +58,6 @@ impl Matcher for AnyTensor {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
 
-        // Special logic for vectors to get convenience metadata (instead of `EmptyMetadata`).
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
             return Some(TensorMatch::Vector(metadata));
         }

@@ -33,12 +33,16 @@ impl ExtVTable for TestI32Ext {
         Ok(vec![])
     }
 
-    fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(
+        &self,
+        _data: &[u8],
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
-    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Ok(())
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
     }
 
     fn unpack_native<'a>(
@@ -51,11 +55,7 @@ impl ExtVTable for TestI32Ext {
 
 impl TestI32Ext {
     fn new_non_nullable() -> ExtDType<TestI32Ext> {
-        ExtDType::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        )
-        .unwrap()
+        ExtDType::try_new(EmptyMetadata, Nullability::NonNullable).unwrap()
     }
 }
 
@@ -117,12 +117,16 @@ fn test_ext_scalar_partial_ord_different_types() {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(
+            &self,
+            _data: &[u8],
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::I32, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -319,12 +323,16 @@ fn test_ext_scalar_with_metadata() {
             vortex_bail!("not implemented")
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(
+            &self,
+            _data: &[u8],
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
             vortex_bail!("not implemented")
         }
 
-        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::I32, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(

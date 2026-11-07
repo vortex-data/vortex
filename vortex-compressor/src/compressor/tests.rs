@@ -909,17 +909,17 @@ impl ExtVTable for BytesExtension {
         Ok(vec![*metadata])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+    fn deserialize_metadata(&self, metadata: &[u8], _storage_dtype: &DType) -> VortexResult<u8> {
         vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
         Ok(metadata[0])
     }
 
-    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            matches!(dtype.storage_dtype(), DType::FixedSizeList(..)),
-            "expected fixed-size list storage"
-        );
-        Ok(())
+    fn storage_dtype(_metadata: &u8) -> DType {
+        DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            16,
+            Nullability::NonNullable,
+        )
     }
 
     fn unpack_native<'a>(
@@ -947,7 +947,7 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     let chunked = ChunkedArray::try_new(chunks, elements_dtype)?.into_array();
     let elements = SliceArray::new(chunked, 16..2048).into_array();
     let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
-    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().clone())?.erased();
+    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().nullability())?.erased();
     let array = ExtensionArray::new(dtype, storage).into_array();
     let mut exec_ctx = SESSION.create_execution_ctx();
 

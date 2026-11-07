@@ -16,7 +16,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EmptyArrayData;
-use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::AggregateFn;
@@ -62,10 +61,7 @@ struct NonZero;
 
 impl NonZero {
     fn dtype(ptype: PType, nullability: Nullability) -> VortexResult<ExtDTypeRef> {
-        Ok(
-            ExtDType::<Self>::try_new(EmptyMetadata, DType::Primitive(ptype, nullability))?
-                .erased(),
-        )
+        Ok(ExtDType::<Self>::try_new(ptype, nullability)?.erased())
     }
 
     fn array(storage: ArrayRef) -> VortexResult<ArrayRef> {
@@ -76,7 +72,7 @@ impl NonZero {
 }
 
 impl ExtVTable for NonZero {
-    type Metadata = EmptyMetadata;
+    type Metadata = PType;
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
@@ -88,18 +84,22 @@ impl ExtVTable for NonZero {
         Ok(vec![])
     }
 
-    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn deserialize_metadata(
+        &self,
+        _metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        PType::try_from(storage_dtype)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        DType::Primitive(*metadata, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(
-                ext_dtype.storage_dtype(),
-                DType::Primitive(PType::I64 | PType::F64, _)
-            ),
-            "NonZero requires i64 or f64 storage, got {}",
-            ext_dtype.storage_dtype()
+            matches!(metadata, PType::I64 | PType::F64),
+            "NonZero requires i64 or f64 storage, got {metadata}"
         );
 
         Ok(())
@@ -169,14 +169,31 @@ fn test_scalar_values_require_the_storage_dtype(#[case] value: ScalarValue) -> V
 }
 
 #[rstest]
-#[case::wrong_dtype(Scalar::from(1.0f64))]
-#[case::invalid_value(Scalar::from(0i64))]
-fn test_extension_constructor_rejects_invalid_storage(#[case] storage: Scalar) -> VortexResult<()> {
+#[case::wrong_dtype(Scalar::from(1.0f64), "test.non_zero storage must be i64, got f64")]
+#[case::invalid_value(Scalar::from(0i64), "NonZero requires a finite nonzero value, got 0")]
+fn test_extension_constructor_rejects_invalid_storage(
+    #[case] storage: Scalar,
+    #[case] expected: &str,
+) -> VortexResult<()> {
     let dtype = NonZero::dtype(PType::I64, Nullability::NonNullable)?;
 
-    assert!(Scalar::try_extension_ref(dtype, storage).is_err());
+    let result = Scalar::try_extension_ref(dtype, storage);
+    assert!(result.is_err_and(|error| error.to_string().contains(expected)));
 
     Ok(())
+}
+
+/// Building an extension array over storage of another dtype fails with an error that names the
+/// type and both storage dtypes.
+#[test]
+fn test_array_constructor_rejects_other_storage_dtype() {
+    let result =
+        ExtensionArray::try_new_from_vtable(NonZero, PType::I64, buffer![1f64].into_array());
+    assert!(result.is_err_and(|error| {
+        error
+            .to_string()
+            .contains("test.non_zero storage must be i64, got f64")
+    }));
 }
 
 #[rstest]

@@ -13,13 +13,13 @@ use geoarrow::array::GenericWkbArray;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::WkbViewArray;
 use geoarrow::datatypes::WkbType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -33,6 +33,7 @@ use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
@@ -141,19 +142,27 @@ impl ExtVTable for WellKnownBinary {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        SpatialMetadata::deserialize(metadata, None)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            ext_dtype.storage_dtype().is_binary(),
-            "vortex.st.wkb must have binary storage type, was {}",
-            ext_dtype.storage_dtype()
-        );
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Binary(Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        if let Some(dimension) = metadata.dimension {
+            vortex_bail!(
+                "vortex.st.wkb metadata must not have a coordinate dimension, got {dimension:?}"
+            );
+        }
 
         Ok(())
     }
@@ -267,10 +276,13 @@ impl ArrowImportVTable for WellKnownBinary {
             return Ok(None);
         };
 
-        let storage_dtype = DType::Binary(field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(WellKnownBinary, spatial_metadata(&wkb_meta), storage_dtype)?
-                .erased(),
+            ExtDType::try_with_vtable(
+                WellKnownBinary,
+                spatial_metadata(&wkb_meta),
+                field.is_nullable().into(),
+            )?
+            .erased(),
         )))
     }
 

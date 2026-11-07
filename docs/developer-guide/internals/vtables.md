@@ -91,8 +91,9 @@ trait ExtDTypeVTable: Sized + Send + Sync + Clone + Debug {
 
     fn id(&self) -> ExtId;
     fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
-    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
+    fn deserialize(&self, metadata: &[u8], storage_dtype: &DType) -> VortexResult<Self::Metadata>;
+    fn storage_dtype(metadata: &Self::Metadata) -> DType;
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()>;
 }
 
 struct ExtDType<V: ExtDTypeVTable> {

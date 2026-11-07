@@ -4,6 +4,8 @@
 //! Extension dtype definition for the JSON type
 
 use vortex_array::EmptyMetadata;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
@@ -30,18 +32,17 @@ impl ExtVTable for Json {
         Ok(vec![])
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
         vortex_ensure!(metadata.is_empty(), "JSON metadata must be empty");
         Ok(EmptyMetadata)
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        vortex_ensure!(
-            ext_dtype.storage_dtype().is_utf8(),
-            "JSON storage dtype must be utf8, got {}",
-            ext_dtype.storage_dtype()
-        );
-        Ok(())
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Utf8(Nullability::NonNullable)
     }
 
     fn unpack_native<'a>(

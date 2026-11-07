@@ -57,7 +57,7 @@ impl Timestamp {
                 unit: time_unit,
                 tz: timezone,
             },
-            DType::Primitive(PType::I64, nullability),
+            nullability,
         )
     }
 
@@ -189,7 +189,11 @@ impl ExtVTable for Timestamp {
         Ok(bytes)
     }
 
-    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(
+        &self,
+        data: &[u8],
+        _storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
         vortex_ensure!(
             data.len() >= 3,
             "Timestamp metadata must have at least 3 bytes, got {}",
@@ -228,17 +232,17 @@ impl ExtVTable for Timestamp {
         })
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+        DType::Primitive(PType::I64, Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
-            "Timestamp storage dtype must be i64"
-        );
-        vortex_ensure!(
-            ext_dtype.metadata().unit != TimeUnit::Days,
+            metadata.unit != TimeUnit::Days,
             "Timestamp time unit must be finer than days, got {:?}",
-            ext_dtype.metadata().unit
+            metadata.unit
         );
-        resolve_time_zone(ext_dtype.metadata().tz.as_deref())?;
+        resolve_time_zone(metadata.tz.as_deref())?;
 
         Ok(())
     }
@@ -270,6 +274,7 @@ mod tests {
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::PValue;
@@ -384,7 +389,8 @@ mod tests {
         use crate::dtype::extension::ExtVTable;
 
         let vtable = Timestamp;
-        assert!(vtable.deserialize_metadata(&[]).is_err());
+        let storage_dtype = DType::Primitive(PType::I64, Nullable);
+        assert!(vtable.deserialize_metadata(&[], &storage_dtype).is_err());
     }
 
     #[test]
@@ -392,8 +398,13 @@ mod tests {
         use crate::dtype::extension::ExtVTable;
 
         let vtable = Timestamp;
+        let storage_dtype = DType::Primitive(PType::I64, Nullable);
         // Only 2 bytes - too short for the required 3-byte header.
-        assert!(vtable.deserialize_metadata(&[0x00, 0x01]).is_err());
+        assert!(
+            vtable
+                .deserialize_metadata(&[0x00, 0x01], &storage_dtype)
+                .is_err()
+        );
     }
 
     #[test]
@@ -404,6 +415,7 @@ mod tests {
         // Valid tag (0x00 = Nanoseconds), tz_len = 10 (little-endian: [0x0A, 0x00]),
         // but only 3 bytes of timezone data instead of the declared 10.
         let data = [0x00u8, 0x0A, 0x00, b'U', b'T', b'C'];
-        assert!(vtable.deserialize_metadata(&data).is_err());
+        let storage_dtype = DType::Primitive(PType::I64, Nullable);
+        assert!(vtable.deserialize_metadata(&data, &storage_dtype).is_err());
     }
 }

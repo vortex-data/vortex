@@ -19,7 +19,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -47,7 +46,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -75,15 +73,23 @@ impl ExtVTable for Polygon {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        SpatialMetadata::deserialize(metadata, Some(polygon_dimension(storage_dtype)?))
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        polygon_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        polygon_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(Polygon.id())
     }
 
     fn unpack_native<'a>(
@@ -101,8 +107,10 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
     DType::List(Arc::new(ring), nullability)
 }
 
-/// Validate that `dtype` equals [`polygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Returns the [`Dimension`] of `List<List<coordinate-struct>>` storage, with the coordinates
+/// checked as [`coordinate_dimension`] checks them. The nullability of the inner `List` and of
+/// the coordinate `Struct` is not checked, because a read compares the whole storage dtype with
+/// the declaration.
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
         vortex_bail!("polygon storage must be a List of rings, was {dtype}");
@@ -110,15 +118,7 @@ pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        polygon_storage_dtype(dimension, dtype.nullability()),
-        "polygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
@@ -261,7 +261,7 @@ impl ArrowExportVTable for Polygon {
     ) -> VortexResult<Option<Field>> {
         let ext_type = dtype.as_extension();
         let spatial_metadata = ext_type.metadata::<Polygon>();
-        let dimension = polygon_dimension(ext_type.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
         field.try_with_extension_type(polygon_type(spatial_metadata, dimension))?;
@@ -364,9 +364,13 @@ impl ArrowImportVTable for Polygon {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = polygon_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Polygon, metadata, storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(
+                Polygon,
+                metadata.with_dimension(dimension),
+                field.is_nullable().into(),
+            )?
+            .erased(),
         )))
     }
 
@@ -402,7 +406,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::Polygon;
@@ -412,34 +416,39 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `Polygon` accepts the canonical `List<List<coordinate-struct>>` storage of every dimension.
+    /// `Polygon` reads the canonical `List<List<coordinate-struct>>` storage of every dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn polygon_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn polygon_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = polygon_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<Polygon>::try_new(spatial_meta(), storage)?;
+        Polygon.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-polygon storage is rejected at dtype construction: a bare struct (point) and a single
-    /// list (linestring) both fail.
+    /// Non-polygon storage fails to read, for example `f64` or a single list (linestring).
     #[test]
     fn polygon_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            Polygon
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         // A single list of coordinates is a LineString, not a Polygon.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let line = DType::List(Arc::new(coords), Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(spatial_meta(), line).is_err());
+        assert!(
+            Polygon
+                .deserialize(&spatial_meta().serialize(), line)
+                .is_err()
+        );
         Ok(())
     }
 }

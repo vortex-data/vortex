@@ -27,7 +27,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
@@ -116,14 +115,9 @@ impl ArrowImportVTable for Uuid {
             return Ok(None);
         }
 
-        let storage_dtype = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            UUID_BYTE_LEN as u32,
-            field.is_nullable().into(),
-        );
-
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), field.is_nullable().into())?
+                .erased(),
         )))
     }
 
@@ -233,6 +227,7 @@ mod tests {
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::StructFields;
     use vortex_array::iter::ArrayIterator;
     use vortex_arrow::ArrowArrayStreamAdapter;
@@ -249,13 +244,8 @@ mod tests {
     }
 
     fn uuid_dtype(nullable: bool) -> DType {
-        let storage = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            nullable.into(),
-        );
         DType::Extension(
-            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), nullable.into())
                 .expect("uuid ext dtype")
                 .erased(),
         )

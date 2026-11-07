@@ -4,6 +4,7 @@
 use std::fmt;
 
 use itertools::Either;
+use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -12,6 +13,11 @@ use vortex_error::vortex_ensure_eq;
 /// Metadata for a `FixedShapeTensor` extension type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensorMetadata {
+    /// The element type of the tensor.
+    ///
+    /// The serialized metadata leaves it out, because the storage dtype holds it.
+    element_ptype: PType,
+
     /// The logical shape of the tensor.
     ///
     /// `logical_shape[i]` is the size of the `i`-th logical dimension. When a `permutation` is
@@ -36,12 +42,13 @@ pub struct FixedShapeTensorMetadata {
 }
 
 impl FixedShapeTensorMetadata {
-    /// Creates a new [`FixedShapeTensorMetadata`] with the given logical `shape`.
+    /// Creates a new [`FixedShapeTensorMetadata`] with the given element type and logical `shape`.
     ///
     /// Use [`with_dim_names`](Self::with_dim_names) and
     /// [`with_permutation`](Self::with_permutation) to further configure the metadata.
-    pub fn new(shape: Vec<usize>) -> Self {
+    pub fn new(element_ptype: PType, shape: Vec<usize>) -> Self {
         Self {
+            element_ptype,
             logical_shape: shape,
             dim_names: None,
             permutation: None,
@@ -86,6 +93,11 @@ impl FixedShapeTensorMetadata {
         }
 
         Ok(self)
+    }
+
+    /// Returns the element type of the tensor.
+    pub fn element_ptype(&self) -> PType {
+        self.element_ptype
     }
 
     /// Returns the number of dimensions (rank) of the tensor.
@@ -256,7 +268,7 @@ mod tests {
     #[case::tensor_3d(vec![2, 3, 4], vec![12, 4, 1])]
     #[case::zero_dim( vec![3, 0, 4], vec![0, 4, 1])]
     fn strides_row_major(#[case] shape: Vec<usize>, #[case] expected: Vec<usize>) {
-        let m = FixedShapeTensorMetadata::new(shape);
+        let m = FixedShapeTensorMetadata::new(PType::F32, shape);
         assert_eq!(m.strides().collect::<Vec<_>>(), expected);
     }
 
@@ -277,7 +289,8 @@ mod tests {
         #[case] perm: Vec<usize>,
         #[case] expected: Vec<usize>,
     ) -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(shape.clone()).with_permutation(perm.clone())?;
+        let m = FixedShapeTensorMetadata::new(PType::F32, shape.clone())
+            .with_permutation(perm.clone())?;
         let actual: Vec<usize> = m.strides().collect();
         assert_eq!(actual, expected);
         assert_eq!(actual, slow_strides(&shape, &perm));
@@ -298,7 +311,8 @@ mod tests {
         #[case] shape: Vec<usize>,
         #[case] perm: Vec<usize>,
     ) -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(shape.clone()).with_permutation(perm.clone())?;
+        let m = FixedShapeTensorMetadata::new(PType::F32, shape.clone())
+            .with_permutation(perm.clone())?;
         assert_eq!(m.strides().collect::<Vec<_>>(), slow_strides(&shape, &perm));
         Ok(())
     }
@@ -307,7 +321,7 @@ mod tests {
 
     #[test]
     fn physical_shape_no_permutation() {
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![2, 3, 4]);
         assert_eq!(m.physical_shape().collect::<Vec<_>>(), vec![2, 3, 4]);
     }
 
@@ -325,7 +339,7 @@ mod tests {
         #[case] perm: Vec<usize>,
         #[case] expected: Vec<usize>,
     ) -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(shape).with_permutation(perm)?;
+        let m = FixedShapeTensorMetadata::new(PType::F32, shape).with_permutation(perm)?;
         assert_eq!(m.physical_shape().collect::<Vec<_>>(), expected);
         Ok(())
     }
@@ -334,19 +348,19 @@ mod tests {
 
     #[test]
     fn display_shape_only() {
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![2, 3, 4]);
         assert_eq!(m.to_string(), "Tensor(2, 3, 4)");
     }
 
     #[test]
     fn display_scalar_0d() {
-        let m = FixedShapeTensorMetadata::new(vec![]);
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![]);
         assert_eq!(m.to_string(), "Tensor()");
     }
 
     #[test]
     fn display_with_dim_names() -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(vec![3, 4])
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![3, 4])
             .with_dim_names(vec!["rows".into(), "cols".into()])?;
         assert_eq!(m.to_string(), "Tensor(rows: 3, cols: 4)");
         Ok(())
@@ -354,14 +368,15 @@ mod tests {
 
     #[test]
     fn display_with_permutation() -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![1, 0, 2])?;
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![2, 3, 4])
+            .with_permutation(vec![1, 0, 2])?;
         assert_eq!(m.to_string(), "Tensor(2, 3, 4, [1, 0, 2])");
         Ok(())
     }
 
     #[test]
     fn display_with_dim_names_and_permutation() -> VortexResult<()> {
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4])
+        let m = FixedShapeTensorMetadata::new(PType::F32, vec![2, 3, 4])
             .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
             .with_permutation(vec![1, 2, 0])?;
         assert_eq!(m.to_string(), "Tensor(x: 2, y: 3, z: 4, [1, 2, 0])");
@@ -370,25 +385,29 @@ mod tests {
 
     #[test]
     fn dim_names_wrong_length() {
-        let result = FixedShapeTensorMetadata::new(vec![2, 3]).with_dim_names(vec!["x".into()]);
+        let result =
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]).with_dim_names(vec!["x".into()]);
         assert!(result.is_err());
     }
 
     #[test]
     fn permutation_wrong_length() {
-        let result = FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![0]);
+        let result =
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]).with_permutation(vec![0]);
         assert!(result.is_err());
     }
 
     #[test]
     fn permutation_out_of_range() {
-        let result = FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![0, 5]);
+        let result =
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]).with_permutation(vec![0, 5]);
         assert!(result.is_err());
     }
 
     #[test]
     fn permutation_duplicate_index() {
-        let result = FixedShapeTensorMetadata::new(vec![2, 3]).with_permutation(vec![0, 0]);
+        let result =
+            FixedShapeTensorMetadata::new(PType::F32, vec![2, 3]).with_permutation(vec![0, 0]);
         assert!(result.is_err());
     }
 }

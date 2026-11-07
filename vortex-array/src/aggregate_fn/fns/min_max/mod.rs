@@ -1371,12 +1371,16 @@ mod tests {
             Ok(vec![])
         }
 
-        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(
+            &self,
+            _data: &[u8],
+            _storage_dtype: &DType,
+        ) -> VortexResult<Self::Metadata> {
             Ok(EmptyMetadata)
         }
 
-        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
-            Ok(())
+        fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+            DType::Primitive(PType::F64, Nullability::NonNullable)
         }
 
         fn unpack_native<'a>(
@@ -1388,11 +1392,8 @@ mod tests {
     }
 
     fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
-        let ext_dtype = ExtDType::<F64Ext>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        )?
-        .erased();
+        let ext_dtype =
+            ExtDType::<F64Ext>::try_new(EmptyMetadata, Nullability::NonNullable)?.erased();
         Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
     }
 

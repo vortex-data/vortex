@@ -9,8 +9,8 @@
 //! [`crate::arrays::ExtensionArray`] to pair the extension dtype with the storage array.
 //!
 //! Extension dtype implementations provide an [`ExtVTable`] for identity, metadata
-//! serialization, storage dtype validation, scalar validation, and typed scalar unpacking. Register
-//! extension plugins in a session before deserializing data that may reference them.
+//! serialization, the storage dtype declaration, scalar validation, and typed scalar unpacking.
+//! Register extension plugins in a session before deserializing data that may reference them.
 //!
 //! ## File layout convention
 //!

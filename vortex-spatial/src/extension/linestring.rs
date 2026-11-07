@@ -18,7 +18,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::LineStringArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::LineStringType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -79,15 +78,23 @@ impl ExtVTable for LineString {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        SpatialMetadata::deserialize(metadata, Some(linestring_dimension(storage_dtype)?))
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        linestring_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        linestring_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(LineString.id())
     }
 
     fn unpack_native<'a>(
@@ -104,21 +111,14 @@ pub(crate) fn linestring_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate that `dtype` equals [`linestring_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Returns the [`Dimension`] of `List<coordinate-struct>` storage, with the coordinates checked
+/// as [`coordinate_dimension`] checks them. The nullability of the coordinate `Struct` is not
+/// checked, because a read compares the whole storage dtype with the declaration.
 pub(crate) fn linestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
         vortex_bail!("linestring storage must be a List of coordinates, was {dtype}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        linestring_storage_dtype(dimension, dtype.nullability()),
-        "linestring storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 /// Return one coordinate ordinate, filling an ordinate absent from the point dimension with zero.
@@ -154,7 +154,7 @@ pub(crate) fn linestring_array_from_point_pairs(
         .map_err(|_| vortex_err!("spatial: two-vertex line string offset overflow"))?;
     let row_count = u32::try_from(len)
         .map_err(|_| vortex_err!("spatial: two-vertex line string row count overflow"))?;
-    let dimension = linestring_dimension(ext_dtype.storage_dtype())?;
+    let dimension = ext_dtype.metadata().native_dimension();
     let start_dimension = coordinate_dimension(starts.dtype())?;
     let end_dimension = coordinate_dimension(ends.dtype())?;
 
@@ -272,7 +272,7 @@ impl ArrowExportVTable for LineString {
     ) -> VortexResult<Option<Field>> {
         let ext_type = dtype.as_extension();
         let spatial_metadata = ext_type.metadata::<LineString>();
-        let dimension = linestring_dimension(ext_type.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
         field.try_with_extension_type(linestring_type(spatial_metadata, dimension))?;
@@ -371,9 +371,13 @@ impl ArrowImportVTable for LineString {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = linestring_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(LineString, metadata, storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(
+                LineString,
+                metadata.with_dimension(dimension),
+                field.is_nullable().into(),
+            )?
+            .erased(),
         )))
     }
 
@@ -407,7 +411,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::LineString;
@@ -416,29 +420,30 @@ mod tests {
     use crate::extension::coordinate::Dimension;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `LineString` accepts the canonical `List<coordinate-struct>` storage of every dimension.
+    /// `LineString` reads the canonical `List<coordinate-struct>` storage of every dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn linestring_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn linestring_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = linestring_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<LineString>::try_new(spatial_meta(), storage)?;
+        LineString.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-linestring storage is rejected at dtype construction: a bare coordinate struct (point) is
-    /// not a list of coordinates.
+    /// Non-linestring storage fails to read: `f64` is not a list of coordinates.
     #[test]
     fn linestring_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<LineString>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            LineString
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
         Ok(())
     }
 }

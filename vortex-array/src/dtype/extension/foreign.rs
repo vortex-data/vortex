@@ -14,12 +14,28 @@ use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
 
+/// The metadata of a [`ForeignExtDType`]: the serialized metadata and the stored storage dtype,
+/// which the foreign type declares as its storage.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ForeignExtMetadata(pub Vec<u8>);
+pub struct ForeignExtMetadata {
+    bytes: Vec<u8>,
+    /// The stored storage dtype, made nullable. [`ExtDType`] applies the top-level nullability, so
+    /// metadata equality and hashing must not see it.
+    storage_dtype: DType,
+}
+
+impl ForeignExtMetadata {
+    fn new(bytes: Vec<u8>, storage_dtype: &DType) -> Self {
+        Self {
+            bytes,
+            storage_dtype: storage_dtype.as_nullable(),
+        }
+    }
+}
 
 impl Display for ForeignExtMetadata {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}B", self.0.len())
+        write!(f, "{}B", self.bytes.len())
     }
 }
 
@@ -39,8 +55,9 @@ impl ForeignExtDType {
         metadata: Vec<u8>,
         storage_dtype: DType,
     ) -> VortexResult<ExtDTypeRef> {
+        let metadata = ForeignExtMetadata::new(metadata, &storage_dtype);
         Ok(
-            ExtDType::try_with_vtable(Self::new(id), ForeignExtMetadata(metadata), storage_dtype)?
+            ExtDType::try_with_vtable(Self::new(id), metadata, storage_dtype.nullability())?
                 .erased(),
         )
     }
@@ -55,15 +72,19 @@ impl ExtVTable for ForeignExtDType {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.0.clone())
+        Ok(metadata.bytes.clone())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ForeignExtMetadata(metadata.to_vec()))
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ForeignExtMetadata::new(metadata.to_vec(), storage_dtype))
     }
 
-    fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Ok(())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        metadata.storage_dtype.clone()
     }
 
     fn unpack_native<'a>(

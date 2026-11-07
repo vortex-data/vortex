@@ -18,7 +18,6 @@ use geoarrow::array::IntoArrow;
 use geoarrow::array::MultiPolygonArray;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPolygonType;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -41,7 +40,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -69,15 +67,23 @@ impl ExtVTable for MultiPolygon {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(metadata.encode_to_vec())
+        Ok(metadata.serialize())
     }
 
-    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(SpatialMetadata::decode(metadata)?)
+    fn deserialize_metadata(
+        &self,
+        metadata: &[u8],
+        storage_dtype: &DType,
+    ) -> VortexResult<Self::Metadata> {
+        SpatialMetadata::deserialize(metadata, Some(multipolygon_dimension(storage_dtype)?))
     }
 
-    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        multipolygon_dimension(ext_dtype.storage_dtype()).map(|_| ())
+    fn storage_dtype(metadata: &Self::Metadata) -> DType {
+        multipolygon_storage_dtype(metadata.native_dimension(), Nullability::NonNullable)
+    }
+
+    fn validate_metadata(metadata: &Self::Metadata) -> VortexResult<()> {
+        metadata.validate_native(MultiPolygon.id())
     }
 
     fn unpack_native<'a>(
@@ -96,8 +102,10 @@ pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullabilit
     DType::List(Arc::new(polygon), nullability)
 }
 
-/// Validate that `dtype` equals [`multipolygon_storage_dtype`] for its [`Dimension`] and top-level
-/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
+/// Returns the [`Dimension`] of `List<List<List<coordinate-struct>>>` storage, with the
+/// coordinates checked as [`coordinate_dimension`] checks them. The nullability of the inner
+/// `List` levels and of the coordinate `Struct` is not checked, because a read compares the
+/// whole storage dtype with the declaration.
 pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(polygon, _) = dtype else {
         vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
@@ -108,15 +116,7 @@ pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
     };
-    let dimension = coordinate_dimension(coords)?;
-
-    vortex_ensure_eq!(
-        *dtype,
-        multipolygon_storage_dtype(dimension, dtype.nullability()),
-        "multipolygon storage can be nullable only at its outer List"
-    );
-
-    Ok(dimension)
+    coordinate_dimension(coords)
 }
 
 static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);
@@ -199,7 +199,7 @@ impl ArrowExportVTable for MultiPolygon {
     ) -> VortexResult<Option<Field>> {
         let ext_type = dtype.as_extension();
         let spatial_metadata = ext_type.metadata::<MultiPolygon>();
-        let dimension = multipolygon_dimension(ext_type.storage_dtype())?;
+        let dimension = spatial_metadata.native_dimension();
 
         let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
         field.try_with_extension_type(multipolygon_type(spatial_metadata, dimension))?;
@@ -302,9 +302,13 @@ impl ArrowImportVTable for MultiPolygon {
                 (dimension, SpatialMetadata::default())
             };
 
-        let storage_dtype = multipolygon_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(MultiPolygon, metadata, storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(
+                MultiPolygon,
+                metadata.with_dimension(dimension),
+                field.is_nullable().into(),
+            )?
+            .erased(),
         )))
     }
 
@@ -340,7 +344,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtDTypePlugin;
     use vortex_error::VortexResult;
 
     use super::MultiPolygon;
@@ -350,36 +354,41 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
 
     fn spatial_meta() -> SpatialMetadata {
-        SpatialMetadata {
-            crs: Some("EPSG:4326".to_string()),
-        }
+        SpatialMetadata::new(Some("EPSG:4326".to_string()))
     }
 
-    /// `MultiPolygon` accepts the canonical `List<List<List<coordinate-struct>>>` storage of every
+    /// `MultiPolygon` reads the canonical `List<List<List<coordinate-struct>>>` storage of every
     /// dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn multipolygon_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+    fn multipolygon_reads_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
         let storage = multipolygon_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<MultiPolygon>::try_new(spatial_meta(), storage)?;
+        MultiPolygon.deserialize(&spatial_meta().serialize(), storage)?;
         Ok(())
     }
 
-    /// Non-multipolygon storage is rejected at dtype construction: a bare struct (point) and a
-    /// double list (polygon) both fail.
+    /// Non-multipolygon storage fails to read, for example `f64` or a double list (polygon).
     #[test]
     fn multipolygon_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<MultiPolygon>::try_new(spatial_meta(), primitive).is_err());
+        assert!(
+            MultiPolygon
+                .deserialize(&spatial_meta().serialize(), primitive)
+                .is_err()
+        );
 
         // A double list (polygon) is not a multipolygon.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
         let ring = DType::List(Arc::new(coords), Nullability::NonNullable);
         let polygon = DType::List(Arc::new(ring), Nullability::NonNullable);
-        assert!(ExtDType::<MultiPolygon>::try_new(spatial_meta(), polygon).is_err());
+        assert!(
+            MultiPolygon
+                .deserialize(&spatial_meta().serialize(), polygon)
+                .is_err()
+        );
         Ok(())
     }
 }

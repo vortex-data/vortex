@@ -186,21 +186,14 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
                 let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
                 DType::Extension(
-                    ExtDType::<WellKnownBinary>::try_new(
-                        SpatialMetadata::new(crs),
-                        DType::Binary(nullability),
-                    )?
-                    .erased(),
+                    ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::new(crs), nullability)?
+                        .erased(),
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UUID => DType::Extension(
-                ExtDType::<Uuid>::try_with_vtable(
-                    Uuid,
-                    UuidMetadata::default(),
-                    uuid_storage_dtype(nullability),
-                )?
-                .erased(),
+                ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), nullability)?
+                    .erased(),
             ),
             other @ (DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ
             | DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL
@@ -304,14 +297,6 @@ impl TryFrom<&DType> for LogicalType {
 
         Ok(LogicalType::new(duckdb_type))
     }
-}
-
-fn uuid_storage_dtype(nullability: Nullability) -> DType {
-    DType::FixedSizeList(
-        Arc::new(DType::Primitive(U8, Nullability::NonNullable)),
-        16,
-        nullability,
-    )
 }
 
 fn temporal_to_duckdb(temporal: TemporalMetadata) -> VortexResult<LogicalType> {
@@ -672,7 +657,7 @@ mod tests {
         let vortex_geometry = DType::Extension(
             ExtDType::<WellKnownBinary>::try_new(
                 SpatialMetadata::new(Some("EPSG:4326".to_string())),
-                DType::Binary(Nullability::NonNullable),
+                Nullability::NonNullable,
             )?
             .erased(),
         );
@@ -700,13 +685,8 @@ mod tests {
         use vortex::encodings::uuid::Uuid;
         use vortex::encodings::uuid::UuidMetadata;
 
-        let storage = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            16,
-            nullability,
-        );
         let vortex_uuid = DType::Extension(
-            ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), storage)?.erased(),
+            ExtDType::<Uuid>::try_with_vtable(Uuid, UuidMetadata::default(), nullability)?.erased(),
         );
 
         let duckdb_uuid = LogicalType::try_from(&vortex_uuid)?;
@@ -735,12 +715,16 @@ mod tests {
                 Ok(vec![])
             }
 
-            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(
+                &self,
+                _data: &[u8],
+                _storage_dtype: &DType,
+            ) -> VortexResult<Self::Metadata> {
                 Ok(EmptyMetadata)
             }
 
-            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-                Ok(())
+            fn storage_dtype(_metadata: &Self::Metadata) -> DType {
+                DType::Primitive(PType::I32, Nullability::NonNullable)
             }
 
             fn unpack_native<'a>(
@@ -751,12 +735,9 @@ mod tests {
             }
         }
 
-        let ext_dtype = ExtDType::<TestExt>::try_new(
-            EmptyMetadata,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        )
-        .unwrap()
-        .erased();
+        let ext_dtype = ExtDType::<TestExt>::try_new(EmptyMetadata, Nullability::NonNullable)
+            .unwrap()
+            .erased();
         let dtype = DType::Extension(ext_dtype);
 
         assert!(LogicalType::try_from(&dtype).is_err());

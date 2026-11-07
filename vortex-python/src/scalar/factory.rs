@@ -623,11 +623,6 @@ fn canonical_decimal_value(value: i256, dtype: &DecimalDType) -> PyResult<Decima
 
 /// Build a UUID extension scalar from its 16 big-endian bytes, matching `uuid.UUID.bytes`.
 fn uuid_scalar(bytes: &[u8]) -> PyVortexResult<Scalar> {
-    let list_size = u32::try_from(UUID_BYTE_LEN).map_err(|_| {
-        PyValueError::new_err(format!(
-            "UUID byte length {UUID_BYTE_LEN} does not fit in u32"
-        ))
-    })?;
     if bytes.len() != UUID_BYTE_LEN {
         return Err(PyValueError::new_err(format!(
             "UUID must be exactly {UUID_BYTE_LEN} bytes, got {}",
@@ -637,17 +632,14 @@ fn uuid_scalar(bytes: &[u8]) -> PyVortexResult<Scalar> {
     }
     let element_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
     let storage = Scalar::fixed_size_list(
-        element_dtype.clone(),
+        element_dtype,
         bytes
             .iter()
             .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
             .collect(),
         Nullability::NonNullable,
     );
-    let ext = ExtDType::<Uuid>::try_new(
-        UuidMetadata::default(),
-        DType::FixedSizeList(Arc::new(element_dtype), list_size, Nullability::NonNullable),
-    )?;
+    let ext = ExtDType::<Uuid>::try_new(UuidMetadata::default(), Nullability::NonNullable)?;
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
         storage.into_value(),
