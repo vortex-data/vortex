@@ -53,6 +53,7 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
@@ -92,6 +93,7 @@ use crate::persistent::metrics::ScanMetricsFlush;
 use crate::persistent::metrics::V2ScanMetrics;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
+use crate::persistent::segment_cache::AuxiliarySegmentCache;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -147,6 +149,8 @@ pub(crate) struct VortexOpener {
 
     pub expression_converter: Arc<dyn ExpressionConverter>,
     pub file_metadata_cache: Option<Arc<FileMetadataCache>>,
+    /// The auxiliary segments of the files, shared by V2 scans across queries.
+    pub segment_cache: Option<AuxiliarySegmentCache>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
@@ -232,6 +236,7 @@ impl FileOpener for VortexOpener {
         let mut file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
+        let segment_cache = self.segment_cache.clone();
 
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let limit = self.limit;
@@ -308,7 +313,7 @@ impl FileOpener for VortexOpener {
                 .open_options()
                 .with_file_size(file.object_meta.size)
                 .with_metrics_registry(Arc::clone(&metrics_registry))
-                .with_labels(labels);
+                .with_labels(labels.clone());
 
             let cached_footer = file_metadata_cache
                 .as_ref()
@@ -527,11 +532,21 @@ impl FileOpener for VortexOpener {
             };
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
-                scan_file.segments = shared_segment_source(
-                    &segment_sources,
-                    &file.object_meta.location,
-                    scan_file.segments,
-                );
+                let segments = Arc::clone(&scan_file.segments);
+                scan_file.segments =
+                    shared_segment_source(&segment_sources, &file.object_meta.location, || {
+                        match &segment_cache {
+                            Some(cache) => cache.cached_source(
+                                &file.object_meta,
+                                &scan_file.layout,
+                                segments,
+                                metrics_registry.as_ref(),
+                                labels,
+                            ),
+                            None => Ok(segments),
+                        }
+                    })
+                    .map_err(|e| exec_datafusion_err!("Failed to open segment cache: {e}"))?;
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 // A partial byte range owns the layout chunks that start in it, so each chunk is
                 // decoded by exactly one partition.
@@ -880,25 +895,27 @@ fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) ->
 }
 
 /// Returns the segment source other partitions of `path` are reading through, or registers
-/// `fresh` as that source. Like the layout readers, a source lives only as long as one scan.
+/// a `fresh` one as that source. Like the layout readers, a source lives only as long as one scan.
 fn shared_segment_source(
     segment_sources: &DashMap<Path, Weak<dyn SegmentSource>>,
     path: &Path,
-    fresh: Arc<dyn SegmentSource>,
-) -> Arc<dyn SegmentSource> {
+    fresh: impl FnOnce() -> VortexResult<Arc<dyn SegmentSource>>,
+) -> VortexResult<Arc<dyn SegmentSource>> {
     match segment_sources.entry(path.clone()) {
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing segment source for {path}");
-                shared
+                Ok(shared)
             } else {
+                let fresh = fresh()?;
                 entry.insert(Arc::downgrade(&fresh));
-                fresh
+                Ok(fresh)
             }
         }
         Entry::Vacant(entry) => {
+            let fresh = fresh()?;
             entry.insert(Arc::downgrade(&fresh));
-            fresh
+            Ok(fresh)
         }
     }
 }
@@ -1581,6 +1598,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
@@ -1994,6 +2012,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
@@ -2089,6 +2108,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
@@ -2275,6 +2295,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
@@ -2343,6 +2364,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
@@ -2562,6 +2584,7 @@ mod tests {
             has_output_ordering: false,
             expression_converter: Arc::new(DefaultExpressionConverter::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,

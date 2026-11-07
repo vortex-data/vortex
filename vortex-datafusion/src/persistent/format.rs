@@ -69,6 +69,8 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
+use super::segment_cache::AuxiliarySegmentCache;
+use super::segment_cache::DEFAULT_SEGMENT_CACHE_SIZE_BYTES;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
@@ -130,6 +132,8 @@ pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
+    /// The auxiliary segments of the table's files, kept across the V2 scans of every query.
+    segment_cache: Option<AuxiliarySegmentCache>,
 }
 
 impl Debug for VortexFormat {
@@ -140,6 +144,7 @@ impl Debug for VortexFormat {
                 "has_expression_converter",
                 &self.expression_converter.is_some(),
             )
+            .field("has_segment_cache", &self.segment_cache.is_some())
             .finish()
     }
 }
@@ -239,6 +244,13 @@ extensions_options! {
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
+        /// The capacity in bytes of the segment cache that V2 scans of a table share across
+        /// queries. Set to 0 to disable it.
+        ///
+        /// Only applies with [`Self::scan_v2`]. The cache keeps the small auxiliary segments,
+        /// zone maps and dictionary values, of the table's files, not their data. It belongs to
+        /// the table's [`VortexFormat`], so it lasts as long as the table. Defaults to 256MB.
+        pub segment_cache_size_bytes: usize, default = DEFAULT_SEGMENT_CACHE_SIZE_BYTES
     }
 }
 
@@ -458,10 +470,15 @@ impl VortexFormat {
 
     /// Creates a format with explicit [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
+        let segment_cache = opts
+            .scan_v2
+            .then(|| AuxiliarySegmentCache::try_new(opts.segment_cache_size_bytes))
+            .flatten();
         Self {
             session,
             opts,
             expression_converter: None,
+            segment_cache,
         }
     }
 
@@ -771,6 +788,9 @@ impl FileFormat for VortexFormat {
             VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone());
         if let Some(expression_converter) = &self.expression_converter {
             source = source.with_expression_converter(Arc::clone(expression_converter));
+        }
+        if let Some(segment_cache) = &self.segment_cache {
+            source = source.with_segment_cache(segment_cache.clone());
         }
         Arc::new(source) as _
     }

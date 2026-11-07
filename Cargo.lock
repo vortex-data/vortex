@@ -11797,6 +11797,7 @@ dependencies = [
  "arrow-array 59.3.2",
  "arrow-schema 59.3.2",
  "async-trait",
+ "chrono",
  "datafusion 55.2.0",
  "datafusion-catalog 55.2.0",
  "datafusion-common 55.2.0",

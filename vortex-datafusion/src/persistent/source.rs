@@ -56,6 +56,7 @@ use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::LocalFileReaders;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::segment_cache::AuxiliarySegmentCache;
 
 /// File scan implementation for reading one or more `.vortex` files.
 ///
@@ -227,6 +228,8 @@ pub struct VortexSource {
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
+    /// The auxiliary segments of the files, shared by V2 scans across queries.
+    segment_cache: Option<AuxiliarySegmentCache>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
     /// The engine's batch size, which a V2 scan slices its batches to before decoding them.
@@ -266,6 +269,7 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
             batch_size: None,
@@ -330,6 +334,12 @@ impl VortexSource {
     /// Overrides the metadata cache used to reuse Vortex footers across scans.
     pub fn with_file_metadata_cache(mut self, file_metadata_cache: Arc<FileMetadataCache>) -> Self {
         self.file_metadata_cache = Some(file_metadata_cache);
+        self
+    }
+
+    /// Shares `segment_cache` with the V2 scans of other queries.
+    pub(crate) fn with_segment_cache(mut self, segment_cache: AuxiliarySegmentCache) -> Self {
+        self.segment_cache = Some(segment_cache);
         self
     }
 
@@ -405,6 +415,7 @@ impl VortexSource {
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_converter: Arc::clone(&self.expression_converter),
             file_metadata_cache: self.file_metadata_cache.clone(),
+            segment_cache: self.segment_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
