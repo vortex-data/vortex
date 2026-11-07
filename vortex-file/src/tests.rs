@@ -59,6 +59,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
+use vortex_array::expr::lower;
 use vortex_array::expr::lt;
 use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
@@ -3364,6 +3365,65 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
     assert!(!file.can_prune(&gt(age, lit(20)))?);
 
+    Ok(())
+}
+
+async fn lower_pruning_file(values: Vec<Option<String>>) -> VortexResult<VortexFile> {
+    let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    SESSION.open_options().open_buffer(buf)
+}
+
+#[rstest]
+#[case::constant_final_sigma(&[Some("ΟΣ"), None, Some("ΟΣ")], "οσα", true)]
+#[case::constant_final_sigma_match(&[Some("ΟΣ"), None, Some("ΟΣ")], "ος", false)]
+#[case::constant_expanding_match(&[Some("İ"), None], "i\u{307}", false)]
+#[case::constant_expanding(&[Some("İ"), None], "i", true)]
+#[case::shared_prefix(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-007", true)]
+#[case::shared_prefix_match(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-001", false)]
+#[case::prefix_of_max(&[Some("prefix"), Some("prefix-long")], "other", true)]
+// Lowercase is not monotonic, even on ASCII input.
+#[case::non_monotonic(&[Some("Z"), Some("a")], "a", false)]
+#[case::uppercase_range(&[Some("A"), Some("Z")], "m", false)]
+#[case::mixed_case_range(&[Some("z"), Some("K")], "k", false)]
+#[case::non_ascii_divergence(&[Some("a"), Some("É")], "zzz", false)]
+#[tokio::test]
+async fn test_can_prune_lower_eq(
+    #[case] values: &[Option<&str>],
+    #[case] target: &str,
+    #[case] prunable: bool,
+) -> VortexResult<()> {
+    let file = lower_pruning_file(values.iter().map(|v| v.map(str::to_owned)).collect()).await?;
+    assert_eq!(file.can_prune(&eq(lower(root()), lit(target)))?, prunable);
+    assert_eq!(file.can_prune(&eq(lit(target), lower(root())))?, prunable);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_prune_lower_range() -> VortexResult<()> {
+    let file = lower_pruning_file(vec![
+        Some("Namespace-000".into()),
+        Some("Namespace-009".into()),
+    ])
+    .await?;
+    assert!(file.can_prune(&lt(lower(root()), lit("namespace-000")))?);
+    assert!(!file.can_prune(&lt_eq(lower(root()), lit("namespace-000")))?);
+    assert!(file.can_prune(&gt(lower(root()), lit("namespace-00:")))?);
+    assert!(!file.can_prune(&gt(lower(root()), lit("namespace-005")))?);
+    Ok(())
+}
+
+/// Long values can have truncated min/max stats, which must not make the bounds unsound.
+#[tokio::test]
+async fn test_can_prune_lower_truncated_stats() -> VortexResult<()> {
+    let value = "X".repeat(200);
+    let file = lower_pruning_file(vec![Some(value.clone()), Some(value)]).await?;
+    assert!(!file.can_prune(&eq(lower(root()), lit("x".repeat(200))))?);
+    assert!(file.can_prune(&eq(lower(root()), lit("y".repeat(200))))?);
     Ok(())
 }
 
