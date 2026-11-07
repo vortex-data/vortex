@@ -174,9 +174,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = self
-                    .probe_compressor
-                    .compress_chunk(&sample, &mut exec_ctx)?;
+                let compressed =
+                    self.probe_compressor
+                        .compress_chunk(&sample, None, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };

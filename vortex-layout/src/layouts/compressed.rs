@@ -35,33 +35,26 @@ use crate::sequence::SequentialStreamExt;
 ///
 /// API consumers are free to implement this trait to provide new plugin compressors.
 pub trait CompressorPlugin: Send + Sync + 'static {
-    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
-
-    /// Compresses one chunk of a stream, reusing the decisions of earlier chunks. The default
-    /// ignores `reuse`.
-    fn compress_stream_chunk(
+    /// Compresses one chunk.
+    ///
+    /// `reuse`, if given, holds the scheme decisions for the earlier chunks of the same stream.
+    /// A compressor that does not reuse decisions can ignore it.
+    fn compress_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: &PlanReuse,
+        reuse: Option<&PlanReuse>,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        let _ = reuse;
-        self.compress_chunk(chunk, ctx)
-    }
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl CompressorPlugin for Arc<dyn CompressorPlugin> {
-    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        self.as_ref().compress_chunk(chunk, ctx)
-    }
-
-    fn compress_stream_chunk(
+    fn compress_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: &PlanReuse,
+        reuse: Option<&PlanReuse>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        self.as_ref().compress_stream_chunk(chunk, reuse, ctx)
+        self.as_ref().compress_chunk(chunk, reuse, ctx)
     }
 }
 
@@ -69,23 +62,27 @@ impl<F> CompressorPlugin for F
 where
     F: Fn(&ArrayRef, &mut ExecutionCtx) -> VortexResult<ArrayRef> + Send + Sync + 'static,
 {
-    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn compress_chunk(
+        &self,
+        chunk: &ArrayRef,
+        _reuse: Option<&PlanReuse>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         self(chunk, ctx)
     }
 }
 
 impl CompressorPlugin for BtrBlocksCompressor {
-    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        self.compress(chunk, ctx)
-    }
-
-    fn compress_stream_chunk(
+    fn compress_chunk(
         &self,
         chunk: &ArrayRef,
-        reuse: &PlanReuse,
+        reuse: Option<&PlanReuse>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        self.compress_reusing(chunk, reuse, ctx)
+        match reuse {
+            Some(reuse) => self.compress_reusing(chunk, reuse, ctx),
+            None => self.compress(chunk, ctx),
+        }
     }
 }
 
@@ -185,10 +182,8 @@ impl LayoutStrategy for CompressingStrategy {
                     if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
                         uncompressed_size_in_bytes(&chunk, &mut ctx)?;
                     }
-                    let compressed = match &reuse {
-                        Some(reuse) => compressor.compress_stream_chunk(&chunk, reuse, &mut ctx)?,
-                        None => compressor.compress_chunk(&chunk, &mut ctx)?,
-                    };
+                    let compressed =
+                        compressor.compress_chunk(&chunk, reuse.as_deref(), &mut ctx)?;
                     Ok((sequence_id, compressed))
                 })
             })
