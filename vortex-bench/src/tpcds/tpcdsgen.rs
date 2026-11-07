@@ -10,12 +10,15 @@ use std::mem;
 use std::ops::RangeInclusive;
 use std::path::Path;
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::Arc;
 
 use anyhow::Result;
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchReader;
 use arrow_schema::ArrowError;
+use arrow_schema::SchemaRef;
+use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
@@ -58,6 +61,8 @@ use tracing::info;
 use vortex::utils::parallelism::get_available_parallelism;
 
 use crate::Format;
+use crate::tpcds::cluster;
+use crate::tpcds::cluster::ClusterColumns;
 use crate::utils::file::temp_download_filepath;
 use crate::utils::parquet::parquet_writer_properties;
 use crate::utils::split;
@@ -71,6 +76,11 @@ const ROW_GROUP_SIZE: usize = 122_880;
 /// per source row, so a chunk holds up to roughly one row group.
 const SOURCE_ROWS_PER_CHUNK: u64 = 8 * 1024;
 
+/// In-memory Arrow bytes of each sorted run when clustering a fact table. A run is sorted through
+/// an index of 40 bytes per row and spilled in small batches, so peak memory stays near this
+/// budget plus the chunks being generated, well within 10 GB at scale factor 10.
+const SORT_RUN_BYTES: usize = 1024 * 1024 * 1024;
+
 /// Generate every TPC-DS table as Parquet under `base_dir/parquet`.
 ///
 /// Large tables are split into files of about [`split::TARGET_FILE_COMPRESSED_BYTES`], named by
@@ -78,7 +88,16 @@ const SOURCE_ROWS_PER_CHUNK: u64 = 8 * 1024;
 /// the same data and schema as `tpcgen-cli tpcds parquet` of the same `tpcdsgen` version, which
 /// generates the SQL logic test data. Tables are written one at a time, each split into chunks of
 /// source rows that are generated and encoded in parallel. Already generated tables are skipped.
-pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf> {
+///
+/// With `clustered`, the fact tables are sorted by their date key and then their item key, nulls
+/// last, before they are split into files, so file, row group and zone statistics on those keys
+/// are narrow. The split into files and row groups is the same as without clustering; only the
+/// rows' order changes. The `cluster` module describes how the sort bounds its memory.
+pub async fn generate_tpcds(
+    base_dir: PathBuf,
+    scale_factor: String,
+    clustered: bool,
+) -> Result<PathBuf> {
     let output_dir = base_dir.join(Format::Parquet.name());
     fs::create_dir_all(&output_dir)?;
 
@@ -105,8 +124,16 @@ pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<P
             table = table.get_name(),
             scale_factor,
             files = layout.num_files,
+            clustered,
             "Generating TPC-DS table"
         );
+        let cluster = clustered
+            .then(|| cluster::cluster_columns(table))
+            .flatten()
+            .map(|columns| Cluster {
+                columns,
+                run_bytes: SORT_RUN_BYTES,
+            });
         write_table(
             &output_dir,
             table,
@@ -115,6 +142,7 @@ pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<P
             SOURCE_ROWS_PER_CHUNK,
             ROW_GROUP_SIZE,
             parallelism,
+            cluster,
         )
         .await?;
     }
@@ -282,8 +310,13 @@ fn source_row_chunks(
 /// and row groups encoded on up to `parallelism` blocking threads each. Every row group but the
 /// last of each file holds exactly `row_group_size` rows, as with one [`ArrowWriter`] per file.
 ///
+/// With `cluster` set, the rows are stably sorted by the cluster columns before they are split
+/// into files and row groups, with an external sort that spills runs of about
+/// `cluster.run_bytes` to a temporary directory in `output_dir`.
+///
 /// Files are written to temporary paths and renamed into place last part first, so the first
 /// part only exists once the whole table does.
+#[expect(clippy::too_many_arguments)]
 async fn write_table(
     output_dir: &Path,
     table: Table,
@@ -292,9 +325,63 @@ async fn write_table(
     source_rows_per_chunk: u64,
     row_group_size: usize,
     parallelism: usize,
+    cluster: Option<Cluster>,
 ) -> Result<()> {
     // An empty range of source rows, to get the schema.
     let schema = table_batches(table, session.clone(), RangeInclusive::new(1, 0)).schema();
+
+    let source_rows = session.get_scaling().get_row_count(table);
+    let chunks = stream::iter(source_row_chunks(source_rows, source_rows_per_chunk))
+        .map(move |rows| {
+            let session = session.clone();
+            tokio::task::spawn_blocking(move || {
+                table_batches(table, session, rows).collect::<Result<Vec<_>, ArrowError>>()
+            })
+        })
+        .buffered(parallelism)
+        .map(|joined| anyhow::Ok(joined??));
+
+    let files = match cluster {
+        None => write_row_groups(schema, layout, row_group_size, parallelism, chunks).await?,
+        Some(cluster) => {
+            let spill_dir = tempfile::Builder::new()
+                .prefix(".sort-")
+                .tempdir_in(output_dir)?;
+            let sorted = cluster::sort_batches(
+                chunks,
+                cluster.columns,
+                spill_dir.path(),
+                cluster.run_bytes,
+                BATCH_SIZE,
+            )
+            .await?;
+            write_row_groups(schema, layout, row_group_size, parallelism, sorted).await?
+        }
+    };
+
+    for (idx, path) in files.iter().enumerate().rev() {
+        let name = split::part_file_name(table.get_name(), idx + 1, Format::Parquet.ext());
+        fs::rename(path, output_dir.join(name))?;
+    }
+    Ok(())
+}
+
+/// Clustering of a fact table: its sort columns and the memory budget of each sorted run.
+#[derive(Clone, Copy)]
+struct Cluster {
+    columns: ClusterColumns,
+    run_bytes: usize,
+}
+
+/// Write the rows of `chunks` as Parquet files split by `layout`, returning their temporary paths
+/// in order.
+async fn write_row_groups(
+    schema: SchemaRef,
+    layout: FileLayout,
+    row_group_size: usize,
+    parallelism: usize,
+    chunks: impl Stream<Item = Result<Vec<RecordBatch>>>,
+) -> Result<Vec<PathBuf>> {
     let props = parquet_writer_properties()
         .set_max_row_group_row_count(Some(row_group_size))
         .build();
@@ -354,17 +441,8 @@ async fn write_table(
         Ok(files)
     });
 
-    let source_rows = session.get_scaling().get_row_count(table);
     let produced = async move {
-        let mut chunks = stream::iter(source_row_chunks(source_rows, source_rows_per_chunk))
-            .map(|rows| {
-                let session = session.clone();
-                tokio::task::spawn_blocking(move || {
-                    table_batches(table, session, rows).collect::<Result<Vec<_>, ArrowError>>()
-                })
-            })
-            .buffered(parallelism);
-
+        let mut chunks = pin!(chunks);
         let mut row_groups = RowGroups::new(row_group_size, layout);
         let mut encoding = FuturesOrdered::new();
         let mut done = false;
@@ -372,7 +450,7 @@ async fn write_table(
             let mut ready = Vec::new();
             match chunks.try_next().await? {
                 Some(batches) => {
-                    for batch in batches? {
+                    for batch in batches {
                         row_groups.push(batch, &mut ready);
                     }
                 }
@@ -410,12 +488,7 @@ async fn write_table(
 
     let files = writer.await??;
     produced?;
-
-    for (idx, path) in files.iter().enumerate().rev() {
-        let name = split::part_file_name(table.get_name(), idx + 1, Format::Parquet.ext());
-        fs::rename(path, output_dir.join(name))?;
-    }
-    Ok(())
+    Ok(files)
 }
 
 /// Encode `batches` as row group `index` of a file that `row_group_factory` writes.
@@ -529,14 +602,18 @@ impl RowGroups {
 #[cfg(test)]
 mod tests {
     use arrow_select::concat::concat_batches;
+    use arrow_select::take::take_record_batch;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use rstest::rstest;
 
     use super::*;
+    use crate::tpcds::cluster::tests::is_sorted_after;
+    use crate::tpcds::cluster::tests::stable_sort;
 
     /// Chunked, parallel generation writes the same rows as one pass over the table, split into
     /// files by the layout, with row groups of exactly `row_group_size` rows but the last of each
-    /// file.
+    /// file. Clustering stably sorts the fact tables by their cluster columns, through several
+    /// spilled runs, without changing the files or row groups.
     #[rstest]
     #[tokio::test]
     async fn chunked_matches_single_pass(
@@ -545,11 +622,13 @@ mod tests {
             Table::StoreReturns,
             Table::CatalogReturns,
             Table::WebSales,
+            Table::Inventory,
             Table::Customer,
             Table::Item
         )]
         table: Table,
         #[values(1, 3)] num_files: usize,
+        #[values(false, true)] clustered: bool,
     ) -> Result<()> {
         let session = SessionBuilder::new()
             .with_scale_factor(0.01)
@@ -560,6 +639,7 @@ mod tests {
             num_files,
             rows_per_file: if num_files == 1 { usize::MAX } else { 400 },
         };
+        let columns = cluster::cluster_columns(table).filter(|_| clustered);
         let dir = tempfile::tempdir()?;
         write_table(
             dir.path(),
@@ -569,13 +649,23 @@ mod tests {
             97,
             row_group_size,
             4,
+            // Small runs, so that every fact table spills and merges several.
+            columns.map(|columns| Cluster {
+                columns,
+                run_bytes: 64 * 1024,
+            }),
         )
         .await?;
+        // Only the table's files remain: the spilled runs are removed.
+        assert_eq!(fs::read_dir(dir.path())?.count(), num_files);
 
         let source_rows = session.get_scaling().get_row_count(table);
         let expected = table_batches(table, session, 1..=source_rows);
         let schema = expected.schema();
-        let expected = concat_batches(&schema, &expected.collect::<Result<Vec<_>, _>>()?)?;
+        let mut expected = concat_batches(&schema, &expected.collect::<Result<Vec<_>, _>>()?)?;
+        if let Some(columns) = columns {
+            expected = take_record_batch(&expected, &stable_sort(&expected, columns)?)?;
+        }
 
         let mut actual = Vec::new();
         let mut file_rows = Vec::new();
@@ -594,6 +684,12 @@ mod tests {
                 .collect::<Result<_, _>>()?;
             file_rows.push(row_group_rows);
             actual.extend(reader.build()?.collect::<Result<Vec<_>, _>>()?);
+        }
+        if let Some(columns) = columns {
+            let mut previous = None;
+            for batch in &actual {
+                assert!(is_sorted_after(batch, columns, &mut previous)?);
+            }
         }
         let actual = concat_batches(&schema, &actual)?;
         assert_eq!(actual.columns(), expected.columns());

@@ -417,6 +417,8 @@ const DEFAULT_SCALE_FACTOR: &str = "1.0";
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";
+/// Selects TPC-DS data whose fact tables are clustered by their date and item keys.
+const TPCDS_CLUSTER_KEY: &str = "tpcds-cluster";
 
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
@@ -447,7 +449,9 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::TpcDS => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let clustered = opts.get_as::<bool>(TPCDS_CLUSTER_KEY).unwrap_or(false);
+            let benchmark =
+                TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir, clustered)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

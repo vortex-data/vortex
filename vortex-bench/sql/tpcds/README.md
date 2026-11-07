@@ -18,3 +18,23 @@ comment, comparing DataFusion and DuckDB over Parquet, Vortex, and vortex-compac
 ```bash
 vx-bench run tpcds --engine datafusion,duckdb --format parquet,vortex --opt scale-factor=1.0
 ```
+
+## Clustered variant
+
+`--opt tpcds-cluster=true` selects a copy of the data whose fact tables (`store_sales`,
+`catalog_sales`, `web_sales`, the three returns tables, and `inventory`) are sorted by their
+date key and then their item key, nulls last, so zone maps and dynamic join filters on those
+keys can prune. It lives in `data/tpcds/<scale-factor>-clustered/`, next to the unclustered
+data, and uses the same files and row group sizes. Pass the same option to `data-gen` and to
+the benchmark:
+
+```bash
+cargo run --release -p vortex-bench --bin data-gen -- tpcds --formats parquet,vortex \
+    --opt scale-factor=10,tpcds-cluster=true
+cargo run --release -p datafusion-bench -- tpcds --formats parquet,vortex \
+    --opt scale-factor=10,tpcds-cluster=true
+```
+
+The sort is external: runs of about 1 GiB are sorted in memory, spilled as LZ4 Arrow IPC to a
+temporary directory in the output directory, and merged, so clustering needs no more memory at
+larger scale factors, but needs about the table's uncompressed size in free disk.
