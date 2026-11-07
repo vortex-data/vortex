@@ -19,13 +19,13 @@ For using Vortex as a library, see the language-specific guides:
 ```{toctree}
 ---
 maxdepth: 2
-caption: Language Libraries
+caption: Language libraries
 ---
 
-Python Quickstart <python>
-Rust Quickstart <rust>
-C++ Quickstart <cpp>
-Java Quickstart <java>
+Python quickstart <python>
+Rust quickstart <rust>
+C++ quickstart <cpp>
+Java quickstart <java>
 ```
 
 For upgrades and files shared between applications, see

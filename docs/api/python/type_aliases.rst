@@ -1,4 +1,4 @@
-Type Aliases
+Type aliases
 ============
 
 .. data:: vortex.type_aliases.IntoArrayIterator

@@ -1,4 +1,4 @@
-# Session and Registries
+# Session and registries
 
 A `VortexSession` is a type-indexed map that holds all the runtime state for the Vortex
 ecosystem. Each major component of Vortex defines its own session variable type containing a

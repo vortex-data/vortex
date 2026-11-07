@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, docs, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html
-   sha256 a25eb7e8c2df9c60e136c27c4ed421373e134eb2913489428dd302b88365c83a */
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,docs,focus --reads ../vortex.css,../layout.html,../404.html,../domainindex.html,../../../_static
+   sha256 94f5d2e642d7eae9dd596027c096524c2bc87fb5a1751d0da8cb93af648c925b */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -9,15 +9,6 @@
 :where([class*="vx-"])::before,
 :where([class*="vx-"])::after {
   box-sizing: border-box;
-}
-/* Text for screen readers only, such as a copy button's "Copied". */
-.vx-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 /* The skip link, a page's first tab stop (WCAG 2.4.1): "Skip to content", to #main. Hidden as
    vx-sr-only until it has focus, then at the top left above a sticky header, on ground in ink in
@@ -54,27 +45,9 @@
 main[tabindex="-1"]:focus {
   outline: none;
 }
-.vx-card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-}
 .vx-label,
 .vx-label-sm {
   color: var(--ink-muted);
-}
-/* A machine reference, such as an error digest or a commit hash, in a label or in text. It keeps
-   its case, selects whole for a bug report, and breaks anywhere rather than overflow a phone. */
-.vx-ref {
-  font-family: var(--font-mono);
-  font-size: inherit;
-  text-transform: none;
-  letter-spacing: 0;
-  user-select: all;
-  overflow-wrap: anywhere;
-}
-.vx-num {
-  font-variant-numeric: tabular-nums;
 }
 /* In prose, the link rule styles an author's links. A system link (a vx- class) has its own rule. */
 .vx-link,
@@ -97,11 +70,6 @@ main[tabindex="-1"]:focus {
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
-   both draw it, so it sits in base, which every site copies. */
-.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
-.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
-.vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ chrome */
 /* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
@@ -131,15 +99,6 @@ main[tabindex="-1"]:focus {
   height: 16px;
   fill: currentColor;
 }
-/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
-   after that rule and wins the tie. */
-.vx-source {
-  display: inline-flex;
-  flex-wrap: wrap;
-  white-space: normal;
-  align-items: center;
-  gap: var(--space-4);
-}
 .vx-btn {
   display: inline-flex;
   align-items: center;
@@ -162,11 +121,9 @@ main[tabindex="-1"]:focus {
 .vx-btn-primary { background: var(--primary); color: var(--on-primary); }
 .vx-btn-secondary { border-color: var(--edge); }
 .vx-btn-secondary:hover { border-color: var(--ink); }
-.vx-btn-ghost:hover { background: var(--raised); }
 /* Pressed: one step past hover, in place. */
 .vx-btn-primary:active:not([disabled], [aria-disabled="true"]) { background: color-mix(in srgb, var(--primary) 82%, var(--ground)); }
 .vx-btn-secondary:active:not([disabled], [aria-disabled="true"]) { background: var(--raised); }
-.vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
 .vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
 .vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
 /* Buttons side by side, primary first, wrapping onto a second row on a phone. */
@@ -342,18 +299,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   width: 26px;
   height: 26px;
   border-radius: var(--radius-control);
-  color: var(--ink-muted);
-  transition: color var(--vx-motion), background-color var(--vx-motion);
-}
-.vx-switch button {
-  all: unset;
-  box-sizing: border-box;
-  cursor: pointer;
-  height: 26px;
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-control);
-  font: 400 12.5px/26px var(--font-sans);
-  white-space: nowrap;
   color: var(--ink-muted);
   transition: color var(--vx-motion), background-color var(--vx-motion);
 }

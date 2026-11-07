@@ -1,5 +1,5 @@
 ====================
-Object Store support
+Object store support
 ====================
 
 Vortex arrays support reading and writing to many object storage systems:

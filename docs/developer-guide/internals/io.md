@@ -1,4 +1,4 @@
-# I/O Subsystem
+# I/O subsystem
 
 The `vortex-io` crate provides the I/O abstractions that underpin file reading, object store
 access, and segment fetching. The system adapts its strategy -- coalescing, concurrency, and
