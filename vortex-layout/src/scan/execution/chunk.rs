@@ -129,8 +129,9 @@ impl Planner for ChunkPlanner {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
-            {
+            let planned = plan_selection(&self.scan, scope, &self.selection, kept);
+            self.scan.metrics.add_chunk(planned.is_some());
+            if let Some((scope, planner)) = planned {
                 return Ok(PlannerOutput::Spawn(scope, planner));
             }
         }

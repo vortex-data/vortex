@@ -18,6 +18,7 @@ use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
+use crate::scan::execution::ScanMetrics;
 use crate::segments::SegmentSource;
 
 /// Reusable state for repeated V2 scans of one file, the V2 counterpart of a cached
@@ -125,10 +126,16 @@ impl ScanCache {
     }
 
     /// Serves `segments` through the segments the file's scans retain.
-    pub(super) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
+    /// Counts the segments it serves in `metrics`.
+    pub(super) fn retaining(
+        &self,
+        segments: Arc<dyn SegmentSource>,
+        metrics: Arc<ScanMetrics>,
+    ) -> Arc<dyn SegmentSource> {
         Arc::new(RetainingSegmentSource {
             inner: segments,
             retained: Arc::clone(&self.0.retained),
+            metrics,
         })
     }
 

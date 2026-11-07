@@ -53,6 +53,8 @@ pub use crate::scan::execution::PreparedScan;
 pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
+pub use crate::scan::execution::ScanMetrics;
+pub use crate::scan::execution::ScanMetricsSnapshot;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
@@ -100,6 +102,7 @@ pub struct ScanBuilder {
     selection: Selection,
     row_offset: u64,
     skip_unselective_dynamic: bool,
+    metrics: Option<Arc<ScanMetrics>>,
 }
 
 impl ScanBuilder {
@@ -114,6 +117,7 @@ impl ScanBuilder {
             selection: Selection::default(),
             row_offset: 0,
             skip_unselective_dynamic: false,
+            metrics: None,
         }
     }
 
@@ -148,6 +152,13 @@ impl ScanBuilder {
     /// TopK and hash-join dynamic filters. Off by default.
     pub fn with_skip_unselective_dynamic(mut self, skip: bool) -> Self {
         self.skip_unselective_dynamic = skip;
+        self
+    }
+
+    /// Counts what the scan prunes, filters and reads in `metrics`, which the engine reads back.
+    /// Without it the scan counts in counters of its own, from [`PreparedScan::metrics`].
+    pub fn with_metrics(mut self, metrics: Arc<ScanMetrics>) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 
@@ -240,11 +251,12 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let metrics = self.metrics.unwrap_or_default();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: cache.retaining(file.segments),
+            segments: cache.retaining(file.segments, Arc::clone(&metrics)),
             ranges,
             cache,
             locations: file.locations,
@@ -253,6 +265,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            metrics,
         })
     }
 }

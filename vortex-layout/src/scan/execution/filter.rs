@@ -129,14 +129,19 @@ impl FilterPlans {
     /// join's key bounds also proves its current predicate over the zones again. Without those
     /// plans, TPC-DS at SF1, whose join probes are mostly scans of one chunk, ran 3% faster, and
     /// SF10 was unchanged.
-    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = &PlanRef> {
+    ///
+    /// Each plan comes with whether its conjunct has dynamic expressions.
+    pub(crate) fn pruning_over(&self, rows: u64) -> impl Iterator<Item = (bool, &PlanRef)> {
         let small = rows <= FILTERED_ROWS_PER_CHUNK as u64;
         self.pruning
             .iter()
             .enumerate()
             .filter(move |(idx, _)| !small || self.expression.dynamic_updates(*idx).is_none())
             .filter(|(idx, _)| !self.expression.is_switched_off(*idx))
-            .filter_map(|(_, plan)| plan.as_ref())
+            .filter_map(|(idx, plan)| {
+                let dynamic = self.expression.dynamic_updates(idx).is_some();
+                plan.as_ref().map(|plan| (dynamic, plan))
+            })
     }
 }
 
@@ -321,6 +326,9 @@ impl Planner for FilterPlanner {
             let result = Mask::concat(self.pieces.iter())?;
             vortex_ensure_eq!(result.len(), input);
             selected.mask = selected.mask.intersect_by_rank(&result);
+            self.scan
+                .metrics
+                .add_rows_filtered(version.is_some(), input - selected.mask.true_count());
             tracing::debug!(
                 row_start = selected.scope.rows.start,
                 row_end = selected.scope.rows.end,

@@ -12,12 +12,18 @@ use datafusion_physical_plan::ExecutionPlanVisitor;
 use datafusion_physical_plan::Metric as DatafusionMetric;
 use datafusion_physical_plan::accept;
 use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::Gauge;
 use datafusion_physical_plan::metrics::Label as DatafusionLabel;
+use datafusion_physical_plan::metrics::MetricBuilder;
+use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::metrics::MetricValue as DatafusionMetricValue;
 use datafusion_physical_plan::metrics::MetricsSet;
+use datafusion_physical_plan::metrics::PruningMetrics;
 use datafusion_physical_plan::metrics::Time;
 use vortex::error::VortexExpect;
+use vortex::layout::scan::v2::ScanMetrics;
+use vortex::layout::scan::v2::ScanMetricsSnapshot;
 use vortex::metrics::Label;
 use vortex::metrics::Metric;
 use vortex::metrics::MetricValue;
@@ -26,6 +32,110 @@ use crate::persistent::source::VortexSource;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
 pub(crate) static PATH_LABEL: &str = "file_path";
+
+/// The DataFusion metrics of one partition's V2 scans, which `EXPLAIN ANALYZE` shows.
+///
+/// The scan counts in Vortex's own atomic [`ScanMetrics`]; their counts move here once per
+/// scan, so the scan's hot paths never touch DataFusion's metrics.
+#[derive(Clone, Debug)]
+pub(crate) struct V2ScanMetrics {
+    /// Chunks zone pruning or the selection left no row of, out of all chunks.
+    chunks: PruningMetrics,
+    rows_pruned_static: Count,
+    rows_pruned_dynamic: Count,
+    rows_read: Count,
+    rows_filtered_static: Count,
+    rows_filtered_dynamic: Count,
+    segments_read: Count,
+    bytes_read: Count,
+    segment_cache_hits: Count,
+    footer_cache_hits: Count,
+    footer_cache_misses: Count,
+    /// Time spent lowering the layout and planning the filter and projection.
+    pub(crate) planning_time: Time,
+}
+
+impl V2ScanMetrics {
+    /// Registers the metrics of `partition` in `metrics`.
+    pub(crate) fn new(metrics: &ExecutionPlanMetricsSet, partition: usize) -> Self {
+        let rows = |name: &'static str| {
+            MetricBuilder::new(metrics)
+                .with_category(MetricCategory::Rows)
+                .counter(name, partition)
+        };
+        let count = |name: &'static str| MetricBuilder::new(metrics).counter(name, partition);
+        Self {
+            chunks: MetricBuilder::new(metrics).pruning_metrics("chunks_pruned", partition),
+            rows_pruned_static: rows("rows_pruned_by_zones_static"),
+            rows_pruned_dynamic: rows("rows_pruned_by_zones_dynamic"),
+            rows_read: rows("rows_read"),
+            rows_filtered_static: rows("rows_filtered_static"),
+            rows_filtered_dynamic: rows("rows_filtered_dynamic"),
+            segments_read: count("segments_read"),
+            bytes_read: MetricBuilder::new(metrics)
+                .with_category(MetricCategory::Bytes)
+                .counter("bytes_read", partition),
+            segment_cache_hits: count("segment_cache_hits"),
+            footer_cache_hits: count("footer_cache_hits"),
+            footer_cache_misses: count("footer_cache_misses"),
+            planning_time: MetricBuilder::new(metrics).subset_time("scan_planning_time", partition),
+        }
+    }
+
+    /// Counts a lookup of a file's footer in the metadata cache.
+    pub(crate) fn record_footer_lookup(&self, hit: bool) {
+        if hit {
+            self.footer_cache_hits.add(1);
+        } else {
+            self.footer_cache_misses.add(1);
+        }
+    }
+
+    fn add(&self, counts: ScanMetricsSnapshot) {
+        let add = |count: &Count, value: u64| {
+            if value > 0 {
+                count.add(usize::try_from(value).unwrap_or(usize::MAX));
+            }
+        };
+        let chunks_pruned = usize::try_from(counts.chunks_pruned).unwrap_or(usize::MAX);
+        let chunks = usize::try_from(counts.chunks).unwrap_or(usize::MAX);
+        self.chunks.add_pruned(chunks_pruned);
+        self.chunks
+            .add_matched(chunks.saturating_sub(chunks_pruned));
+        add(&self.rows_pruned_static, counts.rows_pruned_static);
+        add(&self.rows_pruned_dynamic, counts.rows_pruned_dynamic);
+        add(&self.rows_read, counts.rows_read);
+        add(&self.rows_filtered_static, counts.rows_filtered_static);
+        add(&self.rows_filtered_dynamic, counts.rows_filtered_dynamic);
+        add(&self.segments_read, counts.segments_read);
+        add(&self.bytes_read, counts.bytes_read);
+        add(&self.segment_cache_hits, counts.segment_cache_hits);
+    }
+}
+
+/// Moves a scan's counts into the partition's [`V2ScanMetrics`] when the scan's stream ends,
+/// and again when it is dropped, so a scan a limit stops early still reports its work.
+pub(crate) struct ScanMetricsFlush {
+    scan: Arc<ScanMetrics>,
+    metrics: V2ScanMetrics,
+}
+
+impl ScanMetricsFlush {
+    pub(crate) fn new(scan: Arc<ScanMetrics>, metrics: V2ScanMetrics) -> Self {
+        Self { scan, metrics }
+    }
+
+    /// Adds the counts since the last flush.
+    pub(crate) fn flush(&self) {
+        self.metrics.add(self.scan.take());
+    }
+}
+
+impl Drop for ScanMetricsFlush {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
 
 /// Walks a physical plan and returns one [`MetricsSet`] per
 /// [`DataSourceExec`].

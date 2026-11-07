@@ -49,6 +49,7 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::persistent::metrics::V2ScanMetrics;
 use crate::persistent::opener::DynamicFilterKey;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::LocalFileReaders;
@@ -407,6 +408,10 @@ impl VortexSource {
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
             batch_size: self.batch_size,
+            v2_metrics: self
+                .options
+                .scan_v2
+                .then(|| V2ScanMetrics::new(&self.df_metrics, partition)),
         };
 
         Ok(opener)

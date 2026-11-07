@@ -14,6 +14,7 @@
 mod adaptor;
 mod chunk;
 mod filter;
+mod metrics;
 mod projection;
 mod prune;
 mod selection;
@@ -41,6 +42,8 @@ pub(crate) use self::chunk::rows_per_chunk;
 pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
+pub use self::metrics::ScanMetrics;
+pub use self::metrics::ScanMetricsSnapshot;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
@@ -102,6 +105,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// What the scan's planners prune, filter and read.
+    pub(super) metrics: Arc<ScanMetrics>,
 }
 
 impl PreparedScan {
@@ -113,6 +118,11 @@ impl PreparedScan {
     /// The rows of [`rows`](Self::rows) the scan selects.
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The counters of what the scan prunes, filters and reads.
+    pub fn metrics(&self) -> &Arc<ScanMetrics> {
+        &self.metrics
     }
 
     /// The filter's plans, when the scan has a filter.
@@ -132,6 +142,7 @@ impl PreparedScan {
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
     /// its projection.
     pub(super) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
+        self.metrics.add_rows_read(selected.mask.true_count());
         if self.filter.is_some() {
             Box::new(FilterPlanner::new(Arc::clone(self), selected))
         } else {
