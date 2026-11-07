@@ -4,30 +4,25 @@
 #![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::clone_on_ref_ptr,
     clippy::cloned_ref_to_slice_refs,
     clippy::chunks_exact_to_as_chunks,
     clippy::redundant_clone
 )]
 
-//! Row-encode throughput benchmarks comparing `arrow-row` against Vortex's [`RowEncoder`]
-//! for the core canonical scenarios: a primitive i64 column, a Utf8 column, and a
-//! mixed-field struct.
+//! Row-encode throughput benchmarks for Vortex's [`RowEncoder`] over the core canonical
+//! scenarios: a primitive i64 column, a Utf8 column, a mixed-field struct, and lists.
+//!
+//! Run with `--output-sizes` to print the encoded size of each list case next to `arrow-row`.
 
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use arrow_array::Array;
-use arrow_array::Int64Array;
-use arrow_array::StringArray;
-use arrow_array::StructArray as ArrowStructArray;
 use arrow_array::builder::Int64Builder;
 use arrow_array::builder::ListBuilder as ArrowListBuilder;
 use arrow_array::builder::StringBuilder;
 use arrow_row::RowConverter;
 use arrow_row::SortField as ArrowSortField;
-use arrow_schema::DataType;
-use arrow_schema::Field;
 use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
@@ -42,6 +37,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
@@ -93,7 +89,11 @@ fn make_vortex_list(elements: vortex_array::ArrayRef) -> vortex_array::ArrayRef 
     .into_array();
     let list_len = u32::try_from(LIST_LEN).expect("benchmark list length must fit u32");
     let sizes = PrimitiveArray::from_iter(std::iter::repeat_n(list_len, N)).into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array()
+    let list =
+        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
+    mark_optimized(&list, &SESSION).unwrap();
+
+    list
 }
 
 fn arrow_output_bytes(rows: &arrow_row::Rows) -> u64 {
@@ -165,20 +165,11 @@ fn print_list_output_sizes() {
 // ---------- primitive_i64 ----------
 
 #[divan::bench]
-fn primitive_i64_arrow_row(bencher: divan::Bencher) {
-    let v = gen_i64(N, 0);
-    let arr = Arc::new(Int64Array::from(v.clone())) as arrow_array::ArrayRef;
-    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int64)]).unwrap();
-    let bytes = (N * (1 + 8)) as u64;
-    bencher
-        .counter(BytesCount::new(bytes))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
-}
-
-#[divan::bench]
 fn primitive_i64_vortex(bencher: divan::Bencher) {
     let v = gen_i64(N, 0);
     let col = PrimitiveArray::from_iter(v.clone()).into_array();
+    mark_optimized(&col, &SESSION).unwrap();
+
     let bytes = (N * (1 + 8)) as u64;
     let encoder = RowEncoder::default();
     bencher
@@ -190,20 +181,6 @@ fn primitive_i64_vortex(bencher: divan::Bencher) {
 // ---------- utf8 ----------
 
 #[divan::bench]
-fn utf8_arrow_row(bencher: divan::Bencher) {
-    let words = gen_words(N, 16, 7);
-    let total: u64 = words
-        .iter()
-        .map(|w| 1 + (w.len().div_ceil(32) * 33) as u64)
-        .sum();
-    let arr = Arc::new(StringArray::from(words.clone())) as arrow_array::ArrayRef;
-    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Utf8)]).unwrap();
-    bencher
-        .counter(BytesCount::new(total))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
-}
-
-#[divan::bench]
 fn utf8_vortex(bencher: divan::Bencher) {
     let words = gen_words(N, 16, 7);
     let total: u64 = words
@@ -211,6 +188,8 @@ fn utf8_vortex(bencher: divan::Bencher) {
         .map(|w| 1 + (w.len().div_ceil(32) * 33) as u64)
         .sum();
     let col = VarBinViewArray::from_iter_str(words.iter().map(String::as_str)).into_array();
+    mark_optimized(&col, &SESSION).unwrap();
+
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))
@@ -234,31 +213,6 @@ fn struct_mixed_inputs() -> (Vec<i64>, Vec<String>, u64) {
 }
 
 #[divan::bench]
-fn struct_mixed_arrow_row(bencher: divan::Bencher) {
-    let (ids, names, total) = struct_mixed_inputs();
-    let id_arr = Arc::new(Int64Array::from(ids)) as arrow_array::ArrayRef;
-    let name_arr = Arc::new(StringArray::from(names)) as arrow_array::ArrayRef;
-    let arrow_struct = Arc::new(ArrowStructArray::from(vec![
-        (Arc::new(Field::new("id", DataType::Int64, false)), id_arr),
-        (
-            Arc::new(Field::new("name", DataType::Utf8, false)),
-            name_arr,
-        ),
-    ])) as arrow_array::ArrayRef;
-    let struct_fields = vec![
-        Arc::new(Field::new("id", DataType::Int64, false)),
-        Arc::new(Field::new("name", DataType::Utf8, false)),
-    ];
-    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Struct(
-        struct_fields.into(),
-    ))])
-    .unwrap();
-    bencher
-        .counter(BytesCount::new(total))
-        .bench_local(|| conv.convert_columns(&[arrow_struct.clone()]).unwrap())
-}
-
-#[divan::bench]
 fn struct_mixed_vortex(bencher: divan::Bencher) {
     let (ids, names, total) = struct_mixed_inputs();
     let id_arr = PrimitiveArray::from_iter(ids).into_array();
@@ -266,6 +220,8 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     let struct_arr = StructArray::from_fields(&[("id", id_arr), ("name", name_arr)])
         .unwrap()
         .into_array();
+    mark_optimized(&struct_arr, &SESSION).unwrap();
+
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))
@@ -274,16 +230,6 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
 }
 
 // ---------- list_i64 ----------
-
-#[divan::bench]
-fn list_i64_arrow_row(bencher: divan::Bencher) {
-    let (arr, _) = list_i64_inputs();
-    let conv = RowConverter::new(vec![ArrowSortField::new(arr.data_type().clone())]).unwrap();
-    let output_bytes = arrow_output_bytes(&conv.convert_columns(&[arr.clone()]).unwrap());
-    bencher
-        .counter(BytesCount::new(output_bytes))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
-}
 
 #[divan::bench]
 fn list_i64_vortex(bencher: divan::Bencher) {
@@ -298,16 +244,6 @@ fn list_i64_vortex(bencher: divan::Bencher) {
 }
 
 // ---------- list_utf8 ----------
-
-#[divan::bench]
-fn list_utf8_arrow_row(bencher: divan::Bencher) {
-    let (arr, _) = list_utf8_inputs();
-    let conv = RowConverter::new(vec![ArrowSortField::new(arr.data_type().clone())]).unwrap();
-    let output_bytes = arrow_output_bytes(&conv.convert_columns(&[arr.clone()]).unwrap());
-    bencher
-        .counter(BytesCount::new(output_bytes))
-        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
-}
 
 #[divan::bench]
 fn list_utf8_vortex(bencher: divan::Bencher) {

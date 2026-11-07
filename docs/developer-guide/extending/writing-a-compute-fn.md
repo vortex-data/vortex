@@ -1,4 +1,4 @@
-# Writing a Compute Function
+# Writing a compute function
 
 :::{warning}
 This page is under construction.

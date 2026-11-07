@@ -13,6 +13,10 @@ pub(super) use execute::ExecuteFilteredRows;
 pub(super) use execute::ExecuteRows;
 pub(super) use execute::ExecuteValidRows;
 
+mod fused;
+pub(super) use fused::ExecuteFused;
+pub(super) use fused::Fused;
+
 mod retry;
 pub(super) use retry::ExecuteDenseWithRetry;
 

@@ -4,18 +4,15 @@
 //! Drives a V2 scan for DuckDB.
 //!
 //! A planner says what it needs: compute, or reads. This driver decides where each runs, and
-//! DuckDB's own threads run all of it. Each file is prepared once and its planners are composed
-//! over the prepared scan: with a filter, its pruning plans over the scanned rows first,
-//! continuing into the chunks of the rows they keep; without, the chunks directly. The root
-//! planner's run is shared by every thread scanning the file. A thread takes the next chunk the
-//! root spawns and runs it on a run of its own, inline, waiting only for its reads. Threads keep
-//! taking chunks until the root is done, so the file's work spreads over as many threads as
-//! DuckDB gives the scan, however its rows divide.
-//!
-//! The root cuts the scanned rows into parts of whole 65,536-row blocks, a few per thread, and
-//! spawns a chunk planner per part. A filtered scan's chunks are up to 1,048,576 rows, so without
-//! parts a file of a few million rows would keep only a few threads busy.
+//! DuckDB's own threads run all of it. Each file is prepared once, and the thread that initializes
+//! it cuts the scanned rows into parts on the file's layout splits, the units a V1 scan hands its
+//! threads, after pruning the scan as a whole when its filter is dynamic. A thread takes the next
+//! part and runs it on a run of its own, inline, waiting only for its reads: with a filter, the
+//! part's pruning plans first, continuing into the chunks of the rows pruning kept; without, the
+//! chunks directly. Threads join the file only while parts are left, so the threads a file
+//! cannot use move on to the next file.
 
+use std::collections::VecDeque;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
@@ -44,31 +41,26 @@ use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
 use vortex::scan::planning::planner::WorkScope;
 use vortex::scan::selection::Selection;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
 
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
 const CHUNKS_PER_THREAD: usize = 1;
-/// The parts of a file's rows per thread, so threads that finish early find more work.
-const PARTS_PER_THREAD: u64 = 4;
-/// The row blocks parts are cut on: the rows of a projection chunk, and of the writer's chunks.
-const PART_ROW_BLOCK: u64 = 65_536;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
-    /// The run of the root planner, locked while a thread takes the chunk it spawns next.
-    root: Mutex<Run>,
-    /// Set once the root has spawned its last chunk.
+    /// The work the root spawned, in row order, that no thread has taken yet.
+    queue: Mutex<VecDeque<Work>>,
+    /// Set once a thread has taken the last of `queue`.
     exhausted: AtomicBool,
     /// The rows of the chunks taken so far, for DuckDB's progress bar.
     rows_taken: AtomicU64,
 }
 
-/// What a thread takes from the root next.
+/// What a thread takes from the file next.
 enum Work {
     /// A chunk to run on the thread's run.
     Chunk(WorkScope, Box<dyn Planner>),
@@ -77,30 +69,55 @@ enum Work {
 }
 
 impl FileScan {
-    /// Prepares `builder` and composes its planners. Lowering and planning touch no segment.
-    pub(crate) fn try_new(builder: ScanBuilder) -> VortexResult<Self> {
+    /// Prepares `builder`, composes its planners, and runs the root until it has spawned the
+    /// planner of every part. The root only prunes the scan, for a dynamic filter, and cuts parts,
+    /// so this reads zone maps at most.
+    ///
+    /// Running the root up front leaves the file with a known list of parts, like the splits of a
+    /// V1 scan: a thread joins the file only while a part is left, and the threads DuckDB has to
+    /// spare move on to the next file instead of waiting for this file's root.
+    ///
+    /// `splits` are the file's layout split boundaries, as a V1 scan of the same fields cuts it.
+    /// `dynamic` says the filter's value changes while the scan runs, as a top-N's bound does.
+    pub(crate) fn try_new(
+        builder: ScanBuilder,
+        splits: &[u64],
+        dynamic: bool,
+    ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
         root.admit(
-            compose(&scan),
+            compose(&scan, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
             },
             io.session(),
         );
+        let mut queue = VecDeque::new();
+        loop {
+            match root.advance()? {
+                Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
+                Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
+                Progress::RootDone(_) if root.live_roots() > 0 => {}
+                Progress::RootDone(_) | Progress::Idle => break,
+                Progress::Waiting => {
+                    RUNTIME.block_on(future::poll_fn(|cx| root.poll_completion(cx)))?;
+                }
+            }
+        }
         Ok(Self {
             scan,
             io,
-            root: Mutex::new(root),
-            exhausted: AtomicBool::new(false),
+            exhausted: AtomicBool::new(queue.is_empty()),
+            queue: Mutex::new(queue),
             rows_taken: AtomicU64::new(0),
         })
     }
 
-    /// Whether the root has spawned its last chunk, so a thread joining the scan finds no work.
+    /// Whether every chunk has been taken, so a thread joining the scan finds no work.
     pub(crate) fn is_exhausted(&self) -> bool {
         self.exhausted.load(Ordering::Acquire)
     }
@@ -116,12 +133,12 @@ impl FileScan {
     }
 
     /// The next array of this file for the thread whose run is `run`, or `None` once the file has
-    /// no more work for the thread. Keeps the thread's run fed with chunks from the root, and
+    /// no more work for the thread. Keeps the thread's run fed with chunks from the file, and
     /// waits for reads on the calling thread.
     pub(crate) fn next_array(&self, run: &mut Run) -> VortexResult<Option<ArrayRef>> {
         loop {
             while run.live_roots() < CHUNKS_PER_THREAD {
-                match self.next_work()? {
+                match self.next_work() {
                     Some(Work::Chunk(scope, chunk)) => {
                         run.admit(chunk, scope, self.io.session());
                     }
@@ -143,83 +160,82 @@ impl FileScan {
         }
     }
 
-    /// Advances the root until it spawns a chunk or produces a batch, or `None` once it is done.
-    fn next_work(&self) -> VortexResult<Option<Work>> {
-        if self.exhausted.load(Ordering::Acquire) {
-            return Ok(None);
+    /// Takes the next chunk or batch of the file, or `None` once every one has been taken.
+    fn next_work(&self) -> Option<Work> {
+        let mut queue = self.queue.lock();
+        let work = queue.pop_front()?;
+        if queue.is_empty() {
+            self.exhausted.store(true, Ordering::Release);
         }
-        let mut root = self.root.lock();
-        loop {
-            if self.exhausted.load(Ordering::Acquire) {
-                return Ok(None);
-            }
-            match root.advance()? {
-                Progress::Batch(batch) => return Ok(Some(Work::Batch(batch.array))),
-                Progress::Spawn(scope, chunk) => {
-                    self.rows_taken
-                        .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
-                    return Ok(Some(Work::Chunk(scope, chunk)));
-                }
-                Progress::RootDone(_) if root.live_roots() > 0 => {}
-                Progress::RootDone(_) | Progress::Idle => {
-                    self.exhausted.store(true, Ordering::Release);
-                    return Ok(None);
-                }
-                // The root waits for the pruning plans' reads. The threads waiting on the lock
-                // would have nothing to run until they arrive.
-                Progress::Waiting => {
-                    RUNTIME.block_on(future::poll_fn(|cx| root.poll_completion(cx)))?;
-                }
-            }
+        if let Work::Chunk(scope, _) = &work {
+            self.rows_taken
+                .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
         }
+        Some(work)
     }
 }
 
-/// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
-/// continuing into the parts of the rows they keep; without, the parts directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+/// The planners of a scan, composed: with a dynamic filter, its pruning plans first over the scan's
+/// rows, continuing into the parts of the rows they keep; otherwise, the parts directly.
+fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
-        let rows = rows.clone();
+        let parts = part_ranges(rows.clone(), splits);
+        let first_row = rows.start;
         move |kept: Option<Mask>| -> Box<dyn Planner> {
-            let parallelism = get_available_parallelism().unwrap_or(1) as u64;
-            Box::new(PartPlanner::new(
-                scan,
-                rows,
-                kept,
-                parallelism * PARTS_PER_THREAD,
-            ))
+            Box::new(PartPlanner::new(scan, parts, first_row, kept))
         }
     };
-    if scan.filter().is_some() {
+    if dynamic && scan.filter().is_some() {
         Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
     } else {
         parts(None)
     }
 }
 
-/// Spawns a chunk planner per part of a scan's rows, in row order. Parts end on whole
-/// [`PART_ROW_BLOCK`]s, so no chunk of the scan spans two parts.
+/// Spawns a planner per part of a scan's rows that zone pruning left something of, in row order.
+/// Parts are the file's layout splits, so a layout chunk, and the dictionary it carries, is
+/// exported by one thread, which lets DuckDB evaluate an expression over that dictionary once.
+///
+/// With a filter, each part prunes over its own rows before its chunks, on the thread that takes
+/// it, like the per-split pruning of a V1 scan, so the pruning of a file's parts runs in parallel.
+/// A dynamic filter, such as the bound a top-N pushes down, also prunes the scan as a whole before
+/// any part is taken, so a file whose zones it rules out takes no thread. It has tightened by the
+/// time a later part is taken, so pruning that part again skips more, from the zone maps the
+/// scan-wide pruning read.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
+    parts: std::vec::IntoIter<Range<u64>>,
     /// The first row of `kept`.
     first_row: u64,
-    /// The rows zone pruning kept, from `first_row`, or `None` when nothing was pruned.
+    /// The rows scan-wide pruning kept, from `first_row`, or `None` when nothing was pruned.
     kept: Option<Mask>,
-    parts: std::vec::IntoIter<Range<u64>>,
 }
 
 impl PartPlanner {
-    fn new(scan: Arc<PreparedScan>, rows: Range<u64>, kept: Option<Mask>, parts: u64) -> Self {
+    fn new(
+        scan: Arc<PreparedScan>,
+        parts: Vec<Range<u64>>,
+        first_row: u64,
+        kept: Option<Mask>,
+    ) -> Self {
         Self {
             selection: scan.selection().clone(),
             scan,
-            first_row: rows.start,
+            parts: parts.into_iter(),
+            first_row,
             kept,
-            parts: part_ranges(rows, parts).into_iter(),
         }
+    }
+
+    /// The rows of `part` that scan-wide pruning kept, or `None` when nothing was pruned.
+    fn kept_in(&self, part: &Range<u64>) -> Option<Mask> {
+        let kept = self.kept.as_ref()?;
+        let offset =
+            |row: u64| usize::try_from(row - self.first_row).vortex_expect("a part fits usize");
+        Some(kept.slice(offset(part.start)..offset(part.end)))
     }
 }
 
@@ -237,51 +253,48 @@ impl Planner for PartPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        for part in self.parts.by_ref() {
-            let kept = match &self.kept {
-                Some(kept) => {
-                    let offset = |row: u64| {
-                        usize::try_from(row - self.first_row).vortex_expect("a part fits usize")
+        while let Some(part) = self.parts.next() {
+            let kept = self.kept_in(&part);
+            if kept.as_ref().is_some_and(Mask::all_false) {
+                continue;
+            }
+            let chunks = {
+                let scan = Arc::clone(&self.scan);
+                let selection = self.selection.clone();
+                let part = part.clone();
+                move |again: Option<Mask>| -> Box<dyn Planner> {
+                    let kept = match (kept, again) {
+                        (Some(kept), Some(again)) => Some(kept & &again),
+                        (kept, again) => kept.or(again),
                     };
-                    let kept = kept.slice(offset(part.start)..offset(part.end));
-                    if kept.all_false() {
-                        continue;
-                    }
-                    Some(kept)
+                    Box::new(ChunkPlanner::new(scan, part, selection, kept))
                 }
-                None => None,
             };
-            let chunks = ChunkPlanner::new(
-                Arc::clone(&self.scan),
-                part.clone(),
-                self.selection.clone(),
-                kept,
-            );
+            let planner: Box<dyn Planner> = if self.scan.filter().is_some() {
+                Box::new(PrunePlanner::new(
+                    Arc::clone(&self.scan),
+                    part.clone(),
+                    Box::new(chunks),
+                ))
+            } else {
+                chunks(None)
+            };
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: part,
             };
-            return Ok(PlannerOutput::Spawn(scope, Box::new(chunks)));
+            return Ok(PlannerOutput::Spawn(scope, planner));
         }
         Ok(PlannerOutput::Done)
     }
 }
 
-/// Cuts `rows` into up to `parts` non-empty ranges of whole [`PART_ROW_BLOCK`]s of the file's
-/// row domain that tile it, clipped to `rows`.
-fn part_ranges(rows: Range<u64>, parts: u64) -> Vec<Range<u64>> {
-    if rows.is_empty() {
-        return Vec::new();
-    }
-    let first_block = rows.start / PART_ROW_BLOCK;
-    let blocks = rows.end.div_ceil(PART_ROW_BLOCK) - first_block;
-    let blocks_per_part = blocks.div_ceil(parts.max(1));
-    (0..blocks.div_ceil(blocks_per_part))
-        .map(|part| {
-            let start = (first_block + part * blocks_per_part) * PART_ROW_BLOCK;
-            let end = start + blocks_per_part * PART_ROW_BLOCK;
-            start.max(rows.start)..end.min(rows.end)
-        })
+/// The ranges between adjacent `splits`, clipped to `rows`, leaving out empty ones.
+fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
+    splits
+        .windows(2)
+        .map(|w| w[0].max(rows.start)..w[1].min(rows.end))
+        .filter(|part| part.start < part.end)
         .collect()
 }
 
@@ -291,23 +304,18 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::PART_ROW_BLOCK;
     use super::part_ranges;
 
-    const B: u64 = PART_ROW_BLOCK;
-
     #[rstest]
-    #[case::even(0..4 * B, 2, vec![0..2 * B, 2 * B..4 * B])]
-    #[case::ragged_end(0..3 * B + 10, 2, vec![0..2 * B, 2 * B..3 * B + 10])]
-    #[case::more_parts_than_blocks(0..2 * B, 8, vec![0..B, B..2 * B])]
-    #[case::small(0..100, 4, vec![0..100])]
-    #[case::unaligned_start(B / 2..3 * B, 2, vec![B / 2..2 * B, 2 * B..3 * B])]
-    #[case::empty(5..5, 4, vec![])]
-    fn parts_end_on_blocks(
+    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
+    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
+    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
+    #[case::empty(5..5, &[0, 10], vec![])]
+    fn parts_follow_splits(
         #[case] rows: Range<u64>,
-        #[case] parts: u64,
+        #[case] splits: &[u64],
         #[case] expected: Vec<Range<u64>>,
     ) {
-        assert_eq!(part_ranges(rows, parts), expected);
+        assert_eq!(part_ranges(rows, splits), expected);
     }
 }

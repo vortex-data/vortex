@@ -13,6 +13,7 @@
 
 pub mod aggregates;
 mod builder;
+mod legacy_builder;
 mod pruning;
 mod reader;
 mod schema;
@@ -24,6 +25,8 @@ use std::sync::Arc;
 
 pub(crate) use builder::AggregateStatsAccumulator;
 pub(crate) use builder::aggregate_partials;
+pub(crate) use legacy_builder::LegacyStatsAccumulator;
+pub(crate) use legacy_builder::legacy_stat_values;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
@@ -42,6 +45,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -62,6 +66,10 @@ use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
+use crate::plan::physical::LegacyStatsPlan;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
+use crate::plan::physical::ZonedPlan;
 use crate::segments::SegmentSource;
 
 /// Zoned layout vtable.
@@ -171,6 +179,10 @@ impl VTable for Zoned {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
 }
 
 impl VTable for LegacyStats {
@@ -239,9 +251,90 @@ impl VTable for LegacyStats {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
+}
+
+/// Plans a zoned or legacy stats layout. Both share a child shape: transparent data, auxiliary
+/// zones.
+///
+/// Unoptimized, the plan reads only its data; the optimizer rewrites a statistics predicate over
+/// it into a pruning plan. Without zones or statistics it plans the data child directly.
+fn zoned_plan<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> VortexResult<PlanRef> {
+    let metadata = layout.data();
+    // Without zones, or with a zone table holding no statistics, nothing can be pruned.
+    let no_stats = metadata
+        .stats_table_dtype()
+        .as_struct_fields_opt()
+        .is_none_or(|fields| fields.nfields() == 0);
+    if metadata.zone_len() == 0 || no_stats {
+        let data = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
+        return data.new_plan();
+    }
+    let slots = PlanSlots::from_layout_slots(&layout.to_layout(), [0, 1]);
+    let zone_len = u64::try_from(metadata.zone_len())?;
+    // A legacy table is converted to the aggregate schema when the plan is optimized.
+    Ok(match metadata.legacy_stats() {
+        Some(stats) => LegacyStatsPlan::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            Arc::clone(stats),
+        )
+        .into_plan(),
+        None => ZonedPlan::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            metadata.aggregate_fns(),
+        )
+        .into_plan(),
+    })
 }
 
 impl LegacyStatsLayout {
+    /// Create a legacy `vortex.stats` layout from a data child, a zone-map child, a zone length,
+    /// and the stats stored in the zone map.
+    ///
+    /// Write this layout only for readers that do not know `vortex.zoned`.
+    pub(crate) fn try_new(
+        data: LayoutRef,
+        zones: LayoutRef,
+        zone_len: NonZeroUsize,
+        stats: Arc<[Stat]>,
+    ) -> VortexResult<Self> {
+        let expected_dtype = legacy_stats_table_dtype(data.dtype(), &stats);
+        if zones.dtype() != &expected_dtype {
+            vortex_bail!(
+                "Invalid legacy zone map layout: zones dtype {} does not match expected dtype {}",
+                zones.dtype(),
+                expected_dtype
+            );
+        }
+
+        let dtype = data.dtype().clone();
+        let row_count = data.row_count();
+        Ok(LayoutParts::new(
+            LegacyStats,
+            dtype,
+            row_count,
+            Vec::new(),
+            OwnedLayoutChildren::layout_children(vec![data, zones]),
+            ZonedData {
+                zone_len: zone_len.get(),
+                zone_map_schema: ZoneMapSchema::LegacyStats(stats),
+                stats_table_dtype: expected_dtype,
+            },
+        )
+        .into_typed())
+    }
+
     fn zoned_reader(
         &self,
         name: Arc<str>,

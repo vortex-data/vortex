@@ -1,4 +1,4 @@
-# API Reference
+# API reference
 
 Vortex is primarily written in Rust, and the Rust API is the most complete.
 Language bindings provide interfaces to the Vortex Rust library.

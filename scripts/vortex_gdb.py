@@ -16,17 +16,21 @@ $3 = Id("vortex.primitive")
 $4 = dyn ArrayPlugin<vortex_array::arrays::primitive::vtable::Primitive> @ 0xaaaab6deb168
 (gdb) print plugin_arc
 $5 = Arc<dyn ArrayPlugin<vortex_array::arrays::primitive::vtable::Primitive> @ 0x20000ab0310> [strong=3, weak=0]
+
+Scheme trait objects use the same format: dyn Scheme<concrete_type> @ address.
+Arc<dyn Scheme> also includes strong and weak reference counts.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from functools import partial
 
 import gdb
 
 _ARRAY_PLUGIN_FQN = "vortex_array::array::plugin::ArrayPlugin"
-_DYN_ARRAY_PLUGIN = "dyn " + _ARRAY_PLUGIN_FQN
+_SCHEME_FQN = "vortex_compressor::scheme::Scheme"
 _AS_STR_NAME = "vortex_session::registry::Id::as_str"
 _ARRAY_REF_FQN = "vortex_array::array::erased::ArrayRef"
 _ARRAY_TYPED_PREFIX = "vortex_array::array::typed::Array<"
@@ -206,21 +210,21 @@ def _format_id(val: gdb.Value) -> str:
     return f"Id({spur})" if spur is not None else "Id(?)"
 
 
-def _format_dyn_plugin(val: gdb.Value) -> str:
+def _format_dyn_trait(val: gdb.Value, trait_name: str) -> str:
     ty = _concrete_type(val, "") or "?"
     fp = _trait_fat_pointer(val)
     addr = f"{fp[0]:#x}" if fp else "?"
-    return f"dyn ArrayPlugin<{ty}> @ {addr}"
+    return f"dyn {trait_name}<{ty}> @ {addr}"
 
 
-def _format_arc_dyn_plugin(val: gdb.Value) -> str:
+def _format_arc_dyn_trait(val: gdb.Value, trait_name: str) -> str:
     ty = _concrete_type(val, ".ptr.pointer") or "?"
     try:
         fp = _trait_fat_pointer(val["ptr"]["pointer"])
     except gdb.error:
         fp = None
     if fp is None:
-        return f"Arc<dyn ArrayPlugin<{ty}>>"
+        return f"Arc<dyn {trait_name}<{ty}>>"
     arc_inner_base, vtable_ptr = fp
     usize = _usize_size()
     try:
@@ -229,9 +233,9 @@ def _format_arc_dyn_plugin(val: gdb.Value) -> str:
         weak = _read_usize(arc_inner_base + usize) - 1
         align = _read_usize(vtable_ptr + 2 * usize) or usize
     except gdb.error:
-        return f"Arc<dyn ArrayPlugin<{ty}>>"
+        return f"Arc<dyn {trait_name}<{ty}>>"
     data_offset = (2 * usize + align - 1) & ~(align - 1)
-    return f"Arc<dyn ArrayPlugin<{ty}> @ {arc_inner_base + data_offset:#x}> [strong={strong}, weak={weak}]"
+    return f"Arc<dyn {trait_name}<{ty}> @ {arc_inner_base + data_offset:#x}> [strong={strong}, weak={weak}]"
 
 
 def _format_array_ref(val: gdb.Value) -> str:
@@ -283,12 +287,9 @@ class _Printer:
         return self._fmt(self._val)
 
 
-def _matches_dyn_plugin(name: str) -> bool:
-    return (
-        name in (_ARRAY_PLUGIN_FQN, _DYN_ARRAY_PLUGIN)
-        or name.startswith(_DYN_ARRAY_PLUGIN + " +")
-        or name.startswith(_DYN_ARRAY_PLUGIN + "+")
-    )
+def _matches_dyn_trait(name: str, trait_fqn: str) -> bool:
+    dyn_name = "dyn " + trait_fqn
+    return name in (trait_fqn, dyn_name) or name.startswith(dyn_name + " +") or name.startswith(dyn_name + "+")
 
 
 def _lookup_printer(val: gdb.Value) -> _Printer | None:
@@ -304,14 +305,17 @@ def _lookup_printer(val: gdb.Value) -> _Printer | None:
         return _Printer(val, _format_typed_array)
     if name == _ID_FQN:
         return _Printer(val, _format_id)
-    if name.startswith("alloc::sync::Arc<") and _DYN_ARRAY_PLUGIN in name:
-        return _Printer(val, _format_arc_dyn_plugin)
-    if _matches_dyn_plugin(name):
-        return _Printer(val, _format_dyn_plugin)
-    if t.code in (gdb.TYPE_CODE_PTR, gdb.TYPE_CODE_REF):
-        target = t.target()
-        if target is not None and _matches_dyn_plugin((target.name or "").strip()):
-            return _Printer(val, _format_dyn_plugin)
+    for trait_fqn, trait_name in ((_ARRAY_PLUGIN_FQN, "ArrayPlugin"), (_SCHEME_FQN, "Scheme")):
+        arc_prefix = "alloc::sync::Arc<"
+        if name.startswith(arc_prefix) and _matches_dyn_trait(name[len(arc_prefix) : -1], trait_fqn):
+            return _Printer(val, partial(_format_arc_dyn_trait, trait_name=trait_name))
+        formatter = partial(_format_dyn_trait, trait_name=trait_name)
+        if _matches_dyn_trait(name, trait_fqn):
+            return _Printer(val, formatter)
+        if t.code in (gdb.TYPE_CODE_PTR, gdb.TYPE_CODE_REF):
+            target = t.target()
+            if target is not None and _matches_dyn_trait((target.name or "").strip(), trait_fqn):
+                return _Printer(val, formatter)
     return None
 
 

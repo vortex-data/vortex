@@ -57,7 +57,6 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::serde::ArrayChildren;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
 use crate::test_harness::trace::TraceResolution;
@@ -178,25 +177,6 @@ impl VTable for StackParent {
         None
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackParent cannot be deserialized")
-    }
-
     fn with_buffers(
         &self,
         array: ArrayView<'_, Self>,
@@ -285,25 +265,6 @@ impl VTable for StackChild {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("StackChild cannot be deserialized")
     }
 
     fn with_buffers(
@@ -444,19 +405,20 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
-      iter 0 current=vortex.filter(i32, len=2) builder_active=false
-    optimize root=vortex.slice(i32, len=2) session=false
+    optimize root=vortex.filter(i32, len=2) session=true
       optimize root=vortex.slice(i32, len=2) session=false
-        reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=6) -> vortex.primitive(i32, len=2)
+        optimize root=vortex.slice(i32, len=2) session=false
+          reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=6) -> vortex.primitive(i32, len=2)
+          done output=vortex.primitive(i32, len=2)
+        optimize root=vortex.filter(i32, len=2) session=false
+          reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
+          done output=vortex.primitive(i32, len=2)
+        reduce_parent static:SliceReduceAdaptor(Filter) slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.primitive(i32, len=2)
         done output=vortex.primitive(i32, len=2)
-      optimize root=vortex.filter(i32, len=2) session=false
-        reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
-        done output=vortex.primitive(i32, len=2)
-      reduce_parent static:SliceReduceAdaptor(Filter) slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.primitive(i32, len=2)
+      reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
       done output=vortex.primitive(i32, len=2)
-        Done array=vortex.primitive(i32, len=2)
-      iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+    execute_until target=AnyCanonical root=vortex.primitive(i32, len=2)
+      iter 0 current=vortex.primitive(i32, len=2) builder_active=false
       return output=vortex.primitive(i32, len=2)
     ");
 
@@ -495,16 +457,13 @@ fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize root=vortex.filter(i32, len=2) session=true
+      reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
+      done output=vortex.filter(i32, len=2)
     execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
       iter 0 current=vortex.filter(i32, len=2) builder_active=false
-        ExecuteSlot slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4)
-      iter 1 current=vortex.filter(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
-        Done array=vortex.primitive(i32, len=4)
-      iter 2 current=vortex.primitive(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
-        pop_frame slot=0 output=vortex.filter(i32, len=2)
-      iter 3 current=vortex.filter(i32, len=2) builder_active=false
         Done array=vortex.primitive(i32, len=2)
-      iter 4 current=vortex.primitive(i32, len=2) builder_active=false
+      iter 1 current=vortex.primitive(i32, len=2) builder_active=false
       return output=vortex.primitive(i32, len=2)
     ");
 
@@ -532,6 +491,16 @@ fn trace_execution_stack_parent_kernel_attempts(
         &mut ctx
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize root=vortex.test.stack-parent(i32, len=3) session=true
+      loop input=vortex.test.stack-parent(i32, len=3)
+        reduce none array=vortex.test.stack-parent(i32, len=3)
+        reduce_parent none array=vortex.test.stack-parent(i32, len=3)
+      done output=vortex.test.stack-parent(i32, len=3) changed=false
+    optimize root=vortex.test.stack-child(i32, len=3) session=true
+      loop input=vortex.test.stack-child(i32, len=3)
+        reduce none array=vortex.test.stack-child(i32, len=3)
+        reduce_parent none array=vortex.test.stack-child(i32, len=3)
+      done output=vortex.test.stack-child(i32, len=3) changed=false
     execute_until target=AnyCanonical root=vortex.test.stack-parent(i32, len=3)
       iter 0 current=vortex.test.stack-parent(i32, len=3) builder_active=false
         done_check target=false canonical=false

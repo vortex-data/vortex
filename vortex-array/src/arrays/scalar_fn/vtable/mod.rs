@@ -11,11 +11,9 @@ use std::ops::Deref;
 use itertools::Itertools;
 use validity::ValidityArray;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -42,9 +40,9 @@ use crate::scalar_fn;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
+use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`ScalarFn`]-encoded Vortex array.
@@ -143,26 +141,6 @@ impl VTable for ScalarFn {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // Not supported
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
-    }
-
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         array
             .scalar_fn()
@@ -174,10 +152,12 @@ impl VTable for ScalarFn {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let args = VecExecutionArgs::new(array.children(), array.len());
-        array
-            .scalar_fn()
-            .execute(&args, ctx)
-            .map(ExecutionResult::done)
+        match array.scalar_fn().execute_step(&args, ctx)?.into_step() {
+            ScalarFnExecutionStep::Done(result) => Ok(ExecutionResult::done(result)),
+            ScalarFnExecutionStep::ExecuteInput(idx, done) => Ok(
+                ExecutionResult::execute_slot_until(array.into_array(), idx, done),
+            ),
+        }
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

@@ -23,3 +23,79 @@ query IIIIR
 SELECT count(*), count(i), sum(i), max(j), avg(j) FROM '${WORK_DIR}/aggregate-with-filter.vortex' WHERE i > 1;
 ----
 2 2 5 30 25
+
+# Filters on hive partition and filename columns
+statement ok
+COPY (SELECT * FROM (VALUES ('EU-West', 1), ('US-East', 2), ('EU-West', 3)) t(region, v))
+TO '${WORK_DIR}/aggregate-with-filter-hive' (FORMAT vortex, PARTITION_BY (region));
+
+query I
+SELECT sum(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE region = 'US-East';
+----
+2
+
+query I
+SELECT sum(v) FROM read_vortex('${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex', filename = true)
+WHERE filename LIKE '%US-East%';
+----
+2
+
+statement ok
+COPY (SELECT * FROM (VALUES (2024, 1::BIGINT), (2025, 2::BIGINT), (2024, 3::BIGINT)) t(y, v))
+TO '${WORK_DIR}/aggregate-with-filter-year' (FORMAT vortex, PARTITION_BY (y));
+
+query II
+SELECT count(*), max(v) FROM '${WORK_DIR}/aggregate-with-filter-year/**/*.vortex' WHERE y = 2024;
+----
+2 3
+
+# A filter on a file column keeps the aggregate in the scan
+query TT
+EXPLAIN (FORMAT json) SELECT sum(v), max(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE v > 1;
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT sum(v), max(v) FROM '${WORK_DIR}/aggregate-with-filter-hive/**/*.vortex' WHERE v > 1;
+----
+5 3
+
+query TT
+EXPLAIN (FORMAT json) SELECT sum(i), max(j) FROM '${WORK_DIR}/aggregate-with-filter.vortex' WHERE i > 1;
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+# Filters on file_index and file_row_number
+statement ok
+COPY (SELECT * FROM (VALUES (1, 10), (2, 20)) t(k, v)) TO '${WORK_DIR}/aggregate-with-filter-0.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (3, 30), (4, 40)) t(k, v)) TO '${WORK_DIR}/aggregate-with-filter-1.vortex';
+
+query I
+SELECT sum(v) FROM '${WORK_DIR}/aggregate-with-filter-?.vortex' WHERE file_index = 0;
+----
+30
+
+query I
+SELECT sum(v) FROM read_vortex('${WORK_DIR}/aggregate-with-filter-?.vortex') WHERE file_row_number = 0;
+----
+40
+
+query TT
+EXPLAIN (FORMAT json) SELECT sum(v) FROM read_vortex('${WORK_DIR}/aggregate-with-filter-?.vortex') WHERE file_row_number = 0;
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query I
+SELECT sum(v) FROM '${WORK_DIR}/aggregate-with-filter-?.vortex' WHERE filename LIKE '%filter-1%';
+----
+70
+
+# Table filter that Vortex can't convert
+statement ok
+COPY (SELECT * FROM (VALUES (1, {'a': 3}), (2, {'a': 4}), (5, {'a': 3})) t(v, s))
+TO '${WORK_DIR}/aggregate-with-filter-struct.vortex';
+
+statement error struct_extract_at is not supported
+SELECT sum(v) FROM '${WORK_DIR}/aggregate-with-filter-struct.vortex' WHERE struct_extract_at(s, 1) = 3;

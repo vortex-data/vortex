@@ -104,3 +104,14 @@ SELECT DISTINCT producer, sample_type, sample_unit, period_type, period_unit, te
   FROM stacktraces
  WHERE time_nanos >= arrow_cast(0, 'Timestamp(Nanosecond, Some("UTC"))')
    AND time_nanos <= arrow_cast(250000000000, 'Timestamp(Nanosecond, Some("UTC"))');
+-- Q10: Q2 with a lowercase label equality filter.
+SELECT locations, value, period, time_nanos, labels.comm FROM stacktraces
+ WHERE time_nanos >= arrow_cast(0, 'Timestamp(Nanosecond, Some("UTC"))')
+   AND time_nanos <= arrow_cast(250000000000, 'Timestamp(Nanosecond, Some("UTC"))')
+   AND producer = 'parca_agent'
+   AND sample_type = 'samples'
+   AND sample_unit = 'count'
+   AND period_type = 'cpu'
+   AND period_unit = 'nanoseconds'
+   AND temporality = 'delta'
+   AND lower(labels.comm) = 'comm_0';

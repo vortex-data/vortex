@@ -27,7 +27,6 @@ use vortex_array::patches::PatchesData;
 use vortex_array::require_opt_child;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
-use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -164,25 +163,6 @@ impl VTable for BitPacked {
             data,
             array.slots().iter().cloned().collect(),
         ))
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("BitPacked deserialization requires BitPackedPlugin")
     }
 
     fn append_to_builder(

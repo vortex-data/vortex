@@ -34,11 +34,7 @@ pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buff
         // Only storage types narrower than `W` reach here. The const condition lets the compiler
         // skip codegen of the other arms.
         if const { (T::DECIMAL_TYPE as u8) < (W::DECIMAL_TYPE as u8) } {
-            array
-                .buffer::<T>()
-                .iter()
-                .map(|v| W::from(*v).vortex_expect("widening decimal cast must succeed"))
-                .collect()
+            widen_values::<T, W>(&array.buffer::<T>())
         } else {
             unreachable!(
                 "{} is not narrower than {}",
@@ -156,16 +152,30 @@ pub fn copy_to_canonical_width<F: NativeDecimalType>(
     Ok(BufferHandle::new_host(copy))
 }
 
-/// Widens every value to `W`, which **must** be at least as wide as `F`. Null slots keep their
-/// values.
+/// Widens every value to `W`, which **must** be at least as wide as `F`, or this panics. Null slots
+/// keep their values.
 fn widen_values<F: NativeDecimalType, W: NativeDecimalType>(values: &[F]) -> Buffer<W> {
-    values
-        .iter()
-        .map(|&value| {
-            <W as BigCast>::from(value)
-                .vortex_expect("W is at least as wide as F, so every value of F fits W")
-        })
-        .collect()
+    // This cannot be a `const` assert: the disabled `if const` branches of `widened_buffer` and
+    // `copy_to_canonical_width` still name narrower pairs, and rustc evaluates the inline constants
+    // of every function they name. Both sides are constants, so the check folds away.
+    assert!(
+        (F::DECIMAL_TYPE as u8) <= (W::DECIMAL_TYPE as u8),
+        "widen_values requires a target at least as wide as the source, got {} into {}",
+        F::DECIMAL_TYPE,
+        W::DECIMAL_TYPE
+    );
+
+    // NB: Keep the `unwrap_or_default` fallback and `from_trusted_len_iter`. The fallback is dead
+    // because `W` is at least as wide as `F`, so the write loop has one exit and no panic edge. A
+    // `collect` writes through `BufferMut::extend_iter`, whose loop also exits when the reserved
+    // capacity runs out, and the LLVM loop vectorizer leaves some pairs scalar there, such as `i64`
+    // to `i128`. The accepted trade-off is that this loop is slower than `collect` when `W` is
+    // `i256`, for an unknown reason. The `copy_to_canonical_width` benchmark covers these pairs.
+    Buffer::from_trusted_len_iter(
+        values
+            .iter()
+            .map(|&value| <W as BigCast>::from(value).unwrap_or_default()),
+    )
 }
 
 /// Narrows values that [`check_precision`] accepted to `W`, and writes zeros into the null slots.
@@ -320,6 +330,7 @@ mod tests {
     use super::converted_buffer;
     use super::copy_to_canonical_width;
     use super::valid_range;
+    use super::widen_values;
     use crate::arrays::DecimalArray;
     use crate::dtype::BigCast;
     use crate::dtype::DecimalDType;
@@ -502,6 +513,53 @@ mod tests {
             assert_eq!(copy_as_i256(&values, &Mask::new_true(3), target)?, expected);
         });
         Ok(())
+    }
+
+    /// Each case widens 130 values, so a vectorized loop runs its vector body and a scalar tail.
+    #[rstest]
+    #[case::i8_to_i16(DecimalType::I8, DecimalType::I16)]
+    #[case::i8_to_i32(DecimalType::I8, DecimalType::I32)]
+    #[case::i8_to_i64(DecimalType::I8, DecimalType::I64)]
+    #[case::i8_to_i128(DecimalType::I8, DecimalType::I128)]
+    #[case::i8_to_i256(DecimalType::I8, DecimalType::I256)]
+    #[case::i16_to_i32(DecimalType::I16, DecimalType::I32)]
+    #[case::i16_to_i64(DecimalType::I16, DecimalType::I64)]
+    #[case::i16_to_i128(DecimalType::I16, DecimalType::I128)]
+    #[case::i16_to_i256(DecimalType::I16, DecimalType::I256)]
+    #[case::i32_to_i64(DecimalType::I32, DecimalType::I64)]
+    #[case::i32_to_i128(DecimalType::I32, DecimalType::I128)]
+    #[case::i32_to_i256(DecimalType::I32, DecimalType::I256)]
+    #[case::i64_to_i128(DecimalType::I64, DecimalType::I128)]
+    #[case::i64_to_i256(DecimalType::I64, DecimalType::I256)]
+    #[case::i128_to_i256(DecimalType::I128, DecimalType::I256)]
+    fn test_widen_values_sign_extends(#[case] source: DecimalType, #[case] target: DecimalType) {
+        match_each_decimal_value_type!(source, |F| {
+            let small = |value: i8| {
+                <F as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            };
+            let pattern = [F::MIN, small(-1), small(0), small(1), F::MAX];
+            let values: Vec<F> = pattern.into_iter().cycle().take(130).collect();
+
+            match_each_decimal_value_type!(target, |W| {
+                let expected: Vec<W> = values
+                    .iter()
+                    .map(|&value| {
+                        <W as BigCast>::from(value)
+                            .vortex_expect("W is at least as wide as F, so every value fits")
+                    })
+                    .collect();
+                assert_eq!(
+                    widen_values::<F, W>(&values).as_slice(),
+                    expected.as_slice()
+                );
+            });
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "widen_values requires a target at least as wide as the source")]
+    fn test_widen_values_rejects_narrower_target() {
+        widen_values::<i64, i32>(&[1, 2, 3]);
     }
 
     /// Each case puts `10^p` inside the target width, so only the precision check can reject it.

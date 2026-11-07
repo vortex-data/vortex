@@ -14,6 +14,7 @@ use std::fmt::Formatter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
@@ -252,8 +253,20 @@ impl AggregateFnVTable for IsSorted {
         *ID
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("IsSorted is not yet serializable");
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![u8::from(options.strict)]))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        match metadata {
+            [0] => Ok(IsSortedOptions { strict: false }),
+            [1] => Ok(IsSortedOptions { strict: true }),
+            _ => vortex_bail!("Invalid IsSorted options: expected a single boolean byte"),
+        }
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -556,7 +569,10 @@ impl AggregateFnVTable for IsSorted {
         _args: AggregateArgs<'_, Self::Options>,
         partials: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        partials.get_item(NAMES.get(0).vortex_expect("out of bounds").clone())
+        // A null partial is the empty state of an empty or null group, which is vacuously sorted.
+        partials
+            .get_item(NAMES.get(0).vortex_expect("out of bounds").clone())?
+            .fill_null(true)
     }
 
     fn finalize_scalar(
@@ -612,6 +628,8 @@ mod tests {
     use crate::aggregate_fn::AggregateDTypes;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::DynGroupedAccumulator;
+    use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::is_sorted::IsSorted;
     use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
     use crate::aggregate_fn::fns::is_sorted::IsSortedPartial;
@@ -622,9 +640,11 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DictArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::runend::RunEnd;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
@@ -928,6 +948,33 @@ mod tests {
             assert_eq!(is_strict_sorted(&array, &mut ctx)?, expected);
         }
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_strict(false, [true, false, true, true,  true])]
+    #[case::strict(    true,  [true, false, true, false, true])]
+    fn grouped_is_sorted(#[case] strict: bool, #[case] expected: [bool; 5]) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements =
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(1), None, None])
+                .into_array();
+        let dtype = elements.dtype().clone();
+
+        // The groups are `[1, 2, 3]`, `[3, 1]`, `[]`, `[null, null]`, and a null group.
+        let groups = ListViewArray::try_new(
+            elements,
+            buffer![0i32, 2, 0, 4, 0].into_array(),
+            buffer![3i32, 2, 0, 2, 0].into_array(),
+            Validity::from_iter([true, true, true, true, false]),
+            &mut ctx,
+        )?
+        .into_array();
+
+        let mut acc = GroupedAccumulator::try_new(IsSorted, IsSortedOptions { strict }, dtype)?;
+        acc.accumulate_list(&groups, &mut ctx)?;
+
+        assert_arrays_eq!(acc.finish()?, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
 }

@@ -547,26 +547,33 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     result
 }
 
+/// Rows per block that [`cuda_write_strategy`] writes when given zero `block_rows`.
+///
+/// A GPU scan decodes at most one block per batch, and every batch pays fixed costs: kernel
+/// launches, device-to-host readbacks that size string outputs, and stream synchronization. Blocks
+/// of millions of rows amortize those costs; smaller blocks leave the GPU idle between launches.
+pub const DEFAULT_CUDA_BLOCK_ROWS: usize = 8 * 1024 * 1024;
+
 /// Build a CUDA-flat writer using only CUDA-compatible, session-enabled array encodings.
 ///
-/// Requires [`register_cuda_layout`]. Zero `block_rows` uses default sizing and dictionary policy;
-/// nonzero sets row blocks without outer dictionaries or byte coalescing, retaining per-block
-/// dictionary compression.
+/// Requires [`register_cuda_layout`]. Writes row blocks of `block_rows` rows, or
+/// [`DEFAULT_CUDA_BLOCK_ROWS`] for zero, without outer dictionaries or byte coalescing, retaining
+/// per-block dictionary compression.
 pub fn cuda_write_strategy(session: &VortexSession, block_rows: usize) -> Arc<dyn LayoutStrategy> {
-    let builder = BtrBlocksCompressorBuilder::from_session(session).only_cuda_compatible();
-    let strategy = WriteStrategyBuilder::from_session(session)
-        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()));
-    if block_rows == 0 {
-        strategy.with_btrblocks_builder(builder).build()
+    let block_rows = if block_rows == 0 {
+        DEFAULT_CUDA_BLOCK_ROWS
     } else {
-        // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
-        strategy
-            .with_compressor(builder.build())
-            .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
-            .with_row_block_size(block_rows)
-            .with_data_block_target_bytes(None)
-            .build()
-    }
+        block_rows
+    };
+    let builder = BtrBlocksCompressorBuilder::from_session(session).only_cuda_compatible();
+    // An opaque compressor keeps IntDict; disabling the probe avoids u16-sized outer blocks.
+    WriteStrategyBuilder::from_session(session)
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+        .with_compressor(builder.build())
+        .with_probe_compressor(BtrBlocksCompressorBuilder::empty().build())
+        .with_row_block_size(block_rows)
+        .with_data_block_target_bytes(None)
+        .build()
 }
 
 #[derive(Clone, Debug)]

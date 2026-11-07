@@ -34,6 +34,7 @@ use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -82,10 +83,10 @@ fn bench_in_set(bencher: Bencher, set: Scalar, needles: ArrayRef) {
         .unwrap();
     bencher
         .with_inputs(|| {
-            (
-                needles.clone().apply_bound(&expr).unwrap(),
-                SESSION.create_execution_ctx(),
-            )
+            let array = needles.clone().apply_bound(&expr).unwrap();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
 }

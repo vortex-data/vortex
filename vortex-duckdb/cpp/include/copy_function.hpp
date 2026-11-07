@@ -3,7 +3,11 @@
 
 #pragma once
 #include "data.hpp"
+#include "vortex_duckdb.h"
+#include "table_function.h"
+#include "vortex.h"
 #include "duckdb/function/copy_function.hpp"
+#include "duckdb/parallel/task_executor.hpp"
 
 using namespace duckdb;
 
@@ -14,10 +18,16 @@ struct VortexCopyBindData final : TableFunctionData {
 };
 
 struct VortexCopyGlobalState final : GlobalFunctionData {
-    VortexCopyGlobalState(unique_ptr<CData> ffi_global) : ffi_global(std::move(ffi_global)) {
+    VortexCopyGlobalState(unique_ptr<CData> ffi_global, unique_ptr<TaskExecutor> executor)
+        : ffi_global(std::move(ffi_global)), executor(std::move(executor)) {
     }
+
+    ~VortexCopyGlobalState() {
+        duckdb_copy_function_request_tasks(ffi_global->DataPtr(), 0);
+    }
+
     unique_ptr<CData> ffi_global;
-    // Non-owning; null when the plan does not request statistics.
+    unique_ptr<TaskExecutor> executor;
     CopyFunctionFileStatistics *written_stats = nullptr;
 };
 

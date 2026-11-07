@@ -18,6 +18,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fastlanes::BitPackedArraySlotsExt;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_blocked;
 use vortex_fastlanes::bitpack_decompress::unpack_array_blocked;
@@ -64,6 +65,8 @@ where
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
+
     let offsets = array.block_offsets().unwrap().clone();
 
     bencher.counter(ItemsCount::new(array.len())).bench(|| {

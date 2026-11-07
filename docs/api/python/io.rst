@@ -1,4 +1,4 @@
-Input and Output
+Input and output
 ================
 
 Vortex arrays support reading and writing to local and remote file systems, including plain-old

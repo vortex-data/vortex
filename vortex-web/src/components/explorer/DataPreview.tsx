@@ -76,48 +76,38 @@ export function DataPreview() {
     try {
       return decodeArrow(ipcBytes);
     } catch (err) {
-      console.error('Arrow decode error:', err);
+      console.error('Explorer: the Arrow rows did not decode', err);
       return null;
     }
   }, [ipcBytes]);
 
-  if (!selectedNodeId) {
-    return (
-      <div className="h-full flex items-center justify-center text-[11px] text-vortex-grey-dark">
-        Select a node to preview data
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center text-[11px] text-vortex-grey-dark">
-        Loading preview…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center text-[11px] text-red-500 px-4 text-center">
-        {error}
-      </div>
-    );
-  }
-
-  if (!decoded || decoded.rows.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center text-[11px] text-vortex-grey-dark">
-        No data
-      </div>
-    );
-  }
+  const message = !selectedNodeId
+    ? 'Select a node to see its rows.'
+    : loading
+      ? 'Reading the rows…'
+      : error
+        ? 'The rows did not load. Select the node again.'
+        : !decoded || decoded.rows.length === 0
+          ? 'This node has no rows.'
+          : null;
 
   return (
-    <DataTable
-      columns={decoded.columns}
-      rows={decoded.rows}
-      approximate={decoded.rows.length >= ROW_LIMIT}
-    />
+    <section className="vx-card vx-pane x-preview" aria-label="Rows">
+      {message !== null || !decoded ? (
+        <p
+          className={`vx-label x-empty${error ? ' x-error' : ''}`}
+          role={error ? 'alert' : undefined}
+        >
+          {message}
+        </p>
+      ) : (
+        <DataTable
+          label="Rows"
+          columns={decoded.columns}
+          rows={decoded.rows}
+          approximate={decoded.rows.length >= ROW_LIMIT}
+        />
+      )}
+    </section>
   );
 }

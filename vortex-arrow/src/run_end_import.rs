@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::Array as _;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
-use arrow_buffer::ArrowNativeType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -16,22 +16,35 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-/// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
+/// Build a Vortex run-end array from an Arrow [`RunArray`].
 ///
-/// The caller converts `values` separately (rather than this function converting
-/// `array.values()` itself) so that extension metadata on the Arrow values field dispatches
-/// through the session's registered import plugins.
+/// `import_values` converts the Arrow values of the runs that intersect the logical range. The
+/// caller supplies it, so extension metadata on the values field reaches the session's import
+/// plugins. This function slices both children from one physical run range, so the ends and the
+/// values cannot drift apart.
 pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
     array: &RunArray<R>,
-    values: ArrayRef,
+    import_values: impl FnOnce(ArrowArrayRef) -> VortexResult<ArrayRef>,
 ) -> VortexResult<ArrayRef>
 where
     R::Native: NativePType,
 {
-    let ends_buf = Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
+    // Arrow slices a RunArray by adjusting the logical offset and length while keeping the full
+    // children, so keep only the physical runs that intersect the logical range.
+    let (first, len, offset) = if array.is_empty() {
+        (0, 0, 0)
+    } else {
+        let first = array.get_start_physical_index();
+        let len = array.get_end_physical_index() - first + 1;
+        (first, len, array.run_ends().offset())
+    };
+
+    let ends_buf =
+        Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().slice(first, len));
     let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
         .reinterpret_cast(R::Native::PTYPE.to_unsigned())
         .into_array();
+    let values = import_values(array.values().slice(first, len))?;
 
     vortex_ensure_eq!(
         ends.len(),
@@ -39,29 +52,9 @@ where
         "Arrow run-end array must have one value per run end"
     );
 
-    // Arrow slices a RunArray by adjusting the logical offset/length while keeping the full
-    // children, so trim the runs outside the logical range. The run ends are sorted, so this is
-    // a binary search over the Arrow buffer, avoiding the `ExecutionCtx` the equivalent Vortex
-    // search would need.
-    let (ends, values, offset) = if array.is_empty() {
-        (ends.slice(0..0)?, values.slice(0..0)?, 0)
-    } else {
-        let offset = array.run_ends().offset();
-        let run_ends = array.run_ends().values();
-        let first = run_ends.partition_point(|end| end.as_usize() <= offset);
-        let last = run_ends.partition_point(|end| end.as_usize() < offset + array.len());
-        (
-            ends.slice(first..last + 1)?,
-            values.slice(first..last + 1)?,
-            offset,
-        )
-    };
-
-    // SAFETY: `RunEndData::validate_parts` requires unsigned, strictly increasing run ends of the
-    // same length as the values, covering `offset..offset + length`. arrow-rs guarantees strictly
-    // increasing positive run ends (so the reinterpret_cast above preserves both value and order)
-    // covering the logical range, the length equality is checked above, and the trim keeps only
-    // runs that intersect that range.
+    // SAFETY: Arrow guarantees positive, strictly increasing run ends that cover the logical range.
+    // The unsigned cast preserves those values. The slice retains all intersecting runs,
+    // and the length check ensures one value per run end.
     Ok(unsafe { RunEnd::new_unchecked(ends, values, offset, array.len()) }.into_array())
 }
 
@@ -91,6 +84,7 @@ mod tests {
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -195,6 +189,26 @@ mod tests {
             buffer![100, 200, 200, 200, 300, 300].into_array(),
             &mut SESSION.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::prefix(0, 2)]
+    #[case::suffix(4, 2)]
+    #[case::empty(3, 0)]
+    #[case::empty_at_end(6, 0)]
+    fn test_sliced_run_array_ignores_nulls_outside_its_rows(
+        #[case] start: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let run_ends = Int32Array::from(vec![2, 4, 6]);
+        let values = Int32Array::from(vec![Some(10), None, Some(30)]);
+        let array = RunArray::<Int32Type>::try_new(&run_ends, &values)?.slice(start, len);
+        let imported = decode_run_array(&array, false)?;
+        let expected =
+            Buffer::from_iter(std::iter::repeat_n(if start < 2 { 10i32 } else { 30 }, len))
+                .into_array();
+        assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 

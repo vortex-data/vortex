@@ -14,7 +14,7 @@ impl RowFnExecutionArgs<'_> {
     /// Execute all-constant inputs by evaluating one row and broadcasting the validated result.
     pub(super) fn execute_all_constant(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let result = self.validate_kernel_output(

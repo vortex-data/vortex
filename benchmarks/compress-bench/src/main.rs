@@ -36,6 +36,7 @@ use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
 use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
+use vortex_bench::datasets::sparse_wide::SparseWide;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
@@ -53,6 +54,7 @@ use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
+use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
 #[derive(Parser, Debug)]
@@ -82,6 +84,13 @@ struct Args {
     /// orchestrator to know whan queries to run one by one.
     #[arg(long, default_value_t = false)]
     print_datasets: bool,
+    /// Materialize the Parquet source files for the selected datasets, print their paths, and
+    /// exit without benchmarking.
+    ///
+    /// CI runs this as its own step so that downloading and converting data is not interleaved
+    /// with the timed runs in the logs.
+    #[arg(long)]
+    prepare_data: bool,
     /// Run GPU decompression for the GPU-supported benchmarks.
     ///
     /// Restricts the suite to datasets with verified CUDA decode support and measures
@@ -180,6 +189,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         ops,
         mode,
         args.print_datasets,
+        args.prepare_data,
         args.display_format,
         args.output_path,
         args.ingest_output,
@@ -241,6 +251,7 @@ async fn run_compress(
     ops: Vec<CompressOp>,
     mode: BenchMode,
     print_datasets: bool,
+    prepare_data: bool,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     ingest_output: Option<PathBuf>,
@@ -291,7 +302,11 @@ async fn run_compress(
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .collect();
 
+    let sparse_wide = SparseWide::ALL;
+    // Keep the full cohort and nested genotype fields, sampling only the variant rows.
+    let statpopgen = StatPopGenBenchmark::new(10)?;
     let all_datasets: Vec<&dyn Dataset> = [
+        &statpopgen as &dyn Dataset,
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),
@@ -311,6 +326,7 @@ async fn run_compress(
     ]
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
+    .chain(sparse_wide.iter().map(|d| d as &dyn Dataset))
     .collect();
 
     let datasets: Vec<&dyn Dataset> = if mode.is_gpu() {
@@ -336,6 +352,13 @@ async fn run_compress(
     if print_datasets {
         for dataset in &datasets {
             println!("{}", dataset.name());
+        }
+        return Ok(());
+    }
+
+    if prepare_data {
+        for dataset in &datasets {
+            println!("{}", dataset.to_parquet_path().await?.display());
         }
         return Ok(());
     }

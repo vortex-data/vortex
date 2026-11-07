@@ -48,6 +48,7 @@ use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains_opts;
 use vortex::expr::lit;
+use vortex::expr::mask;
 use vortex::expr::merge_opts;
 use vortex::expr::not;
 use vortex::expr::or_collect;
@@ -361,6 +362,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_isNotNull(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_mask(
+    _env: EnvUnowned,
+    _class: JClass,
+    child: jlong,
+    mask_expr: jlong,
+) -> jlong {
+    let child = unsafe { expr_ref(child) }.clone();
+    let mask_expr = unsafe { expr_ref(mask_expr) }.clone();
+    into_raw(mask(child, mask_expr))
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_like(
     _env: EnvUnowned,
     _class: JClass,
@@ -671,7 +684,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
         } else {
             Nullability::NonNullable
         };
-        let ext = Timestamp::new_with_tz(unit, tz, nullability);
+        let ext = Timestamp::try_new_with_tz(unit, tz, nullability)?;
         let dtype = DType::Extension(ext.erased());
         if is_null_flag {
             return Ok(into_raw(lit(Scalar::null(dtype))));

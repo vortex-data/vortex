@@ -1,3 +1,3 @@
-# Writing a Vortex Encoding
+# Writing a Vortex encoding
 
 Work in progress.

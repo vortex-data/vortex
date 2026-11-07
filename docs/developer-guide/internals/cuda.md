@@ -1,4 +1,4 @@
-# CUDA Support
+# CUDA support
 
 Vortex provides GPU-accelerated decompression and compute through the `vortex-cuda` crate. CUDA
 kernels integrate with Vortex's deferred execution model -- expression trees can be shipped to

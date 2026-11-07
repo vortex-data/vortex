@@ -12,7 +12,9 @@
 //! [`RowInputs`] borrows the input columns, and [`BatchProbe`] classifies them before dispatch.
 //! [`BatchInputs`] keeps the columns with their probe. [`BatchPlan`] carries the nullable execution
 //! strategy selected by a concrete dispatch. [`RowFnExecutionArgs`] applies that strategy, and
-//! [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning metadata.
+//! [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning metadata. A
+//! [`PartiallyValidBatch`] carries a batch that needs a dense retry or valid-row execution after
+//! the planning visit.
 
 use std::borrow::Cow;
 
@@ -65,6 +67,19 @@ pub(crate) struct BatchInputs<'a> {
 
     /// What batch execution derived from `inputs` before planning.
     probe: BatchProbe,
+}
+
+/// A batch, with its plan, that [`BatchInputs::try_execute_without_retry`] could not finish with
+/// one kernel call.
+///
+/// Only that method creates this type, so no caller can reach the slower strategies without trying
+/// the cheaper paths first.
+pub(crate) struct PartiallyValidBatch<'a> {
+    /// The input columns and their probe.
+    batch: BatchInputs<'a>,
+
+    /// The plan that a dispatch selected for `batch`.
+    plan: BatchPlan,
 }
 
 /// The same-length input columns and metadata for one row-function execution.

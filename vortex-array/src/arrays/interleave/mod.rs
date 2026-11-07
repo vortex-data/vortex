@@ -48,7 +48,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 pub use self::array::InterleaveArray;
@@ -73,7 +72,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// The [`Interleave`] encoding. See the [module docs](self).
@@ -215,25 +213,6 @@ impl VTable for Interleave {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         InterleaveSlots::slot_name(idx)
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Interleave array is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

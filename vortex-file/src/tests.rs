@@ -35,6 +35,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
@@ -173,13 +174,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_052 } else { 69_988 }
+    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_136
+        55_096
     )
 )]
 #[tokio::test]
@@ -257,6 +258,35 @@ async fn test_read_simple() {
 
     let result = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_decimal_widen_default_writer_roundtrip(
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(18, 2);
+    let values = DecimalArray::new(
+        buffer![-125i16, 50, 0, 250, 900],
+        DecimalDType::new(4, 2),
+        validity.clone(),
+    );
+    let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+    let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+    let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
+    let expected_values =
+        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
+
+    let actual = write_read_roundtrip(array).await?;
+
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
 }
 
 /// Wide decimals split into multi-part arrays only when the writer allows the v2 format. The
@@ -2610,6 +2640,25 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     assert_eq!(default.metadata_segments().count(), 0);
     assert!(default.metadata_segment("json").is_none());
 
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .expect("valid segment ranges");
+    assert_eq!(
+        segments_end,
+        summary.footer().metadata_segment("large").unwrap().offset + large.len() as u64
+    );
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&bytes[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size());
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    assert_eq!(footer.segments_end(), Some(segments_end));
+    assert_eq!(footer.metadata_segments().count(), 4);
+
     let file = SESSION
         .open_options()
         .include_metadata()
@@ -2748,10 +2797,8 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 }
 
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
+async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
+    let ts_array = buffer![1000i64].into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     let mut buf = ByteBufferMut::empty();
@@ -2760,7 +2807,6 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2768,70 +2814,18 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
-            Scalar::from(1704153600i64),
+            Scalar::from(1i64),
         )),
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
-///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
-#[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
-
-    // Write file with MILLISECONDS timestamps using this compressor.
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_compressor(compressor)
-        .build();
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("timestamp filter units must match the file dtype when binding");
     assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())
@@ -3180,9 +3174,14 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::embedded_dtype(false)]
+#[case::external_dtype(true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+async fn test_segment_ordering_zonemaps_after_data(
+    #[case] exclude_dtype: bool,
+) -> VortexResult<()> {
     // Create a multi-column struct with enough rows to produce zone maps.
     let n = 100_000;
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
@@ -3195,10 +3194,14 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("numbers", numbers),
         ("floats", floats),
     ])?;
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let summary = SESSION
-        .write_options()
+    let mut options = SESSION.write_options();
+    if exclude_dtype {
+        options = options.exclude_dtype();
+    }
+    let summary = options
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
@@ -3269,6 +3272,33 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         &all_zones_offsets,
         "global: all data segments should come before all zone map segments",
     );
+
+    let segments_end = footer.segments_end().expect("valid segment ranges");
+    assert!(
+        all_zones_offsets
+            .iter()
+            .all(|offset| *offset < segments_end)
+    );
+    assert_eq!(buf.len() as u64, summary.size());
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&buf[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size())
+    .with_some_dtype(exclude_dtype.then_some(dtype));
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    let mut recovered_data_offsets = Vec::new();
+    let mut recovered_zones_offsets = Vec::new();
+    collect_all_zoned(
+        footer.layout().as_ref(),
+        footer.segment_map(),
+        &mut recovered_data_offsets,
+        &mut recovered_zones_offsets,
+    );
+    assert_eq!(recovered_data_offsets, all_data_offsets);
+    assert_eq!(recovered_zones_offsets, all_zones_offsets);
 
     Ok(())
 }

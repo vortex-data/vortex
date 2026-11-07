@@ -9,10 +9,10 @@ import numpy as np
 import pyarrow as pa
 import pytest
 from pcodec import (
-    ChunkConfig,  # ty: ignore[unresolved-import]
+    ChunkConfig,  # ty: ignore[import-not-found]
 )
 from pcodec import (
-    wrapped as pco,  # ty: ignore[unresolved-import]
+    wrapped as pco,  # ty: ignore[import-not-found]
 )
 from typing_extensions import override
 

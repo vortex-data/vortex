@@ -155,11 +155,8 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 "Value can't be represented as decimal",
             ));
         };
-        return Ok(Scalar::decimal(
-            value,
-            *decimal_dtype,
-            Nullability::NonNullable,
-        ));
+        return Scalar::try_decimal(value, *decimal_dtype, Nullability::NonNullable)
+            .map_err(|e| PyValueError::new_err(e.to_string()));
     }
 
     if let Ok(integer) = value.cast::<PyInt>() {
@@ -503,7 +500,7 @@ fn timestamp_scalar(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortex
         micros_to_unit(micros, unit)?
     };
 
-    let ext = Timestamp::new_with_tz(unit, tz, Nullability::NonNullable);
+    let ext = Timestamp::try_new_with_tz(unit, tz, Nullability::NonNullable)?;
     Ok(Scalar::try_new(
         DType::Extension(ext.erased()),
         Some(ScalarValue::from(storage)),

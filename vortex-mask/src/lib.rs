@@ -280,27 +280,28 @@ impl Mask {
     }
 
     /// Create a new [`Mask`] from an [`IntoIterator<Item = usize>`] of indices to be excluded.
+    ///
+    /// Indices may be in any order and duplicates are ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an index is out of bounds.
     pub fn from_excluded_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
         let mut buf = BitBufferMut::new_set(len);
-
-        let mut false_count: usize = 0;
-        indices.into_iter().for_each(|idx| {
-            buf.unset(idx);
-            false_count += 1;
-        });
-        debug_assert_eq!(buf.len(), len);
-        let true_count = len - false_count;
+        indices.into_iter().for_each(|idx| buf.unset(idx));
+        let buffer = buf.freeze();
+        let true_count = buffer.true_count();
 
         // Return optimized variants when appropriate
-        if false_count == 0 {
+        if true_count == len {
             return Self::AllTrue(len);
         }
-        if false_count == len {
+        if true_count == 0 {
             return Self::AllFalse(len);
         }
 
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.freeze(),
+            buffer,
             indices: Default::default(),
             slices: Default::default(),
             true_count,

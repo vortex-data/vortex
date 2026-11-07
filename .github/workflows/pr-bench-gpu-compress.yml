@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
   gpu-compress-bench:
@@ -48,9 +49,11 @@ jobs:
       - name: Install cuDF
         # The GPU Parquet number is a cuDF `read_parquet`. cuDF ships prebuilt manylinux wheels
         # on NVIDIA's index, so it stays a runtime dependency and never enters the Rust build.
+        # `--no-config` keeps the workspace's `exclude-newer` off this standalone venv: NVIDIA's
+        # index publishes no upload dates, so that cutoff would filter out every cuDF wheel.
         run: |
           uv venv --python 3.12 .venv-cudf
-          uv pip install --python .venv-cudf \
+          uv pip install --no-config --python .venv-cudf \
             --extra-index-url https://pypi.nvidia.com \
             cudf-cu12 pandas pyarrow
           echo "$PWD/.venv-cudf/bin" >> "$GITHUB_PATH"
@@ -64,6 +67,14 @@ jobs:
         shell: bash
         run: |
           cargo build --locked --package compress-bench --profile release_debug --features cuda
+      # Download and convert the benchmark data up front, so the benchmark step below only
+      # contains timed runs.
+      - name: Generate GPU compression data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          python3 scripts/compress-split.py --gpu-decompress --prepare-data
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Run GPU compression benchmark
@@ -78,18 +89,22 @@ jobs:
           # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/compress-split.py --gpu-decompress
+          python3 scripts/compress-split.py --gpu-decompress --emit-ingest-records
+      - name: Fetch baseline from the benchmarks database
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          role-arn: ${{ vars.GH_BENCH_READ_ROLE_ARN }}
+          region: ${{ vars.RDS_BENCH_REGION }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
+
       - name: Publish results
         shell: bash
         run: |
           set -Eeu -o pipefail -x
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz \
-            data.json.gz --no-sign-request
-          gzip -d -c data.json.gz > base.json
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
-            "GPU Compression" > comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+            "GPU Compression" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
