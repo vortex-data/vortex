@@ -22,10 +22,13 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use datafusion_common::Statistics;
 use datafusion_common::arrow::compute::concat_batches;
-use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_common::stats::Precision;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::StatisticsArgs;
+use datafusion_physical_plan::StatisticsContext;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
@@ -55,6 +58,7 @@ use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
 
 use crate::VortexFormatFactory;
+use crate::VortexScanConfig;
 use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
 use crate::persistent::segment_cache::DEFAULT_SEGMENT_CACHE_SIZE_BYTES;
@@ -868,6 +872,18 @@ async fn test_predicate_memtable_oracle(
     Ok(())
 }
 
+/// The [`VortexSource`] of `plan` when it is a Vortex scan.
+fn vortex_source(plan: &dyn ExecutionPlan) -> Option<&VortexSource> {
+    plan.downcast_ref::<DataSourceExec>()
+        .and_then(|exec| exec.data_source().downcast_ref::<VortexScanConfig>())
+        .and_then(|config| {
+            config
+                .file_scan_config()
+                .file_source
+                .downcast_ref::<VortexSource>()
+        })
+}
+
 /// Returns whether `plan` filters the rows of a Vortex scan in DataFusion and whether a Vortex
 /// scan accepted a predicate.
 fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
@@ -877,10 +893,7 @@ fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
 
 /// Like [`filter_placement`], and also whether `plan` contains a Vortex scan.
 fn vortex_filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool, bool) {
-    let source = plan
-        .downcast_ref::<DataSourceExec>()
-        .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
-        .and_then(|config| config.file_source.downcast_ref::<VortexSource>());
+    let source = vortex_source(plan);
     let mut has_scan = source.is_some();
     let mut in_scan = source.is_some_and(|source| source.predicate().is_some());
     let mut in_datafusion = false;
@@ -1280,5 +1293,61 @@ async fn test_segment_cache_reused_across_queries(#[case] size: usize) -> anyhow
     assert_eq!(rewritten, expected(1));
     assert_eq!(hits, 0);
     assert_eq!(misses > 0, size > 0);
+    Ok(())
+}
+
+/// Finds the statistics of the only `DataSourceExec` in `plan`.
+fn scan_statistics(plan: &Arc<dyn ExecutionPlan>) -> anyhow::Result<Arc<Statistics>> {
+    if plan.downcast_ref::<DataSourceExec>().is_some() {
+        return Ok(StatisticsContext::new().compute(plan.as_ref(), &StatisticsArgs::new())?);
+    }
+    match plan.children().as_slice() {
+        [child] => scan_statistics(child),
+        _ => anyhow::bail!("expected a single scan"),
+    }
+}
+
+/// A pushed predicate removes the `FilterExec`, so the scan itself estimates the rows it keeps.
+#[rstest]
+#[case::no_filter("TRUE", Precision::Exact(1_000))]
+// Interval analysis over the exact bounds [0, 999] keeps 100 of 1000 values.
+#[case::range("k < 100", Precision::Inexact(100))]
+// Interval analysis does not support `LIKE`, so the default 20% selectivity applies.
+#[case::default_selectivity("s LIKE 'a%'", Precision::Inexact(200))]
+#[case::contradiction("k < 10 AND k > 20", Precision::Inexact(0))]
+#[tokio::test]
+async fn pushed_filter_scales_scan_statistics(
+    #[case] predicate: &str,
+    #[case] expected_rows: Precision<usize>,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let batch = arrow_array::record_batch!(
+        ("id", Int64, (0..1_000).collect::<Vec<i64>>()),
+        ("k", Int64, (0..1_000).collect::<Vec<i64>>()),
+        (
+            "s",
+            Utf8,
+            (0..1_000).map(|i| format!("{i}")).collect::<Vec<_>>()
+        )
+    )?;
+    ctx.write_arrow_batch("filtered.vortex", &batch).await?;
+    let table = ctx
+        .table_provider("t", "/filtered.vortex", batch.schema().as_ref().clone())
+        .await?;
+    ctx.session.register_table("t", table)?;
+
+    let plan = ctx
+        .session
+        .sql(&format!("SELECT id FROM t WHERE {predicate}"))
+        .await?
+        .create_physical_plan()
+        .await?;
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (false, predicate != "TRUE")
+    );
+    let statistics = scan_statistics(&plan)?;
+    assert_eq!(statistics.num_rows, expected_rows);
+    assert_eq!(statistics.column_statistics.len(), 1);
     Ok(())
 }

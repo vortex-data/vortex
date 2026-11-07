@@ -69,6 +69,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
+use super::scan_config::VortexScanConfig;
 use super::segment_cache::AuxiliarySegmentCache;
 use super::segment_cache::DEFAULT_SEGMENT_CACHE_SIZE_BYTES;
 use super::sink::VortexSink;
@@ -763,7 +764,9 @@ impl FileFormat for VortexFormat {
             .with_source(Arc::new(source))
             .build();
 
-        Ok(DataSourceExec::from_data_source(conf))
+        Ok(DataSourceExec::from_data_source(VortexScanConfig::new(
+            conf,
+        )))
     }
 
     async fn create_writer_physical_plan(

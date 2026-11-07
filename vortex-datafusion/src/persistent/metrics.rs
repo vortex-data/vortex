@@ -28,6 +28,7 @@ use vortex::metrics::Label;
 use vortex::metrics::Metric;
 use vortex::metrics::MetricValue;
 
+use crate::persistent::scan_config::VortexScanConfig;
 use crate::persistent::source::VortexSource;
 
 pub(crate) static PARTITION_LABEL: &str = "partition";
@@ -188,7 +189,12 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
             let mut set = exec.metrics().unwrap_or_default();
 
             // Include our own metrics from VortexSource
-            if let Some(file_scan) = exec.data_source().downcast_ref::<FileScanConfig>()
+            let data_source = exec.data_source();
+            let file_scan = data_source
+                .downcast_ref::<VortexScanConfig>()
+                .map(VortexScanConfig::file_scan_config)
+                .or_else(|| data_source.downcast_ref::<FileScanConfig>());
+            if let Some(file_scan) = file_scan
                 && let Some(scan) = file_scan.file_source.downcast_ref::<VortexSource>()
             {
                 for metric in scan

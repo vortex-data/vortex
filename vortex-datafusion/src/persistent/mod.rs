@@ -28,6 +28,7 @@ mod format;
 pub mod metrics;
 mod opener;
 pub mod reader;
+mod scan_config;
 mod scan_v2;
 mod segment_cache;
 mod sink;
@@ -38,6 +39,7 @@ pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
+pub use scan_config::VortexScanConfig;
 pub use sink::VortexSink;
 pub use source::VortexSource;
 
