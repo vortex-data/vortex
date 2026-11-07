@@ -22,7 +22,9 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -1673,6 +1675,62 @@ async fn uncompressed_size_follows_editions(
     let field_stats = fb.field_stats().vortex_expect("field_stats is written");
     assert_eq!(field_stats.get(0).uncompressed_size_in_bytes(), three_i32);
 
+    Ok(())
+}
+
+/// The preview edition records the approximate distinct count in the nested footer statistics,
+/// and a reader gets the count back. The legacy statistics have no slot for it.
+#[rstest]
+#[case::core(false, true, None)]
+#[case::preview(true, true, Some(4u64))]
+#[case::preview_legacy_only(true, false, None)]
+#[tokio::test]
+async fn approx_distinct_count_follows_editions(
+    #[case] preview: bool,
+    #[case] nested: bool,
+    #[case] expected: Option<u64>,
+) -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    if preview {
+        session.enable_edition(PREVIEW_2026_08_0)?;
+    }
+
+    let chunk = |values: [i32; 3]| -> VortexResult<ArrayRef> {
+        let c = PrimitiveArray::from_iter(values).into_array();
+        Ok(StructArray::try_new(["c"].into(), vec![c], 3, Validity::NonNullable)?.into_array())
+    };
+    let array = ChunkedArray::try_new(
+        vec![chunk([1, 2, 3])?, chunk([3, 4, 1])?],
+        chunk([0; 3])?.dtype().clone(),
+    )?
+    .into_array();
+    let mut buf = ByteBufferMut::empty();
+    let options = session.write_options();
+    let options = if nested {
+        options.include_nested_statistics()
+    } else {
+        options
+    };
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let file = session.open_options().open_buffer(buf.freeze())?;
+    let stats = file
+        .file_stats()
+        .expect("file statistics should be present");
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    let count = c_stats
+        .get(&ApproxDistinctCount.bind(EmptyOptions))
+        .into_inner()
+        .and_then(|count| count.as_primitive().as_::<u64>());
+    assert_eq!(count, expected);
     Ok(())
 }
 

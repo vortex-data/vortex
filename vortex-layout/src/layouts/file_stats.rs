@@ -16,6 +16,7 @@ use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -391,6 +392,8 @@ fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
+        // Footer only: zone maps never record it, since a zone's distinct count can't prune.
+        ApproxDistinctCount.bind(EmptyOptions),
     ]
 }
 
@@ -697,17 +700,13 @@ impl FileStatsAccumulator {
         write_legacy_stats: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
-        let accumulates = |aggregate_fn: &AggregateFnRef| {
-            Self::accumulates(
+        for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
+            if !Self::accumulates(
                 writer_ctx,
                 write_nested_stats,
                 write_legacy_stats,
                 aggregate_fn,
-            )
-        };
-
-        for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
-            if !accumulates(aggregate_fn) {
+            ) {
                 vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
@@ -715,7 +714,15 @@ impl FileStatsAccumulator {
         let root = StatsNode::build_root(
             dtype,
             stats.as_deref(),
-            &accumulates,
+            &|aggregate_fn| {
+                Self::computes(
+                    writer_ctx,
+                    stats.is_some(),
+                    write_nested_stats,
+                    write_legacy_stats,
+                    aggregate_fn,
+                )
+            },
             write_nested_stats,
             write_legacy_stats,
         );
@@ -737,8 +744,9 @@ impl FileStatsAccumulator {
             &self.dtype,
             self.stats.as_deref(),
             &|aggregate_fn| {
-                Self::accumulates(
+                Self::computes(
                     &self.writer_ctx,
+                    self.stats.is_some(),
                     self.write_nested_stats,
                     self.write_legacy_stats,
                     aggregate_fn,
@@ -769,6 +777,26 @@ impl FileStatsAccumulator {
 
         writer_ctx.allows_aggregate(&aggregate_fn.id())
             || (legacy_only && fills_legacy_stat_slot(aggregate_fn))
+    }
+
+    /// Returns whether the accumulators are built for `aggregate_fn`: those that
+    /// [`accumulates`](Self::accumulates) permits, except a default that no written layout can
+    /// record. Without nested stats, only the defaults that fill a legacy stat slot are kept, so
+    /// footer-only aggregates such as the approximate distinct count are not computed only to be
+    /// dropped.
+    fn computes(
+        writer_ctx: &LayoutWriterContext,
+        explicit: bool,
+        write_nested_stats: bool,
+        write_legacy_stats: bool,
+        aggregate_fn: &AggregateFnRef,
+    ) -> bool {
+        Self::accumulates(
+            writer_ctx,
+            write_nested_stats,
+            write_legacy_stats,
+            aggregate_fn,
+        ) && (explicit || write_nested_stats || fills_legacy_stat_slot(aggregate_fn))
     }
 
     /// Merges the stats of the chunk that follows all chunks merged so far.
@@ -1546,6 +1574,60 @@ mod tests {
                 .get(&size)
                 .and_then(Scalar::into_value),
             expected
+        );
+        Ok(())
+    }
+
+    /// Chunks merge their distinct sets exactly, and the footer records only the count.
+    #[test]
+    fn approx_distinct_count_merges_chunks() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let ctx = LayoutWriterContext::new(ArrayContext::empty())
+            .with_allowed_aggregates(HashSet::from_iter([ApproxDistinctCount.id()]));
+        let acc = FileStatsAccumulator::try_new(&dtype, None, true, false, &ctx)?;
+        for values in [buffer![1i32, 2, 3], buffer![3i32, 4, 1]] {
+            let len = values.len();
+            let chunk = StructArray::new(
+                FieldNames::from(["a"]),
+                [values.into_array()],
+                len,
+                Validity::NonNullable,
+            )
+            .into_array();
+            push(&acc, &chunk, &mut exec_ctx)?;
+        }
+
+        let requested = ApproxDistinctCount.bind(EmptyOptions);
+        let stats = &acc.aggregate_stats()?[0];
+        let stat = stats
+            .iter()
+            .find(|stat| stat.aggregate_fn() == &requested)
+            .vortex_expect("approx distinct count is recorded");
+        assert_eq!(stat.partial(), Some(&Scalar::from(4u64)));
+        assert_eq!(stats.get(&requested), Precision::exact(Scalar::from(4u64)));
+        Ok(())
+    }
+
+    /// Without nested stats, a default with no legacy stat slot can't be recorded, so it is not
+    /// computed.
+    #[test]
+    fn legacy_only_skips_unrecordable_defaults() -> VortexResult<()> {
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let ctx = LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(
+            HashSet::from_iter([NullCount.id(), ApproxDistinctCount.id()]),
+        );
+        let acc = FileStatsAccumulator::try_new(&dtype, None, false, true, &ctx)?;
+        let recorded = acc.legacy_aggregate_stats()?;
+        assert!(
+            recorded[0]
+                .iter()
+                .any(|stat| stat.aggregate_fn().is::<NullCount>())
+        );
+        assert!(
+            !recorded[0]
+                .iter()
+                .any(|stat| stat.aggregate_fn().is::<ApproxDistinctCount>())
         );
         Ok(())
     }

@@ -5,6 +5,8 @@ use vortex::aggregate_fn::AggregateFnRef;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
 use vortex::aggregate_fn::NumericalAggregateOpts;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::nan_count::NanCount;
@@ -29,6 +31,8 @@ pub struct ColumnStatistics {
     pub max: Option<Value>,
     pub max_string_length: u64,
     pub has_null: bool,
+    /// An upper bound on the distinct non-null values, or 0 if unknown.
+    pub distinct_count: u64,
     pub logical_type: LogicalType,
 }
 
@@ -65,6 +69,7 @@ impl ColumnStatistics {
             max,
             max_string_length,
             has_null,
+            distinct_count: stats.approx_distinct_count.unwrap_or(0),
             logical_type,
         })
     }
@@ -78,6 +83,7 @@ pub struct ColumnStatisticsAggregate {
     /// May be true if null count stat isn't present
     pub has_null: bool,
     pub nan_count: Option<u64>,
+    pub approx_distinct_count: Option<u64>,
 }
 
 impl ColumnStatisticsAggregate {
@@ -102,12 +108,18 @@ impl ColumnStatisticsAggregate {
         let nan_count = exact(NanCount.bind(EmptyOptions))
             .map(|count| count.as_primitive().as_u64().vortex_expect("not a u64"));
 
+        // The aggregate is itself an upper bound, so its exact value is what the footer stores.
+        let approx_distinct_count = exact(ApproxDistinctCount.bind(EmptyOptions))
+            .or_else(|| exact(ApproxDistinctCountHll.bind(EmptyOptions)))
+            .map(|count| count.as_primitive().as_u64().vortex_expect("not a u64"));
+
         Self {
             min,
             max,
             max_string_length,
             has_null,
             nan_count,
+            approx_distinct_count,
         }
     }
 }

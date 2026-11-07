@@ -118,6 +118,10 @@ use futures::lock::Mutex;
 use futures::stream;
 use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use vortex::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
@@ -145,6 +149,7 @@ use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::convert::stats::or_approx_distinct_count;
 use crate::convert::stats::stats_set_to_df;
 
 // Bound active Scan API partition streams independently of the DataFusion output count.
@@ -310,16 +315,41 @@ impl VortexDataSourceBuilder {
             .cloned()
             .map(FieldPath::from_name)
             .collect();
-        let statistics = try_join_all(
-            field_paths
-                .iter()
-                .map(|path| self.data_source.field_statistics(path)),
-        )
-        .await?
-        .iter()
-        .zip(fields.fields())
-        .map(|(stats, dtype)| stats_set_to_df(stats, &dtype))
-        .collect::<VortexResult<Vec<_>>>()?;
+        // The hash-set aggregate is preferred; the HyperLogLog one is the fallback.
+        let approx_distinct_count = ApproxDistinctCount.bind(EmptyOptions);
+        let approx_distinct_count_hll = ApproxDistinctCountHll.bind(EmptyOptions);
+        let (stats_sets, approx_distinct_counts) = futures::try_join!(
+            try_join_all(
+                field_paths
+                    .iter()
+                    .map(|path| self.data_source.field_statistics(path)),
+            ),
+            try_join_all(field_paths.iter().map(|path| async {
+                match self
+                    .data_source
+                    .field_statistic(path, &approx_distinct_count)
+                    .await?
+                {
+                    Precision::Absent => {
+                        self.data_source
+                            .field_statistic(path, &approx_distinct_count_hll)
+                            .await
+                    }
+                    count => Ok(count),
+                }
+            })),
+        )?;
+        let statistics = stats_sets
+            .iter()
+            .zip(approx_distinct_counts)
+            .zip(fields.fields())
+            .map(|((stats, approx_distinct_count), dtype)| {
+                let mut statistics = stats_set_to_df(stats, &dtype)?;
+                statistics.distinct_count =
+                    or_approx_distinct_count(statistics.distinct_count, approx_distinct_count);
+                Ok(statistics)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(VortexDataSource {
             data_source: self.data_source,

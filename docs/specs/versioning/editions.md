@@ -75,7 +75,8 @@ members through ordinary edition inclusions.
 
 ### `preview2026.08.0`
 
-This edition currently adds no components.
+- `aggregate`: `vortex.approx_distinct_count`, `vortex.approx_distinct_count_hll`,
+  `vortex.uncompressed_size_in_bytes`
 
 ### `tensor2026.04.0`
 

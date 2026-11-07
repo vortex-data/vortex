@@ -4076,6 +4076,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "datasketches"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17518a0e88b8a18c546a855d9db6455caaea7865774364bff759edf6a4731aca"
+
+[[package]]
 name = "deflate64"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11392,6 +11398,7 @@ dependencies = [
  "bytes",
  "cfg-if",
  "codspeed-divan-compat",
+ "datasketches",
  "enum-iterator",
  "fearless_simd",
  "fearless_simd_macros",
@@ -11814,6 +11821,7 @@ dependencies = [
  "datafusion-physical-expr 55.2.0",
  "datafusion-physical-expr-adapter 55.2.0",
  "datafusion-physical-expr-common 55.2.0",
+ "datafusion-physical-optimizer 55.2.0",
  "datafusion-physical-plan 55.2.0",
  "datafusion-pruning 55.2.0",
  "futures",
