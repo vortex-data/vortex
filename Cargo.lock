@@ -12484,6 +12484,7 @@ dependencies = [
  "mimalloc",
  "num-traits",
  "prost 0.14.4",
+ "rand 0.10.3",
  "rstest",
  "vortex-array",
  "vortex-arrow",
