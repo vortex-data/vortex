@@ -98,6 +98,12 @@ impl ArrayRef {
     /// The caller may change the array, so it is no longer known to be optimized.
     #[allow(clippy::inline_always)]
     #[inline(always)]
+    /// Takes the slots of this array when nothing else holds it, for the iterative drop of deep
+    /// trees.
+    pub(crate) fn take_slots_if_unique(&mut self) -> Option<ArraySlots> {
+        Arc::get_mut(&mut self.0).map(|inner| std::mem::take(&mut *inner.slots))
+    }
+
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         let inner = Arc::get_mut(&mut self.0)?;
         *inner.optimized.0.get_mut() = false;
@@ -177,7 +183,7 @@ impl ArrayHash for ArrayRef {
         self.0.dtype.hash(state);
         self.0.encoding_id.hash(state);
         self.0.slots.len().hash(state);
-        for slot in &self.0.slots {
+        for slot in self.0.slots.iter() {
             slot.array_hash(state, accuracy);
         }
         self.0
