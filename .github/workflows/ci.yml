@@ -38,7 +38,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -114,7 +114,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=python-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -161,7 +161,7 @@ jobs:
   python-cuda-test:
     name: "Python CUDA (test)"
     if: github.event.pull_request.draft != true && github.repository == 'vortex-data/vortex'
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
       RUST_LOG: "info,maturin=off,uv=debug"
@@ -201,7 +201,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -230,7 +230,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          && format('runs-on={0}/runner={1}/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag={2}', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'), matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -275,7 +275,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -295,7 +295,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-A warnings"
@@ -319,7 +319,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -388,7 +388,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -414,7 +414,7 @@ jobs:
     timeout-minutes: 45
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
+          && format('runs-on={0}/pool=windows-x64-pre/extras=s3-cache', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'windows-latest' }}
     env:
       NEXTEST_WINDOWS_ARGS: >-
@@ -565,7 +565,7 @@ jobs:
       github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=arm64-ci-test/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -622,7 +622,7 @@ jobs:
             image: ubuntu26-full-arm64-pre-v2
             expect: "neon,sve,sve2,sve2-bitperm"
     runs-on: >-
-      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
+      runs-on=${{ github.run_id }}/region=${{ vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1' }}/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
     env:
       VORTEX_EXPECT_CPU_FEATURES: ${{ matrix.config.expect }}
     steps:
@@ -649,7 +649,7 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=java', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -699,7 +699,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped')
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-sql-logic-test/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -728,7 +728,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=c-cxx-generated', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -870,7 +870,7 @@ jobs:
     if: github.event.pull_request.draft != true && !cancelled()
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu26-full-x64-pre-v2/extras=s3-cache/tag=integration-smoke', format('{0}/region={1}', github.run_id, vars.CI_REGION || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T1') && 'ap-northeast-1') || (contains(github.event.pull_request.updated_at || github.event.head_commit.timestamp, 'T2') && 'eu-west-2') || 'us-east-1'))
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
