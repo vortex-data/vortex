@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-{#- Titles are "<Page> | Vortex" on every surface (the design system's DECISIONS 36). The docs'
+{#- Titles are "<Page> | Vortex" on every surface, as the design system says. The docs'
     root page is "Docs". #}
 {%- set page_title = _("Docs") if pagename == root_doc else title|striptags %}
 {%- set github = "https://github.com/vortex-data/vortex" %}
@@ -30,7 +30,7 @@
   <meta property="og:url" content="{{ pageurl|e }}" />
   {%- endif %}
   <meta property="og:image" content="https://docs.vortex.dev/_static/vortex_logo.svg" />
-  {#- The shared theme (ThemeSwitch): the reader's choice from the vortex-theme cookie, set before the
+  {#- The shared theme (ThemeSwitch): the reader's choice from the vx-theme cookie, set before the
       stylesheets so the wrong theme never flashes. With no script, data-theme="dark" gives the
       default theme. #}
   <script src="{{ pathto('_static/vortex-theme-bootstrap.js', 1) }}"></script>
@@ -60,14 +60,14 @@
   {%- block extrahead %}{% endblock %}
 </head>
 <body class="vx-docs page-{{ pagename|replace('/', '-')|e }}">
-<a class="vx-docs-skip" href="#main">{{ _('Skip to content') }}</a>
+<a class="vx-skip-link" href="#main">{{ _('Skip to content') }}</a>
 <input type="checkbox" id="nav-toggle" class="vx-docs-toggle" aria-label="{{ _('Show the pages') }}" />
 {#- The shared header (the design system's Header): the wordmark, the surfaces' links with Docs
     current, the search and the sidebar's button in the docs' tools, then the socials (X, Slack,
     and GitHub), and the Menu. The theme switch is in the footer. The Slack and X marks are their owners' files,
     mark-slack.svg and mark-x.svg beside this template (REUSE.toml). #}
 {%- macro nav_links() %}
-<a class="vx-label vx-nav-link" href="{{ docs_home|e }}"{% if docs_current %} aria-current="{{ docs_current }}"{% endif %}>{{ _('Docs') }}</a><a class="vx-label vx-nav-link" href="https://bench.vortex.dev">{{ _('Bench') }}</a><a class="vx-label vx-nav-link" href="https://explore.vortex.dev">{{ _('Explorer') }}</a><a class="vx-label vx-nav-link" href="{{ site }}/blog">{{ _('Blog') }}</a>
+<a class="vx-label vx-nav-link" href="{{ docs_home|e }}"{% if docs_current %} aria-current="{{ docs_current }}"{% endif %}>{{ _('Docs') }}</a><a class="vx-label vx-nav-link" href="https://bench.vortex.dev">{{ _('Benchmarks') }}</a><a class="vx-label vx-nav-link" href="https://explore.vortex.dev">{{ _('Explorer') }}</a><a class="vx-label vx-nav-link" href="{{ site }}/blog">{{ _('Blog') }}</a>
 {%- endmacro %}
 {%- macro theme_switch() %}
 <fieldset class="vx-theme-switch" aria-label="Theme"><button type="button" data-choice="light" aria-pressed="false" aria-label="Light" title="Light"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-360q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0 80q-83 0-141.5-58.5T280-480q0-83 58.5-141.5T480-680q83 0 141.5 58.5T680-480q0 83-58.5 141.5T480-280ZM200-440H40v-80h160v80Zm720 0H760v-80h160v80ZM440-760v-160h80v160h-80Zm0 720v-160h80v160h-80ZM256-650l-101-97 57-59 96 100-52 56Zm492 496-97-101 53-55 101 97-57 59Zm-98-550 97-101 59 57-100 96-56-52ZM154-212l101-97 55 53-97 101-59-57Zm326-268Z"/></svg></button><button type="button" data-choice="dark" aria-pressed="true" aria-label="Dark" title="Dark"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-120q-150 0-255-105T120-480q0-150 105-255t255-105q14 0 27.5 1t26.5 3q-41 29-65.5 75.5T444-660q0 90 63 153t153 63q55 0 101-24.5t75-65.5q2 13 3 26.5t1 27.5q0 150-105 255T480-120Zm0-80q88 0 158-48.5T740-375q-20 5-40 8t-40 3q-123 0-209.5-86.5T364-660q0-20 3-40t8-40q-78 32-126.5 102T200-480q0 116 82 198t198 82Zm-10-270Z"/></svg></button><button type="button" data-choice="system" aria-pressed="false" aria-label="System" title="System"><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm40-83q119-15 199.5-104.5T800-480q0-123-80.5-212.5T520-797v634Z"/></svg></button></fieldset>
@@ -100,7 +100,7 @@
       {{ toc }}
     </details>
     {%- endif %}
-    <main id="main" class="vx-docs-main" role="main">
+    <main id="main" class="vx-docs-main" role="main" tabindex="-1">
       {%- block body %}{% endblock %}
     </main>
     {%- if page_source_suffix %}

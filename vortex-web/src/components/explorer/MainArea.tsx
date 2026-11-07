@@ -73,7 +73,7 @@ export function MainArea({ view }: { view: MainView }) {
   );
 
   return (
-    <main className={`x-work${view === 'details' ? '' : ' is-wide'}`}>
+    <main id="main" tabIndex={-1} className={`x-work${view === 'details' ? '' : ' is-wide'}`}>
       {view === 'details' && <TreePanel />}
       <div
         ref={mainRef}
