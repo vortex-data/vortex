@@ -70,7 +70,9 @@ use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::DictionaryValuesCache;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -144,6 +146,8 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
+    /// Whether batches cut from one Vortex dictionary share one exported Arrow values array.
+    pub dictionary_export: bool,
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
@@ -232,6 +236,11 @@ impl FileOpener for VortexOpener {
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
+        let export_options = if self.dictionary_export {
+            ArrowExportOptions::default().with(DictionaryValuesCache::default())
+        } else {
+            ArrowExportOptions::default()
+        };
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -491,11 +500,10 @@ impl FileOpener for VortexOpener {
             let map_batch = move |chunk| {
                 let mut ctx = session.create_execution_ctx();
                 let arrow_session = ctx.session().clone();
-                let arrow = arrow_session.arrow().execute_arrow(
-                    chunk,
-                    Some(&stream_target_field),
-                    &mut ctx,
-                )?;
+                let arrow = arrow_session
+                    .arrow()
+                    .exporter(&export_options)
+                    .execute_arrow(chunk, Some(&stream_target_field), &mut ctx)?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
@@ -1226,6 +1234,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         }
     }
 
@@ -1637,6 +1646,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1730,6 +1740,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         };
 
         let stream = opener.open(file)?.await?;
@@ -1914,6 +1925,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1980,6 +1992,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         }
     }
 
@@ -2197,6 +2210,7 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            dictionary_export: false,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

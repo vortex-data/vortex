@@ -385,6 +385,7 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            dictionary_export: self.options.dictionary_export,
             partitions: base_config.file_groups.len(),
         };
 

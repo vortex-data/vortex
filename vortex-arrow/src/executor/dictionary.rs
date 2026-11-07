@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrowExporter;
+use crate::DictionaryValuesCache;
 use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
@@ -100,7 +101,12 @@ fn dict_to_dict(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let codes = execute_arrow_naive(array.codes().clone(), Some(codes_type), exporter, ctx)?;
-    let values = execute_arrow_naive(array.values().clone(), Some(values_type), exporter, ctx)?;
+    let values = match exporter.options().get::<DictionaryValuesCache>() {
+        Some(cache) => cache.get_or_try_insert(array.values(), values_type, || {
+            execute_arrow_naive(array.values().clone(), Some(values_type), exporter, ctx)
+        })?,
+        None => execute_arrow_naive(array.values().clone(), Some(values_type), exporter, ctx)?,
+    };
     make_dict_array(codes_type, codes, values)
 }
 
@@ -161,9 +167,12 @@ mod tests {
 
     use arrow_array::DictionaryArray as ArrowDictArray;
     use arrow_array::StringArray;
+    use arrow_array::cast::AsArray;
     use arrow_array::types::UInt8Type;
+    use arrow_array::types::UInt16Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -179,6 +188,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
+    use crate::ArrowExportOptions;
+    use crate::ArrowSessionExt;
+    use crate::DictionaryValuesCache;
     use crate::executor::dictionary::ConstantArray;
     use crate::executor::dictionary::DictArray;
 
@@ -265,6 +277,42 @@ mod tests {
 
         let expected = StringArray::from(vec![Some("a"), None, Some("a")]);
         assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::cached(true)]
+    #[case::uncached(false)]
+    fn dict_values_cache_shares_values(#[case] cached: bool) -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
+        let batches = [buffer![0u8, 1, 0], buffer![1u8, 1]].map(|codes| {
+            DictArray::try_new(codes.into_array(), values.clone()).map(IntoArray::into_array)
+        });
+        let cache = DictionaryValuesCache::default();
+        let options = if cached {
+            ArrowExportOptions::default().with(cache.clone())
+        } else {
+            ArrowExportOptions::default()
+        };
+        let target = Field::new("", dict_type(DataType::UInt16, DataType::Utf8View), false);
+        let mut ctx = SESSION.create_execution_ctx();
+        let arrow = SESSION.arrow();
+        let exporter = arrow.exporter(&options);
+        let exported = batches
+            .into_iter()
+            .map(|batch| exporter.execute_arrow(batch?, Some(&target), &mut ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        let first = exported[0].as_dictionary::<UInt16Type>();
+        let second = exported[1].as_dictionary::<UInt16Type>();
+        assert_eq!(Arc::ptr_eq(first.values(), second.values()), cached);
+        assert_eq!(cache.len(), usize::from(cached));
+        let expected: ArrowDictArray<UInt16Type> = vec![Some("b"), Some("b")].into_iter().collect();
+        let expected = arrow_cast::cast(&expected, &DataType::Utf8)?;
+        assert_eq!(
+            arrow_cast::cast(&exported[1], &DataType::Utf8)?.as_ref(),
+            expected.as_ref()
+        );
         Ok(())
     }
 }

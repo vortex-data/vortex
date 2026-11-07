@@ -9,6 +9,11 @@ use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
 use vortex::dtype::DType;
+use vortex::dtype::PType;
+use vortex::error::VortexResult;
+use vortex::layout::LayoutChildType;
+use vortex::layout::LayoutRef;
+use vortex::layout::layouts::dict::Dict;
 use vortex_arrow::ArrowSession;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
@@ -271,6 +276,113 @@ fn calculate_physical_field_type(
             .data_type()
             .clone(),
     })
+}
+
+/// The top-level `Utf8` columns of a file every chunk of which is stored in a dictionary layout,
+/// each with the Arrow dictionary key type that holds its codes.
+pub(crate) fn dictionary_string_columns(
+    layout: &LayoutRef,
+) -> VortexResult<Vec<(String, DataType)>> {
+    let mut columns = Vec::new();
+    for slot in 0..layout.nslots() {
+        let Some(LayoutChildType::Field(name)) = layout.slot_type(slot) else {
+            continue;
+        };
+        let Some(child) = layout.slot(slot)? else {
+            continue;
+        };
+        if !child.dtype().is_utf8() {
+            continue;
+        }
+        if let Some(key) = dictionary_codes_ptype(&child)?.and_then(dictionary_key_type) {
+            columns.push((name.as_ref().to_string(), key));
+        }
+    }
+    Ok(columns)
+}
+
+/// The widest codes type of the dictionary layouts that hold every row of `layout`, or `None`
+/// when some rows are not stored in a dictionary layout.
+fn dictionary_codes_ptype(layout: &LayoutRef) -> VortexResult<Option<PType>> {
+    let is_dict = layout.is::<Dict>();
+    let mut widest: Option<PType> = None;
+    for slot in 0..layout.nslots() {
+        // Auxiliary children, such as dictionary values or zone maps, hold no rows.
+        if matches!(
+            layout.slot_type(slot),
+            None | Some(LayoutChildType::Auxiliary(_))
+        ) {
+            continue;
+        }
+        let Some(child) = layout.slot(slot)? else {
+            continue;
+        };
+        let ptype = if is_dict {
+            PType::try_from(child.dtype()).ok()
+        } else {
+            dictionary_codes_ptype(&child)?
+        };
+        let Some(ptype) = ptype else {
+            return Ok(None);
+        };
+        widest = Some(match widest {
+            Some(widest) if widest.byte_width() >= ptype.byte_width() => widest,
+            _ => ptype,
+        });
+    }
+    Ok(widest)
+}
+
+/// The Arrow dictionary key type for dictionary codes of `ptype`.
+fn dictionary_key_type(ptype: PType) -> Option<DataType> {
+    match ptype {
+        PType::U8 | PType::U16 => Some(DataType::UInt16),
+        PType::U32 => Some(DataType::UInt32),
+        PType::U64 => Some(DataType::UInt64),
+        _ => None,
+    }
+}
+
+/// Declares the columns of `schema` that every file stores in dictionary layouts as Arrow
+/// dictionaries of their value type, keyed by the widest key type any file needs.
+///
+/// `file_columns` holds the [`dictionary_string_columns`] of each of the `file_count` files.
+pub(crate) fn with_dictionary_columns(
+    schema: Schema,
+    file_columns: Vec<Vec<(String, DataType)>>,
+    file_count: usize,
+) -> Schema {
+    if file_count == 0 || file_columns.iter().any(Vec::is_empty) {
+        return schema;
+    }
+    let fields: Vec<Field> = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            let keys = file_columns
+                .iter()
+                .filter_map(|columns| {
+                    columns
+                        .iter()
+                        .find(|(name, _)| name == field.name())
+                        .map(|(_, key)| key)
+                })
+                .collect::<Vec<_>>();
+            let widest_key = keys
+                .iter()
+                .max_by_key(|key| key.primitive_width().unwrap_or(usize::MAX));
+            match widest_key {
+                Some(&key) if keys.len() == file_count => {
+                    field.as_ref().clone().with_data_type(DataType::Dictionary(
+                        Box::new(key.clone()),
+                        Box::new(field.data_type().clone()),
+                    ))
+                }
+                _ => field.as_ref().clone(),
+            }
+        })
+        .collect();
+    Schema::new_with_metadata(fields, schema.metadata().clone())
 }
 
 #[cfg(test)]
