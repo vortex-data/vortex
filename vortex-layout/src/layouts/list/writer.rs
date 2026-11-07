@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use async_channel::Receiver;
@@ -39,6 +40,7 @@ use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::list::ElementSamples;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -74,6 +76,50 @@ pub struct ListLayoutStrategy {
     offsets: Arc<dyn LayoutStrategy>,
     validity: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
+    element_stride: Option<NonZeroU64>,
+}
+
+/// The most [`ElementSamples`] a list layout records: past it, every other sample is dropped and
+/// the stride doubles, so a long column's samples stay a small part of the footer.
+const MAX_ELEMENT_SAMPLES: usize = 16_384;
+
+/// Records [`ElementSamples`] as the offsets of a list column stream past.
+struct SampleRecorder {
+    stride: u64,
+    /// The element row of the next sample.
+    next: u64,
+    lists: Vec<u64>,
+}
+
+impl SampleRecorder {
+    fn new(stride: NonZeroU64) -> Self {
+        Self {
+            stride: stride.get(),
+            next: 0,
+            lists: Vec::new(),
+        }
+    }
+
+    /// Samples the elements of a chunk whose global `offsets` start at list `list_base`.
+    fn record(&mut self, offsets: &[u64], list_base: u64) {
+        let Some(&end) = offsets.last() else {
+            return;
+        };
+        while self.next < end {
+            // The last list starting at or before the sampled row holds it.
+            let starts = offsets.partition_point(|&offset| offset <= self.next) as u64;
+            self.lists.push(list_base + starts - 1);
+            self.next += self.stride;
+        }
+    }
+
+    fn finish(mut self, list_rows: u64, element_rows: u64) -> VortexResult<ElementSamples> {
+        while self.lists.len() > MAX_ELEMENT_SAMPLES {
+            self.lists = self.lists.iter().step_by(2).copied().collect();
+            self.stride *= 2;
+        }
+        ElementSamples::try_new(self.stride, self.lists, list_rows, element_rows)
+    }
 }
 
 impl Default for ListLayoutStrategy {
@@ -86,6 +132,7 @@ impl Default for ListLayoutStrategy {
             offsets: Arc::clone(&flat),
             validity: Arc::clone(&flat),
             fallback: flat,
+            element_stride: None,
         }
     }
 }
@@ -112,6 +159,13 @@ impl ListLayoutStrategy {
     /// Strategy for non-list input, which is forwarded through this strategy unchanged.
     pub fn with_fallback(mut self, fallback: Arc<dyn LayoutStrategy>) -> Self {
         self.fallback = fallback;
+        self
+    }
+
+    /// Records the list holding every `stride`-th element row, so a reader maps lists to their
+    /// elements without reading the offsets. See [`ElementSamples`].
+    pub fn with_element_samples(mut self, stride: NonZeroU64) -> Self {
+        self.element_stride = Some(stride);
         self
     }
 }
@@ -173,6 +227,7 @@ impl LayoutStrategy for ListLayoutStrategy {
         // than being hidden as an early channel close.
         let fanout_fut = transpose_list_column(
             first_chunk,
+            self.element_stride.map(SampleRecorder::new),
             stream,
             session.clone(),
             elements_tx,
@@ -214,14 +269,29 @@ impl LayoutStrategy for ListLayoutStrategy {
         // child writer's error, which is the cause, ahead of the transpose's.
         let (fanout, layouts) = join(fanout_fut, try_join_all(layout_futures)).await;
         let layouts = layouts?;
-        fanout?;
+        let samples = fanout?;
         let mut layouts = layouts.into_iter();
         let elements_layout = layouts.next().vortex_expect("elements layout present");
         let offsets_layout = layouts.next().vortex_expect("offsets layout present");
         let validity_layout =
             is_nullable.then(|| layouts.next().vortex_expect("validity layout present"));
 
-        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
+        let element_samples = samples
+            .map(|samples| {
+                samples.finish(
+                    offsets_layout.row_count().saturating_sub(1),
+                    elements_layout.row_count(),
+                )
+            })
+            .transpose()?;
+        Ok(ListLayout::new_with_element_samples(
+            dtype,
+            elements_layout,
+            offsets_layout,
+            validity_layout,
+            element_samples,
+        )
+        .into_layout())
     }
 }
 
@@ -234,14 +304,16 @@ impl LayoutStrategy for ListLayoutStrategy {
 /// joins this against the child writers, rather than being hidden as an early channel close.
 async fn transpose_list_column(
     first_chunk: (SequenceId, ArrayRef),
+    mut samples: Option<SampleRecorder>,
     stream: SendableSequentialStream,
     session: VortexSession,
     elements_tx: Sender<ChildChunk>,
     offsets_tx: Sender<ChildChunk>,
     validity_tx: Option<Sender<ChildChunk>>,
-) -> VortexResult<()> {
+) -> VortexResult<Option<SampleRecorder>> {
     let mut exec_ctx = session.create_execution_ctx();
     let mut element_base: u64 = 0;
+    let mut list_base: u64 = 0;
     let mut first = true;
     let mut chunks = futures::stream::iter([Ok(first_chunk)]).chain(stream);
     while let Some(chunk) = chunks.next().await {
@@ -255,8 +327,18 @@ async fn transpose_list_column(
         } = canonicalize_to_list_parts(array, &mut exec_ctx)?;
         let n_elements = elements.len() as u64;
         let row_count = offsets.len().saturating_sub(1);
-        let offsets = global_offsets(offsets, element_base, first, &mut exec_ctx)?;
+        let offsets = global_offsets(offsets, element_base, &mut exec_ctx)?;
+        if let Some(samples) = &mut samples {
+            samples.record(offsets.as_slice::<u64>(), list_base);
+        }
+        // The single offsets child holds each chunk's end once: as the next chunk's start.
+        let offsets = if first {
+            offsets.into_array()
+        } else {
+            offsets.into_array().slice(1..row_count + 1)?
+        };
         element_base += n_elements;
+        list_base += row_count as u64;
         first = false;
 
         if elements_tx
@@ -280,7 +362,7 @@ async fn transpose_list_column(
             }
         }
     }
-    Ok(())
+    Ok(samples)
 }
 
 /// Canonicalize a list-dtype array into [`ListDataParts`].
@@ -302,15 +384,15 @@ fn canonicalize_to_list_parts(
 
 /// Rebase a chunk's local `offsets` into global `u64` positions for the whole-column `offsets`
 /// child. Each chunk's offsets are shifted by `element_base` (the number of elements already
-/// emitted) so they index into the concatenated `elements`. The duplicated boundary offset is
-/// dropped on every chunk after the first, so the concatenation of all chunks' contributions is a
-/// single monotonic `[0, .., total_elements]` array of length `row_count + 1`.
+/// emitted) so they index into the concatenated `elements`. The caller drops the duplicated
+/// boundary offset of every chunk after the first, so the concatenation of all chunks'
+/// contributions is a single monotonic `[0, .., total_elements]` array of length
+/// `row_count + 1`.
 fn global_offsets(
     offsets: ArrayRef,
     element_base: u64,
-    first: bool,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<PrimitiveArray> {
     let widened = offsets.cast(DType::Primitive(PType::U64, Nullability::NonNullable))?;
     let based = if element_base == 0 {
         widened
@@ -318,13 +400,8 @@ fn global_offsets(
         let base = ConstantArray::new(element_base, widened.len()).into_array();
         widened.binary(base, Operator::Add)?
     };
-    let based = if first {
-        based
-    } else {
-        based.slice(1..based.len())?
-    };
     // Materialize so the child sub-stream carries a concrete array rather than a lazy expression.
-    Ok(based.execute::<PrimitiveArray>(exec_ctx)?.into_array())
+    based.execute::<PrimitiveArray>(exec_ctx)
 }
 
 /// Matcher for `Array<List>` or `Array<ListView>`.
@@ -353,13 +430,20 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
+    use crate::LayoutBuildContext;
+    use crate::LayoutDeserialization;
+    use crate::LayoutPlugin;
+    use crate::layout_children;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::ListLayoutEncoding;
     use crate::layouts::table::TableStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequentialArrayStreamExt;
@@ -642,6 +726,123 @@ mod tests {
         let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         let err = write(&strategy, array).await.unwrap_err();
         assert!(err.to_string().contains(FailingStrategy::MESSAGE), "{err}");
+        Ok(())
+    }
+
+    /// A list strategy whose children keep every chunk, so a multi-chunk stream reaches the
+    /// transpose, recording samples every `stride` elements.
+    fn sampled_list_strategy(stride: u64) -> ListLayoutStrategy {
+        let chunked: Arc<dyn LayoutStrategy> =
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+        ListLayoutStrategy::default()
+            .with_elements(Arc::clone(&chunked))
+            .with_offsets(Arc::clone(&chunked))
+            .with_validity(chunked)
+            .with_element_samples(NonZeroU64::new(stride).vortex_expect("stride is nonzero"))
+    }
+
+    /// A chunk of lists of `lengths`, its elements counting up from zero.
+    fn list_chunk(lengths: &[u32]) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let offsets = std::iter::once(0)
+            .chain(lengths.iter().scan(0u32, |end, &len| {
+                *end += len;
+                Some(*end)
+            }))
+            .collect::<Buffer<u32>>();
+        let elements = (0..i32::try_from(offsets[offsets.len() - 1])?).collect::<Buffer<i32>>();
+        Ok(ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array())
+    }
+
+    /// The list holding every `stride`-th element row of lists of `lengths`, found by walking
+    /// the lists.
+    fn holding_lists(lengths: &[u32], stride: usize) -> Vec<u64> {
+        let mut holders = Vec::new();
+        for (list, &len) in lengths.iter().enumerate() {
+            holders.extend(std::iter::repeat_n(list as u64, len as usize));
+        }
+        holders.into_iter().step_by(stride).collect()
+    }
+
+    /// Samples follow the global element rows across chunks, through empty lists at the chunk
+    /// boundaries.
+    #[rstest]
+    #[tokio::test]
+    async fn element_samples_hold_every_stride_th_element(
+        #[values(1, 2, 3, 5)] stride: u64,
+    ) -> VortexResult<()> {
+        let chunks: [&[u32]; 3] = [&[3, 0, 2], &[0, 0, 4], &[1, 5, 0]];
+        let array = ChunkedArray::try_new(
+            chunks
+                .iter()
+                .map(|lengths| list_chunk(lengths))
+                .collect::<VortexResult<Vec<_>>>()?,
+            i32_list_dtype(false),
+        )?
+        .into_array();
+
+        let layout = write(&sampled_list_strategy(stride), array).await?;
+        let samples = layout
+            .as_::<ListLayoutEncoding>()
+            .element_samples()
+            .vortex_expect("samples were recorded");
+        assert_eq!(samples.stride(), stride);
+        assert_eq!(
+            samples.lists(),
+            holding_lists(&chunks.concat(), usize::try_from(stride)?)
+        );
+        Ok(())
+    }
+
+    /// Past the cap, every other sample is dropped and the stride doubles until they fit.
+    #[tokio::test]
+    async fn element_samples_halve_past_the_cap() -> VortexResult<()> {
+        let lengths = vec![2u32; 20_000];
+        let layout = write(&sampled_list_strategy(1), list_chunk(&lengths)?).await?;
+        let samples = layout
+            .as_::<ListLayoutEncoding>()
+            .element_samples()
+            .vortex_expect("samples were recorded");
+        assert_eq!(samples.stride(), 4);
+        assert_eq!(samples.lists(), holding_lists(&lengths, 4));
+        Ok(())
+    }
+
+    /// The samples survive the layout's metadata, which checks them against its children.
+    #[tokio::test]
+    async fn element_samples_round_trip_through_metadata() -> VortexResult<()> {
+        let lengths = [3u32, 0, 2, 4, 1];
+        let layout = write(&sampled_list_strategy(2), list_chunk(&lengths)?).await?;
+        let list = layout.as_::<ListLayoutEncoding>();
+        let children = layout_children(vec![list.elements()?, list.offsets()?]);
+        let read_ctx = ReadContext::new([]);
+        let build_ctx = LayoutBuildContext {
+            session: &crate::test::SESSION,
+            array_read_ctx: &read_ctx,
+        };
+        let metadata = layout.metadata();
+        let read = LayoutPlugin::deserialize(
+            &ListLayoutEncoding,
+            LayoutDeserialization {
+                serialized_id: LayoutPlugin::id(&ListLayoutEncoding),
+                dtype: layout.dtype(),
+                row_count: layout.row_count(),
+                metadata: &metadata,
+                segment_ids: vec![],
+                children: children.as_ref(),
+            },
+            &build_ctx,
+        )?;
+        assert_eq!(
+            read.as_::<ListLayoutEncoding>().element_samples(),
+            list.element_samples()
+        );
         Ok(())
     }
 }
