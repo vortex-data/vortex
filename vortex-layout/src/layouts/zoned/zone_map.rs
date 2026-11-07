@@ -431,11 +431,13 @@ mod tests {
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
+    use vortex_array::expr::list_contains;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::validity::Validity;
@@ -1152,6 +1154,47 @@ mod tests {
             ctx
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn large_in_list_prunes_zones_between_elements() -> VortexResult<()> {
+        // Zones [1, 5], [41, 41], [42, 50] and a null-stats zone, against the even values
+        // 0, 2, ..., 98: their bounds span every zone, but only the second holds no element.
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let zone_map = ZoneMap::try_new(
+            PType::I32.into(),
+            StructArray::from_fields(&[
+                (
+                    max.to_string(),
+                    PrimitiveArray::from_option_iter([Some(5i32), Some(41), Some(50), None])
+                        .into_array(),
+                ),
+                (
+                    min.to_string(),
+                    PrimitiveArray::from_option_iter([Some(1i32), Some(41), Some(42), None])
+                        .into_array(),
+                ),
+            ])?,
+            Arc::new([max, min]),
+            4,
+            16,
+        )?;
+
+        let elements: Vec<Scalar> = (0..50).map(|value| Scalar::from(value * 2)).collect();
+        let list = Scalar::list(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            elements,
+            Nullability::NonNullable,
+        );
+        let expr = list_contains(lit(list), root());
+        let mask = zone_map.prune(&falsify(&expr, PType::I32.into()), &SESSION)?;
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, false, false]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 }
