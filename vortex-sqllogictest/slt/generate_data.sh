@@ -12,13 +12,15 @@
 #   tpch        TPC-H at scale factor 0.1.
 #   tpcds       TPC-DS at scale factor 0.1.
 #   clickbench  One shard (~1M rows) of the partitioned ClickBench `hits` table.
+#   statpopgen  The first 1,000 variants of the StatPopGen gnomAD table.
+#   job         A 1% proportional sample of the JOB (IMDB) tables.
 #
 # With no arguments every dataset is generated.
 
 set -e -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ALL_DATASETS=(tpch tpcds clickbench)
+ALL_DATASETS=(tpch tpcds clickbench statpopgen job)
 
 usage() {
   echo "Usage: $(basename "${BASH_SOURCE[0]}") [DATASET...]"
@@ -33,7 +35,7 @@ for arg in "$@"; do
       usage
       exit 0
       ;;
-    tpch|tpcds|clickbench)
+    tpch|tpcds|clickbench|statpopgen|job)
       datasets+=("${arg}")
       ;;
     *)

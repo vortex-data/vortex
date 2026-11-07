@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query I
+SELECT array_length("GT") FROM statpopgen LIMIT 1;
+----
+4151

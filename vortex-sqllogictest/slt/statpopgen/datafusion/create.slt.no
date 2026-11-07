@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Keep the fixture under WORK_DIR so EXPLAIN output can normalize its path.
+# Plans ignore byte ranges because they depend on the generated fixture size.
+system ok
+cp slt/statpopgen/data/statpopgen.$FILE_FORMAT "$WORK_DIR/"
+
+statement ok
+CREATE EXTERNAL TABLE IF NOT EXISTS statpopgen
+STORED AS ${FILE_FORMAT}
+LOCATION '${WORK_DIR}/statpopgen.${FILE_FORMAT}';

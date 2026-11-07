@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Checks that every Vortex table produced by generate_data.sh holds exactly the
+# same rows as the Parquet table it was converted from. generate_data.sh runs
+# this file right after the conversion, and it also runs as part of the suite.
+
+include ../../setup.slt.no
+
+# statpopgen
+query TT rowsort
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet('slt/statpopgen/data/statpopgen.parquet'))
+EXCEPT
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_vortex('slt/statpopgen/data/statpopgen.vortex'));
+----
+
+query I
+SELECT (SELECT COUNT(*) FROM read_parquet('slt/statpopgen/data/statpopgen.parquet')) - (SELECT COUNT(*) FROM read_vortex('slt/statpopgen/data/statpopgen.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_parquet('slt/statpopgen/data/statpopgen.parquet') EXCEPT ALL SELECT * FROM read_vortex('slt/statpopgen/data/statpopgen.vortex'));
+----
+0
+
+query I
+SELECT COUNT(*) FROM (SELECT * FROM read_vortex('slt/statpopgen/data/statpopgen.vortex') EXCEPT ALL SELECT * FROM read_parquet('slt/statpopgen/data/statpopgen.parquet'));
+----
+0

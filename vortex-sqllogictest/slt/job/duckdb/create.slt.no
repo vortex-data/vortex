@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+CREATE VIEW aka_name AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/aka_name.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW aka_title AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/aka_title.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW cast_info AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/cast_info.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW char_name AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/char_name.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW comp_cast_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/comp_cast_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW company_name AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/company_name.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW company_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/company_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW complete_cast AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/complete_cast.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW info_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/info_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW keyword AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/keyword.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW kind_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/kind_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW link_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/link_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW movie_companies AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/movie_companies.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW movie_info AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/movie_info.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW movie_info_idx AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/movie_info_idx.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW movie_keyword AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/movie_keyword.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW movie_link AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/movie_link.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW name AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/name.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW person_info AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/person_info.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW role_type AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/role_type.${FILE_FORMAT}');
+
+statement ok
+CREATE VIEW title AS SELECT * FROM read_${FILE_FORMAT}('slt/job/data/title.${FILE_FORMAT}');

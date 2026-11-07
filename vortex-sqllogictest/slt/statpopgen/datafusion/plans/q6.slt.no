@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT "CHROM", "POS", "REF", "ALT",
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 0)) as N_HOM_REF,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 1)) as N_HET,
+       LIST_SUM(LIST_TRANSFORM("GT", lambda g: g == 2)) as N_HOM_ALT
+  FROM statpopgen;
+----
+logical_plan
+01)Projection: statpopgen.CHROM, statpopgen.POS, statpopgen.REF, statpopgen.ALT, array_sum(CAST(array_transform(statpopgen.GT, (g) -> g = UInt64(0)) AS list_transform(statpopgen.GT,(g) -> g = Int64(0)) AS List(Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g = Int64(0)) AS list_transform(statpopgen.GT,(g) -> g = Int64(0))) AS n_hom_ref, array_sum(CAST(array_transform(statpopgen.GT, (g) -> g = UInt64(1)) AS list_transform(statpopgen.GT,(g) -> g = Int64(1)) AS List(Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g = Int64(1)) AS list_transform(statpopgen.GT,(g) -> g = Int64(1))) AS n_het, array_sum(CAST(array_transform(statpopgen.GT, (g) -> g = UInt64(2)) AS list_transform(statpopgen.GT,(g) -> g = Int64(2)) AS List(Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g = Int64(2)) AS list_transform(statpopgen.GT,(g) -> g = Int64(2))) AS n_hom_alt
+02)--TableScan: statpopgen projection=[CHROM, POS, REF, ALT, GT]
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[CHROM, POS, REF, ALT, array_sum(CAST(array_transform(GT@1181, (g) -> g@5 = 0) AS List(Float64))) as n_hom_ref, array_sum(CAST(array_transform(GT@1181, (g) -> g@5 = 1) AS List(Float64))) as n_het, array_sum(CAST(array_transform(GT@1181, (g) -> g@5 = 2) AS List(Float64))) as n_hom_alt], file_type=vortex

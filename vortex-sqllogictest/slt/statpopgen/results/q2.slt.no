@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query ? rowsort
+SELECT "GT" FROM statpopgen;
+----
+1000 values hashing to 616d08cae44044847660d96e498b0b26

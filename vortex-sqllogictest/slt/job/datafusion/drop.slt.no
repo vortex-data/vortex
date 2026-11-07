@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+statement ok
+DROP TABLE aka_name;
+
+statement ok
+DROP TABLE aka_title;
+
+statement ok
+DROP TABLE cast_info;
+
+statement ok
+DROP TABLE char_name;
+
+statement ok
+DROP TABLE comp_cast_type;
+
+statement ok
+DROP TABLE company_name;
+
+statement ok
+DROP TABLE company_type;
+
+statement ok
+DROP TABLE complete_cast;
+
+statement ok
+DROP TABLE info_type;
+
+statement ok
+DROP TABLE keyword;
+
+statement ok
+DROP TABLE kind_type;
+
+statement ok
+DROP TABLE link_type;
+
+statement ok
+DROP TABLE movie_companies;
+
+statement ok
+DROP TABLE movie_info;
+
+statement ok
+DROP TABLE movie_info_idx;
+
+statement ok
+DROP TABLE movie_keyword;
+
+statement ok
+DROP TABLE movie_link;
+
+statement ok
+DROP TABLE name;
+
+statement ok
+DROP TABLE person_info;
+
+statement ok
+DROP TABLE role_type;
+
+statement ok
+DROP TABLE title;

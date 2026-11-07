@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TT
+EXPLAIN
+SELECT "CHROM", "POS", "REF", "ALT", LIST_SUM(LIST_TRANSFORM("GT", lambda g: g IS NOT NULL)) AS n_called FROM statpopgen;
+----
+logical_plan
+01)Projection: statpopgen.CHROM, statpopgen.POS, statpopgen.REF, statpopgen.ALT, array_sum(CAST(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL) AS List(non-null Float64))) AS list_sum(array_transform(statpopgen.GT, (g) -> g IS NOT NULL) AS list_transform(statpopgen.GT,(g) -> g IS NOT NULL)) AS n_called
+02)--TableScan: statpopgen projection=[CHROM, POS, REF, ALT, GT]
+physical_plan DataSourceExec: file_groups={1 group: [[${WORK_DIR}/statpopgen.vortex]]}, projection=[CHROM, POS, REF, ALT, array_sum(CAST(array_transform(GT@1181, (g) -> g@5 IS NOT NULL) AS List(non-null Float64))) as n_called], file_type=vortex
