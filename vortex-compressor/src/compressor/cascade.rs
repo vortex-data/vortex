@@ -358,9 +358,9 @@ impl CascadingCompressor {
     ///
     /// The check does not compress. A leaf array compresses to `encoding` only if a scheme that
     /// produces `encoding` wins the selection, and a scheme whose estimate is
-    /// [`EstimateVerdict::Skip`](crate::scheme::EstimateVerdict::Skip) cannot win. Thus the check
-    /// runs only the estimates of the schemes that produce `encoding`, and only the immediate
-    /// ones. A deferred estimate can need a sample compression, so it makes the result `true`.
+    /// [`EstimateVerdict::Skip`] cannot win. Thus the check runs only the estimates of the schemes
+    /// that produce `encoding`, and only the immediate ones. A deferred estimate can need a sample
+    /// compression, so it makes the result `true`.
     ///
     /// # Errors
     ///

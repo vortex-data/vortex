@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -222,15 +223,15 @@ fn test_cuda_binary_zstd_follows_editions(
 )]
 #[case::unique_integers(PrimitiveArray::from_iter(0..4096i64).into_array(), false)]
 fn test_may_compress_to_dict(#[case] input: ArrayRef, #[case] expected: bool) -> VortexResult<()> {
-    use vortex_array::VTable;
-    use vortex_array::arrays::Dict;
-
     let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
         .build();
     let mut ctx = SESSION.create_execution_ctx();
 
-    let may_be_dict = compressor.0.may_compress_to(&input, Dict.id(), &mut ctx)?;
+    let may_be_dict =
+        compressor
+            .0
+            .may_compress_to(&input, vortex_array::VTable::id(&Dict), &mut ctx)?;
     let is_dict = compressor.compress(&input, &mut ctx)?.is::<Dict>();
 
     assert_eq!(may_be_dict, expected);
