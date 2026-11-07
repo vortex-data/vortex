@@ -32,9 +32,12 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
+use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -309,6 +312,28 @@ impl AggregateFnVTable for Sum {
         Ok(partials)
     }
 
+    fn finalize_into(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let appended = match &partial.current {
+            None => {
+                builder.append_null();
+                true
+            }
+            Some(SumState::Unsigned(value)) => append_primitive(builder, *value),
+            Some(SumState::Signed(value)) => append_primitive(builder, *value),
+            Some(SumState::Float(value)) => append_primitive(builder, *value),
+            Some(SumState::Decimal(_)) => false,
+        };
+        if !appended {
+            builder.append_scalar(&self.finalize_scalar(args, partial)?)?;
+        }
+        Ok(())
+    }
+
     fn finalize_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -316,6 +341,14 @@ impl AggregateFnVTable for Sum {
     ) -> VortexResult<Scalar> {
         self.to_scalar(args, partial)
     }
+}
+
+fn append_primitive<T: NativePType>(builder: &mut dyn ArrayBuilder, value: T) -> bool {
+    let Some(builder) = builder.as_any_mut().downcast_mut::<PrimitiveBuilder<T>>() else {
+        return false;
+    };
+    builder.append_value(value);
+    true
 }
 
 /// The accumulated sum, or the overflow state.
