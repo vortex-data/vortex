@@ -12,6 +12,12 @@ use flatbuffers::FlatBufferBuilder;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+#[cfg(feature = "object_store")]
+use object_store::ObjectStoreExt;
+#[cfg(feature = "object_store")]
+use object_store::memory::InMemory;
+#[cfg(feature = "object_store")]
+use object_store::path::Path;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -97,6 +103,8 @@ use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::VortexWrite;
+#[cfg(feature = "object_store")]
+use vortex_io::object_store::ObjectStoreWrite;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::std_file::FileWrite;
@@ -2512,6 +2520,62 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     );
     assert_eq!(summary.row_count(), 5);
 
+    Ok(())
+}
+
+#[cfg(feature = "object_store")]
+#[rstest]
+#[case::empty(0)]
+#[case::small(17)]
+#[case::multipart(10 * 1024 * 1024 + 13)]
+#[tokio::test]
+async fn test_object_store_deferred_publication(#[case] rows: u64) -> VortexResult<()> {
+    let store: Arc<dyn object_store::ObjectStore> = Arc::new(InMemory::new());
+    let path = Path::from("deferred.vortex");
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path)
+        .await?
+        .with_concurrency(4);
+    let array =
+        StructArray::from_fields(&[("numbers", Buffer::from_iter(7..rows + 7).into_array())])?
+            .into_array();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut writer, array.clone().to_array_stream())
+        .await?;
+
+    assert_eq!(summary.row_count(), rows);
+    assert!(store.head(&path).await.is_err());
+    assert!(writer.put_result().is_none());
+    if rows == 0 {
+        writer.abort().await?;
+        assert!(store.head(&path).await.is_err());
+        return Ok(());
+    }
+    let statistics = summary.footer().statistics().expect("requested statistics");
+    let (stats, _) = statistics.get(0);
+    assert_eq!(
+        stat_value(stats, Stat::Min),
+        Precision::exact(ScalarValue::from(7u64))
+    );
+    assert_eq!(
+        stat_value(stats, Stat::Max),
+        Precision::exact(ScalarValue::from(rows + 6))
+    );
+    assert_eq!(
+        stat_value(stats, Stat::NullCount),
+        Precision::exact(ScalarValue::from(0u64))
+    );
+
+    writer.shutdown().await?;
+    let bytes = store.get(&path).await?.bytes().await?;
+    assert_eq!(bytes.len() as u64, summary.size());
+    let file = SESSION
+        .open_options()
+        .open_buffer(ByteBuffer::copy_from(bytes))?;
+    let actual = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(actual, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
