@@ -14,7 +14,13 @@ use vortex_error::VortexResult;
 use crate::Sparse;
 use crate::SparseExt as _;
 
+mod dict_codes;
+
+pub(crate) use dict_codes::SlicedSparseCodes;
+pub(crate) use dict_codes::SparseCodes;
+
 pub(crate) static RULES: ParentRuleSet<Sparse> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&SparseCodes),
     ParentRuleSet::lift(&CastReduceAdaptor(Sparse)),
     ParentRuleSet::lift(&NotReduceAdaptor(Sparse)),
 ]);
