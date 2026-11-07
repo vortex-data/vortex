@@ -1,7 +1,7 @@
 /* Vortex design system components (sections: base, chrome, site, tables, app, focus), copied by tools/site-styles.mjs.
    Edit the system, then run tools/site-styles.mjs; do not edit here.
-   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base
-   sha256 3da3eb116dd944dd321108ab13fe60b18ff6a95006ce6fdc3ff6f22ee73787e5 */
+   Made by: node tools/site-styles.mjs <site> --sections base,chrome,site,tables,app,focus --base --reads ..,../../index.html,../../.storybook
+   sha256 663807cbc1a74ce35a018210fb62633a05ccdf1e7bb5ebd1a3815ace34c58928 */
 
 /* ------------------------------------------------------------------ base */
 /* Every component sizes with border-box, so it draws the same under a site's reset or none. */
@@ -97,11 +97,6 @@ main[tabindex="-1"]:focus {
 :where(.vx-display, .vx-display-mono, .vx-h1, .vx-h2, .vx-h3, .vx-h4, .vx-h5) { color: var(--ink); }
 
 
-/* An encoding chain: mono steps on raised, joined by arrows. A post and the Explorer
-   both draw it, so it sits in base, which every site copies. */
-.vx-chain { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); font: 400 12.5px/1 var(--font-mono); color: var(--ink-body); }
-.vx-chain-step { padding: var(--space-4) var(--space-8); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); }
-.vx-chain-arrow { color: var(--ink-muted); }
 
 /* ------------------------------------------------------------------ chrome */
 /* What every surface shares, so home, the blog, the docs, the Explorer and bench read as one site:
@@ -130,15 +125,6 @@ main[tabindex="-1"]:focus {
   width: 16px;
   height: 16px;
   fill: currentColor;
-}
-/* A source line: what a figure was read from, and when. It is often also a nav link, so it comes
-   after that rule and wins the tie. */
-.vx-source {
-  display: inline-flex;
-  flex-wrap: wrap;
-  white-space: normal;
-  align-items: center;
-  gap: var(--space-4);
 }
 .vx-btn {
   display: inline-flex;
@@ -169,8 +155,6 @@ main[tabindex="-1"]:focus {
 .vx-btn-ghost:active:not([disabled], [aria-disabled="true"]) { background: var(--edge); }
 .vx-btn.is-mono { padding: 0 var(--space-12); font: 400 13px/1 var(--font-mono); }
 .vx-btn-count { display: inline-flex; align-items: center; gap: var(--space-4); padding-left: var(--space-12); border-left: 1px solid var(--edge); color: var(--ink-muted); }
-/* Buttons side by side, primary first, wrapping onto a second row on a phone. */
-.vx-btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-12); }
 
 /* The header: one row, the same on every surface. The wordmark, the site's links,
    a surface's own tools (.vx-header-tools, which may be absent), then the end group: the socials
@@ -220,14 +204,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   .vx-header-start { padding-right: var(--space-32); }
   .vx-header-end { padding-left: var(--space-32); }
 }
-/* A search field for the tools, as the docs use it, at control-md on raised. Below 960px its twin,
-   a search button (.vx-header-search-link) that opens the search page, takes its place. */
-.vx-header-search { position: relative; display: flex; align-items: center; flex: 0 1 320px; min-width: 160px; margin: 0; color: var(--ink-muted); }
-.vx-header-search svg { position: absolute; left: var(--space-12); width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
-.vx-header-search input { box-sizing: border-box; width: 100%; height: var(--control-md); margin: 0; padding: 0 var(--space-12) 0 calc(var(--space-12) + 16px + var(--space-8)); background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius-control); color: var(--ink); font: 400 14px/1 var(--font-sans); transition: border-color var(--vx-motion); }
-.vx-header-search input:hover { border-color: var(--ink); }
-.vx-header-search input::placeholder { color: var(--ink-muted); opacity: 1; }
-.vx-header-search-link { display: none; }
 /* The menu: on a narrow screen the site's links go behind a Menu button at the end of the row, a
    <details>, so it opens without scripts. Its panel is a popover under the button, on the ground with
    the buttons' solid edge, so it covers what is under it. */
@@ -265,7 +241,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 @media (max-width: 960px) {
   .vx-header-nav, .vx-header-search { display: none; }
   .vx-header-menu { display: block; }
-  .vx-header-search-link { display: inline-flex; }
   .vx-header-social > .vx-header-social-link { display: none; }
   .vx-header-menu-panel .vx-header-menu-spill.is-icon { display: flex; }
   .vx-header-github .vx-btn-count { display: none; }
@@ -369,29 +344,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-switch button:active { background: var(--edge); }
 .vx-theme-switch svg { width: 16px; height: 16px; fill: currentColor; }
 
-/* A 404 or error page: the hero with no bands under it. It takes the height its parent (a flex
-   column between the header and the footer) leaves, and centres its text in it. With the mark it
-   takes the homepage hero's two columns, and stacks below 1100px. It takes the header's column
-   (--page-max, centred), so the docs' 404, which has no page frame, matches the site's. */
-.vx-status { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 760px); align-content: center; gap: var(--space-48); width: 100%; max-width: var(--page-max); margin-inline: auto; padding: var(--space-32) var(--page-pad); }
-.vx-status.has-mark { grid-template-columns: minmax(0, 760px) minmax(320px, 1fr); align-content: normal; }
-.vx-status-text { display: grid; align-content: center; justify-items: start; gap: var(--space-24); }
-.vx-status-text > * { margin: 0; }
-/* The homepage's voice: a mono headline (vx-display-mono) and a mono sentence at the standfirst's size. */
-.vx-status-sentence { font: 400 16px/1.6 var(--font-mono); color: var(--ink-body); }
-/* The 404's headline is its code: mono at the display size, so the page has one large thing to read. */
-.vx-status-code { font: 500 64px/0.98 var(--font-mono); letter-spacing: -0.04em; color: var(--ink); }
-/* The mark's cell has a height to fill. Its host is never taller than 9/10 of the cell's width. */
-.vx-status-mark { position: relative; min-height: 0; container-type: size; }
-.vx-status-mark > * { position: absolute; inset: 0; height: min(100cqh, 90cqw); margin: auto 0; }
-@media (max-width: 1099px) {
-  .vx-status.has-mark { grid-template-columns: minmax(0, 1fr); align-content: center; gap: var(--space-24); }
-  .vx-status-mark { height: 320px; }
-}
-@media (max-width: 640px) {
-  .vx-status-mark { height: 240px; }
-}
-@media (max-width: 640px) { .vx-status-code { font-size: 48px; } }
 
 /* DotField: the ASCII mark's dot field, still, behind a page whose mark leaves its field to it
    (the 404, with the mark's field: false) or that has open ground of its own. The dots sit on the
@@ -428,14 +380,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   --vx-dash-x: linear-gradient(90deg, var(--ink-body) 12px, transparent 12px);
   --vx-dash-y: linear-gradient(180deg, var(--ink-body) 12px, transparent 12px);
 }
-.vx-frame {
-  background-color: var(--ground);
-  background-image: var(--vx-dash-x), var(--vx-dash-x), var(--vx-dash-y), var(--vx-dash-y);
-  background-size: 16px 1px, 16px 1px, 1px 16px, 1px 16px;
-  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-  background-position: left top, left bottom, left top, right top;
-}
-.vx-frame .vx-tabs-list { border-bottom: 0; background: var(--vx-dash-x) left bottom / 16px 1px repeat-x; }
 
 /* A text field: raised, at control-md, with an edge that turns ink on hover, like the docs' search.
    A row holds a field and its button. */
@@ -461,12 +405,6 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-field-row > .vx-field { flex: 1 1 auto; min-width: 0; }
 .vx-field-error { margin: var(--space-8) 0 0; color: var(--error-ink); }
 
-/* A display line never strands one word on its last line, and on phones its lines balance. */
-.vx-display { text-wrap: pretty; }
-/* On phones it sets at the h1 size, where 64px would take four lines. */
-@media (max-width: 640px) {
-  .vx-display { font-size: 48px; text-wrap: balance; }
-}
 
 /* The mono headline: tight, as the old terminal set it, and at the h3 size on phones. */
 .vx-display-mono { text-wrap: pretty; }
@@ -474,46 +412,8 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
   .vx-display-mono { font-size: 28px; }
 }
 
-/* The results table: every system's figure for each benchmark, in a frame. Vortex's column is Blue,
-   the best figure in each row is underlined, as a model card marks its best score, and the last
-   column says how Vortex does against Parquet. Below 760px only Vortex and the verdict show. */
-.vx-results { padding: var(--space-18) var(--space-24); font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); }
-.vx-results-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-4) var(--space-16); margin: 0 0 var(--space-12); color: var(--ink); }
-/* The source line: bench's link and the read date, which wrap as one line each. */
-/* On the text's baseline: the link holds a 16px icon, and its text must line up with the date's. */
-.vx-results-src { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-8); color: var(--ink-muted); }
-.vx-results-src > * { white-space: nowrap; }
-/* The foot: the key, then a note for each panel with a range, one per line. */
-.vx-results-foot { display: grid; gap: var(--space-4); margin: var(--space-12) 0 0; color: var(--ink-muted); }
-.vx-results-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-/* The cells do not wrap, so a table wider than its frame scrolls inside it, not off the page. */
-.vx-results-wrap { overflow-x: auto; }
-.vx-results-table th,
-.vx-results-table td { padding: var(--space-4) 0 var(--space-4) var(--space-16); text-align: right; white-space: nowrap; font-weight: 400; }
-.vx-results-table th:first-child { padding-left: 0; text-align: left; }
-.vx-results-table thead th { padding-bottom: var(--space-8); color: var(--ink-muted); }
-.vx-results-table tbody th { color: var(--ink-body); }
-.vx-results-table .is-ours { color: var(--accent-ink); }
-.vx-results-table .is-missing { color: var(--ink-muted); }
-/* The underline is ink on every column: it names the result, and Blue names Vortex. */
-.vx-results-table .is-best { color: var(--ink); font-weight: 600; text-decoration: underline 2px var(--ink); text-underline-offset: 5px; }
-.vx-results-table .is-best.is-ours { color: var(--accent-ink); }
-.vx-results-table .is-verdict { padding-left: var(--space-24); color: var(--ink); }
-@media (max-width: 760px) {
-  .vx-results { padding: var(--space-16); }
-  .vx-results-table :is(th, td):not(:first-child, .is-ours, .is-verdict) { display: none; }
-}
-/* The narrowest phones, 320px: the three columns fit inside the frame with 12px of padding, 12px between them, and headings that wrap. */
-@media (max-width: 400px) {
-  .vx-results { padding: var(--space-12); }
-  .vx-results-table :is(th, td):not(:first-child) { padding-left: var(--space-12); }
-  .vx-results-table th { white-space: normal; }
-}
 
-.vx-eyebrow { display: inline-flex; align-items: center; gap: var(--space-8); }
-.vx-eyebrow::before { content: ""; width: 6px; height: 6px; background: var(--ink-muted); flex: none; }
 
-.vx-tabs { overflow: hidden; }
 .vx-tabs-list { display: flex; padding: 0 var(--space-4); border-bottom: 1px solid var(--line); overflow-x: auto; }
 .vx-tabs-list button {
   appearance: none;
@@ -538,54 +438,11 @@ html:has(.vx-header) { scroll-padding-top: calc(var(--space-64) + var(--space-8)
 .vx-tabs-list button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 /* After the selected rule, so a press shows on the selected tab too. */
 .vx-tabs-list button:active { background: var(--wash); }
-.vx-tabs-code { display: flex; align-items: flex-start; gap: var(--space-12); padding: var(--space-12) var(--space-16); }
-/* Every panel shares one grid cell and only the selected one shows, so the block is always the
-   tallest panel's height and switching tabs never moves the page. */
-.vx-tabs-panels { display: grid; flex: 1; min-width: 0; }
-.vx-tabs-panels > .vx-tabs-pre { grid-area: 1 / 1; }
-.vx-tabs-pre { margin: 0; flex: 1; min-width: 0; font: 400 13px/1.6 var(--font-mono); color: var(--ink-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.vx-tabs-pre.is-idle { visibility: hidden; }
-.vx-prompt { color: var(--ink-muted); user-select: none; }
-.vx-copy { all: unset; cursor: pointer; color: var(--ink-muted); padding: 2px; }
-.vx-copy:hover { color: var(--ink); }
-.vx-copy:active { background: var(--wash); }
-.vx-copy svg { width: 16px; height: 16px; fill: currentColor; display: block; }
-.vx-copy .is-check, .vx-copy.is-done .is-copy { display: none; }
-.vx-copy.is-done .is-check { display: block; }
 
-/* A bar chart's rows: name, a bar on its track, the value. Vortex is the one Blue row. renderBars
-   sets --bar-value to fit the longest value, so every track has one length and the bars share a scale. */
-.vx-bars { display: grid; gap: var(--space-8); }
-.vx-bar {
-  display: grid;
-  grid-template-columns: var(--bar-name, 56px) minmax(0, 1fr) var(--bar-value, auto);
-  gap: var(--space-8);
-  align-items: center;
-  font: 400 12px/1 var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-muted);
-}
-.vx-bar-value { text-align: right; }
-.vx-bar-missing { grid-column: 2 / -1; }
-.vx-bar-extra { margin-left: var(--space-8); }
-.vx-bar-track { height: 6px; background: var(--chart-track); }
-.vx-bar-fill { display: block; height: 100%; background: var(--chart-muted); }
-.vx-bar.is-ours { color: var(--accent-ink); }
-.vx-bar.is-ours .vx-bar-fill { background: var(--chart-vortex); }
-/* Parquet, Lance and Arrow take muted tints of their colours, so the bars are not grey on grey,
-   drawn at 42% so that Vortex's Blue is the one solid bar and leads even where the others are
-   longer. Every bar prints its value, so the bar is never the only way to read it. */
-.vx-bar.is-parquet .vx-bar-fill { background: var(--chart-parquet); }
-.vx-bar.is-lance .vx-bar-fill { background: var(--chart-lance); }
-.vx-bar.is-arrow .vx-bar-fill { background: var(--chart-arrow); }
-.vx-bar:is(.is-parquet, .is-lance, .is-arrow) .vx-bar-fill { opacity: 0.42; }
-.vx-bars.is-lg .vx-bar { gap: var(--space-12); font-size: 12.5px; }
-.vx-bars.is-lg .vx-bar-track { height: 10px; }
 
 
 /* ------------------------------------------------------------------ tables
    A post's tables, which Markdown writes, and data tables. The blog and the Explorer both copy it. */
-.vx-table-wrap { overflow-x: auto; }
 .vx-prose table,
 .vx-table { width: 100%; border-collapse: collapse; font: 400 14px/1.4 var(--font-sans); font-variant-numeric: tabular-nums; }
 .vx-prose th,
