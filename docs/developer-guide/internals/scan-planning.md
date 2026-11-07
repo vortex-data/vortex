@@ -1,4 +1,4 @@
-# Scan Plans
+# Scan plans
 
 A scan plan is the physical plan for satisfying one scan query. It is a tree of physical operators
 over a row domain, describing the reads and derived work needed to produce that query's result.

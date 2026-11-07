@@ -1,4 +1,4 @@
-# Row Encoding Byte Sort Specification
+# Row encoding byte sort specification
 
 This document describes the byte-sortable row encoding implemented by the `vortex-row`
 crate. The encoding converts one or more columnar arrays into a `ListView<u8>` array. Each

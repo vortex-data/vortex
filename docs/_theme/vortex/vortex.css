@@ -27,36 +27,6 @@
 [data-theme="dark"] .only-light,
 [data-theme="light"] .only-dark { display: none !important; }
 
-/* The landing page: the wordmark in place of the title, then cards. */
-.page-index .vx-docs-main > section > h1 {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.vx-docs-main .vortex-wordmark { display: block; max-width: min(400px, 100%); margin: var(--space-24) auto var(--space-48); }
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  gap: var(--space-16);
-}
-.card {
-  position: relative;
-  padding: var(--space-12) var(--space-16);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  transition: background-color var(--vx-motion);
-}
-.card:hover { background: var(--wash); }
-.vx-docs-main .card > * { margin: 0 0 var(--space-8); }
-.vx-docs-main .card > :last-child { margin-bottom: 0; }
-.vx-docs-main .card > p:first-child a { text-decoration: none; }
-.card > p:first-child a::after { content: ""; position: absolute; inset: 0; }
-
 /* The versioning spec's terms and diagrams. The diagrams draw their own light panels. */
 table.versioning-terms td:first-child { white-space: nowrap; }
 figure.versioning-diagram { margin-inline: 0; }
