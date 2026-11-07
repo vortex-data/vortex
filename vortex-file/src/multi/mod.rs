@@ -9,13 +9,17 @@ mod uri;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use parking_lot::Mutex;
 pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
 pub use uri::parse_uri_or_path;
+use vortex_array::dtype::FieldPath;
+use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -23,6 +27,7 @@ use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
+use vortex_layout::scan::multi::FieldStatisticsProvider;
 use vortex_layout::scan::multi::LayoutReaderFactory;
 use vortex_layout::scan::multi::MultiLayoutDataSource;
 use vortex_scan::DataSource;
@@ -31,6 +36,7 @@ use vortex_session::VortexSession;
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::VortexOpenOptions;
+use crate::footer::FileStatistics;
 
 /// A builder that discovers multiple Vortex files from glob patterns and constructs a
 /// [`MultiLayoutDataSource`] to scan them as a single data source.
@@ -74,6 +80,9 @@ pub struct MultiFileDataSource {
 /// source add one exact path per glob source, where each resolution is a single remote
 /// metadata lookup; resolving them concurrently avoids one round trip of latency per file.
 const GLOB_RESOLUTION_CONCURRENCY: usize = 16;
+
+/// In-flight footer reads when the field statistics of a [`MultiFileDataSource`] are first used.
+const FOOTER_STATISTICS_CONCURRENCY: usize = 16;
 
 impl MultiFileDataSource {
     /// Create a new [`MultiFileDataSource`] builder.
@@ -177,6 +186,13 @@ impl MultiFileDataSource {
 
         let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
 
+        let field_statistics = Arc::new(MultiFileStatistics {
+            files: all_files.clone(),
+            session: self.session.clone(),
+            open_options_fn: Arc::clone(&self.open_options_fn),
+            footers: Mutex::new(None),
+        });
+
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
             .map(|(file, fs)| {
@@ -194,7 +210,8 @@ impl MultiFileDataSource {
             factories,
             byte_sizes,
             &self.session,
-        );
+        )
+        .with_field_statistics(field_statistics);
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
@@ -297,11 +314,86 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
     }
 }
 
+/// Footer statistics of every file of a [`MultiFileDataSource`], merged per field.
+struct MultiFileStatistics {
+    files: Vec<(FileListing, FileSystemRef)>,
+    session: VortexSession,
+    open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    /// The statistics of each file, read once on first use. `None` for a file without them.
+    footers: Mutex<Option<Arc<[Option<FileStatistics>]>>>,
+}
+
+impl MultiFileStatistics {
+    async fn file_statistics(&self) -> VortexResult<Arc<[Option<FileStatistics>]>> {
+        if let Some(footers) = self.footers.lock().as_ref() {
+            return Ok(Arc::clone(footers));
+        }
+        // Footers come from the session's cache when the files were opened before.
+        let opens = self
+            .files
+            .iter()
+            .map(|(file, fs)| {
+                open_file_statistics(
+                    Arc::clone(fs),
+                    file.clone(),
+                    self.session.clone(),
+                    Arc::clone(&self.open_options_fn),
+                )
+                .boxed()
+            })
+            .collect::<Vec<_>>();
+        let footers: Arc<[Option<FileStatistics>]> = stream::iter(opens)
+            .buffered(FOOTER_STATISTICS_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?
+            .into();
+        *self.footers.lock() = Some(Arc::clone(&footers));
+        Ok(footers)
+    }
+}
+
+async fn open_file_statistics(
+    fs: FileSystemRef,
+    file: FileListing,
+    session: VortexSession,
+    open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+) -> VortexResult<Option<FileStatistics>> {
+    let file = open_file(&fs, &file, &session, open_options_fn.as_ref()).await?;
+    Ok(file.file_stats().cloned())
+}
+
+#[async_trait]
+impl FieldStatisticsProvider for MultiFileStatistics {
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet> {
+        let mut merged: Option<StatsSet> = None;
+        for file_stats in self.file_statistics().await?.iter() {
+            // A file without statistics for the field leaves every merged statistic unbounded.
+            let Some((aggregates, dtype)) = file_stats
+                .as_ref()
+                .and_then(|file_stats| file_stats.get_by_path(field_path))
+            else {
+                return Ok(StatsSet::default());
+            };
+            let stats = aggregates.to_stats_set();
+            merged = Some(match merged {
+                Some(merged) => merged.merge_unordered(&stats, dtype),
+                None => stats,
+            });
+        }
+        Ok(merged.unwrap_or_default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt;
 
     use vortex_array::IntoArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -492,6 +584,57 @@ mod tests {
         assert_eq!(
             fb.metadata_segment("k").map(ByteBuffer::as_slice),
             Some(b"file-b".as_slice())
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_field_statistics_merge_file_footers() -> VortexResult<()> {
+        let session = VortexSession::empty()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>()
+            .with::<MultiFileSession>();
+        crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
+
+        let mut out_a = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut out_a,
+                buffer![1u32, 5, 3].into_array().to_array_stream(),
+            )
+            .await?;
+        let mut out_b = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut out_b, buffer![10u32, 2].into_array().to_array_stream())
+            .await?;
+        let fs: FileSystemRef = Arc::new(TwoFileSystem {
+            a: ByteBuffer::from(out_a),
+            b: ByteBuffer::from(out_b),
+        });
+
+        let source = MultiFileDataSource::new(session)
+            .with_glob("a.vortex", Some(Arc::clone(&fs)))
+            .with_glob("b.vortex", Some(fs))
+            .build()
+            .await?;
+        let stats = source.field_statistics(&FieldPath::root()).await?;
+
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        let u64_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+        assert_eq!(
+            stats.get_as::<u32>(Stat::Min, &dtype),
+            Precision::exact(1u32)
+        );
+        assert_eq!(
+            stats.get_as::<u32>(Stat::Max, &dtype),
+            Precision::exact(10u32)
+        );
+        assert_eq!(
+            stats.get_as::<u64>(Stat::NullCount, &u64_dtype),
+            Precision::exact(0u64)
         );
         Ok(())
     }

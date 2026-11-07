@@ -119,9 +119,11 @@ use futures::stream;
 use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
 use vortex::array::VortexSessionExecute;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -131,6 +133,7 @@ use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::expr::stats::Precision;
+use vortex::expr::stats::Stat;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
@@ -318,8 +321,11 @@ impl VortexDataSourceBuilder {
         .await?
         .iter()
         .zip(fields.fields())
-        .map(|(stats, dtype)| stats_set_to_df(stats, &dtype))
+        .map(|(stats, dtype)| {
+            Ok(stats_set_to_df(stats, &dtype)?.with_byte_size(uncompressed_byte_size(stats)))
+        })
         .collect::<VortexResult<Vec<_>>>()?;
+        let projected_byte_size = sum_byte_sizes(&statistics);
 
         Ok(VortexDataSource {
             data_source: self.data_source,
@@ -338,6 +344,7 @@ impl VortexDataSourceBuilder {
             leftover_projection: None,
             leftover_schema: arrow_schema,
             leftover_statistics: statistics,
+            projected_byte_size,
             filter: None,
             dynamic_filters: Vec::new(),
             limit: None,
@@ -402,7 +409,6 @@ pub struct VortexDataSource {
     /// The initial Vortex projection expression (e.g. column selection from the builder).
     initial_projection: Expression,
     /// Column statistics for the initial projection columns.
-    #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
@@ -424,6 +430,8 @@ pub struct VortexDataSource {
     leftover_schema: SchemaRef,
     /// Column statistics matching `leftover_schema`.
     leftover_statistics: Vec<ColumnStatistics>,
+    /// The uncompressed size of the initial columns the output is computed from.
+    projected_byte_size: DFPrecision<usize>,
 
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
@@ -820,8 +828,9 @@ impl DataSource for VortexDataSource {
         }
         let num_rows = estimate_to_df_precision(&self.data_source.row_count());
 
-        // FIXME(ngates): byte size should be adjusted for the initial projection...
-        let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size());
+        // `DataSource::byte_size` is the compressed size of the whole source on storage, while
+        // DataFusion compares in-memory sizes of the columns a plan reads.
+        let total_byte_size = self.projected_byte_size;
 
         // Column statistics must match the output schema (leftover_schema), which may differ
         // from the initial schema after try_swapping_with_projection adds computed columns.
@@ -911,8 +920,20 @@ impl DataSource for VortexDataSource {
             vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
         this.leftover_projection = Some(leftover_projection);
         this.leftover_schema = Arc::clone(&final_schema);
-        this.leftover_statistics =
-            vec![ColumnStatistics::new_unknown(); final_schema.fields().len()];
+        let initial_statistics = Statistics {
+            num_rows: estimate_to_df_precision(&self.data_source.row_count()),
+            total_byte_size: DFPrecision::Absent,
+            column_statistics: self.initial_statistics.clone(),
+        };
+        this.leftover_statistics = projection
+            .project_statistics(initial_statistics, &final_schema)?
+            .column_statistics;
+        this.projected_byte_size = projection
+            .column_indices()
+            .into_iter()
+            .map(|index| self.initial_statistics.get(index))
+            .collect::<Option<Vec<_>>>()
+            .map_or(DFPrecision::Absent, sum_byte_sizes);
 
         Ok(Some(Arc::new(this)))
     }
@@ -1018,6 +1039,25 @@ fn project_output_ordering(
 /// [`DataFusionPrecision`].
 ///
 /// [`DataFusionPrecision`]: datafusion_common::stats::Precision
+/// The uncompressed size Vortex recorded for a field, as an estimate of its in-memory size.
+fn uncompressed_byte_size(stats: &StatsSet) -> DFPrecision<usize> {
+    estimate_to_df_precision(
+        &stats.get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into()),
+    )
+    .to_inexact()
+}
+
+/// The total of the column byte sizes, or `Absent` if any column's size is unknown.
+fn sum_byte_sizes<'a>(
+    columns: impl IntoIterator<Item = &'a ColumnStatistics>,
+) -> DFPrecision<usize> {
+    columns
+        .into_iter()
+        .fold(DFPrecision::Exact(0), |total, column| {
+            total.add(&column.byte_size)
+        })
+}
+
 fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
     match est {
         Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),

@@ -517,3 +517,64 @@ async fn test_dynamic_extension_literals_refresh_and_keep_residuals(
 
     Ok(())
 }
+
+/// Column projections keep the footer statistics, and sizes are the uncompressed sizes of the
+/// columns read rather than the compressed size of the whole file.
+#[rstest]
+#[case::all_columns(None)]
+#[case::reordered(Some(vec![("b", 2), ("a", 0)]))]
+#[tokio::test]
+async fn projection_keeps_column_statistics(
+    #[case] columns: Option<Vec<(&str, usize)>>,
+) -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(
+        ("a", Int32, vec![1, 2, 3]),
+        ("s", Utf8, vec![Some("one"), None, Some("three")]),
+        ("b", Int32, vec![30, 10, 20])
+    )?;
+    let mut source: Arc<dyn DataSource> = Arc::new(vortex_source_from_batch(batch).await?);
+    let names = match &columns {
+        Some(columns) => {
+            let projection = ProjectionExprs::from(
+                columns
+                    .iter()
+                    .map(|(name, index)| {
+                        ProjectionExpr::new(Arc::new(df_expr::Column::new(name, *index)), *name)
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            source = source
+                .try_swapping_with_projection(&projection)?
+                .ok_or_else(|| anyhow!("projection was not swapped"))?;
+            columns.iter().map(|(name, _)| *name).collect::<Vec<_>>()
+        }
+        None => vec!["a", "s", "b"],
+    };
+
+    let statistics = source.partition_statistics(None)?;
+    assert_eq!(statistics.num_rows, Precision::Exact(3));
+    let mut total = 0;
+    for (name, column) in names.iter().zip(&statistics.column_statistics) {
+        let Precision::Inexact(size) = column.byte_size else {
+            anyhow::bail!("expected an inexact byte size for {name}");
+        };
+        total += size;
+        let bounds = match *name {
+            "a" => Some((1, 3)),
+            "b" => Some((10, 30)),
+            _ => None,
+        };
+        if let Some((min, max)) = bounds {
+            assert_eq!(
+                column.min_value,
+                Precision::Exact(ScalarValue::Int32(Some(min)))
+            );
+            assert_eq!(
+                column.max_value,
+                Precision::Exact(ScalarValue::Int32(Some(max)))
+            );
+        }
+    }
+    assert_eq!(statistics.total_byte_size, Precision::Inexact(total));
+    Ok(())
+}
