@@ -40,6 +40,7 @@ use vortex::dtype::extension::ExtDType;
 use vortex::dtype::half::f16;
 use vortex::encodings::uuid::Uuid;
 use vortex::encodings::uuid::UuidMetadata;
+use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -1041,6 +1042,91 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalList(
             children,
             Nullability::NonNullable,
         ))))
+    })
+}
+
+/// Build a list literal from `values`, each cast to the element dtype, plus a null element when
+/// `with_null` is set.
+///
+/// The element dtype follows [`Java_dev_vortex_jni_NativeExpression_literalList`]. A filter such as
+/// a runtime join filter can hold thousands of values, and one native call for all of them avoids a
+/// Java expression object and a native literal per value.
+fn bulk_list_literal(
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+    values: impl Iterator<Item = Scalar>,
+) -> Result<jlong, JNIError> {
+    let element_dtype =
+        unsafe { prototype_dtype(element_type, "list element type", elements_nullable.into()) }?;
+    let mut children = values
+        .map(|value| value.cast(&element_dtype))
+        .collect::<VortexResult<Vec<Scalar>>>()?;
+    if with_null {
+        children.push(Scalar::null(element_dtype.as_nullable()));
+    }
+
+    Ok(into_raw(lit(Scalar::list(
+        element_dtype,
+        children,
+        Nullability::NonNullable,
+    ))))
+}
+
+/// Build a list literal of integers. See [`bulk_list_literal`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalListI64(
+    mut env: EnvUnowned,
+    _class: JClass,
+    values: JLongArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let values = unsafe { values.get_elements(env, ReleaseMode::NoCopyBack) }?;
+        bulk_list_literal(
+            element_type,
+            elements_nullable,
+            with_null,
+            values
+                .iter()
+                .map(|value| Scalar::primitive(*value, Nullability::NonNullable)),
+        )
+    })
+}
+
+/// Build a list literal of strings. See [`bulk_list_literal`].
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalListUtf8(
+    mut env: EnvUnowned,
+    _class: JClass,
+    values: JObjectArray,
+    element_type: jlong,
+    elements_nullable: jboolean,
+    with_null: jboolean,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let length = values.len(env)?;
+        let mut strings = Vec::with_capacity(length);
+        for index in 0..length {
+            let element = values.get_element(env, index)?;
+            let value = env.cast_local::<JString>(element)?;
+            strings.push(Scalar::utf8(
+                value.try_to_string(env)?,
+                Nullability::NonNullable,
+            ));
+
+            // A long list would otherwise fill the table of local references.
+            env.delete_local_ref(value);
+        }
+
+        bulk_list_literal(
+            element_type,
+            elements_nullable,
+            with_null,
+            strings.into_iter(),
+        )
     })
 }
 

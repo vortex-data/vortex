@@ -17,6 +17,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.apache.spark.sql.sources.AlwaysFalse;
@@ -158,6 +159,11 @@ public final class SparkFilterToVortexExpression {
         }
         DataType dataType = column.get().dataType();
         Expression field = column.get().expression();
+
+        Optional<Expression> bulk = bulkIn(field, dataType, in.values());
+        if (bulk.isPresent()) {
+            return bulk;
+        }
 
         List<Expression> elements = new ArrayList<>(in.values().length);
         boolean holdsNull = false;
@@ -344,6 +350,56 @@ public final class SparkFilterToVortexExpression {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The IN test of {@code values} on an integer or string column, built in one native call. A runtime join filter
+     * holds thousands of values, and each task converts it, so a Java expression per value costs much more than the
+     * scan reads. Other types, and lists with fewer than two values, use the general path.
+     */
+    private static Optional<Expression> bulkIn(Expression field, DataType dataType, Object[] values) {
+        if (values.length < 2) {
+            return Optional.empty();
+        }
+
+        boolean integral = dataType instanceof ByteType
+                || dataType instanceof ShortType
+                || dataType instanceof IntegerType
+                || dataType instanceof LongType;
+        if (!integral && !(dataType instanceof StringType)) {
+            return Optional.empty();
+        }
+
+        long[] longs = integral ? new long[values.length] : null;
+        String[] strings = integral ? null : new String[values.length];
+        int count = 0;
+        boolean holdsNull = false;
+        for (Object value : values) {
+            if (value == null) {
+                holdsNull = true;
+            } else if (integral
+                    && (value instanceof Byte
+                            || value instanceof Short
+                            || value instanceof Integer
+                            || value instanceof Long)) {
+                longs[count++] = ((Number) value).longValue();
+            } else if (!integral && (value instanceof CharSequence || value instanceof UTF8String)) {
+                strings[count++] = value.toString();
+            } else {
+                return Optional.empty();
+            }
+        }
+
+        Optional<Expression> elementType = literal(null, dataType);
+        if (count == 0 || elementType.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // A null element keeps SQL's three-valued IN, so a non-match beneath NOT stays null rather than true.
+        Expression list = integral
+                ? Expression.literalLongList(elementType.get(), holdsNull, Arrays.copyOf(longs, count))
+                : Expression.literalStringList(elementType.get(), holdsNull, Arrays.copyOf(strings, count));
+        return Optional.of(Expression.in(field, list));
     }
 
     private static Optional<Expression> numericLiteral(
