@@ -1,17 +1,67 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::ProbeState;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use super::Delta;
+use crate::DeltaArrayExt;
+use crate::FL_CHUNK_SIZE;
+
+/// The most recently decoded FastLanes chunk, retained across repeated reads.
+///
+/// Reading one value decodes the whole 1024-value chunk holding it, so a repeated read, such as a
+/// binary search over RunEnd ends, would otherwise decode the same chunk once per probe.
+#[derive(Default)]
+pub struct DeltaProbeState {
+    /// The decoded rows and their range in the array.
+    chunk: Option<(Range<usize>, PrimitiveArray)>,
+}
+
 impl OperationsVTable<Delta> for Delta {
-    type ProbeState = ();
+    type ProbeState = DeltaProbeState;
+
+    fn probe_scalar(
+        state: &mut ProbeState<'_, Delta>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        let array = state.array();
+        let Some(retained) = state.retained() else {
+            return Self::scalar_at(array, index, ctx);
+        };
+        if let Some((rows, decoded)) = &retained.chunk
+            && rows.contains(&index)
+        {
+            return decoded
+                .clone()
+                .into_array()
+                .execute_scalar(index - rows.start, ctx);
+        }
+        // The rows of `index`'s FastLanes chunk, in array coordinates.
+        let physical = array.offset() + index;
+        let chunk_start = physical - physical % FL_CHUNK_SIZE;
+        let start = chunk_start.saturating_sub(array.offset());
+        let end = (chunk_start + FL_CHUNK_SIZE - array.offset()).min(array.len());
+        let decoded = array
+            .array()
+            .slice(start..end)?
+            .execute::<PrimitiveArray>(ctx)?;
+        let scalar = decoded
+            .clone()
+            .into_array()
+            .execute_scalar(index - start, ctx)?;
+        retained.chunk = Some((start..end, decoded));
+        Ok(scalar)
+    }
 
     fn scalar_at(
         array: ArrayView<'_, Delta>,
@@ -28,12 +78,14 @@ impl OperationsVTable<Delta> for Delta {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::RunEnd;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -41,6 +93,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Delta;
@@ -294,5 +347,56 @@ mod tests {
             &da(&array).into_array(),
             &mut SESSION.create_execution_ctx(),
         );
+    }
+
+    /// Repeated reads keep the last decoded chunk. Reads in any order, across chunk boundaries,
+    /// through nulls and from an offset slice must still match one-off reads.
+    #[rstest]
+    #[case::whole(0..5000)]
+    #[case::offset_slice(1000..4500)]
+    #[case::within_one_chunk(2050..2060)]
+    fn repeated_probe_matches_one_off_reads(#[case] range: Range<usize>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_option_iter(
+            (0..5000u32).map(|i| (i % 7 != 3).then_some(i * 3 + i % 5)),
+        );
+        let delta = da(&values).into_array().slice(range)?;
+        let len = delta.len();
+        let mut probe = delta.repeated_probe();
+        // Jump between chunks and back, as a binary search does.
+        let order = (0..len)
+            .step_by(997)
+            .chain((0..len).rev().step_by(13))
+            .chain(0..len);
+        for i in order {
+            assert_eq!(
+                probe.execute_scalar(i, &mut ctx)?,
+                delta.execute_scalar(i, &mut ctx)?
+            );
+        }
+        Ok(())
+    }
+
+    /// Slicing a RunEnd array searches its ends through a repeated probe; with Delta-encoded
+    /// ends, that search reads Delta chunks through the retained state.
+    #[rstest]
+    #[case::first_chunk(0..900)]
+    #[case::middle(3000..9000)]
+    #[case::unaligned_tail(7777..12000)]
+    fn runend_slice_over_delta_ends(#[case] range: Range<usize>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // 3000 runs of 4 rows, so the ends span three Delta chunks.
+        let ends: PrimitiveArray = (1..=3000u32).map(|i| i * 4).collect();
+        let values: PrimitiveArray = (0..3000i32).map(|i| i % 17 - 8).collect();
+        let runend = RunEnd::try_new(da(&ends).into_array(), values.into_array(), &mut ctx)?;
+        let expected: PrimitiveArray = (0..12000usize)
+            .map(|row| i32::try_from(row / 4 % 17).vortex_expect("small") - 8)
+            .collect();
+        assert_arrays_eq!(
+            runend.into_array().slice(range.clone())?,
+            expected.into_array().slice(range)?,
+            &mut ctx
+        );
+        Ok(())
     }
 }
