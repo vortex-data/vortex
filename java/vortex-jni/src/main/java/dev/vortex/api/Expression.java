@@ -471,6 +471,24 @@ public final class Expression {
                 elements);
     }
 
+    /**
+     * List literal of integers, each cast to the dtype of {@code elementType}, with a null element when
+     * {@code withNull} is set. One native call builds the whole list, so a list of thousands of values, such as the
+     * keys of a runtime join filter, costs no Java object per value.
+     */
+    public static Expression literalLongList(Expression elementType, boolean withNull, long[] values) {
+        return keepAlive(
+                NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull),
+                elementType);
+    }
+
+    /** {@link #literalLongList(Expression, boolean, long[])} for strings. */
+    public static Expression literalStringList(Expression elementType, boolean withNull, String[] values) {
+        return keepAlive(
+                NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull),
+                elementType);
+    }
+
     /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */
     public static Expression nullLiteralList(Expression elementType, boolean elementsNullable) {
         return keepAlive(
