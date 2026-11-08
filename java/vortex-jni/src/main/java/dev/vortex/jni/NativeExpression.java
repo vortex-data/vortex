@@ -101,6 +101,12 @@ public final class NativeExpression {
     public static native long literalList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, boolean isNull);
 
+    public static native long literalListI64(
+            long[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
+    public static native long literalListUtf8(
+            String[] values, long elementTypePointer, boolean elementsNullable, boolean withNull);
+
     public static native long literalFixedSizeList(
             long[] elementPointers, long elementTypePointer, boolean elementsNullable, int size, boolean isNull);
 
