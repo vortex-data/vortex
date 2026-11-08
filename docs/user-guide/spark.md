@@ -98,7 +98,8 @@ one task.
 
 On the V2 path the scan plans the splits itself. It splits a file only at chunk boundaries, so each
 task reads whole chunks and no two tasks decode the same chunk. Each split holds at least
-`vortex.minSplitBytes` (16 MiB by default), or Spark's own split size when that is larger. A smaller
+`vortex.minSplitBytes` (16 MiB by default), or a third more than Spark's even share of the bytes per
+core when that is larger, so that a scan fits in one wave of tasks. A smaller
 `spark.sql.files.maxPartitionBytes` lowers this minimum to it. Fewer, larger splits cost fewer file
 opens on a cluster with many cores.
 
