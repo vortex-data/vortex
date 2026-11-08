@@ -58,7 +58,7 @@ fn rle_decode_typed<V, I>(
 ) -> VortexResult<PrimitiveArray>
 where
     V: NativePType + RLE + Clone + Copy,
-    I: NativePType + Into<usize>,
+    I: NativePType + Ord + Into<usize>,
 {
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     let values = values.as_slice::<V>();
@@ -182,7 +182,9 @@ where
 /// Bound-checks every index in the chunk, then runs the unchecked fastlanes gather.
 ///
 /// The indices come from (possibly untrusted) storage: a single max-reduction over the
-/// chunk vectorizes and keeps the bounds check out of the per-element decode loop.
+/// chunk vectorizes and keeps the bounds check out of the per-element decode loop. The
+/// reduction runs in the index type and widens only its result: widening every index to
+/// `usize` first quarters the lanes per vector and made the check cost as much as the gather.
 fn decode_chunk_checked<V, I>(
     chunk_values: &[V],
     chunk_indices: &[I; FL_CHUNK_SIZE],
@@ -192,13 +194,9 @@ fn decode_chunk_checked<V, I>(
 ) -> VortexResult<()>
 where
     V: RLE,
-    I: Copy + Into<usize>,
+    I: Copy + Ord + Into<usize>,
 {
-    let max_index: usize = chunk_indices
-        .iter()
-        .map(|idx| (*idx).into())
-        .max()
-        .unwrap_or_default();
+    let max_index: usize = chunk_indices.iter().copied().max().map_or(0, Into::into);
     vortex_ensure!(
         max_index < num_chunk_values as usize,
         "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
