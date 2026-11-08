@@ -98,7 +98,7 @@ one task.
 
 On the V2 path the scan plans the splits itself. It splits a file only at chunk boundaries, so each
 task reads whole chunks and no two tasks decode the same chunk. Each split holds at least
-`vortex.minSplitBytes` (64 MiB by default), or Spark's own split size when that is larger. A smaller
+`vortex.minSplitBytes` (16 MiB by default), or Spark's own split size when that is larger. A smaller
 `spark.sql.files.maxPartitionBytes` lowers this minimum to it. Fewer, larger splits cost fewer file
 opens on a cluster with many cores.
 
@@ -358,7 +358,7 @@ own storage clients are not used by the Spark connector.
 | `vortex.variantPushdown`   | `false` | Extract the paths of `variant_get` inside the scan, on Spark 4.1 and later. |
 | `vortex.reportOrdering`    | `false` | Report the order the files store their rows in, so Spark need not sort again. |
 | `vortex.splitFiles`        | `true`  | Split large files into row ranges read by separate tasks. |
-| `vortex.minSplitBytes`     | `64m`   | Smallest split on the V2 path, at most `spark.sql.files.maxPartitionBytes`. |
+| `vortex.minSplitBytes`     | `16m`   | Smallest split on the V2 path, at most `spark.sql.files.maxPartitionBytes`. |
 | `vortex.pruneFiles`        | `true`  | Drop files on the driver whose footer statistics rule out every row. |
 | `vortex.runtimeFilter`     | `true`  | Accept Spark's runtime filters, such as dynamic partition pruning. |
 | `vortex.runtimeFilter.maxValues` | `10000` | Most runtime filter keys pushed as a set; a larger set is pushed as its range. |
