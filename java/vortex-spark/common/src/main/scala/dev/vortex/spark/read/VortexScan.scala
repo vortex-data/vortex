@@ -715,6 +715,7 @@ class VortexScan(
         large
           .map(file => new VortexFile(file.toPath.toString, file.fileSize))
           .asJava,
+        splitColumns.asJava,
         io,
         options
       )
@@ -736,6 +737,15 @@ class VortexScan(
       }
     }
   }
+
+  /** The top-level columns whose chunks the cuts follow: the columns the scan
+    * reads. Pushed filters refer only to these columns. A scan that reads no
+    * column, such as a count, follows the first column, which is much cheaper
+    * than every column of a wide file.
+    */
+  private def splitColumns: Seq[String] =
+    if (readDataSchema.nonEmpty) readDataSchema.fieldNames.toSeq
+    else dataSchema.fieldNames.take(1).toSeq
 
   /** The byte offsets to cut a file of `size` bytes at, given the row
     * boundaries of its chunks.

@@ -270,8 +270,10 @@ public final class VortexFooterReader {
      * Split {@code i} of a file holds rows {@code [boundaries[i], boundaries[i + 1])}, and the last boundary is the
      * file's row count.
      */
-    public static List<long[]> splitBoundaries(List<VortexFile> files, VortexIo io, VortexOptions options) {
-        return mapFiles(files, io, options, footer -> NativeFiles.splits(footer.session(), footer.readable()));
+    public static List<long[]> splitBoundaries(
+            List<VortexFile> files, List<String> columns, VortexIo io, VortexOptions options) {
+        return mapFiles(
+                files, io, options, footer -> NativeFiles.splits(footer.session(), footer.readable(), columns));
     }
 
     private static FileStatistics fileStatistics(OpenFooter footer, List<String> columns, boolean caseSensitive) {
