@@ -158,13 +158,102 @@ public final class VortexAggregatePushdownTest {
     }
 
     @Test
-    void sumStaysInSparkUnderAnsiMode() {
-        Dataset<Row> data = writeAndRead(30, "ansi", 2, false);
+    void sumsOfNarrowColumnsPushDownUnderAnsiMode() {
+        Path output = writeShiftedSumData("ansi_sums");
         withAnsi(true, () -> {
-            Dataset<Row> sum = data.selectExpr("sum(id)");
-            assertFalse(sum.queryExecution().executedPlan().toString().contains("PushedAggregation: [SUM(id)]"));
-            assertEquals(435L, sum.first().getLong(0));
+            Dataset<Row> pushed = spark.read().format("vortex").load(output.toString());
+            Dataset<Row> scanned = spark.read()
+                    .format("vortex")
+                    .option("vortex.aggregatePushdown", "false")
+                    .load(output.toString());
+
+            // A sum of SMALLINT or INT values cannot overflow 64 bits in a file, so ANSI rules allow it.
+            String[] narrow = {"sum(small)", "sum(id)", "count(small)"};
+            assertPushed(pushed.selectExpr(narrow));
+            assertEquals(
+                    scanned.selectExpr(narrow).collectAsList(),
+                    pushed.selectExpr(narrow).collectAsList());
+
+            // A sum of BIGINT values can overflow, and a wrapped partial cannot tell.
+            assertNotPushed(pushed.selectExpr("sum(big)"));
         });
+    }
+
+    @Test
+    void sumsOfAColumnPlusAConstantPushDownUnderAnsiMode() {
+        Path output = writeShiftedSumData("shifted_sums");
+        withAnsi(true, () -> {
+            Dataset<Row> pushed = spark.read().format("vortex").load(output.toString());
+            Dataset<Row> scanned = spark.read()
+                    .format("vortex")
+                    .option("vortex.aggregatePushdown", "false")
+                    .load(output.toString());
+
+            // ClickBench q30 sums one SMALLINT column plus 0 to 89. The appended file holds no value of small, so its
+            // shifted sums are null and add nothing.
+            String[] shifted = {
+                "sum(small + 1)", "sum(small + 89)", "sum(-7 + small)", "sum(id + 5000000000)", "sum(small)"
+            };
+            assertPushed(pushed.selectExpr(shifted));
+            assertEquals(
+                    scanned.selectExpr(shifted).collectAsList(),
+                    pushed.selectExpr(shifted).collectAsList());
+        });
+    }
+
+    @Test
+    void sumsOfAColumnPlusAConstantThatCanOverflowStayInSpark() {
+        Path output = writeShiftedSumData("overflowing_sums");
+        withAnsi(true, () -> {
+            Dataset<Row> data = spark.read().format("vortex").load(output.toString());
+
+            // An INT value plus an INT constant can overflow the addition, which ANSI rules make fail.
+            assertNotPushed(data.selectExpr("sum(id + 1)"));
+            assertNotPushed(data.selectExpr("sum(big + 1)"));
+            assertNotPushed(data.selectExpr("sum(small + 2147483647)"));
+        });
+    }
+
+    /**
+     * Writes rows with SMALLINT, INT, and BIGINT columns, and appends a file whose SMALLINT column holds only nulls.
+     */
+    private Path writeShiftedSumData(String name) {
+        Path output = tempDir.resolve(name);
+        spark.range(0, 300)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "case when id % 4 = 0 then null else cast(id - 150 as smallint) end as small",
+                        "id * 3 as big")
+                .repartition(3)
+                .write()
+                .format("vortex")
+                .mode(SaveMode.Overwrite)
+                .save(output.toString());
+        spark.range(1000, 1010)
+                .selectExpr("cast(id as int) as id", "cast(null as smallint) as small", "id * 3 as big")
+                .coalesce(1)
+                .write()
+                .format("vortex")
+                .mode(SaveMode.Append)
+                .save(output.toString());
+        return output;
+    }
+
+    /** The aggregate is answered by the source: by a pushed partial per file or from the footers on the driver. */
+    private static void assertPushed(Dataset<Row> aggregate) {
+        String plan = aggregate.queryExecution().executedPlan().toString();
+        assertTrue(isPushed(plan), plan);
+    }
+
+    private static void assertNotPushed(Dataset<Row> aggregate) {
+        String plan = aggregate.queryExecution().executedPlan().toString();
+        assertFalse(isPushed(plan), plan);
+    }
+
+    /** Every scan lists its pushed aggregates, so an empty list means that none was pushed. */
+    private static boolean isPushed(String plan) {
+        return (plan.contains("PushedAggregation: [") && !plan.contains("PushedAggregation: []"))
+                || plan.contains("LocalTableScan");
     }
 
     /** Runs {@code body} with ANSI mode set, which Spark 4 enables by default and Spark 3.5 does not. */

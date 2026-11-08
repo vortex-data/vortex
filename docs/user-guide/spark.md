@@ -191,7 +191,8 @@ rows, and Spark combines the partial result of each file:
 | `COUNT(*)`         | —                                                                                  |
 | `COUNT(col)`       | Any column.                                                                        |
 | `MIN(col)`, `MAX(col)` | Boolean, integer, floating-point, decimal, date, timestamp, string, and binary columns, and partition columns. |
-| `SUM(col)`, `AVG(col)` | `TINYINT`, `SMALLINT`, `INT`, and `BIGINT` columns, outside ANSI mode.         |
+| `SUM(col)`, `AVG(col)` | `TINYINT`, `SMALLINT`, `INT`, and `BIGINT` columns. In ANSI mode, `TINYINT`, `SMALLINT`, and `INT` columns. |
+| `SUM(col + k)`     | In ANSI mode, a `TINYINT` or `SMALLINT` column plus an `INT` or `BIGINT` constant, and an `INT` column plus a `BIGINT` constant. |
 
 Each aggregate is answered from the file footer's statistics when they state it exactly, at the
 cost of the footer read alone. Otherwise only the columns it reads are scanned, and Vortex computes
@@ -201,7 +202,13 @@ aggregate over a partition column. A file written before a column was added coun
 in it.
 
 `SUM` wraps on overflow like Spark's own `BIGINT` addition. In ANSI mode, which Spark 4 enables by
-default, an overflow must fail, and a per-file sum cannot tell, so `SUM` and `AVG` stay in Spark.
+default, an overflow must fail, and a wrapped per-file sum cannot tell. A sum of `TINYINT`,
+`SMALLINT`, or `INT` values cannot overflow in a file of up to 2^32 rows, so only these sums are
+pushed, and a file with more rows fails the query with a request to disable aggregate pushdown.
+
+`SUM(col + k)` is answered as `SUM(col) + k * COUNT(col)`, such as the `SUM(ResolutionWidth + 1)`
+of ClickBench. Spark states such an argument to a source only in ANSI mode, and only when no value
+of the column plus the constant can overflow the type of the addition is it pushed.
 
 When the footer of every file states each aggregate exactly, the driver reads the footers, merges
 the results of the files, and gives Spark the final rows. Spark then runs no task for the query.

@@ -68,6 +68,12 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
 
     private static final long serialVersionUID = 1L;
 
+    /**
+     * The most rows of a file a sum reads under ANSI rules. The sum of so many {@code INT} values, the widest that such
+     * a sum reads, cannot overflow 64 bits.
+     */
+    private static final long MAX_EXACT_SUM_ROWS = 1L << 32;
+
     private final FileSourceOptions fileOptions;
     private final VortexIo io;
     private final VortexOptions formatOptions;
@@ -82,6 +88,18 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
     /** For each aggregate, the ordinal of the partition column it reads, or {@code -1}. */
     private final int[] partitionOrdinals;
 
+    /** For each aggregate, whether it is a {@code SUM(column + offset)}. */
+    private final boolean[] shifted;
+
+    /** For each shifted sum, the constant added to each value. */
+    private final long[] offsets;
+
+    /**
+     * Whether sums follow ANSI rules, which fail on overflow. A file's 64-bit native sum wraps, so a sum may then only
+     * read a file whose values cannot overflow it.
+     */
+    private final boolean exactSums;
+
     public VortexAggregateReaderFactory(
             FileSourceOptions fileOptions,
             VortexIo io,
@@ -89,12 +107,14 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
             StructType aggregateSchema,
             StructType partitionSchema,
             Aggregation aggregation,
-            boolean caseSensitive) {
+            boolean caseSensitive,
+            boolean exactSums) {
         this.fileOptions = fileOptions;
         this.io = io;
         this.formatOptions = formatOptions;
         this.aggregateSchema = aggregateSchema;
         this.caseSensitive = caseSensitive;
+        this.exactSums = exactSums;
 
         Expression[] groupBy = aggregation.groupByExpressions();
         this.groupByOrdinals = new int[groupBy.length];
@@ -109,31 +129,39 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
         this.kinds = new FileAggregate.Kind[aggregates.length];
         this.dataColumns = new String[aggregates.length];
         this.partitionOrdinals = new int[aggregates.length];
+        this.shifted = new boolean[aggregates.length];
+        this.offsets = new long[aggregates.length];
         for (int i = 0; i < aggregates.length; i++) {
             AggregateFunc aggregate = aggregates[i];
-            Expression column;
+            String name = null;
             if (aggregate instanceof CountStar) {
                 kinds[i] = FileAggregate.Kind.COUNT_STAR;
-                column = null;
             } else if (aggregate instanceof Count count) {
                 kinds[i] = FileAggregate.Kind.COUNT;
-                column = count.column();
+                name = columnName(count.column());
             } else if (aggregate instanceof Min min) {
                 kinds[i] = FileAggregate.Kind.MIN;
-                column = min.column();
+                name = columnName(min.column());
             } else if (aggregate instanceof Max max) {
                 kinds[i] = FileAggregate.Kind.MAX;
-                column = max.column();
+                name = columnName(max.column());
             } else if (aggregate instanceof Sum sum) {
                 kinds[i] = FileAggregate.Kind.SUM;
-                column = sum.column();
+                Optional<ShiftedSum> shiftedSum =
+                        sum.column() instanceof NamedReference ? Optional.empty() : ShiftedSum.parse(sum.column());
+                if (shiftedSum.isPresent()) {
+                    shifted[i] = true;
+                    offsets[i] = shiftedSum.get().offset();
+                    name = shiftedSum.get().column();
+                } else {
+                    name = columnName(sum.column());
+                }
             } else {
                 throw new IllegalArgumentException("Unsupported pushed aggregate " + aggregate);
             }
 
             partitionOrdinals[i] = -1;
-            if (column != null) {
-                String name = columnName(column);
+            if (name != null) {
                 partitionOrdinals[i] = partitionOrdinal(partitionSchema, name);
                 dataColumns[i] = partitionOrdinals[i] < 0 ? name : null;
             }
@@ -260,6 +288,15 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
                 throw new IllegalStateException("Vortex left an aggregate over " + file.toPath() + " unanswered");
             }
             long rowCount = ((BigIntVector) result.vector(0)).get(0);
+            if (exactSums && rowCount > MAX_EXACT_SUM_ROWS && hasSum()) {
+                throw new IllegalStateException(String.format(
+                        Locale.ROOT,
+                        "%s holds %d rows, more than a pushed sum can read without overflow under ANSI rules. "
+                                + "Set %s to false.",
+                        file.toPath(),
+                        rowCount,
+                        "vortex.aggregatePushdown"));
+            }
 
             StructField[] fields = aggregateSchema.fields();
             ColumnVector[] vectors = new ColumnVector[fields.length];
@@ -268,7 +305,9 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
             }
             for (int i = 0; i < kinds.length; i++) {
                 StructField field = fields[groupByOrdinals.length + i];
-                if (slots[i] >= 0) {
+                if (slots[i] >= 0 && shifted[i]) {
+                    vectors[groupByOrdinals.length + i] = shiftedSum(i, slots[i]);
+                } else if (slots[i] >= 0) {
                     vectors[groupByOrdinals.length + i] = new VortexArrowColumnVector(result.vector(slots[i]));
                 } else if (partitionOrdinals[i] >= 0) {
                     vectors[groupByOrdinals.length + i] = partitionAggregate(i, field, rowCount);
@@ -279,6 +318,23 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
                 }
             }
             return new ColumnarBatch(vectors, 1);
+        }
+
+        /**
+         * {@code SUM(column + offset)} as {@code SUM(column) + offset * COUNT(column)}. The count request follows the
+         * sum request at {@code slot}. The sum is null when the column holds no value.
+         */
+        private ColumnVector shiftedSum(int aggregate, int slot) {
+            Object sum = result.vector(slot).getObject(0);
+            long count = ((BigIntVector) result.vector(slot + 1)).get(0);
+            if (sum == null || count == 0) {
+                return nullConstant(DataTypes.LongType);
+            }
+
+            long value = ((Number) sum).longValue();
+            long offset = offsets[aggregate];
+            return longConstant(
+                    exactSums ? Math.addExact(value, Math.multiplyExact(offset, count)) : value + offset * count);
         }
 
         /** Answers this file's data column aggregates, recording in {@code slots} where each one landed. */
@@ -301,6 +357,9 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
                     if (physical != null) {
                         slots[i] = requests.size();
                         requests.add(new FileAggregate(kinds[i], physical));
+                        if (shifted[i]) {
+                            requests.add(FileAggregate.count(physical));
+                        }
                     }
                 }
             }
@@ -356,6 +415,16 @@ public final class VortexAggregateReaderFactory extends FilePartitionReaderFacto
                 result = null;
             }
         }
+    }
+
+    /** Whether a pushed aggregate is a sum. */
+    private boolean hasSum() {
+        for (FileAggregate.Kind kind : kinds) {
+            if (kind == FileAggregate.Kind.SUM) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static ColumnVector longConstant(long value) {

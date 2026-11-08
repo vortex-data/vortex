@@ -263,7 +263,8 @@ class VortexScan(
           readDataSchema,
           readPartitionSchema,
           aggregation,
-          caseSensitive
+          caseSensitive,
+          exactSums
         )
       case None =>
         new VortexPartitionReaderFactory(
@@ -936,6 +937,9 @@ class VortexScan(
       }
     }
 
+  /** Whether pushed sums follow ANSI rules, which fail on overflow. */
+  private def exactSums: Boolean = sparkSession.sessionState.conf.ansiEnabled
+
   /** The final rows of the pushed aggregation, when every file's footer states
     * its partial exactly, or None. Nothing is computed from data.
     */
@@ -948,7 +952,8 @@ class VortexScan(
         readDataSchema,
         readPartitionSchema,
         aggregation,
-        caseSensitive
+        caseSensitive,
+        exactSums
       )
       // An aggregate scan does not split files, so each file is listed once.
       val files = partitions.flatMap(_.files).asJava
@@ -966,7 +971,8 @@ class VortexScan(
           CompleteAggregation.merge(
             aggregation,
             readDataSchema,
-            answers.flatMap(_.get.asScala).toSeq
+            answers.flatMap(_.get.asScala).toSeq,
+            exactSums
           )
         )
       }

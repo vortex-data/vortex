@@ -34,7 +34,8 @@ private[read] object CompleteAggregation {
   def merge(
       aggregation: Aggregation,
       schema: StructType,
-      partials: Seq[InternalRow]
+      partials: Seq[InternalRow],
+      exactSums: Boolean
   ): Array[InternalRow] = {
     val groups = aggregation.groupByExpressions().length
     val aggregates = aggregation.aggregateExpressions()
@@ -55,7 +56,8 @@ private[read] object CompleteAggregation {
               aggregates(j),
               types(groups + j),
               accumulated(j),
-              values(j)
+              values(j),
+              exactSums
             )
           }
       }
@@ -75,15 +77,22 @@ private[read] object CompleteAggregation {
       aggregate: AggregateFunc,
       dataType: DataType,
       accumulated: Any,
-      value: Any
+      value: Any,
+      exactSums: Boolean
   ): Any =
     aggregate match {
       case _: CountStar | _: Count =>
         accumulated.asInstanceOf[Long] + value.asInstanceOf[Long]
       case _: Sum =>
-        // Integer sums wrap to 64 bits, like the per-file partials and Spark's own LONG addition.
+        // Integer sums wrap to 64 bits, like the per-file partials and Spark's own LONG addition. Under ANSI
+        // rules, Spark's addition fails on overflow instead.
         if (accumulated == null) value
         else if (value == null) accumulated
+        else if (exactSums)
+          Math.addExact(
+            accumulated.asInstanceOf[Long],
+            value.asInstanceOf[Long]
+          )
         else accumulated.asInstanceOf[Long] + value.asInstanceOf[Long]
       case _: Min => extremum(dataType, accumulated, value, smaller = true)
       case _: Max => extremum(dataType, accumulated, value, smaller = false)
