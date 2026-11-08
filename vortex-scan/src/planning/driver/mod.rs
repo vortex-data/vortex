@@ -33,6 +33,7 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
+use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::Entry;
@@ -59,6 +60,29 @@ pub struct Batch {
     pub array: ArrayRef,
 }
 
+/// An independent child a planner handed to the run's owner.
+pub struct Spawned {
+    /// The root the spawning planner descends from.
+    pub root: RootId,
+    /// The scope the child is responsible for.
+    pub scope: WorkScope,
+    /// The child.
+    pub planner: Box<dyn Planner>,
+    /// The service the child's IO session is opened from, when it reads a different byte source
+    /// than its root. `None` means the root's own source.
+    pub io: Option<Arc<dyn IoService>>,
+}
+
+impl Spawned {
+    /// The child's IO session: a fresh one from the child's own service, or else `default`.
+    pub fn session_or(&self, default: impl FnOnce() -> Arc<dyn IoSource>) -> Arc<dyn IoSource> {
+        match &self.io {
+            Some(service) => service.session(),
+            None => default(),
+        }
+    }
+}
+
 /// What a call to [`Run::advance`] left behind.
 pub enum Progress {
     /// A morsel's batch. One morsel's batches arrive in the order it emitted them.
@@ -67,7 +91,7 @@ pub enum Progress {
     RootDone(RootId),
     /// A planner declared this child independent. The run has not queued it: the owner runs it,
     /// on this run as another root through [`Run::admit`] or on a run of its own elsewhere.
-    Spawn(WorkScope, Box<dyn Planner>),
+    Spawn(Spawned),
     /// Every live item waits for IO. Await [`Run::poll_completion`], or pass the next completion
     /// to [`Run::complete`].
     Waiting,
@@ -465,8 +489,22 @@ impl Run {
                 self.spawn(work.root, scope, Item::Morsel(morsel), path);
                 self.queue.insert(work);
             }
-            Output::Planner(PlannerOutput::Spawn(scope, child)) => {
-                self.events.push_back(Progress::Spawn(scope, child));
+            Output::Planner(PlannerOutput::Spawn(scope, planner)) => {
+                self.events.push_back(Progress::Spawn(Spawned {
+                    root: work.root,
+                    scope,
+                    planner,
+                    io: None,
+                }));
+                self.queue.insert(work);
+            }
+            Output::Planner(PlannerOutput::Open(scope, planner, io)) => {
+                self.events.push_back(Progress::Spawn(Spawned {
+                    root: work.root,
+                    scope,
+                    planner,
+                    io: Some(io),
+                }));
                 self.queue.insert(work);
             }
             Output::Morsel(MorselOutput::Batch(array)) => {
@@ -548,8 +586,9 @@ impl Driver {
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&self.io));
+                Progress::Spawn(spawned) => {
+                    let io = spawned.session_or(|| Arc::clone(&self.io));
+                    run.admit(spawned.planner, spawned.scope, io);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),

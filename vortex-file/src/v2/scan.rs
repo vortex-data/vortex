@@ -29,6 +29,7 @@ use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
@@ -39,6 +40,7 @@ use vortex_layout::scan::v2::ScanBuilder;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
+use vortex_scan::planning::driver::Spawned;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -128,7 +130,7 @@ impl ScanDriver {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
         let scope = WorkScope {
-            file_ordinal: 0,
+            file_ordinal: scan.file_ordinal(),
             rows: scan.rows().clone(),
         };
         let io = scan.io();
@@ -171,7 +173,11 @@ impl ScanDriver {
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+///
+/// The returned planner reads through sessions of [`PreparedScan::io`], and emits each chunk as
+/// an independent child, so any [`PlanDriver`](vortex_scan::planning::drive::PlanDriver) can run
+/// it.
+pub fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let chunks = {
         let scan = Arc::clone(scan);
@@ -254,7 +260,15 @@ fn run_stream<A: Send + 'static>(
                             Progress::Batch(batch) => {
                                 Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
                             }
-                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::Spawn(Spawned {
+                                scope,
+                                planner,
+                                io: None,
+                                ..
+                            }) => Step::Spawn(scope, planner),
+                            Progress::Spawn(Spawned { scope, .. }) => {
+                                vortex_bail!("a one-file scan spawned {scope:?} over another file")
+                            }
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
                             Progress::Waiting => Step::Waiting,
@@ -307,8 +321,9 @@ fn chunk_stream<A: Send + 'static>(
                         return Ok(());
                     }
                 }
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                Progress::Spawn(spawned) => {
+                    let session = spawned.session_or(|| Arc::clone(&io));
+                    run.admit(spawned.planner, spawned.scope, session);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),

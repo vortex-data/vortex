@@ -272,8 +272,9 @@ async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
-            Progress::Spawn(scope, chunk) => {
-                run.admit(chunk, scope, io.session());
+            Progress::Spawn(spawned) => {
+                let session = spawned.session_or(|| io.session());
+                run.admit(spawned.planner, spawned.scope, session);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => break,
@@ -939,8 +940,9 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     loop {
         match run.advance()? {
             Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
-            Progress::Spawn(scope, planner) => {
-                run.admit(planner, scope, io.session());
+            Progress::Spawn(spawned) => {
+                let session = spawned.session_or(|| io.session());
+                run.admit(spawned.planner, spawned.scope, session);
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
             Progress::RootDone(_) | Progress::Idle => return Ok(kept.lock().take()),

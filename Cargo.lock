@@ -12431,6 +12431,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-trait",
  "futures",
  "parking_lot",
@@ -12542,6 +12543,28 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",
+]
+
+[[package]]
+name = "vortex-table"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "parking_lot",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "twox-hash",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

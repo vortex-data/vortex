@@ -24,6 +24,7 @@ use futures::stream;
 use futures::stream::BoxStream;
 use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::io::request::IoService;
 use vortex::io::request::IoSource;
@@ -31,6 +32,7 @@ use vortex::io::runtime::Handle;
 use vortex::layout::scan::v2::PreparedScan;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
+use vortex::scan::planning::driver::Spawned;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -175,7 +177,15 @@ fn run_stream(
                             Progress::Batch(batch) => {
                                 Step::Batch(batch.scope.rows.start, map(batch.array)?)
                             }
-                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::Spawn(Spawned {
+                                scope,
+                                planner,
+                                io: None,
+                                ..
+                            }) => Step::Spawn(scope, planner),
+                            Progress::Spawn(Spawned { scope, .. }) => {
+                                vortex_bail!("a one-file scan spawned {scope:?} over another file")
+                            }
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
                             Progress::Waiting => Step::Waiting,
@@ -231,8 +241,9 @@ fn chunk_stream(
                         return Ok(());
                     }
                 }
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                Progress::Spawn(spawned) => {
+                    let session = spawned.session_or(|| Arc::clone(&io));
+                    run.admit(spawned.planner, spawned.scope, session);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
