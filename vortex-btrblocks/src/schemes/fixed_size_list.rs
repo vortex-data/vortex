@@ -148,6 +148,7 @@ impl Scheme for FixedSizeListSparseScheme {
             compressed_values,
             array.len(),
             Scalar::null(array.dtype().clone()),
+            exec_ctx,
         )?
         .into_array())
     }
