@@ -272,8 +272,7 @@ public final class VortexFooterReader {
      */
     public static List<long[]> splitBoundaries(
             List<VortexFile> files, List<String> columns, VortexIo io, VortexOptions options) {
-        return mapFiles(
-                files, io, options, footer -> NativeFiles.splits(footer.session(), footer.readable(), columns));
+        return mapFiles(files, io, options, footer -> NativeFiles.splits(footer.session(), footer.readable(), columns));
     }
 
     private static FileStatistics fileStatistics(OpenFooter footer, List<String> columns, boolean caseSensitive) {
