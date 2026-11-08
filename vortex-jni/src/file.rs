@@ -18,6 +18,8 @@ use jni::sys::jlong;
 use jni::sys::jlongArray;
 use jni::sys::jobject;
 use vortex::buffer::ByteBuffer;
+use vortex::dtype::FieldMask;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::VortexFile;
@@ -305,6 +307,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatisticsFromReadabl
 ///
 /// The splits follow the file's chunks, so a scan of whole splits reads whole chunks. `name` keys
 /// the file in the session footer cache, as it does for the scan path.
+///
+/// `columns` names the top-level columns that the scan reads, and the splits then follow the chunks
+/// of those columns only. A null `columns`, or one that names no column of the file, uses every
+/// column.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
     mut env: EnvUnowned,
@@ -313,6 +319,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
     readable: JObject,
     name: JString,
     length: jlong,
+    columns: JObjectArray,
 ) -> jlongArray {
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
@@ -335,7 +342,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
             &|options| options,
         ))?;
 
-        let splits = file.splits()?;
+        let field_mask = scanned_fields(env, &columns, &file)?;
+        let splits = file.splits_for(&field_mask)?;
         let mut boundaries = Vec::with_capacity(splits.len() + 1);
         boundaries.push(splits.first().map_or(0, |split| split.start));
         for split in &splits {
@@ -350,6 +358,33 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_splitsFromReadable(
         array.set_region(env, 0, &boundaries)?;
         Ok(array.into_raw())
     })
+}
+
+/// The field mask of the top-level `columns` that `file` holds, or of every field when there are
+/// none.
+fn scanned_fields(
+    env: &mut jni::Env,
+    columns: &JObjectArray,
+    file: &VortexFile,
+) -> Result<Vec<FieldMask>, crate::errors::JNIError> {
+    let mut field_mask = Vec::new();
+    if !columns.is_null()
+        && let Some(fields) = file.dtype().as_struct_fields_opt()
+    {
+        for index in 0..columns.len(env)? {
+            let element = columns.get_element(env, index)?;
+            let column = env.cast_local::<JString>(element)?;
+            let column = column.try_to_string(env)?;
+            if fields.find(&column).is_some() {
+                field_mask.push(FieldMask::Prefix(FieldPath::from_name(column)));
+            }
+        }
+    }
+
+    if field_mask.is_empty() {
+        field_mask.push(FieldMask::All);
+    }
+    Ok(field_mask)
 }
 
 /// List Vortex files under the given URI prefix. Returns a `java.util.ArrayList<String>`.
