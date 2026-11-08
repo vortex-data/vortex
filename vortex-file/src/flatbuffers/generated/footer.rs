@@ -333,7 +333,7 @@ pub enum PostscriptOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
 /// The `Postscript` is guaranteed by the file format to never exceed
-/// 65528 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
+/// 65527 bytes (i.e., u16::MAX - 8 bytes) in length, and is immediately
 /// followed by an 8-byte `EndOfFile` struct.
 ///
 /// An initial read of a Vortex file defaults to at least 64KB (u16::MAX bytes) and therefore
