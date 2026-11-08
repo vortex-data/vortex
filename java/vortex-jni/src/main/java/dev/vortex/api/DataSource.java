@@ -7,6 +7,7 @@ import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeReadable;
 import dev.vortex.jni.NativeDataSource;
+import java.lang.ref.Reference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -239,17 +240,26 @@ public final class DataSource {
         long limit = options.limit().orElse(0L);
         boolean ordered = options.ordered();
 
-        long scanPtr = dev.vortex.jni.NativeScan.create(
-                pointer,
-                projectionPtr,
-                filterPtr,
-                begin,
-                end,
-                selectionIndices,
-                selectionRoaringBitmap,
-                selectionMode.code(),
-                limit,
-                ordered);
+        // The Cleaners of an unreachable data source or expression free their native pointers, so keep the inputs
+        // alive until the native call returns.
+        long scanPtr;
+        try {
+            scanPtr = dev.vortex.jni.NativeScan.create(
+                    pointer,
+                    projectionPtr,
+                    filterPtr,
+                    begin,
+                    end,
+                    selectionIndices,
+                    selectionRoaringBitmap,
+                    selectionMode.code(),
+                    limit,
+                    ordered);
+        } finally {
+            Reference.reachabilityFence(options);
+            Reference.reachabilityFence(this);
+        }
+
         return Scan.fromPointer(session, scanPtr);
     }
 
