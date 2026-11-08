@@ -31,6 +31,7 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
@@ -41,6 +42,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
     ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
     ParentRuleSet::lift(&DictionaryChunkedValuesPullUpRule),
+    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(Dict)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),

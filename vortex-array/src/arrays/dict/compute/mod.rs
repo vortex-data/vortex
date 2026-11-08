@@ -8,6 +8,7 @@ mod filter;
 pub(crate) mod is_constant;
 pub(crate) mod is_sorted;
 mod like;
+mod list_contains;
 mod mask;
 pub(crate) mod min_max;
 pub(crate) mod rules;
