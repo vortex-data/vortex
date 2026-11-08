@@ -251,6 +251,14 @@ the cost-based optimizer enabled (`spark.sql.cbo.enabled`), the footers also sup
 null count and, for numeric, date, and timestamp columns, its minimum and maximum. Only what every
 footer states exactly is reported, and no data is read.
 
+### Java Version
+
+Run Spark on Java 21 or later. On Java 17, a shuffle task joins its partition files with one memory
+map and unmap per file. Each unmap locks the address space of the executor and interrupts every
+core, so concurrent scans, which allocate and fault in fresh pages, wait on it. In TPC-DS at scale
+factor 10 on 32 cores, this made some queries with many small shuffle stages up to 40% slower. On
+Java 17, `spark.file.transferTo=false` avoids the memory maps.
+
 ## Writing Vortex Files
 
 ```java
