@@ -172,9 +172,9 @@ public final class NativeFiles {
 
     /**
      * {@link #splits(Session, NativeReadable)} for a scan of the top-level {@code columns}: the splits follow the
-     * chunks of those columns only. This is much cheaper than the splits of every column for a scan of a few columns
-     * of a wide file. Columns that the file does not hold are ignored, and when it holds none of them, the splits
-     * follow every column.
+     * chunks of those columns only. This is much cheaper than the splits of every column for a scan of a few columns of
+     * a wide file. Columns that the file does not hold are ignored, and when it holds none of them, the splits follow
+     * every column.
      */
     public static long[] splits(Session session, NativeReadable readable, List<String> columns) {
         Objects.requireNonNull(columns, "columns");

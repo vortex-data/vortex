@@ -478,15 +478,13 @@ public final class Expression {
      */
     public static Expression literalLongList(Expression elementType, boolean withNull, long[] values) {
         return keepAlive(
-                NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull),
-                elementType);
+                NativeExpression.literalListI64(values, elementType.nativePointer(), withNull, withNull), elementType);
     }
 
     /** {@link #literalLongList(Expression, boolean, long[])} for strings. */
     public static Expression literalStringList(Expression elementType, boolean withNull, String[] values) {
         return keepAlive(
-                NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull),
-                elementType);
+                NativeExpression.literalListUtf8(values, elementType.nativePointer(), withNull, withNull), elementType);
     }
 
     /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */
@@ -504,7 +502,11 @@ public final class Expression {
             Expression elementType, boolean elementsNullable, Expression... elements) {
         return keepAlive(
                 NativeExpression.literalFixedSizeList(
-                        nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false),
+                        nativePointers(elements),
+                        elementType.nativePointer(),
+                        elementsNullable,
+                        elements.length,
+                        false),
                 elementType,
                 elements);
     }
@@ -569,14 +571,18 @@ public final class Expression {
     public static Expression nullLiteralMap(Expression keyType, Expression valueType, boolean valuesNullable) {
         return keepAlive(
                 NativeExpression.literalMap(
-                        new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true),
+                        new long[0],
+                        new long[0],
+                        keyType.nativePointer(),
+                        valueType.nativePointer(),
+                        valuesNullable,
+                        true),
                 keyType,
                 valueType);
     }
 
     /**
-     * Wraps the pointer that a native call returned, and keeps the call's inputs reachable until the call has
-     * returned.
+     * Wraps the pointer that a native call returned, and keeps the call's inputs reachable until the call has returned.
      *
      * <p>A Cleaner frees the native pointer of an {@code Expression} when the {@code Expression} becomes unreachable.
      * After a caller reads the pointers of its inputs, the JIT may treat the inputs as unreachable, so a garbage
