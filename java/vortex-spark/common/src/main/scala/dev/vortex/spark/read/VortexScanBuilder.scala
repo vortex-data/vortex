@@ -458,24 +458,46 @@ class VortexScanBuilder(
       )
     }
 
-  /** SUM over an integer data column, whose 64-bit result wraps on overflow
-    * like Spark's own LONG addition. Under ANSI mode an overflow must fail, and
-    * a per-file partial cannot tell, so Spark keeps the sum.
+  /** SUM over an integer data column, or over such a column plus a constant.
+    *
+    * Without ANSI rules, the 64-bit sum wraps on overflow like Spark's own LONG
+    * addition, so any integer column qualifies. Under ANSI rules an overflow
+    * must fail, and a wrapped per-file partial cannot tell. A sum of `TINYINT`,
+    * `SMALLINT`, or `INT` values cannot overflow in a file of up to 2^32 rows,
+    * so only those columns qualify, and the readers check the row count. Spark
+    * states `column + constant` to a source only under ANSI rules.
     */
   private def sumColumn(expression: Expression): Option[StructField] = {
-    if (sparkSession.sessionState.conf.ansiEnabled) {
-      return None
+    val ansi = sparkSession.sessionState.conf.ansiEnabled
+    val sumTypes: Seq[DataType] =
+      if (ansi) Seq(ByteType, ShortType, IntegerType)
+      else Seq(ByteType, ShortType, IntegerType, LongType)
+
+    columnName(expression) match {
+      case Some(name) =>
+        dataColumn(name)
+          .filter(field => sumTypes.contains(field.dataType))
+          .map(field => StructField(s"sum(${field.name})", LongType))
+      case None if ansi =>
+        Option(ShiftedSum.parse(expression).orElse(null))
+          .flatMap(shifted =>
+            dataColumn(shifted.column())
+              .filter(field => shifted.isExact(field.dataType))
+              .map(field =>
+                StructField(
+                  s"sum(${field.name} + ${shifted.offset()})",
+                  LongType
+                )
+              )
+          )
+      case None => None
     }
-    columnName(expression)
-      .filter(findField(partitionSchema, _).isEmpty)
-      .flatMap(findField(dataSchema, _))
-      .collect {
-        case field
-            if Seq(ByteType, ShortType, IntegerType, LongType)
-              .contains(field.dataType) =>
-          StructField(s"sum(${field.name})", LongType)
-      }
   }
+
+  /** A data column that no partition column shadows. */
+  private def dataColumn(name: String): Option[StructField] =
+    if (findField(partitionSchema, name).nonEmpty) None
+    else findField(dataSchema, name)
 
   private def columnName(expression: Expression): Option[String] =
     expression match {
