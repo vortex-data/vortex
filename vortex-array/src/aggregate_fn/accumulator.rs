@@ -8,14 +8,17 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
@@ -181,6 +184,20 @@ pub trait DynAccumulator: 'static + Send {
     /// Accumulate a new array into the accumulator's state.
     fn accumulate(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
 
+    /// Accumulate the logical column that `defined` describes over `batch`.
+    ///
+    /// `defined` must have the length of `batch`. See the [`definedness`](crate::aggregate_fn::definedness)
+    /// module for what definedness means and the semantics aggregates give it. An aggregate defines
+    /// its own semantics with [`AggregateFnVTable::try_accumulate_defined`]; by default the
+    /// undefined rows are null whatever they hold, so the result equals accumulating
+    /// `batch.mask(defined)`.
+    fn accumulate_defined(
+        &mut self,
+        batch: &ArrayRef,
+        defined: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
+
     /// Drain another accumulator's state into this one, resetting `other`.
     ///
     /// The other accumulator must have been constructed for the same aggregate function,
@@ -281,6 +298,64 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.statistics().set(stat, Precision::Exact(value));
         }
         self.fold_partial(batch_partial)
+    }
+
+    fn accumulate_defined(
+        &mut self,
+        batch: &ArrayRef,
+        defined: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(
+            defined.len(),
+            batch.len(),
+            "Definedness mask length must match the batch length",
+        );
+        if defined.all_true() {
+            return self.accumulate(batch, ctx);
+        }
+        if self.is_saturated() {
+            return Ok(());
+        }
+        vortex_ensure_eq!(batch.dtype(), &self.dtypes.dtype, "Input DType mismatch");
+
+        self.ensure_partial()?;
+        let partial = self.partial.as_mut().vortex_expect("partial materialized");
+        if self.vtable.try_accumulate_defined(
+            self.dtypes.args(&self.options),
+            partial,
+            batch,
+            defined,
+            ctx,
+        )? {
+            return Ok(());
+        }
+
+        // The default semantics: undefined rows read as null. The masked batch is a temporary
+        // array, so no statistics are read from or cached on it.
+        let masked = batch.clone().mask(defined.clone().into_array())?;
+        if masked.dtype() == &self.dtypes.dtype {
+            return self.accumulate_batch(&masked, ctx);
+        }
+
+        // Masking widened a non-nullable input to nullable. Accumulate it as the nullable input,
+        // whose partial state must be the same, and fold the result into this state.
+        let mut nullable = Accumulator::try_new(
+            self.vtable.clone(),
+            self.options.clone(),
+            masked.dtype().clone(),
+        )?;
+        vortex_ensure_eq!(
+            nullable.dtypes.partial_dtype,
+            self.dtypes.partial_dtype,
+            "Aggregate {} has a different partial dtype for a nullable input",
+            self.aggregate_fn,
+        );
+        nullable.accumulate_batch(&masked, ctx)?;
+        match nullable.take_partial() {
+            Some(partial) => self.fold_partial(partial),
+            None => Ok(()),
+        }
     }
 
     fn merge_from(&mut self, other: &mut dyn DynAccumulator) -> VortexResult<()> {

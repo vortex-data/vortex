@@ -437,7 +437,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let Some(chunk) = stream.next().await else {
             vortex_bail!("CudaFlatLayoutStrategy needs a single chunk");
         };
-        let (sequence_id, chunk) = chunk?;
+        let (sequence_id, chunk, _) = chunk?;
         let row_count = chunk.len() as u64;
 
         match chunk.dtype() {

@@ -39,6 +39,7 @@ mod options;
 pub use options::*;
 
 pub mod combined;
+pub mod definedness;
 pub mod fns;
 pub mod kernels;
 pub mod proto;

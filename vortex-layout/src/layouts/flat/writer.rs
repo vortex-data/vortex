@@ -98,7 +98,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
             )
             .into_layout());
         };
-        let (sequence_id, chunk) = chunk?;
+        // The flat writer records no aggregates, so it has no use for the definedness.
+        let (sequence_id, chunk, _) = chunk?;
 
         let row_count = chunk.len() as u64;
 

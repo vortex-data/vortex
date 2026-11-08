@@ -11,6 +11,7 @@ use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -245,6 +246,32 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         _args: AggregateArgs<'_, Self::Options>,
         _state: &mut Self::Partial,
         _batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    /// Try to accumulate `batch` under a [definedness](crate::aggregate_fn::definedness) mask,
+    /// handling the rows the mask leaves undefined itself.
+    ///
+    /// `defined` has the length of `batch` and leaves at least one row undefined. Returns `true` if the
+    /// batch was handled, or `false` to accumulate it under the default definedness semantics: the
+    /// undefined rows read as null, as if `batch` were masked by `defined`. When returning
+    /// `false`, the partial state must be unchanged.
+    ///
+    /// The default semantics accumulate a masked batch, whose dtype is the input dtype made
+    /// nullable, into the same partial state. An aggregate that keeps them must therefore have the
+    /// same [`partial_dtype`] for a nullable input as for the non-nullable input. An aggregate
+    /// whose result is not a function of the logical values, such as the size of the stored
+    /// array, overrides this to define its own semantics.
+    ///
+    /// [`partial_dtype`]: AggregateFnVTable::partial_dtype
+    fn try_accumulate_defined(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _state: &mut Self::Partial,
+        _batch: &ArrayRef,
+        _defined: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
         Ok(false)

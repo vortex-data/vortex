@@ -183,6 +183,23 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         false
     }
 
+    /// The size of the stored batch, which holds a value in every row, defined or not: a
+    /// definedness mask changes which rows are null in the logical column, not the bytes the batch holds.
+    fn try_accumulate_defined(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _defined: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let size = uncompressed_size_in_bytes_u64(batch, ctx)?;
+        *partial = partial
+            .checked_add(size)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         _args: AggregateArgs<'_, Self::Options>,

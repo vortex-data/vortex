@@ -24,6 +24,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(crate) use builder::AggregateStatsAccumulator;
+pub(crate) use builder::aggregate_defined_partials;
 pub(crate) use builder::aggregate_partials;
 pub(crate) use legacy_builder::LegacyStatsAccumulator;
 pub(crate) use legacy_builder::legacy_stat_values;
