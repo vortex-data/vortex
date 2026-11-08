@@ -18,6 +18,7 @@ use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::FixedSizeListArray;
@@ -33,6 +34,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::Lambda;
@@ -72,6 +74,18 @@ fn rows(l: ArrayRef) -> VortexResult<ArrayRef> {
     )
 }
 
+/// Rows `{l, a}`.
+fn rows_with_a(l: ArrayRef, a: ArrayRef) -> VortexResult<ArrayRef> {
+    let len = l.len();
+    Ok(StructArray::try_new(
+        FieldNames::from(["l", "a"]),
+        vec![l, a],
+        len,
+        Validity::NonNullable,
+    )?
+    .into_array())
+}
+
 fn list_of(values: ArrayRef, offsets: &[u32], validity: Validity) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     Ok(ListArray::try_new(
@@ -95,6 +109,11 @@ fn transformed(values: ArrayRef) -> VortexResult<ArrayRef> {
 /// `x -> x + 1`, which fails on `i32::MAX`.
 fn plus_one() -> VortexResult<Lambda> {
     Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))
+}
+
+/// `x -> x + $.a`, which reads `a` from outside the lambda.
+fn plus_a() -> VortexResult<Lambda> {
+    Lambda::new(["x"], checked_add(var("x"), col("a")))
 }
 
 fn assert_applies(input: ArrayRef, expr: &Expression, expected: ArrayRef) -> VortexResult<()> {
@@ -212,12 +231,14 @@ fn a_lambda_that_can_fail_sees_only_the_lists_elements(
 fn the_lambda_runs_on_a_slice_without_its_leftovers(#[case] body: Expression) -> VortexResult<()> {
     // Canonicalizing the result drops the leftovers too, so look at the transformed list itself.
     let mut ctx = SESSION.create_execution_ctx();
-    let lambda = Lambda::new(["x"], body)?
-        .bind(&[DType::Primitive(PType::I32, Nullability::NonNullable)])?;
+    let lambda = Lambda::new(["x"], body)?.bind(
+        &[DType::Primitive(PType::I32, Nullability::NonNullable)],
+        &StructFields::empty(),
+    )?;
     let list = sliced_list_with_leftovers()?
         .try_downcast::<List>()
         .map_err(|_| vortex_err!("not a list"))?;
-    let result = transform_list(list, &lambda, &mut ctx)?
+    let result = transform_list(list, &lambda, None, &mut ctx)?
         .try_downcast::<List>()
         .map_err(|_| vortex_err!("not a list"))?;
     assert_eq!(result.elements().len(), 2);
@@ -553,9 +574,7 @@ fn a_lambda_bound_to_another_element_dtype_is_an_error() -> VortexResult<()> {
         .expect_err("bound to i32, given i32?");
     for error in [error, return_dtype_error] {
         assert!(
-            error
-                .to_string()
-                .contains("is bound to element dtype i32, not i32?"),
+            error.to_string().contains("is bound to i32, not i32?"),
             "{error}"
         );
     }
@@ -630,4 +649,173 @@ fn lambdas_are_not_serializable_yet() -> VortexResult<()> {
         .expect_err("lambdas are not serializable");
     assert!(error.to_string().contains("is not serializable"), "{error}");
     Ok(())
+}
+
+#[test]
+fn a_body_reads_a_column() -> VortexResult<()> {
+    let expr = list_transform(col("l"), plus_a()?);
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($.l, pack($: pack(a: $.a)), (x) -> (@x + $.a))"
+    );
+    // Every element of a list sees its row's `a`. The null list's `i32::MAX + 20` would overflow,
+    // so it must not reach the lambda.
+    let input = rows_with_a(lists()?, buffer![10_i32, 20, 30].into_array())?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), Some(33), None]).into_array(),
+    )?;
+    assert_applies(input, &expr, expected)
+}
+
+#[test]
+fn a_null_value_read_from_outside_keeps_its_list_valid() -> VortexResult<()> {
+    let input = rows_with_a(
+        lists()?,
+        PrimitiveArray::from_option_iter([None, Some(20_i32), Some(30)]).into_array(),
+    )?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([None, None, Some(33_i32), None]).into_array(),
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn a_constant_value_read_from_outside() -> VortexResult<()> {
+    let input = rows_with_a(lists()?, ConstantArray::new(10_i32, 3).into_array())?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), Some(13), None]).into_array(),
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn overlapping_list_views_with_a_value_read_from_outside() -> VortexResult<()> {
+    // `[[3, 4], [1], [2, 3]]`, sharing element 3, which must see each of its two rows' `a`.
+    let mut ctx = SESSION.create_execution_ctx();
+    let view = ListViewArray::try_new(
+        buffer![1_i32, 2, 3, 4].into_array(),
+        buffer![2_u32, 0, 1].into_array(),
+        buffer![2_u32, 1, 2].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let input = rows_with_a(view, buffer![10_i32, 20, 30].into_array())?;
+    let expected = list_of(
+        buffer![13_i32, 14, 21, 32, 33].into_array(),
+        &[0, 2, 3, 5],
+        Validity::NonNullable,
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn a_nested_lambda_reads_a_column() -> VortexResult<()> {
+    // `[[[1], [2]], [[3]]]` with `a = [10, 20]` under `xs -> list_transform(xs, y -> y + $.a)`:
+    // both calls take `$.a` in their environments.
+    let l = list_of(
+        list_of(
+            buffer![1_i32, 2, 3].into_array(),
+            &[0, 1, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2, 3],
+        Validity::NonNullable,
+    )?;
+    let inner = Lambda::new(["y"], checked_add(var("y"), col("a")))?;
+    let expr = list_transform(
+        col("l"),
+        Lambda::new(["xs"], list_transform(var("xs"), inner))?,
+    );
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($.l, pack($: pack(a: $.a)), (xs) -> vortex.list.transform(@xs, \
+         pack($: pack(a: $.a)), (y) -> (@y + $.a)))"
+    );
+    let expected = list_of(
+        list_of(
+            buffer![11_i32, 12, 23].into_array(),
+            &[0, 1, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2, 3],
+        Validity::NonNullable,
+    )?;
+    assert_applies(
+        rows_with_a(l, buffer![10_i32, 20].into_array())?,
+        &expr,
+        expected,
+    )
+}
+
+#[test]
+fn a_nested_lambda_reads_the_outer_parameter() -> VortexResult<()> {
+    // `[[{k: 10, vs: [1, 2]}, {k: 20, vs: [3]}]]` under `p -> list_transform(p.vs, v -> v + p.k)`
+    let points = StructArray::try_new(
+        FieldNames::from(["k", "vs"]),
+        vec![
+            buffer![10_i32, 20].into_array(),
+            list_of(
+                buffer![1_i32, 2, 3].into_array(),
+                &[0, 2, 3],
+                Validity::NonNullable,
+            )?,
+        ],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let inner = Lambda::new(["v"], checked_add(var("v"), get_item("k", var("p"))))?;
+    let expr = list_transform(
+        root(),
+        Lambda::new(["p"], list_transform(get_item("vs", var("p")), inner))?,
+    );
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($, (p) -> vortex.list.transform(@p.vs, pack(p: pack(k: @p.k)), \
+         (v) -> (@v + @p.k)))"
+    );
+    let expected = list_of(
+        list_of(
+            buffer![11_i32, 12, 23].into_array(),
+            &[0, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2],
+        Validity::NonNullable,
+    )?;
+    assert_applies(
+        list_of(points, &[0, 2], Validity::NonNullable)?,
+        &expr,
+        expected,
+    )
+}
+
+#[test]
+fn a_body_reads_a_field_of_a_nullable_struct() -> VortexResult<()> {
+    // Rows `{l, s}` where the last row's `s` is null, under `x -> x + $.s.i`.
+    let s = StructArray::try_new(
+        FieldNames::from(["i"]),
+        vec![buffer![10_i32, 20, 30].into_array()],
+        3,
+        Validity::from_iter([true, true, false]),
+    )?
+    .into_array();
+    let input = StructArray::try_new(
+        FieldNames::from(["l", "s"]),
+        vec![lists()?, s],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let lambda = Lambda::new(["x"], checked_add(var("x"), get_item("i", col("s"))))?;
+    let expr = list_transform(col("l"), lambda);
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($.l, pack($: pack(s: pack(i: $.s.i))), (x) -> (@x + $.s.i))"
+    );
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), None, None]).into_array(),
+    )?;
+    assert_applies(input, &expr, expected)
 }
