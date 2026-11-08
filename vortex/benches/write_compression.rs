@@ -47,7 +47,7 @@ fn main() {
     divan::main();
 }
 
-const ROWS: u64 = 1_000_000;
+const ROWS: u64 = 131_072;
 const BATCH: u64 = 8192;
 
 const DATASETS: &[&str] = &["urls", "drifting", "table"];
