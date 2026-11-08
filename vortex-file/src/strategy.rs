@@ -181,24 +181,22 @@ impl WriteStrategyBuilder {
             ),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
+        let compressing = CompressingStrategy::new(buffered.clone(), data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = RepartitionStrategy::new(
-            compressing,
-            RepartitionWriterOptions {
-                // Write stream partitions roughly become segments. Because Vortex never reads less
-                // than one segment, the size of segments and, therefore, partitions, must be small
-                // enough to both (1) allow fine-grained random access reads and (2) allow
-                // sufficient read concurrency for the desired throughput. One megabyte is small
-                // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
-                // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
-                block_len_multiple: self.row_block_size,
-                block_size_target: self.data_block_target_bytes,
-                canonicalize: true,
-            },
-        );
+        let coalescing_options = RepartitionWriterOptions {
+            // Write stream partitions roughly become segments. Because Vortex never reads less
+            // than one segment, the size of segments and, therefore, partitions, must be small
+            // enough to both (1) allow fine-grained random access reads and (2) allow
+            // sufficient read concurrency for the desired throughput. One megabyte is small
+            // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
+            // High-Performance Analytics", VLDB Vol 16, Iss 11).
+            block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
+            block_len_multiple: self.row_block_size,
+            block_size_target: self.data_block_target_bytes,
+            canonicalize: true,
+        };
+        let coalescing = RepartitionStrategy::new(compressing, coalescing_options.clone());
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
@@ -207,6 +205,14 @@ impl WriteStrategyBuilder {
         };
         let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
 
+        // 3.2. a column the dictionary layout declines may still dictionary-encode a part of its
+        // values, such as the integer bytes of a low-cardinality decimal, so its compressor keeps
+        // IntDictScheme.
+        let fallback = RepartitionStrategy::new(
+            CompressingStrategy::new(buffered, Arc::clone(&stats_compressor)),
+            coalescing_options,
+        );
+
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
             probe_compressor
@@ -214,9 +220,9 @@ impl WriteStrategyBuilder {
             Arc::clone(&stats_compressor)
         };
         let dict = DictStrategy::new(
-            coalescing.clone(),
-            compress_then_flat.clone(),
             coalescing,
+            compress_then_flat.clone(),
+            fallback,
             DictLayoutOptions {
                 probe_len: self.row_block_size,
                 ..Default::default()
