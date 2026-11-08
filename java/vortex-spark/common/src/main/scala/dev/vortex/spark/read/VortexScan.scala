@@ -86,7 +86,7 @@ object VortexScan {
     */
   val MinSplitBytesOption = "vortex.minSplitBytes"
 
-  private val DefaultMinSplitBytes = 64L * 1024 * 1024
+  private val DefaultMinSplitBytes = 16L * 1024 * 1024
 
   /** Option turning off the pruning of files on the driver by the statistics in
     * their footers.
