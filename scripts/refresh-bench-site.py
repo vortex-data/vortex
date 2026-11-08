@@ -9,12 +9,17 @@
 
 """Tell the benchmarks website that new results exist, then warm its default pages.
 
-`develop-bench.yml` runs this once per develop push, after every benchmark job of that push
-has finished and ingested its results with `post-ingest.py`. One revalidate per push, rather
-than one per benchmark job, keeps the website's Data Cache from being flushed and refilled
-dozens of times an hour while benchmarks run.
+Three workflows run it through `refresh-bench-site.yml`, each once per run:
 
-The request shape is the contract in `bench/CONTRACT.md` of the vortex-data/vortex.dev
+- `develop-bench.yml`, on a develop push, after every benchmark job of that push has finished
+  and ingested its results with `post-ingest.py`.
+- `nightly-bench.yml`, after the nightly SQL benchmarks.
+- `commit-metadata.yml`, on a develop push, after it records the commit.
+
+One revalidate per run, rather than one per benchmark job, keeps the website's Data Cache from
+being flushed and refilled dozens of times an hour while benchmarks run.
+
+The request shape is the contract in `docs/bench/CONTRACT.md` of the vortex-data/vortex.dev
 repository: `POST {BENCH_SITE_BASE_URL}/api/revalidate` with
 `Authorization: Bearer $BENCH_REVALIDATE_TOKEN`.
 
