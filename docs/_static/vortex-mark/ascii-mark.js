@@ -22,7 +22,7 @@ const TRAIL_MS = 450;
 const TRAIL_STEP = 12;
 const TRAIL = 8;
 const SUB = 2; // render-target pixels per cell side
-const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js";
 
 /**
  * Mounts the mark in `host` (positioned, sized by the caller).

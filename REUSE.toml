@@ -45,11 +45,13 @@ SPDX-FileCopyrightText = "X Corp."
 SPDX-License-Identifier = "LicenseRef-Third-Party"
 
 # three.js, which the docs serve for the 404's mark, because their CSP allows scripts from their
-# own origin only. A copy of three@0.170.0's build/three.module.min.js.
+# own origin only. three@0.187.0 no longer ships a minified build, so this is its
+# build/three.module.js bundled with `bun build --minify --format=esm --target=browser`, with the
+# license header put back.
 [[annotations]]
 path = "docs/_static/vortex-mark/three.module.min.js"
 precedence = "override"
-SPDX-FileCopyrightText = "2010-2024 Three.js Authors"
+SPDX-FileCopyrightText = "2010-2026 Three.js Authors"
 SPDX-License-Identifier = "MIT"
 
 # BtrBlocks diagram is licensed under CC-BY-4.0.
