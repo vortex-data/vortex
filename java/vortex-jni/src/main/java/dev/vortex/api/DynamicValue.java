@@ -6,6 +6,7 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
+import java.lang.ref.Reference;
 
 /**
  * A comparison value that can change while a scan runs, read by {@link Expression#dynamic}.
@@ -28,12 +29,22 @@ public final class DynamicValue {
      * {@code Expression.nullLiteral(DType.I64)}.
      */
     public static DynamicValue create(Expression typePrototype) {
-        return new DynamicValue(NativeExpression.dynamicValueCreate(typePrototype.nativePointer()));
+        // The Cleaner of an unreachable expression frees its native pointer, so keep the input alive for the call.
+        try {
+            return new DynamicValue(NativeExpression.dynamicValueCreate(typePrototype.nativePointer()));
+        } finally {
+            Reference.reachabilityFence(typePrototype);
+        }
     }
 
     /** Sets the value to the literal {@code value}, cast to this value's type. */
     public void set(Expression value) {
-        NativeExpression.dynamicValueSet(pointer, value.nativePointer());
+        try {
+            NativeExpression.dynamicValueSet(pointer, value.nativePointer());
+        } finally {
+            Reference.reachabilityFence(value);
+            Reference.reachabilityFence(this);
+        }
     }
 
     long nativePointer() {

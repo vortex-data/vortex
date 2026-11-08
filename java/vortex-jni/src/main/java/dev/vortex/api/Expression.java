@@ -6,6 +6,7 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativeExpression;
+import java.lang.ref.Reference;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -53,7 +54,7 @@ public final class Expression {
 
     /** Access a named field from a struct expression. */
     public static Expression getItem(String fieldName, Expression child) {
-        return new Expression(NativeExpression.getItem(fieldName, child.nativePointer()));
+        return keepAlive(NativeExpression.getItem(fieldName, child.nativePointer()), child);
     }
 
     /** Shortcut for {@code getItem(fieldName, root())}. */
@@ -76,12 +77,12 @@ public final class Expression {
 
     /** Project a subset of fields out of a struct expression. */
     public static Expression select(String[] fieldNames, Expression child) {
-        return new Expression(NativeExpression.select(fieldNames, child.nativePointer()));
+        return keepAlive(NativeExpression.select(fieldNames, child.nativePointer()), child);
     }
 
     /** Creates an expression that packs values into a struct with named fields. */
     public static Expression pack(String[] fieldNames, Expression[] expressions, boolean nullable) {
-        return new Expression(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable));
+        return keepAlive(NativeExpression.pack(fieldNames, nativePointers(expressions), nullable), expressions);
     }
 
     /**
@@ -92,7 +93,7 @@ public final class Expression {
      * an earlier one with the same name. Merging zero expressions yields an empty struct.
      */
     public static Expression merge(DuplicateHandling duplicateHandling, Expression... expressions) {
-        return new Expression(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()));
+        return keepAlive(NativeExpression.merge(nativePointers(expressions), duplicateHandling.tag()), expressions);
     }
 
     /**
@@ -106,17 +107,17 @@ public final class Expression {
     /** Logical AND. Requires at least one operand. */
     public static Expression and(Expression... operands) {
         Preconditions.checkArgument(operands.length > 0, "and requires at least one operand");
-        return new Expression(NativeExpression.and(nativePointers(operands)));
+        return keepAlive(NativeExpression.and(nativePointers(operands)), operands);
     }
 
     /** Logical OR. Requires at least one operand. */
     public static Expression or(Expression... operands) {
         Preconditions.checkArgument(operands.length > 0, "or requires at least one operand");
-        return new Expression(NativeExpression.or(nativePointers(operands)));
+        return keepAlive(NativeExpression.or(nativePointers(operands)), operands);
     }
 
     public static Expression binary(BinaryOp op, Expression lhs, Expression rhs) {
-        return new Expression(NativeExpression.binary(op.code(), lhs.nativePointer(), rhs.nativePointer()));
+        return keepAlive(NativeExpression.binary(op.code(), lhs.nativePointer(), rhs.nativePointer()), lhs, rhs);
     }
 
     /**
@@ -130,19 +131,19 @@ public final class Expression {
                 function,
                 function.arity(),
                 operands.length);
-        return new Expression(NativeExpression.spatial(function.code(), nativePointers(operands)));
+        return keepAlive(NativeExpression.spatial(function.code(), nativePointers(operands)), operands);
     }
 
     public static Expression not(Expression child) {
-        return new Expression(NativeExpression.not(child.nativePointer()));
+        return keepAlive(NativeExpression.not(child.nativePointer()), child);
     }
 
     public static Expression isNull(Expression child) {
-        return new Expression(NativeExpression.isNull(child.nativePointer()));
+        return keepAlive(NativeExpression.isNull(child.nativePointer()), child);
     }
 
     public static Expression isNotNull(Expression child) {
-        return new Expression(NativeExpression.isNotNull(child.nativePointer()));
+        return keepAlive(NativeExpression.isNotNull(child.nativePointer()), child);
     }
 
     /**
@@ -150,7 +151,7 @@ public final class Expression {
      * must be a non-nullable boolean.
      */
     public static Expression mask(Expression child, Expression mask) {
-        return new Expression(NativeExpression.mask(child.nativePointer(), mask.nativePointer()));
+        return keepAlive(NativeExpression.mask(child.nativePointer(), mask.nativePointer()), child, mask);
     }
 
     /**
@@ -160,8 +161,10 @@ public final class Expression {
      * @param caseInsensitive whether to perform case-insensitive matching ({@code ILIKE})
      */
     public static Expression like(Expression child, Expression pattern, boolean negated, boolean caseInsensitive) {
-        return new Expression(
-                NativeExpression.like(child.nativePointer(), pattern.nativePointer(), negated, caseInsensitive));
+        return keepAlive(
+                NativeExpression.like(child.nativePointer(), pattern.nativePointer(), negated, caseInsensitive),
+                child,
+                pattern);
     }
 
     /**
@@ -172,8 +175,12 @@ public final class Expression {
      */
     public static Expression between(
             Expression value, Expression lower, Expression upper, boolean lowerStrict, boolean upperStrict) {
-        return new Expression(NativeExpression.between(
-                value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict));
+        return keepAlive(
+                NativeExpression.between(
+                        value.nativePointer(), lower.nativePointer(), upper.nativePointer(), lowerStrict, upperStrict),
+                value,
+                lower,
+                upper);
     }
 
     /**
@@ -202,8 +209,10 @@ public final class Expression {
      *     against an empty list with Vortex's default rules, where the result is {@code false}.
      */
     public static Expression listContains(Expression list, Expression needle, boolean sqlNullSemantics) {
-        return new Expression(
-                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics));
+        return keepAlive(
+                NativeExpression.listContains(list.nativePointer(), needle.nativePointer(), sqlNullSemantics),
+                list,
+                needle);
     }
 
     /**
@@ -234,8 +243,10 @@ public final class Expression {
      * @param defaultResult the result while {@code value} is unset
      */
     public static Expression dynamic(BinaryOp op, Expression lhs, DynamicValue value, boolean defaultResult) {
-        return new Expression(
-                NativeExpression.dynamic(op.code(), lhs.nativePointer(), value.nativePointer(), defaultResult));
+        return keepAlive(
+                NativeExpression.dynamic(op.code(), lhs.nativePointer(), value.nativePointer(), defaultResult),
+                lhs,
+                value);
     }
 
     /**
@@ -248,7 +259,7 @@ public final class Expression {
     public static Expression variantGet(Expression child, String[] fields, long[] indexes) {
         Preconditions.checkArgument(
                 fields.length == indexes.length, "variant path fields and indexes must have equal length");
-        return new Expression(NativeExpression.variantGet(child.nativePointer(), fields, indexes));
+        return keepAlive(NativeExpression.variantGet(child.nativePointer(), fields, indexes), child);
     }
 
     public static Expression literal(boolean value) {
@@ -453,14 +464,18 @@ public final class Expression {
      * {@code elementsNullable}, and every element, which must itself be a literal, is cast to it.
      */
     public static Expression literalList(Expression elementType, boolean elementsNullable, Expression... elements) {
-        return new Expression(NativeExpression.literalList(
-                nativePointers(elements), elementType.nativePointer(), elementsNullable, false));
+        return keepAlive(
+                NativeExpression.literalList(
+                        nativePointers(elements), elementType.nativePointer(), elementsNullable, false),
+                elementType,
+                elements);
     }
 
     /** Null list literal. See {@link #literalList(Expression, boolean, Expression...)} for the element dtype. */
     public static Expression nullLiteralList(Expression elementType, boolean elementsNullable) {
-        return new Expression(
-                NativeExpression.literalList(new long[0], elementType.nativePointer(), elementsNullable, true));
+        return keepAlive(
+                NativeExpression.literalList(new long[0], elementType.nativePointer(), elementsNullable, true),
+                elementType);
     }
 
     /**
@@ -469,15 +484,20 @@ public final class Expression {
      */
     public static Expression literalFixedSizeList(
             Expression elementType, boolean elementsNullable, Expression... elements) {
-        return new Expression(NativeExpression.literalFixedSizeList(
-                nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false));
+        return keepAlive(
+                NativeExpression.literalFixedSizeList(
+                        nativePointers(elements), elementType.nativePointer(), elementsNullable, elements.length, false),
+                elementType,
+                elements);
     }
 
     /** Null fixed-size list literal of {@code size} elements. */
     public static Expression nullLiteralFixedSizeList(Expression elementType, boolean elementsNullable, int size) {
         Preconditions.checkArgument(size >= 0, "fixed-size list size must not be negative: %s", size);
-        return new Expression(NativeExpression.literalFixedSizeList(
-                new long[0], elementType.nativePointer(), elementsNullable, size, true));
+        return keepAlive(
+                NativeExpression.literalFixedSizeList(
+                        new long[0], elementType.nativePointer(), elementsNullable, size, true),
+                elementType);
     }
 
     /** Create a struct literal. Each field must be a literal expression; its dtype becomes the field's dtype. */
@@ -487,7 +507,7 @@ public final class Expression {
                 "struct literal has %s field names but %s fields",
                 fieldNames.length,
                 fields.length);
-        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false));
+        return keepAlive(NativeExpression.literalStruct(fieldNames, nativePointers(fields), false), fields);
     }
 
     /**
@@ -500,7 +520,7 @@ public final class Expression {
                 "struct literal has %s field names but %s field types",
                 fieldNames.length,
                 fieldTypes.length);
-        return new Expression(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true));
+        return keepAlive(NativeExpression.literalStruct(fieldNames, nativePointers(fieldTypes), true), fieldTypes);
     }
 
     /**
@@ -513,19 +533,56 @@ public final class Expression {
             Expression keyType, Expression valueType, boolean valuesNullable, Expression[] keys, Expression[] values) {
         Preconditions.checkArgument(
                 keys.length == values.length, "map literal has %s keys but %s values", keys.length, values.length);
-        return new Expression(NativeExpression.literalMap(
-                nativePointers(keys),
-                nativePointers(values),
-                keyType.nativePointer(),
-                valueType.nativePointer(),
-                valuesNullable,
-                false));
+        return keepAlive(
+                NativeExpression.literalMap(
+                        nativePointers(keys),
+                        nativePointers(values),
+                        keyType.nativePointer(),
+                        valueType.nativePointer(),
+                        valuesNullable,
+                        false),
+                keyType,
+                valueType,
+                keys,
+                values);
     }
 
     /** Null map literal. See {@link #literalMap} for how the key and value dtypes are derived. */
     public static Expression nullLiteralMap(Expression keyType, Expression valueType, boolean valuesNullable) {
-        return new Expression(NativeExpression.literalMap(
-                new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true));
+        return keepAlive(
+                NativeExpression.literalMap(
+                        new long[0], new long[0], keyType.nativePointer(), valueType.nativePointer(), valuesNullable, true),
+                keyType,
+                valueType);
+    }
+
+    /**
+     * Wraps the pointer that a native call returned, and keeps the call's inputs reachable until the call has
+     * returned.
+     *
+     * <p>A Cleaner frees the native pointer of an {@code Expression} when the {@code Expression} becomes unreachable.
+     * After a caller reads the pointers of its inputs, the JIT may treat the inputs as unreachable, so a garbage
+     * collection during the native call could free an input that native code still reads. Callers evaluate the native
+     * call before the input arguments, so the fences below keep each input alive for the whole call. An array input
+     * keeps its elements alive.
+     */
+    private static Expression keepAlive(long pointer, Object input) {
+        try {
+            return new Expression(pointer);
+        } finally {
+            Reference.reachabilityFence(input);
+        }
+    }
+
+    /** {@link #keepAlive(long, Object)} for a native call with more than one input. */
+    private static Expression keepAlive(long pointer, Object first, Object second, Object... rest) {
+        try {
+            return new Expression(pointer);
+        } finally {
+            Reference.reachabilityFence(first);
+            Reference.reachabilityFence(second);
+            Reference.reachabilityFence(rest);
+        }
     }
 
     private static long[] nativePointers(Expression[] exprs) {
