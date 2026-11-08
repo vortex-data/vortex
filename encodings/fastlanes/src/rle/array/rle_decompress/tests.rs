@@ -25,6 +25,8 @@ use crate::RLE;
 use crate::RLEArray;
 use crate::rle::RLEArrayExt;
 use crate::rle::RLEArraySlotsExt;
+use crate::rle::array::gather::U8_LANES;
+use crate::rle::array::rle_decompress::max_lane_index;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::test::SESSION;
 
@@ -310,4 +312,19 @@ fn decode_any_index_encoding(
         );
     }
     Ok(())
+}
+
+#[rstest]
+#[case::small(10, 0b0000_0111, 13)]
+#[case::exactly_254(254, 0, 254)]
+#[case::exactly_255(255, 0, 255)]
+#[case::saturates_to_255(247, 0xFF, 255)]
+#[case::past_255(250, 0xFF, 258)]
+fn max_lane_index_is_exact(#[case] base: u8, #[case] bits: u8, #[case] expected: usize) {
+    let mut bases = [0u8; U8_LANES];
+    let mut deltas = [0u8; U8_LANES];
+    bases[77] = base;
+    deltas[77] = bits;
+    assert_eq!(max_lane_index(&bases, Some(&deltas)), expected);
+    assert_eq!(max_lane_index(&bases, None), usize::from(base));
 }

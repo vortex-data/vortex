@@ -461,14 +461,7 @@ impl DeltaIndices {
             }
             let chunk_bases = &bases[chunk_idx];
             let chunk_deltas = deltas.map(|d| &d[chunk_idx]);
-            // Indices only grow along a lane, so its last index is its base plus its delta bits.
-            let max_index = (0..U8_LANES)
-                .map(|lane| {
-                    let bits = chunk_deltas.map_or(0, |d| d[lane].count_ones());
-                    u32::from(chunk_bases[lane]) + bits
-                })
-                .max()
-                .unwrap_or_default() as usize;
+            let max_index = max_lane_index(chunk_bases, chunk_deltas);
             let in_bounds =
                 max_index < usize::from(num_chunk_values) && max_index <= usize::from(u8::MAX);
             if !in_bounds {
@@ -485,6 +478,38 @@ impl DeltaIndices {
         }
         Ok(true)
     }
+}
+
+/// The largest last index of any lane: indices only grow along a lane, so a lane's last index is
+/// its base plus its number of set delta bits.
+///
+/// The common case reduces in `u8` with saturating adds, which vectorizes; only a saturated result
+/// is recomputed exactly, so indices of 255 and beyond are told apart.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a byte has at most 8 set bits"
+)]
+fn max_lane_index(bases: &[u8; U8_LANES], deltas: Option<&[u8; U8_LANES]>) -> usize {
+    let saturating = match deltas {
+        None => bases.iter().copied().max(),
+        Some(deltas) => bases
+            .iter()
+            .zip(deltas)
+            .map(|(&base, &bits)| base.saturating_add(bits.count_ones() as u8))
+            .max(),
+    }
+    .unwrap_or_default();
+    if saturating < u8::MAX {
+        return usize::from(saturating);
+    }
+    bases
+        .iter()
+        .enumerate()
+        .map(|(lane, &base)| {
+            usize::from(base) + deltas.map_or(0, |d| d[lane].count_ones() as usize)
+        })
+        .max()
+        .unwrap_or_default()
 }
 
 /// Bound-checks every index in the chunk, then runs the unchecked fastlanes gather.
