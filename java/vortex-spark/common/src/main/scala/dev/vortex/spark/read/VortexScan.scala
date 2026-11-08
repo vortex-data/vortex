@@ -675,8 +675,14 @@ class VortexScan(
         .getOrElse(sparkSession.sparkContext.defaultParallelism)
     )
     val bytesPerCore = files.map(_.fileSize + openCost).sum / parallelism
-    val sparkSplit =
-      math.min(conf.filesMaxPartitionBytes, math.max(openCost, bytesPerCore))
+
+    // Cuts fall on chunk boundaries and packing cannot fill each split, so the even share per core
+    // gets a third more room. Without it, a file slightly larger than the share becomes two pieces,
+    // and the scan takes two waves of tasks.
+    val sparkSplit = math.min(
+      conf.filesMaxPartitionBytes,
+      math.max(openCost, bytesPerCore + bytesPerCore / 3)
+    )
     val configured = options.get(MinSplitBytesOption)
     val minSplit =
       if (configured.isPresent) JavaUtils.byteStringAsBytes(configured.get.trim)
