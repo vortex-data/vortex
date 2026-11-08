@@ -37,10 +37,6 @@ use crate::schemes::integer::SparseScheme as IntSparseScheme;
 const MIN_ESTIMATED_RATIO: f64 = 1.1;
 
 /// Sparse encoding of a fixed-size list that stores only its valid rows.
-///
-/// A fixed-size list keeps `list_size` elements for every row, null or not, so compressing its
-/// elements has to encode the arbitrary values under null rows too. This scheme instead stores the
-/// positions of the valid rows and a list of only those rows, with null as the fill value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FixedSizeListSparseScheme;
 
