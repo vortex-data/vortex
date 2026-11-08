@@ -36,6 +36,7 @@ use object_store::path::Path;
 use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::metrics::ScanMetrics;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -218,6 +219,7 @@ pub struct VortexSource {
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
+    scan_metrics: ScanMetrics,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
@@ -238,6 +240,9 @@ impl VortexSource {
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
         let expression_converter = Arc::new(DefaultExpressionConverter::new(session.clone()));
 
+        let vx_metrics_registry = Arc::new(DefaultMetricsRegistry::default());
+        let scan_metrics = ScanMetrics::new(vx_metrics_registry.as_ref());
+
         Self {
             session,
             table_schema,
@@ -253,7 +258,8 @@ impl VortexSource {
             dynamic_filters: Arc::new(DashMap::default()),
             expression_converter,
             vortex_reader_factory: None,
-            vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            vx_metrics_registry,
+            scan_metrics,
             file_metadata_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
@@ -372,6 +378,7 @@ impl VortexSource {
             table_schema: self.table_schema.clone(),
             limit: base_config.limit.map(|l| l as u64),
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
+            scan_metrics: self.scan_metrics.clone(),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
