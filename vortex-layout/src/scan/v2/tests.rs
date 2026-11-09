@@ -663,17 +663,28 @@ async fn chunks_sharing_a_segment_read_it_once(
     Ok(())
 }
 
-/// V2 rejects list layouts: their element ranges are only known once their offsets are read.
+/// V2 reads list layouts as V1 does: whole, and for sparse or filtered rows.
+#[rstest]
 #[tokio::test]
-async fn list_layouts_return_an_error() -> VortexResult<()> {
+async fn list_layouts_match_v1(#[values(false, true)] sparse: bool) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
     let (segments, layout) = write(&session, &strategy).await?;
-    let error = run_scan(builder(&session, &segments, &layout)?)
-        .await
-        .expect_err("V2 must reject an unsupported layout");
-    assert!(error.to_string().contains("vortex.plan.list_pack"));
-    Ok(())
+    assert_same_as_v1(&session, || {
+        let mut scan = builder(&session, &segments, &layout)?;
+        if sparse {
+            scan = scan
+                .with_some_filter(Some(
+                    gt(get_item("ints", root()), lit(1500i32)).bind(layout.dtype())?,
+                ))
+                .with_row_range(900..3100)
+                .with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
+                    (0..4000u64).step_by(7),
+                ))?);
+        }
+        Ok(scan)
+    })
+    .await
 }
 
 #[tokio::test]

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
@@ -10,6 +11,7 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Plan;
@@ -18,6 +20,9 @@ use crate::plan::physical::PlanParts;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
+use crate::plan::physical::operators::ListSource;
+use crate::plan::physical::pipeline::Chain;
+use crate::plan::physical::pipeline::Compiler;
 
 const ELEMENTS: usize = 0;
 const OFFSETS: usize = 1;
@@ -125,6 +130,45 @@ impl PlanVTable for ListPack {
             VALIDITY => Cow::Borrowed("validity"),
             _ => Cow::Owned(format!("slot[{slot}]")),
         }
+    }
+
+    /// Compiles the offsets that start and end each selected row, and the validity of the
+    /// selected rows. The elements are compiled once the offsets are read, over only the
+    /// elements those rows name.
+    fn compile(
+        plan: &Plan<Self>,
+        rows: Range<u64>,
+        mask: &Mask,
+        compiler: &mut Compiler<'_>,
+    ) -> VortexResult<Option<Chain>> {
+        if mask.all_false() {
+            return Ok(None);
+        }
+
+        let offsets_rows = rows.start..rows.end + 1;
+        let offsets = compiler
+            .compile(
+                &plan.offsets()?,
+                offsets_rows,
+                &ListSource::offsets_mask(mask),
+            )?
+            .ok_or_else(|| vortex_err!("A ListPack's offsets produced no rows"))?;
+        let mut chains = vec![offsets];
+
+        if let Some(validity) = plan.validity()? {
+            chains.push(
+                compiler
+                    .compile(&validity, rows, mask)?
+                    .ok_or_else(|| vortex_err!("A ListPack's validity produced no rows"))?,
+            );
+        }
+
+        let source = ListSource::new(plan.clone(), mask.clone());
+        Ok(Some(compiler.join_with(
+            chains,
+            ListSource::capacity,
+            source,
+        )))
     }
 }
 

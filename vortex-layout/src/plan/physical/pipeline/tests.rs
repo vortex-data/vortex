@@ -15,6 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBin;
@@ -49,6 +50,7 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::list::ListLayout;
 use crate::layouts::struct_::StructLayout;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::EvalPlan;
@@ -850,6 +852,7 @@ fn pack_readiness_tracks_changes_and_consumption(
     ];
     let mut bytes = VecDeque::new();
     let mut reads = Default::default();
+    let mut compiles = Default::default();
     let mut exec = SESSION.create_execution_ctx();
     let mut touched = InletSet::new(2);
     let mut changed = InletSet::all(2);
@@ -858,6 +861,7 @@ fn pack_readiness_tracks_changes_and_consumption(
         inlets: &inlets,
         bytes: &mut bytes,
         reads: &mut reads,
+        compiles: &mut compiles,
         session: &SESSION,
         exec: &mut exec,
         touched: &mut touched,
@@ -1014,4 +1018,130 @@ fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
         &mut SESSION.create_execution_ctx()
     );
     Ok(())
+}
+
+/// Row `i` of the list fixture has `i % 4` elements, so rows 0, 4, 8, 12 and 16 are empty.
+fn list_lengths() -> impl Iterator<Item = u32> {
+    (0..ROWS as u32).map(|row| row % 4)
+}
+
+/// A list of `ROWS` rows over 30 `i32` elements in chunks `[0,10) [10,20) [20,30)`, the
+/// segments 0, 1 and 2. The offsets are segment 3, and the validity of a nullable list, where
+/// every fifth row is null, is segment 4.
+fn list_fixture(store: &mut Store, nullable: bool) -> VortexResult<(LayoutRef, ArrayRef)> {
+    let mut offsets = vec![0u32];
+    for length in list_lengths() {
+        offsets.push(offsets[offsets.len() - 1] + length);
+    }
+    let count = offsets[offsets.len() - 1];
+
+    let elements = PrimitiveArray::from_iter(0..count as i32).into_array();
+    let offsets = PrimitiveArray::from_iter(offsets).into_array();
+    let validity = BoolArray::from_iter((0..ROWS).map(|row| row % 5 != 0)).into_array();
+
+    let elements_layout = store.chunked(&elements, &[10, 10, 10])?;
+    let offsets_layout = store.flat(&offsets)?;
+    let validity_layout = nullable.then(|| store.flat(&validity)).transpose()?;
+
+    let validity = if nullable {
+        Validity::Array(validity)
+    } else {
+        Validity::NonNullable
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let expected = ListArray::try_new(elements, offsets, validity, &mut ctx)?.into_array();
+
+    let layout = ListLayout::new(
+        expected.dtype().clone(),
+        elements_layout,
+        offsets_layout,
+        validity_layout,
+    )
+    .into_layout();
+    Ok((layout, expected))
+}
+
+#[rstest]
+#[case::full(0..20, Sel::All)]
+#[case::crosses_element_chunks(3..17, Sel::All)]
+#[case::every_other(5..15, Sel::EveryOther)]
+#[case::sparse(0..20, Sel::Rows(&[0, 6, 7, 19]))]
+#[case::one_row(9..10, Sel::All)]
+#[case::only_empty_rows(0..20, Sel::Rows(&[4, 8, 16]))]
+#[case::nothing_selected(2..18, Sel::None)]
+#[case::empty_range(5..5, Sel::All)]
+fn list_views_assemble_the_selected_rows(
+    #[case] rows: Range<u64>,
+    #[case] sel: Sel,
+    #[values(false, true)] nullable: bool,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (layout, expected) = list_fixture(&mut store, nullable)?;
+    let mask = sel.mask((rows.end - rows.start) as usize);
+
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        rows.clone(),
+        mask.clone(),
+        delivery(order),
+    )?;
+    assert_view(&expected, &rows, &mask, run.arrays)
+}
+
+/// A sparse selection reads the offsets, the validity, and only the element chunks that its
+/// rows name.
+#[rstest]
+#[case::first_chunk(&[3], &[0, 3, 4])]
+#[case::last_chunk(&[19], &[2, 3, 4])]
+#[case::across_two_chunks(&[2, 7], &[0, 1, 3, 4])]
+#[case::only_empty_rows(&[4, 8], &[3, 4])]
+fn sparse_list_rows_read_only_the_elements_they_name(
+    #[case] selected: &[usize],
+    #[case] segments: &[u32],
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (layout, expected) = list_fixture(&mut store, true)?;
+    let mask = Mask::from_indices(ROWS as usize, selected.iter().copied());
+
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        0..ROWS,
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(segments_read(&run.events), segments);
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
+/// A list field of a struct reads its elements once the offsets of the selected rows arrive,
+/// next to the fields that do not depend on them.
+#[rstest]
+fn struct_with_a_list_field_assembles_the_selected_rows(
+    #[values(Sel::All, Sel::EveryOther, Sel::Rows(&[1, 2, 13, 18]))] sel: Sel,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (list_layout, list) = list_fixture(&mut store, true)?;
+    let id = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
+    let expected = StructArray::from_fields(&[("id", id.clone()), ("tags", list)])?.into_array();
+
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![store.chunked(&id, &[8, 12])?, list_layout],
+    )
+    .into_layout();
+    let mask = sel.mask(ROWS as usize);
+
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        0..ROWS,
+        mask.clone(),
+        delivery(order),
+    )?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }

@@ -4,17 +4,20 @@
 //! Contracts and execution context for pipeline sources and operators.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::pipeline::Arena;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
+use crate::plan::physical::PlanRef;
 use crate::segments::SegmentId;
 
 /// The output of one non-blocking compute call.
@@ -134,6 +137,11 @@ impl InletSet {
         Some(index)
     }
 
+    /// Makes room for one more inlet, which is not in the set.
+    pub(super) fn grow(&mut self) {
+        self.positions.push(usize::MAX);
+    }
+
     pub(super) fn indices(&self) -> &[usize] {
         &self.indices
     }
@@ -146,6 +154,14 @@ impl InletSet {
     }
 }
 
+/// A plan a source asked to have compiled while it runs, to feed a new inlet of the source.
+pub(crate) struct InletCompile {
+    pub(crate) plan: PlanRef,
+    pub(crate) rows: Range<u64>,
+    pub(crate) mask: Mask,
+    pub(crate) capacity: usize,
+}
+
 /// What a source or stage may touch during one call: its pipeline's inlets, the bytes the
 /// source asked for, and the session.
 pub struct Cx<'a> {
@@ -153,6 +169,7 @@ pub struct Cx<'a> {
     pub(super) inlets: &'a [PortId],
     pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
     pub(super) reads: &'a mut SmallVec<[SegmentId; 1]>,
+    pub(super) compiles: &'a mut SmallVec<[InletCompile; 1]>,
     pub(super) session: &'a VortexSession,
     pub(super) exec: &'a mut ExecutionCtx,
     pub(super) touched: &'a mut InletSet,
@@ -173,6 +190,31 @@ impl Cx<'_> {
     /// this call.
     pub fn request_read(&mut self, segment: SegmentId) {
         self.reads.push(segment);
+    }
+
+    /// Asks, during [`Source::ready`], for `plan` to be compiled over `rows` of its domain,
+    /// restricted to `mask`, into a new inlet holding `capacity` batches, and returns the index
+    /// of that inlet.
+    ///
+    /// Use it when what a source reads depends on what it has read, such as the elements of the
+    /// lists whose offsets it holds. The inlet exists once `ready` returns: return
+    /// `SourceReady::Blocked(SourceBlocked::Inlet(index))` to wait on it. When `mask` selects
+    /// no row, the inlet is closed and empty.
+    pub(crate) fn compile_inlet(
+        &mut self,
+        plan: PlanRef,
+        rows: Range<u64>,
+        mask: Mask,
+        capacity: usize,
+    ) -> usize {
+        let index = self.inlets.len() + self.compiles.len();
+        self.compiles.push(InletCompile {
+            plan,
+            rows,
+            mask,
+            capacity,
+        });
+        index
     }
 
     /// Whether a requested segment has arrived and can be taken.
