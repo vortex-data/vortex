@@ -30,19 +30,53 @@ use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::scan::execution::SegmentLocation;
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// Byte ranges of a file's segments, keyed by `(offset, length)`, back to their segment ids.
-pub(crate) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
+/// Byte ranges of a file's segments, back to the segments, and the bytes of them, that they read.
+pub(crate) type SegmentRanges = Arc<SegmentIndex>;
 
 pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
-    let ranges = locations.iter().enumerate().map(|(id, location)| {
+    let segments = locations.iter().enumerate().map(|(id, location)| {
         let id = SegmentId::from(u32::try_from(id).unwrap_or(u32::MAX));
-        ((location.offset, location.length as usize), id)
+        (location.offset, u64::from(location.length), id)
     });
-    Arc::new(ranges.collect())
+    let mut sorted = segments.collect::<Vec<_>>();
+    let whole = sorted
+        .iter()
+        .map(|&(offset, length, id)| ((offset, length), id))
+        .collect();
+    sorted.sort_unstable_by_key(|&(offset, ..)| offset);
+    Arc::new(SegmentIndex { whole, sorted })
+}
+
+/// The byte ranges of a file's segments.
+pub(crate) struct SegmentIndex {
+    /// Each segment by its `(offset, length)`.
+    whole: HashMap<(u64, u64), SegmentId>,
+    /// Each segment's `(offset, length, id)`, by offset.
+    sorted: Vec<(u64, u64, SegmentId)>,
+}
+
+impl SegmentIndex {
+    /// The segment that holds the `len` bytes at `offset`, and the bytes of it they are.
+    fn locate(&self, offset: u64, len: usize) -> Option<(SegmentId, SegmentBytes)> {
+        let len = len as u64;
+        if let Some(&id) = self.whole.get(&(offset, len)) {
+            return Some((id, SegmentBytes::All));
+        }
+
+        let index = self
+            .sorted
+            .partition_point(|&(start, ..)| start <= offset)
+            .checked_sub(1)?;
+        let (start, length, id) = self.sorted[index];
+        let begin = offset - start;
+        let end = begin.checked_add(len)?;
+        (end <= length).then_some((id, SegmentBytes::Range(begin..end)))
+    }
 }
 
 /// Serves splits from any [`SegmentSource`], by segment id.
@@ -80,11 +114,11 @@ pub(super) struct SegmentIoSource {
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
     ready: Mutex<VecDeque<Completion>>,
-    /// Every read the session has started, by segment, shared by later fetches of the segment
-    /// until the session is cleared.
-    prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
-    /// Announced segments, requested and never polled.
-    announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
+    /// Every read the session has started, by segment and bytes, shared by later fetches of the
+    /// same bytes until the session is cleared.
+    prefetched: Mutex<HashMap<(SegmentId, SegmentBytes), Prefetched>>,
+    /// Announced reads, requested and never polled.
+    announced: Mutex<HashMap<(SegmentId, SegmentBytes), VecDeque<SegmentFuture>>>,
 }
 
 /// A read started ahead of the fetch that needs it.
@@ -115,26 +149,37 @@ impl IoSource for SegmentIoSource {
                     request.target
                 );
             };
-            let segment = *self
+            let (segment, wanted) = self
                 .ranges
-                .get(&(offset, len))
+                .locate(offset, len)
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
+
+            // A source that cannot read part of a segment reads the whole segment once for every
+            // part of it, which the session then slices.
+            let whole = !self.segments.reads_ranges()
+                || prefetched.contains_key(&(segment, SegmentBytes::All));
+            let bytes = if whole {
+                SegmentBytes::All
+            } else {
+                wanted.clone()
+            };
+            let key = (segment, bytes.clone());
             if request.intent == IoIntent::Announce {
                 self.announced
                     .lock()
-                    .entry(segment)
+                    .entry(key)
                     .or_default()
-                    .push_back(self.segments.request(segment));
+                    .push_back(self.segments.request_bytes(segment, bytes));
                 continue;
             }
             if request.intent == IoIntent::Prefetch {
-                prefetched.entry(segment).or_insert_with(|| {
+                prefetched.entry(key.clone()).or_insert_with(|| {
                     let read = self
                         .announced
                         .lock()
-                        .get_mut(&segment)
+                        .get_mut(&key)
                         .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
+                        .unwrap_or_else(|| self.segments.request_bytes(segment, bytes))
                         .map_err(Arc::new)
                         .boxed()
                         .shared();
@@ -151,19 +196,26 @@ impl IoSource for SegmentIoSource {
             // split that reads it again shares the read instead of starting another once the
             // first has completed.
             let mut bytes = prefetched
-                .entry(segment)
+                .entry(key.clone())
                 .or_insert_with(|| {
                     self.announced
                         .lock()
-                        .get_mut(&segment)
+                        .get_mut(&key)
                         .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
+                        .unwrap_or_else(|| self.segments.request_bytes(segment, bytes))
                         .map_err(Arc::new)
                         .boxed()
                         .shared()
                 })
                 .clone()
                 .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))
+                .and_then(move |segment| {
+                    futures::future::ready(if whole {
+                        wanted.slice(segment)
+                    } else {
+                        Ok(segment)
+                    })
+                })
                 .boxed();
             let id = request.request;
             // In-memory and cached segments need no allocated asynchronous task. A pending
@@ -249,12 +301,14 @@ mod tests {
     use vortex_io::request::IoOwnerId;
     use vortex_io::request::IoRequest;
     use vortex_io::request::IoRequestId;
+    use vortex_io::request::IoResult;
     use vortex_io::request::IoSource;
     use vortex_io::request::IoTarget;
 
     use super::SegmentIoSource;
     use super::segment_ranges;
     use crate::scan::execution::SegmentLocation;
+    use crate::segments::SegmentBytes;
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
@@ -399,6 +453,81 @@ mod tests {
             // later fetches share it and the other announcement is never consumed.
             assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         }
+        Ok(())
+    }
+
+    /// Serves 16 bytes per segment, byte `i` of segment `s` being `16 * s + i`, and records the
+    /// reads it is asked for.
+    struct ByteSegments {
+        reads_ranges: bool,
+        reads: Mutex<Vec<(SegmentId, SegmentBytes)>>,
+    }
+
+    impl ByteSegments {
+        fn new(reads_ranges: bool) -> Arc<Self> {
+            Arc::new(Self {
+                reads_ranges,
+                reads: Mutex::default(),
+            })
+        }
+    }
+
+    impl SegmentSource for ByteSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.request_bytes(id, SegmentBytes::All)
+        }
+
+        fn reads_ranges(&self) -> bool {
+            self.reads_ranges
+        }
+
+        fn request_bytes(&self, id: SegmentId, bytes: SegmentBytes) -> SegmentFuture {
+            self.reads.lock().push((id, bytes.clone()));
+            let first = u8::try_from(*id * 16).unwrap_or(u8::MAX);
+            let segment =
+                BufferHandle::new_host(ByteBuffer::from((first..first + 16).collect::<Vec<_>>()));
+            future::ready(bytes.slice(segment)).boxed()
+        }
+    }
+
+    /// A fetch of part of a segment is served from that segment: as a read of the part from a
+    /// source that reads ranges, else from one read of the whole segment that every part shares.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn parts_of_segments_read_their_bytes(
+        #[values(false, true)] reads_ranges: bool,
+    ) -> VortexResult<()> {
+        let segments = ByteSegments::new(reads_ranges);
+        let locations = [0, 16].map(|offset| SegmentLocation {
+            offset,
+            length: 16,
+            alignment: Alignment::none(),
+        });
+        let io = SegmentIoSource::new(Arc::clone(&segments) as _, segment_ranges(&locations));
+
+        for (id, offset, len) in [(0, 18, 3), (1, 28, 4)] {
+            let mut part = request(IoIntent::Fetch, id);
+            part.target = IoTarget::range(offset, len);
+            io.submit(IoOwnerId(0), vec![part])?;
+            let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
+            let IoResult::Bytes(bytes) = completion.result? else {
+                return Err(vortex_err!("a fetch delivers bytes"));
+            };
+            let expected = (offset..offset + len as u64)
+                .map(u8::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(bytes.try_to_host_sync()?.as_slice(), expected.as_slice());
+        }
+
+        let expected = if reads_ranges {
+            vec![
+                (SegmentId::from(1), SegmentBytes::Range(2..5)),
+                (SegmentId::from(1), SegmentBytes::Range(12..16)),
+            ]
+        } else {
+            vec![(SegmentId::from(1), SegmentBytes::All)]
+        };
+        assert_eq!(*segments.reads.lock(), expected);
         Ok(())
     }
 }

@@ -176,6 +176,7 @@ impl Morsel for ProjectionMorsel {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
+            .with_segment_lengths(Arc::clone(&self.scan.segment_lengths))
             .with_value_cache(self.scan.values.clone());
             self.adaptor = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(MorselOutput::Continue);

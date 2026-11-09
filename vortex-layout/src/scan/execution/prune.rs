@@ -114,6 +114,7 @@ impl Planner for PrunePlanner {
                 self.pruning.as_slice().iter(),
                 self.rows.clone(),
                 &self.mask,
+                &self.scan.segment_lengths,
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
@@ -124,7 +125,7 @@ impl Planner for PrunePlanner {
                 &segments,
                 &mut seen,
                 &mut batch,
-            );
+            )?;
             if !batch.is_empty() {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
@@ -169,6 +170,7 @@ impl Planner for PrunePlanner {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
+            .with_segment_lengths(Arc::clone(&self.scan.segment_lengths))
             .with_value_cache(self.scan.values.clone());
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);

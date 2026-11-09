@@ -20,7 +20,9 @@ use vortex_io::request::IoResult;
 use vortex_scan::planning::planner::State;
 
 use crate::plan::physical::pipeline::ReadId;
+use crate::plan::physical::pipeline::ReadRequest;
 use crate::plan::physical::pipeline::Scan;
+use crate::plan::physical::pipeline::SegmentRead;
 use crate::plan::physical::pipeline::Turn;
 use crate::scan::execution::SegmentLocation;
 use crate::segments::SegmentId;
@@ -58,7 +60,7 @@ pub(super) struct ScanAdaptor {
     next_piece: u64,
     locations: Arc<[SegmentLocation]>,
     /// Published and undelivered requests, with the scan read and segment each one answers.
-    outstanding: FxHashMap<u32, (ReadId, SegmentId)>,
+    outstanding: FxHashMap<u32, (ReadId, SegmentRead)>,
     /// A delivery the scan could not take, reported by the next compute.
     failed: Option<VortexError>,
     /// The protocol id the next published request gets.
@@ -99,10 +101,10 @@ impl ScanAdaptor {
             Turn::Output(_, array) => AdaptorStep::Piece(self.piece(array)),
             Turn::Read(read) => {
                 // Publish every read the scan has ready together, so the owner can coalesce them.
-                let mut batch = vec![self.request(read.id, read.segment_id)?];
+                let mut batch = vec![self.request(read)?];
                 loop {
                     match self.step()? {
-                        Turn::Read(read) => batch.push(self.request(read.id, read.segment_id)?),
+                        Turn::Read(read) => batch.push(self.request(read)?),
                         turn => {
                             if !matches!(turn, Turn::Waiting) {
                                 self.pending = Some(turn);
@@ -139,18 +141,22 @@ impl ScanAdaptor {
         }
     }
 
-    fn request(&mut self, read: ReadId, segment_id: SegmentId) -> VortexResult<request::IoRequest> {
-        let location = self.location(segment_id)?;
+    fn request(&mut self, read: ReadRequest) -> VortexResult<request::IoRequest> {
+        let target = self.location(read.segment_id)?.target(&read.bytes)?;
         let id = self.next_id;
         self.next_id = self
             .next_id
             .checked_add(1)
             .ok_or_else(|| vortex_err!("ScanAdaptor ran out of request ids"))?;
-        self.outstanding.insert(id, (read, segment_id));
+        let segment_read = SegmentRead {
+            segment_id: read.segment_id,
+            bytes: read.bytes,
+        };
+        self.outstanding.insert(id, (read.id, segment_read));
         Ok(request::IoRequest {
             intent: IoIntent::Fetch,
             request: request::IoRequestId(id),
-            target: location.target(),
+            target,
         })
     }
 
@@ -158,13 +164,14 @@ impl ScanAdaptor {
     /// published, so anything else is a driver bug. Bytes the scan cannot take fail the owner's
     /// next compute.
     pub(super) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
-        let Some((read, segment_id)) = self.outstanding.remove(&id.0) else {
+        let Some((read, segment_read)) = self.outstanding.remove(&id.0) else {
             vortex_panic!("ScanAdaptor: delivery of {id:?}, which is not outstanding");
         };
+        let segment_id = segment_read.segment_id;
         let IoResult::Bytes(bytes) = result else {
             vortex_panic!("ScanAdaptor: segment {segment_id} answered with a size");
         };
-        if let Err(error) = self.deliver(read, segment_id, bytes)
+        if let Err(error) = self.deliver(read, &segment_read, bytes)
             && self.failed.is_none()
         {
             self.failed = Some(error.with_context(format!("delivering segment {segment_id}")));
@@ -174,11 +181,13 @@ impl ScanAdaptor {
     fn deliver(
         &mut self,
         read: ReadId,
-        segment_id: SegmentId,
+        segment_read: &SegmentRead,
         bytes: BufferHandle,
     ) -> VortexResult<()> {
         // A source that honours the target's alignment makes this a check, not a copy.
-        let alignment = self.location(segment_id)?.alignment;
+        let alignment = self
+            .location(segment_read.segment_id)?
+            .alignment(&segment_read.bytes);
         let bytes = BufferHandle::new_host(bytes.try_into_host_sync()?.aligned(alignment));
         self.scan.deliver(read, bytes)?;
         if matches!(self.pending, Some(Turn::Waiting)) {

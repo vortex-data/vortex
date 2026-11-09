@@ -7,8 +7,10 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -40,6 +42,7 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentId;
 
 #[cfg(debug_assertions)]
@@ -56,6 +59,27 @@ pub struct ReadRequest {
     pub id: ReadId,
     /// The segment to read.
     pub segment_id: SegmentId,
+    /// The bytes of the segment to read and deliver.
+    pub bytes: SegmentBytes,
+}
+
+/// Some bytes of one segment, which a source reads.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentRead {
+    /// The segment.
+    pub segment_id: SegmentId,
+    /// The bytes of it.
+    pub bytes: SegmentBytes,
+}
+
+impl SegmentRead {
+    /// A read of the whole of `segment_id`.
+    pub fn all(segment_id: SegmentId) -> Self {
+        Self {
+            segment_id,
+            bytes: SegmentBytes::All,
+        }
+    }
 }
 
 /// A row range of the plan's domain, and the rows of it to produce.
@@ -107,8 +131,8 @@ pub(crate) struct Pipeline {
     stages: Vec<Box<dyn Operator>>,
     inlets: Vec<PortId>,
     outlets: SmallVec<[PortId; 1]>,
-    /// The segments it asked for that have arrived, in order of arrival.
-    bytes: VecDeque<(SegmentId, BufferHandle)>,
+    /// The reads it asked for that have arrived, in order of arrival.
+    bytes: VecDeque<(SegmentRead, BufferHandle)>,
     /// Reads it asked for that have not arrived, so retiring it cancels them only when any
     /// are left.
     pending: usize,
@@ -141,7 +165,7 @@ fn drive(
     arena: &mut Arena,
     session: &VortexSession,
     exec: &mut ExecutionCtx,
-    reads: &mut SmallVec<[SegmentId; 1]>,
+    reads: &mut SmallVec<[SegmentRead; 1]>,
     compiles: &mut SmallVec<[InletCompile; 1]>,
 ) -> VortexResult<Progress> {
     let Pipeline {
@@ -286,15 +310,17 @@ pub(crate) struct Core {
     ready: Vec<PipelineId>,
     /// Reads in flight: the pipeline that asked, or `None` once that pipeline has finished and
     /// the read is cancelled, and the segment.
-    reads: FxHashMap<ReadId, (Option<PipelineId>, SegmentId)>,
+    reads: FxHashMap<ReadId, (Option<PipelineId>, SegmentRead)>,
     next_read: u64,
     new_reads: VecDeque<ReadRequest>,
     /// Split slots whose stage output has something new, with a flag per slot so a slot is
     /// queued once.
     dirty: Vec<usize>,
     dirty_flags: Vec<bool>,
-    /// The segment of every scan source compiled so far, in compile order.
-    pub(crate) segments: Vec<SegmentId>,
+    /// The reads of every scan source compiled so far, in compile order.
+    pub(crate) segments: Vec<SegmentRead>,
+    /// The byte length of every segment, by segment id, when the owner of the scan knows them.
+    pub(crate) segment_lengths: Option<Arc<[u32]>>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
 }
@@ -315,8 +341,15 @@ impl Core {
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
             segments: Vec::new(),
+            segment_lengths: None,
             values: ValueCache::default(),
         }
+    }
+
+    /// The byte length of the segment `id`, when the owner of the scan gave the lengths.
+    pub(crate) fn segment_length(&self, id: SegmentId) -> Option<u64> {
+        let lengths = self.segment_lengths.as_ref()?;
+        lengths.get(*id as usize).map(|&length| u64::from(length))
     }
 
     /// Makes `chain` a pipeline writing `outlets`, and queues it to run.
@@ -416,8 +449,8 @@ impl Core {
             &mut reads,
             &mut compiles,
         )?;
-        for segment_id in reads {
-            self.ask(id, segment_id);
+        for read in reads {
+            self.ask(id, read);
         }
 
         let compiled = !compiles.is_empty();
@@ -485,9 +518,9 @@ impl Core {
         Ok(())
     }
 
-    /// Issues a read of `segment_id`, which pipeline `id`'s source asked for.
-    fn ask(&mut self, id: PipelineId, segment_id: SegmentId) {
-        self.read(id, segment_id);
+    /// Issues `read`, which pipeline `id`'s source asked for.
+    fn ask(&mut self, id: PipelineId, read: SegmentRead) {
+        self.read(id, read);
         self.pipeline_mut(id).pending += 1;
     }
 
@@ -593,15 +626,16 @@ impl Core {
         Ok(())
     }
 
-    /// Issues a read of `segment` for pipeline `owner`.
-    fn read(&mut self, owner: PipelineId, segment_id: SegmentId) {
+    /// Issues `segment_read` for pipeline `owner`.
+    fn read(&mut self, owner: PipelineId, segment_read: SegmentRead) {
         let read = ReadId(self.next_read);
         self.next_read += 1;
-        self.reads.insert(read, (Some(owner), segment_id));
         self.new_reads.push_back(ReadRequest {
             id: read,
-            segment_id,
+            segment_id: segment_read.segment_id,
+            bytes: segment_read.bytes.clone(),
         });
+        self.reads.insert(read, (Some(owner), segment_read));
     }
 
     /// Every live pipeline's state, and for one waiting on an inlet, that port and its sink.
@@ -714,12 +748,32 @@ impl Scan {
         rows: Range<u64>,
         mask: &Mask,
     ) -> VortexResult<Vec<SegmentId>> {
-        let mut core = Core::new(session.clone(), 0);
-        core.compile(plan, rows, mask)?;
-        let mut segments = core.segments;
-        segments.sort_unstable();
+        let mut segments = Self::reads(session, plan, rows, mask, None)?
+            .into_iter()
+            .map(|read| read.segment_id)
+            .collect::<Vec<_>>();
         segments.dedup();
         Ok(segments)
+    }
+
+    /// The reads compiling `plan` over `rows` under `mask` issues, each once, in segment id
+    /// order. A source that reads only some bytes of a segment names those bytes. The reads
+    /// agree with the reads of a scan only when both get the same `segment_lengths`.
+    pub(crate) fn reads(
+        session: &VortexSession,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+        segment_lengths: Option<&Arc<[u32]>>,
+    ) -> VortexResult<Vec<SegmentRead>> {
+        let mut core = Core::new(session.clone(), 0);
+        core.segment_lengths = segment_lengths.cloned();
+        core.compile(plan, rows, mask)?;
+        let mut seen = FxHashSet::default();
+        let mut reads = core.segments;
+        reads.retain(|read| seen.insert(read.clone()));
+        reads.sort_by_key(|read| read.segment_id);
+        Ok(reads)
     }
 
     /// Runs up to `max_active` splits at once.
@@ -733,6 +787,14 @@ impl Scan {
     /// Sets the global row index of plan row zero, which row-index plans add to their rows.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.core.row_offset = row_offset;
+        self
+    }
+
+    /// Sets the byte length of every segment, by segment id. A scan that knows them reads a
+    /// few rows of an uncompressed fixed-width segment as byte ranges, also when the layout
+    /// does not hold the array tree of the segment.
+    pub fn with_segment_lengths(mut self, segment_lengths: Arc<[u32]>) -> Self {
+        self.core.segment_lengths = Some(segment_lengths);
         self
     }
 

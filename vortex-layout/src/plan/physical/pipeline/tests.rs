@@ -6,6 +6,7 @@
 
 use std::collections::VecDeque;
 use std::ops::Range;
+use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_array::ArrayContext;
@@ -14,7 +15,9 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -71,6 +74,7 @@ use crate::plan::physical::operator::Step;
 use crate::plan::physical::operators::PackSource;
 use crate::plan::physical::optimize;
 use crate::plan::physical::selection::selected;
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentId;
 use crate::test::SESSION;
 
@@ -83,10 +87,28 @@ struct Store {
 }
 
 impl Store {
+    /// The byte length of every segment, by segment id.
+    fn segment_lengths(&self) -> VortexResult<Arc<[u32]>> {
+        self.segments
+            .iter()
+            .map(|segment| Ok(u32::try_from(segment.len())?))
+            .collect()
+    }
+
     fn flat(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
+        self.flat_with_tree(array, false)
+    }
+
+    /// A flat layout that holds the array tree of its segment, as a writer that inlines array
+    /// nodes stores it. The segment then holds only the buffers.
+    fn flat_inline(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
+        self.flat_with_tree(array, true)
+    }
+
+    fn flat_with_tree(&mut self, array: &ArrayRef, inline: bool) -> VortexResult<LayoutRef> {
         let ctx = ArrayContext::empty();
         let array = array.optimize_ctx(&SESSION)?;
-        let buffers = array.serialize(
+        let mut buffers = array.serialize(
             &ctx,
             &SESSION,
             &SerializeOptions {
@@ -94,17 +116,26 @@ impl Store {
                 include_padding: true,
             },
         )?;
+
+        // The serialized array ends with its tree and the length of the tree.
+        let tree = inline.then(|| {
+            buffers.pop();
+            buffers.pop()
+        });
+        let tree = tree.flatten();
+
         let mut bytes = ByteBufferMut::empty_aligned(Alignment::new(64));
         for buffer in buffers {
             bytes.extend_from_slice(buffer.as_ref());
         }
         let segment_id = SegmentId::from(u32::try_from(self.segments.len())?);
         self.segments.push(BufferHandle::new_host(bytes.freeze()));
-        Ok(FlatLayout::new(
+        Ok(FlatLayout::new_with_metadata(
             array.len() as u64,
             array.dtype().clone(),
             segment_id,
             ReadContext::new(ctx.to_ids()),
+            tree,
         )
         .into_layout())
     }
@@ -205,6 +236,10 @@ struct Run {
     events: Vec<Event>,
     /// Ports still held once the scan finished.
     leftover: usize,
+    /// The reads delivered, in order of delivery.
+    delivered: Vec<SegmentRead>,
+    /// The bytes delivered.
+    bytes: usize,
 }
 
 /// Drives a scan the way an owner does, completing reads only while the scan waits.
@@ -218,6 +253,8 @@ fn drive(
     let mut arrays = Vec::new();
     let mut splits: Vec<Vec<ArrayRef>> = Vec::new();
     let mut events = Vec::new();
+    let mut delivered = Vec::new();
+    let mut bytes = 0;
     loop {
         match scan.step()? {
             Turn::Read(read) => {
@@ -245,7 +282,13 @@ fn drive(
                 }
                 let read = inflight.remove(pick(&inflight));
                 events.push(Event::Delivered(*read.segment_id));
-                scan.deliver(read.id, store.read(read.segment_id))?;
+                let segment = read.bytes.slice(store.read(read.segment_id))?;
+                bytes += segment.len();
+                delivered.push(SegmentRead {
+                    segment_id: read.segment_id,
+                    bytes: read.bytes,
+                });
+                scan.deliver(read.id, segment)?;
             }
             Turn::Done => break,
         }
@@ -263,6 +306,8 @@ fn drive(
         splits,
         events,
         leftover,
+        delivered,
+        bytes,
     })
 }
 
@@ -287,6 +332,7 @@ fn run_with_values(
     pick: impl FnMut(&[ReadRequest]) -> usize,
 ) -> VortexResult<Run> {
     let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?
+        .with_segment_lengths(store.segment_lengths()?)
         .with_value_cache(values);
     let run = drive(store, scan, pick)?;
     assert_eq!(run.leftover, 0, "a finished scan holds no port");
@@ -1144,4 +1190,134 @@ fn struct_with_a_list_field_assembles_the_selected_rows(
         delivery(order),
     )?;
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
+/// Values with no pattern that an optimizer could encode, so their segment stays uncompressed.
+fn scattered(count: u64) -> impl Iterator<Item = u64> {
+    (0..count).map(|value| value.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 3)
+}
+
+/// 20 000 `u64` rows, 160 000 bytes, and 2 000 fixed-size lists of 16 `f32`, 128 000 bytes.
+fn point_fixtures() -> VortexResult<[ArrayRef; 2]> {
+    let values = PrimitiveArray::from_iter(scattered(20_000)).into_array();
+    let elements = PrimitiveArray::from_iter(scattered(32_000).map(|value| value as f32));
+    let lists =
+        FixedSizeListArray::try_new(elements.into_array(), 16, Validity::NonNullable, 2_000)?
+            .into_array();
+    Ok([values, lists])
+}
+
+/// A few rows of an uncompressed fixed-width segment read only their bytes, beside the end of
+/// the segment that holds its array tree when the layout does not hold it.
+#[rstest]
+fn sparse_rows_of_uncompressed_segments_read_only_their_bytes(
+    #[values(0, 1)] fixture: usize,
+    #[values(false, true)] inline: bool,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let array = point_fixtures()?[fixture].clone();
+    let rows = array.len() as u64;
+    let mut store = Store::default();
+    let layout = if inline {
+        store.flat_inline(&array)?
+    } else {
+        store.flat(&array)?
+    };
+    let segment = store.read(SegmentId::from(0)).len();
+
+    let mask = Mask::from_indices(rows as usize, [3, 4, 9, 1_500, 1_999]);
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        0..rows,
+        mask.clone(),
+        delivery(order),
+    )?;
+    assert_view(&array, &(0..rows), &mask, run.arrays)?;
+
+    let tail = run
+        .delivered
+        .iter()
+        .filter(|read| matches!(read.bytes, SegmentBytes::Last(_)))
+        .count();
+    assert_eq!(tail, usize::from(!inline), "{:?}", run.delivered);
+    assert!(
+        run.delivered
+            .iter()
+            .all(|read| read.bytes != SegmentBytes::All),
+        "{:?}",
+        run.delivered
+    );
+    assert!(run.bytes * 10 < segment, "read {} of {segment}", run.bytes);
+    Ok(())
+}
+
+/// A segment shorter than its uncompressed values does not hold them as one buffer, so a scan
+/// of a few of its rows reads it whole at once: it reads no end of the segment and no range.
+#[test]
+fn sparse_rows_of_a_short_segment_read_it_whole_at_once() -> VortexResult<()> {
+    let rows = 20_000u64;
+    let array = ConstantArray::new(7u64, rows as usize).into_array();
+    let mut store = Store::default();
+    let layout = store.flat(&array)?;
+    assert!(store.read(SegmentId::from(0)).len() < 1_000);
+
+    let mask = Mask::from_indices(rows as usize, [3, 4, 9, 1_500, 19_999]);
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        0..rows,
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_view(&array, &(0..rows), &mask, run.arrays)?;
+
+    let delivered = run.delivered.iter().map(|read| &read.bytes);
+    assert_eq!(delivered.collect::<Vec<_>>(), [&SegmentBytes::All]);
+    Ok(())
+}
+
+/// A dense selection, a small segment and a segment that is not one uncompressed buffer are
+/// read whole. A segment with a validity buffer refutes the guess from its tree, so the scan
+/// then reads it whole.
+#[rstest]
+#[case::dense(false, false, 0..20_000)]
+#[case::small_segment(true, false, 0..100)]
+#[case::nullable_values(false, true, 0..20_000)]
+fn other_segments_are_read_whole(
+    #[case] sparse: bool,
+    #[case] nulls: bool,
+    #[case] rows: Range<u64>,
+) -> VortexResult<()> {
+    let values = scattered(rows.end).map(|value| (!nulls || value % 7 != 0).then_some(value));
+    let array = PrimitiveArray::from_option_iter(values).into_array();
+    let array = if nulls {
+        array
+    } else {
+        PrimitiveArray::from_iter(scattered(rows.end)).into_array()
+    };
+    let mut store = Store::default();
+    let layout = store.flat(&array)?;
+
+    let len = rows.end as usize;
+    let mask = if sparse || nulls {
+        Mask::from_indices(len, [1, len / 2, len - 1])
+    } else {
+        Mask::from_iter((0..len).map(|row| row % 3 == 0))
+    };
+    let run = run(
+        &store,
+        &layout.new_plan()?,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_view(&array, &rows, &mask, run.arrays)?;
+    assert_eq!(
+        run.delivered.last().map(|read| &read.bytes),
+        Some(&SegmentBytes::All),
+        "{:?}",
+        run.delivered
+    );
+    Ok(())
 }

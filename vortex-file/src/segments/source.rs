@@ -35,6 +35,7 @@ use vortex_io::ReadAtStream;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::JoinOutcome;
+use vortex_layout::segments::SegmentBytes;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
@@ -361,29 +362,15 @@ impl FileSegmentSource {
     }
 }
 
-impl SegmentSource for FileSegmentSource {
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
-        // coalescing becomes effective prior to the future being polled.
-        let spec = *match self.segments.get(*id as usize) {
-            Some(spec) => spec,
-            None => {
-                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
-            }
-        };
-
-        let SegmentSpec {
-            offset,
-            length,
-            alignment,
-        } = spec;
-
+impl FileSegmentSource {
+    /// Registers a read of `length` bytes at `offset` of the file.
+    fn read(&self, offset: u64, length: usize, alignment: Alignment) -> SegmentFuture {
         let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
             id,
             offset,
-            length: length as usize,
+            length,
             alignment,
             callback: send,
         });
@@ -405,6 +392,53 @@ impl SegmentSource for FileSegmentSource {
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
         fut.boxed()
+    }
+}
+
+impl SegmentSource for FileSegmentSource {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
+        // coalescing becomes effective prior to the future being polled.
+        let Some(&SegmentSpec {
+            offset,
+            length,
+            alignment,
+        }) = self.segments.get(*id as usize)
+        else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        };
+        self.read(offset, length as usize, alignment)
+    }
+
+    fn reads_ranges(&self) -> bool {
+        true
+    }
+
+    /// Reads only `bytes` of the segment. A part of a segment keeps no alignment.
+    fn request_bytes(&self, id: SegmentId, bytes: SegmentBytes) -> SegmentFuture {
+        if bytes == SegmentBytes::All {
+            return self.request(id);
+        }
+
+        let Some(spec) = self.segments.get(*id as usize) else {
+            return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
+        };
+        let range = match bytes.resolve(u64::from(spec.length)) {
+            Ok(range) => range,
+            Err(error) => return future::ready(Err(error)).boxed(),
+        };
+        let Ok(length) = usize::try_from(range.end - range.start) else {
+            return future::ready(Err(vortex_err!("Segment {id} bytes exceed usize"))).boxed();
+        };
+
+        // A range past the end of the segment holds no byte, and a store can refuse a read of
+        // no byte.
+        if length == 0 {
+            let empty = BufferHandle::new_host(ByteBuffer::empty());
+            return future::ready(Ok(empty)).boxed();
+        }
+
+        self.read(spec.offset + range.start, length, Alignment::none())
     }
 }
 
@@ -643,6 +677,41 @@ mod tests {
             TokioRuntime::current(),
             RequestMetrics::new(&metrics, vec![]),
         )
+    }
+
+    /// A read of part of a segment reads only those bytes of the file, and a range past the end of
+    /// the segment reads the bytes up to its end.
+    #[tokio::test]
+    async fn file_segment_source_reads_parts_of_segments() -> VortexResult<()> {
+        let segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
+            offset: 8,
+            length: 32,
+            alignment: Alignment::new(8),
+        }]);
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            segments,
+            ByteBuffer::from((0..64u8).collect::<Vec<_>>()),
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        );
+        assert!(source.reads_ranges());
+
+        for (bytes, expected) in [
+            (SegmentBytes::All, 8..40u8),
+            (SegmentBytes::Range(4..10), 12..18),
+            (SegmentBytes::Last(5), 35..40),
+            (SegmentBytes::Range(30..50), 38..40),
+            (SegmentBytes::Range(32..50), 0..0),
+            (SegmentBytes::Range(40..50), 0..0),
+        ] {
+            let read = source
+                .request_bytes(SegmentId::from(0), bytes)
+                .await?
+                .try_to_host_sync()?;
+            assert_eq!(read.as_slice(), expected.collect::<Vec<_>>().as_slice());
+        }
+        Ok(())
     }
 
     fn panic_message(payload: &(dyn Any + Send)) -> &str {

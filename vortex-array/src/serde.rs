@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::iter;
+use std::ops::Range;
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
@@ -576,6 +577,33 @@ impl SerializedArray {
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())
             .unwrap_or_default()
+    }
+
+    /// Returns the byte range of each buffer in the segment that holds the buffers, as the padding
+    /// and lengths stored in the flatbuffer metadata give them.
+    ///
+    /// Like [`buffer_lengths`](Self::buffer_lengths), this needs no buffer data, so it locates
+    /// the buffers of an array tree before its segment is read.
+    pub fn buffer_ranges(&self) -> VortexResult<Vec<Range<usize>>> {
+        let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())?;
+        let mut offset = 0usize;
+        fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .map(|buffer| {
+                let start = offset
+                    .checked_add(buffer.padding() as usize)
+                    .ok_or_else(|| {
+                        vortex_err!("Buffer offset overflows when adding its padding")
+                    })?;
+                let end = start
+                    .checked_add(buffer.length() as usize)
+                    .ok_or_else(|| vortex_err!("Buffer offset overflows when adding its length"))?;
+                offset = end;
+                Ok(start..end)
+            })
+            .collect()
     }
 
     /// Validate and align the array tree flatbuffer, returning the aligned buffer and root location.

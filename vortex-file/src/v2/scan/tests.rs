@@ -11,6 +11,7 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::Field;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayRef;
@@ -21,22 +22,29 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_arrow::ArrowSessionExt;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_io::VortexReadAt;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ScanDriver;
@@ -312,6 +320,77 @@ async fn retained_segment_bytes_bound_what_outlives_a_scan() -> VortexResult<()>
     assert_eq!(
         second, first,
         "a cache retaining nothing reads every segment again"
+    );
+    Ok(())
+}
+
+/// Counts the bytes a file's reads fetch.
+#[derive(Clone)]
+struct ByteCountingRead {
+    inner: ByteBuffer,
+    bytes: Arc<AtomicUsize>,
+}
+
+impl VortexReadAt for ByteCountingRead {
+    fn concurrency(&self) -> usize {
+        self.inner.concurrency()
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.inner.size()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.bytes.fetch_add(length, Ordering::Relaxed);
+        self.inner.read_at(offset, length, alignment)
+    }
+}
+
+/// A few rows of an uncompressed column read only their bytes and the end of the segment, not
+/// the whole segment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sparse_rows_of_an_uncompressed_column_read_only_their_bytes() -> VortexResult<()> {
+    let values =
+        Buffer::from_iter((0..100_000u64).map(|value| value.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, values.clone().into_array().to_array_stream())
+        .await?;
+    let buf = buf.freeze();
+
+    let bytes = Arc::new(AtomicUsize::new(0));
+    let file = SESSION
+        .open_options()
+        .open_read(ByteCountingRead {
+            inner: buf.clone(),
+            bytes: Arc::clone(&bytes),
+        })
+        .await?;
+    let opened = bytes.load(Ordering::Relaxed);
+
+    let rows = [3u64, 50_000, 99_999];
+    let scan = ScanBuilder::new(SESSION.clone(), file.scan_file())
+        .with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(rows))?);
+    let batches: Vec<ArrayRef> = driver().run(scan).try_collect().await?;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let actual =
+        ChunkedArray::try_new(batches, values.clone().into_array().dtype().clone())?.into_array();
+    let expected = PrimitiveArray::from_iter(rows.map(|row| values[row as usize])).into_array();
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    let scanned = bytes.load(Ordering::Relaxed) - opened;
+    assert!(
+        scanned < 16 << 10,
+        "the scan read {scanned} of {} bytes",
+        buf.len()
     );
     Ok(())
 }
