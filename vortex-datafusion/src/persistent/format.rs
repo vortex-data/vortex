@@ -239,6 +239,13 @@ extensions_options! {
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
+        /// Whether a [`VortexCountByPushdown`](crate::VortexCountByPushdown) registered with
+        /// the session may count a `COUNT(*) ... GROUP BY` in the scan.
+        ///
+        /// Enabled by default; it has no effect unless the rule is registered. Disable it per
+        /// session with `SET vortex.count_by_pushdown = false`, or per table with
+        /// `OPTIONS(count_by_pushdown 'false')`.
+        pub count_by_pushdown: bool, default = true
     }
 }
 
