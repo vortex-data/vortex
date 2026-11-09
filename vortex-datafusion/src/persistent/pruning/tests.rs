@@ -215,20 +215,59 @@ async fn initial_file_check(
     schema: &SchemaRef,
     file: &PartitionedFile,
 ) -> DFResult<bool> {
-    let errors = Count::new();
-    if let Some(pruned) = cache.should_prune(expression, schema, file, &errors) {
-        return Ok(pruned);
-    }
-    FilePruner::try_new(
+    match FilePruner::try_new(
         Arc::clone(expression),
         schema,
         file,
-        errors,
+        Count::new(),
         Some(Arc::clone(cache)),
-    )
-    .vortex_expect("file statistics exist")
-    .should_prune_initial()
-    .await
+    ) {
+        Some(mut pruner) => pruner.should_prune_initial().await,
+        None => Ok(false),
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn cached_decisions_match_datafusion(#[values(false, true)] dynamic: bool) -> DFResult<()> {
+    let cache = Arc::new(FilePruningCache::default());
+    let schema = schema();
+    let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::new(Column::new("a", 0))],
+        predicate(),
+    ));
+    let expression = if dynamic {
+        Arc::clone(&filter) as PhysicalExprRef
+    } else {
+        predicate()
+    };
+    let files = [
+        file(&schema, 5),
+        file(&schema, 20),
+        file(&schema, 40),
+        PartitionedFile::new("unknown.vortex", 100)
+            .with_statistics(Arc::new(Statistics::new_unknown(&schema))),
+        PartitionedFile::new("absent.vortex", 100),
+    ];
+    for bound in [10, 30] {
+        filter.update(greater_than(bound))?;
+        for file in &files {
+            let original = datafusion_pruning::FilePruner::try_new(
+                Arc::clone(&expression),
+                &schema,
+                file,
+                Count::new(),
+            )
+            .map(|mut pruner| pruner.should_prune())
+            .transpose()?
+            .unwrap_or(false);
+            assert_eq!(
+                initial_file_check(&cache, &expression, &schema, file).await?,
+                original,
+            );
+        }
+    }
+    Ok(())
 }
 
 #[rstest]

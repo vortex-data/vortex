@@ -268,32 +268,15 @@ impl FileOpener for VortexOpener {
         }
 
         Ok(async move {
-            let cached_pruning = file_pruning_cache.as_ref().and_then(|cache| {
-                file_pruning_predicate.as_ref().and_then(|predicate| {
-                    cache.should_prune(
-                        predicate,
-                        &unified_file_schema,
-                        &file,
-                        &predicate_creation_errors,
-                    )
-                })
+            let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
+                FilePruner::try_new(
+                    predicate,
+                    &unified_file_schema,
+                    &file,
+                    predicate_creation_errors,
+                    file_pruning_cache,
+                )
             });
-            if cached_pruning == Some(true) {
-                return Ok(stream::empty().boxed());
-            }
-            let mut file_pruner = if cached_pruning.is_some() {
-                None
-            } else {
-                file_pruning_predicate.and_then(|predicate| {
-                    FilePruner::try_new(
-                        predicate,
-                        &unified_file_schema,
-                        &file,
-                        predicate_creation_errors,
-                        file_pruning_cache,
-                    )
-                })
-            };
 
             // Check if this file should be pruned based on statistics/partition values.
             // Returns empty stream if file can be skipped entirely.
