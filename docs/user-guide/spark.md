@@ -245,6 +245,17 @@ On Spark 4.2, Spark wraps the runtime filters on
 partition columns that have no such form, such as `p % 7 = (SELECT ...)`, in partition predicates.
 The scan evaluates each on the driver once per file, and drops the files it rules out.
 
+### Subquery Merging
+
+Spark merges scalar subqueries that read the same table with the same filters into one scan, as
+in TPC-DS q9. On the V2 path, each subquery has its own scan of only the columns it reads, so
+Spark cannot merge the subqueries and reads the table once for each of them.
+
+The Vortex session extensions let Spark merge them. Before Spark merges subqueries, an optimizer
+rule changes the Vortex scans that differ only in their columns to read the union of their
+columns. After the merge, a second rule changes each scan that Spark did not merge back to its own
+columns. Subqueries with different filters stay separate scans, as on the V1 path.
+
 ### Scan Metrics
 
 On the V2 path, the Spark UI shows these metrics for each Vortex scan, summed over its tasks: the

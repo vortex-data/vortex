@@ -3,7 +3,7 @@
 
 package dev.vortex.spark
 
-import dev.vortex.spark.read.NestedDynamicPruning
+import dev.vortex.spark.read.{NestedDynamicPruning, ScanColumnAlignment}
 import org.apache.spark.sql.{
   SparkSessionExtensions,
   SparkSessionExtensionsProvider
@@ -18,18 +18,29 @@ import org.apache.spark.sql.catalyst.rules.Rule
   * too, not only on partition columns. The extensions add the
   * `NestedDynamicPruning` rule, which stops these filters from nesting into
   * each other.
+  *
+  * The extensions also let Spark merge subqueries that scan the same Vortex
+  * table with the same filters but different columns. See
+  * `ScanColumnAlignment`.
   */
 final class VortexSparkSessionExtensions
     extends SparkSessionExtensionsProvider {
 
-  override def apply(extensions: SparkSessionExtensions): Unit =
+  override def apply(extensions: SparkSessionExtensions): Unit = {
     extensions.injectPostHocResolutionRule { session =>
-      // No injection point runs after Spark's own dynamic pruning, but the user
-      // provided optimizations do. Spark builds the analyzer of a session before
-      // it optimizes a query of that session, so the rule is in time.
+      // No injection point runs after Spark's own dynamic pruning and subquery
+      // merging, but the user provided optimizations do. Spark builds the
+      // analyzer of a session before it optimizes a query of that session, so
+      // the rules are in time.
       NestedDynamicPruning.install(session)
+      ScanColumnAlignment.install(session)
       VortexSparkSessionExtensions.InstallNestedDynamicPruning
     }
+
+    // The rules before cost-based optimization run after Spark builds the scans
+    // of subqueries, and before Spark merges subqueries.
+    extensions.injectPreCBORule(_ => ScanColumnAlignment.Widen)
+  }
 }
 
 private object VortexSparkSessionExtensions {
