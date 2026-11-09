@@ -230,8 +230,7 @@ extensions_options! {
         /// Enabled by default.
         pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
-        /// concurrently per-thread within each file. A V2 scan instead runs this many workers per
-        /// partition; by default, as many as the engine's partitions leave cores idle.
+        /// concurrently per-thread within each file.
         ///
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.

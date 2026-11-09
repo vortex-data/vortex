@@ -3,13 +3,15 @@
 
 //! The planners of a V2 scan, and the prepared plans they run.
 //!
-//! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
-//! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
-//! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
-//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
-//! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
-//! that survive; a projection planner emits one morsel per piece of its rows. A planner only
-//! says what it needs, compute or reads; where either runs is the engine's driver's decision.
+//! A [`PreparedScan`] holds a scan's plans over one file, and composes its planners over any of
+//! its rows with [`PreparedScan::planner`]; an engine drives them, usually with a
+//! [`drive`](vortex_scan::planning::drive) driver over [`PreparedScan::plan_root`]. A
+//! [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and emits the
+//! planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`] cuts those
+//! rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per chunk; a filter
+//! planner runs its chunk's conjuncts and emits a projection planner for the rows that survive; a
+//! projection planner emits one morsel per piece of its rows. A planner only says what it needs,
+//! compute or reads; where either runs is the engine's driver's decision.
 
 mod adaptor;
 mod chunk;
@@ -25,6 +27,7 @@ use vortex_buffer::Alignment;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
+use vortex_scan::planning::drive::PlanRoot;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
@@ -127,6 +130,42 @@ impl PreparedScan {
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
         ))
+    }
+
+    /// The planners of a scan of `rows`, composed: with a filter, its pruning plans first,
+    /// continuing into the chunks of the rows that both they and `kept` keep; without, the chunks
+    /// of the rows `kept` keeps. `kept` is over `rows`, and `None` keeps every row.
+    ///
+    /// This is the one composition every driver runs, over the whole scan or over a part of it.
+    pub fn planner(self: &Arc<Self>, rows: Range<u64>, kept: Option<Mask>) -> Box<dyn Planner> {
+        let chunks = {
+            let scan = Arc::clone(self);
+            let rows = rows.clone();
+            move |pruned: Option<Mask>| -> Box<dyn Planner> {
+                let kept = match (kept, pruned) {
+                    (Some(kept), Some(pruned)) => Some(kept & &pruned),
+                    (kept, pruned) => kept.or(pruned),
+                };
+                let selection = scan.selection().clone();
+                Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+            }
+        };
+        if self.filter.is_some() {
+            Box::new(PrunePlanner::new(Arc::clone(self), rows, Box::new(chunks)))
+        } else {
+            chunks(None)
+        }
+    }
+
+    /// The whole scan as a root for a [`drive`](vortex_scan::planning::drive) driver: the
+    /// [`planner`](Self::planner) of every row, reading through [`io`](Self::io).
+    pub fn plan_root(self: &Arc<Self>) -> PlanRoot {
+        let rows = self.rows.clone();
+        let scope = WorkScope {
+            file_ordinal: 0,
+            rows: rows.clone(),
+        };
+        PlanRoot::new(scope, self.planner(rows, None), self.io())
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else

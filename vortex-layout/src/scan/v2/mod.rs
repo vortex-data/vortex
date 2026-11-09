@@ -4,10 +4,9 @@
 //! The planner-driven scan executor.
 //!
 //! A V2 scan lowers the file's layout once into a physical plan and runs it through the planning
-//! protocol: an engine composes planners over a [`PreparedScan`], a [`PrunePlanner`] into a
-//! [`ChunkPlanner`], admits the first to a [`Run`](vortex_scan::planning::driver::Run) of its own
-//! driver, and every segment read is a protocol request served from the file's
-//! [`SegmentSource`]. The layout reader is never asked to evaluate anything, and this crate never
+//! protocol: a [`PreparedScan`] composes its planners, a [`PrunePlanner`] into a [`ChunkPlanner`]
+//! ([`PreparedScan::planner`]), an engine's driver runs them, and every segment read is a
+//! protocol request served from the file's [`SegmentSource`]. The layout reader is never asked to evaluate anything, and this crate never
 //! decides where compute runs or how IO is awaited: that is the engine's driver.
 //!
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly

@@ -29,7 +29,6 @@ use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
 use vortex::io::request::IoService;
 use vortex::io::runtime::BlockingRuntime as _;
-use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
 use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder;
@@ -40,7 +39,6 @@ use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
 use vortex::scan::planning::planner::WorkScope;
-use vortex::scan::selection::Selection;
 
 use crate::RUNTIME;
 
@@ -206,7 +204,6 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
 /// scan-wide pruning read.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
-    selection: Selection,
     parts: std::vec::IntoIter<Range<u64>>,
     /// The first row of `kept`.
     first_row: u64,
@@ -222,7 +219,6 @@ impl PartPlanner {
         kept: Option<Mask>,
     ) -> Self {
         Self {
-            selection: scan.selection().clone(),
             scan,
             parts: parts.into_iter(),
             first_row,
@@ -258,27 +254,7 @@ impl Planner for PartPlanner {
             if kept.as_ref().is_some_and(Mask::all_false) {
                 continue;
             }
-            let chunks = {
-                let scan = Arc::clone(&self.scan);
-                let selection = self.selection.clone();
-                let part = part.clone();
-                move |again: Option<Mask>| -> Box<dyn Planner> {
-                    let kept = match (kept, again) {
-                        (Some(kept), Some(again)) => Some(kept & &again),
-                        (kept, again) => kept.or(again),
-                    };
-                    Box::new(ChunkPlanner::new(scan, part, selection, kept))
-                }
-            };
-            let planner: Box<dyn Planner> = if self.scan.filter().is_some() {
-                Box::new(PrunePlanner::new(
-                    Arc::clone(&self.scan),
-                    part.clone(),
-                    Box::new(chunks),
-                ))
-            } else {
-                chunks(None)
-            };
+            let planner = self.scan.planner(part.clone(), kept);
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: part,

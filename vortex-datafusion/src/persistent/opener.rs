@@ -53,21 +53,18 @@ use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::v2::ScanDriver;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ChunkPlanner;
-use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
-use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
@@ -84,7 +81,6 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
-use crate::persistent::scan_v2::run_scan;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -520,8 +516,8 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, a partition's scan runs as many workers as the engine's partitions
-                // leave cores idle: at one partition per core, a single worker.
+                // Unless set, chunks run beside each other only as far as the engine's partitions
+                // leave cores idle: at one partition per core they run in the scan's own run.
                 let concurrency = scan_concurrency.unwrap_or_else(|| {
                     get_available_parallelism()
                         .unwrap_or(1)
@@ -536,33 +532,8 @@ impl FileOpener for VortexOpener {
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
                 let scan = Arc::new(scan);
 
-                // The planners, composed: with a filter, its pruning plans first over the whole
-                // partition, continuing into the chunks of the rows they keep; without a
-                // filter, the chunks directly. A chunk plans its conjuncts, then its
-                // projection.
-                let chunks = {
-                    let scan = Arc::clone(&scan);
-                    move |kept: Option<Mask>| -> Box<dyn Planner> {
-                        let rows = scan.rows().clone();
-                        let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-                    }
-                };
-                let root: Box<dyn Planner> = if scan.filter().is_some() {
-                    let rows = scan.rows().clone();
-                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
-                } else {
-                    chunks(None)
-                };
-
-                Ok(run_scan(
-                    handle,
-                    concurrency,
-                    has_output_ordering,
-                    scan,
-                    root,
-                    map_batch,
-                ))
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                Ok(driver.run_prepared(scan, Arc::new(map_batch)))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {

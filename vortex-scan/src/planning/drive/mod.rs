@@ -5,9 +5,10 @@
 //!
 //! A planner never says how parallel a scan is. It only declares which children are
 //! independent, by emitting
-//! [`PlannerOutput::Spawn`](crate::planning::planner::PlannerOutput::Spawn). The driver decides where each independent child runs:
+//! [`PlannerOutput::Spawn`](crate::planning::planner::PlannerOutput::Spawn). The driver decides
+//! where each independent child runs:
 //!
-//! - [`SequentialDriver`] runs everything on one [`Run`](crate::planning::driver::Run), on the
+//! - [`SequentialDriver`] runs everything on one [`Run`], on the
 //!   task that polls its stream.
 //! - [`ParallelDriver`] runs a pool of workers, each with a run of its own. Every independent
 //!   child goes to a queue the workers share, and a worker with spare capacity takes the next one.
