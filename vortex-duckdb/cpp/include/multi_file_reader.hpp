@@ -5,6 +5,7 @@
 #include "data.hpp"
 #include "table_function.h"
 #include "duckdb/common/multi_file/multi_file_function.hpp"
+#include "duckdb/planner/table_filter_state.hpp"
 
 using namespace duckdb;
 
@@ -36,9 +37,22 @@ struct VortexGlobalState final : GlobalTableFunctionState {
     unique_ptr<CData> ffi_global_state;
 };
 
+/// A join filter, such as a bloom or prefix range filter, that the reader applies to the column at
+/// `column` of each chunk it scans.
+struct VortexJoinFilter {
+    idx_t column;
+    /// The filter `state` evaluates, owned here because the state refers to its expression.
+    unique_ptr<TableFilter> filter;
+    unique_ptr<TableFilterState> state;
+};
+
 struct VortexLocalState final : LocalTableFunctionState {
     VortexLocalState() = default;
     unique_ptr<CData> ffi_local_state;
+    /// The reader `join_filters` were built for.
+    const BaseFileReader *join_filters_reader = nullptr;
+    /// Per thread, since a selectivity-optional filter keeps its own selectivity statistics.
+    vector<VortexJoinFilter> join_filters;
 };
 
 struct VortexMultiFileReader final : MultiFileReader {
