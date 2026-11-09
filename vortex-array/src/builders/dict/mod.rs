@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bytes::bytes_dict_builder;
+use decimal::decimal_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
@@ -19,6 +20,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
 mod bytes;
+mod decimal;
 mod primitive;
 
 #[derive(Clone)]
@@ -83,8 +85,13 @@ pub fn dict_encoder_in(
         DType::Utf8(_) | DType::Binary(_) => {
             bytes_dict_builder(array.dtype().clone(), constraints, allocator)
         }
+        DType::Decimal(decimal_dtype, nullability) => {
+            decimal_dict_builder(*decimal_dtype, *nullability, constraints, allocator)
+        }
         dtype => {
-            vortex_panic!("Can only dictionary encode primitive or binary arrays, got {dtype}")
+            vortex_panic!(
+                "Can only dictionary encode primitive, decimal or binary arrays, got {dtype}"
+            )
         }
     }
 }
