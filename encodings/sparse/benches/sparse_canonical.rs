@@ -24,6 +24,7 @@ use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -82,7 +83,7 @@ fn make_sparse_list(
     )
     .into_array();
 
-    Sparse::try_new(
+    let array = Sparse::try_new(
         patch_indices.into_array(),
         patch_values,
         len,
@@ -90,7 +91,10 @@ fn make_sparse_list(
         &mut ctx,
     )
     .vortex_expect("sparse list input should be valid")
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse list as optimized");
+
+    array
 }
 
 fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) -> ArrayRef {
@@ -110,7 +114,7 @@ fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) 
         NonNullable,
     );
 
-    Sparse::try_new(
+    let array = Sparse::try_new(
         patch_indices.into_array(),
         patch_values,
         len,
@@ -118,7 +122,10 @@ fn make_sparse_fixed_size_list(len: usize, patch_stride: usize, list_size: u32) 
         &mut ctx,
     )
     .vortex_expect("sparse fixed-size-list input should be valid")
-    .into_array()
+    .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the sparse fixed-size list as optimized");
+
+    array
 }
 
 #[divan::bench(args = LIST_ARGS)]

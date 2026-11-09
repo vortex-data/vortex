@@ -155,11 +155,8 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 "Value can't be represented as decimal",
             ));
         };
-        return Ok(Scalar::decimal(
-            value,
-            *decimal_dtype,
-            Nullability::NonNullable,
-        ));
+        return Scalar::try_decimal(value, *decimal_dtype, Nullability::NonNullable)
+            .map_err(|e| PyValueError::new_err(e.to_string()));
     }
 
     if let Ok(integer) = value.cast::<PyInt>() {

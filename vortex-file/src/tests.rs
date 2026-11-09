@@ -35,6 +35,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
@@ -58,6 +59,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::gt_eq;
 use vortex_array::expr::lit;
+use vortex_array::expr::lower;
 use vortex_array::expr::lt;
 use vortex_array::expr::lt_eq;
 use vortex_array::expr::or;
@@ -173,13 +175,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_060 } else { 69_996 }
+    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_144
+        55_096
     )
 )]
 #[tokio::test]
@@ -257,6 +259,35 @@ async fn test_read_simple() {
 
     let result = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_decimal_widen_default_writer_roundtrip(
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(18, 2);
+    let values = DecimalArray::new(
+        buffer![-125i16, 50, 0, 250, 900],
+        DecimalDType::new(4, 2),
+        validity.clone(),
+    );
+    let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+    let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+    let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
+    let expected_values =
+        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
+
+    let actual = write_read_roundtrip(array).await?;
+
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
 }
 
 /// Wide decimals split into multi-part arrays only when the writer allows the v2 format. The
@@ -2610,6 +2641,25 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     assert_eq!(default.metadata_segments().count(), 0);
     assert!(default.metadata_segment("json").is_none());
 
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .expect("valid segment ranges");
+    assert_eq!(
+        segments_end,
+        summary.footer().metadata_segment("large").unwrap().offset + large.len() as u64
+    );
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&bytes[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size());
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    assert_eq!(footer.segments_end(), Some(segments_end));
+    assert_eq!(footer.metadata_segments().count(), 4);
+
     let file = SESSION
         .open_options()
         .include_metadata()
@@ -3125,9 +3175,14 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::embedded_dtype(false)]
+#[case::external_dtype(true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+async fn test_segment_ordering_zonemaps_after_data(
+    #[case] exclude_dtype: bool,
+) -> VortexResult<()> {
     // Create a multi-column struct with enough rows to produce zone maps.
     let n = 100_000;
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
@@ -3140,10 +3195,14 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("numbers", numbers),
         ("floats", floats),
     ])?;
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let summary = SESSION
-        .write_options()
+    let mut options = SESSION.write_options();
+    if exclude_dtype {
+        options = options.exclude_dtype();
+    }
+    let summary = options
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
@@ -3215,6 +3274,33 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         "global: all data segments should come before all zone map segments",
     );
 
+    let segments_end = footer.segments_end().expect("valid segment ranges");
+    assert!(
+        all_zones_offsets
+            .iter()
+            .all(|offset| *offset < segments_end)
+    );
+    assert_eq!(buf.len() as u64, summary.size());
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&buf[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size())
+    .with_some_dtype(exclude_dtype.then_some(dtype));
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    let mut recovered_data_offsets = Vec::new();
+    let mut recovered_zones_offsets = Vec::new();
+    collect_all_zoned(
+        footer.layout().as_ref(),
+        footer.segment_map(),
+        &mut recovered_data_offsets,
+        &mut recovered_zones_offsets,
+    );
+    assert_eq!(recovered_data_offsets, all_data_offsets);
+    assert_eq!(recovered_zones_offsets, all_zones_offsets);
+
     Ok(())
 }
 
@@ -3279,6 +3365,65 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     assert!(file.can_prune(&gt(age.clone(), lit(30)))?);
     assert!(!file.can_prune(&gt(age, lit(20)))?);
 
+    Ok(())
+}
+
+async fn lower_pruning_file(values: Vec<Option<String>>) -> VortexResult<VortexFile> {
+    let array = VarBinViewArray::from_iter_nullable_str(values).into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    SESSION.open_options().open_buffer(buf)
+}
+
+#[rstest]
+#[case::constant_final_sigma(&[Some("ΟΣ"), None, Some("ΟΣ")], "οσα", true)]
+#[case::constant_final_sigma_match(&[Some("ΟΣ"), None, Some("ΟΣ")], "ος", false)]
+#[case::constant_expanding_match(&[Some("İ"), None], "i\u{307}", false)]
+#[case::constant_expanding(&[Some("İ"), None], "i", true)]
+#[case::shared_prefix(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-007", true)]
+#[case::shared_prefix_match(&[Some("Namespace-000"), Some("Namespace-001")], "namespace-001", false)]
+#[case::prefix_of_max(&[Some("prefix"), Some("prefix-long")], "other", true)]
+// Lowercase is not monotonic, even on ASCII input.
+#[case::non_monotonic(&[Some("Z"), Some("a")], "a", false)]
+#[case::uppercase_range(&[Some("A"), Some("Z")], "m", false)]
+#[case::mixed_case_range(&[Some("z"), Some("K")], "k", false)]
+#[case::non_ascii_divergence(&[Some("a"), Some("É")], "zzz", false)]
+#[tokio::test]
+async fn test_can_prune_lower_eq(
+    #[case] values: &[Option<&str>],
+    #[case] target: &str,
+    #[case] prunable: bool,
+) -> VortexResult<()> {
+    let file = lower_pruning_file(values.iter().map(|v| v.map(str::to_owned)).collect()).await?;
+    assert_eq!(file.can_prune(&eq(lower(root()), lit(target)))?, prunable);
+    assert_eq!(file.can_prune(&eq(lit(target), lower(root())))?, prunable);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_can_prune_lower_range() -> VortexResult<()> {
+    let file = lower_pruning_file(vec![
+        Some("Namespace-000".into()),
+        Some("Namespace-009".into()),
+    ])
+    .await?;
+    assert!(file.can_prune(&lt(lower(root()), lit("namespace-000")))?);
+    assert!(!file.can_prune(&lt_eq(lower(root()), lit("namespace-000")))?);
+    assert!(file.can_prune(&gt(lower(root()), lit("namespace-00:")))?);
+    assert!(!file.can_prune(&gt(lower(root()), lit("namespace-005")))?);
+    Ok(())
+}
+
+/// Long values can have truncated min/max stats, which must not make the bounds unsound.
+#[tokio::test]
+async fn test_can_prune_lower_truncated_stats() -> VortexResult<()> {
+    let value = "X".repeat(200);
+    let file = lower_pruning_file(vec![Some(value.clone()), Some(value)]).await?;
+    assert!(!file.can_prune(&eq(lower(root()), lit("x".repeat(200))))?);
+    assert!(file.can_prune(&eq(lower(root()), lit("y".repeat(200))))?);
     Ok(())
 }
 

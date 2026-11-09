@@ -26,6 +26,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::i256;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -92,6 +93,8 @@ fn bench_filter(
     make_mask: impl Fn(usize) -> Mask + Sync,
     cache_indices: bool,
 ) {
+    mark_optimized(&array, &SESSION).unwrap();
+
     let len = array.len();
     bencher
         .with_inputs(|| {

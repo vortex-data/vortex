@@ -1,4 +1,4 @@
-# Vtables and Dispatch
+# Vtables and dispatch
 
 Vortex uses custom vtable traits rather than Rust's built-in `dyn Trait` vtables. This design
 gives us capabilities that are not possible with trait objects: colocating instance methods with
@@ -121,7 +121,9 @@ needs:
 But operations like deserialization need to construct a new instance from raw bytes -- there
 is no instance yet. Vortex vtables colocate instance logic (e.g. `serialize`) with type-level
 logic (e.g. `deserialize`) in the same struct, since the vtable itself is a lightweight value
-(often zero-sized) that can be default-constructed.
+(often zero-sized) that can be default-constructed. Array vtables are the exception: their serde
+lives on a separate `ArrayPlugin` implementation, usually on the vtable type itself, so a vtable
+without one is in-memory only.
 
 **No associated type access.** A `dyn Trait` erases all associated types. With Vortex vtables,
 the typed form `Foo<V>` preserves full access to `V::Metadata` and other associated types,
@@ -176,10 +178,11 @@ Methods that exist only for erased dispatch (e.g. `as_any`, `metadata_any`,
 
 ## Registration and Deserialization
 
-Vtables are registered in the session by their ID. When a serialized value is encountered
-(e.g. an extension dtype in a file footer), the session's registry resolves the ID to the
-`FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned as the
-erased form (`FooRef`) so it can be stored without generic parameters.
+Vtables are registered in the session by their ID. An array vtable registers through its
+`ArrayPlugin` implementation, and a vtable without one cannot be registered. When a serialized
+value is encountered (e.g. an extension dtype in a file footer), the session's registry resolves
+the ID to the `FooPlugin` and calls `deserialize` to reconstruct the value. The result is returned
+as the erased form (`FooRef`) so it can be stored without generic parameters.
 
 This pattern -- register plugin by ID, deserialize via plugin, store as erased ref -- is
 consistent across all vtable-backed types in Vortex.

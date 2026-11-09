@@ -16,6 +16,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> =
@@ -51,6 +52,7 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -84,6 +86,7 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -118,6 +121,7 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))

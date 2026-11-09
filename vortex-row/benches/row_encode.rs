@@ -37,6 +37,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
@@ -88,7 +89,11 @@ fn make_vortex_list(elements: vortex_array::ArrayRef) -> vortex_array::ArrayRef 
     .into_array();
     let list_len = u32::try_from(LIST_LEN).expect("benchmark list length must fit u32");
     let sizes = PrimitiveArray::from_iter(std::iter::repeat_n(list_len, N)).into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array()
+    let list =
+        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
+    mark_optimized(&list, &SESSION).unwrap();
+
+    list
 }
 
 fn arrow_output_bytes(rows: &arrow_row::Rows) -> u64 {
@@ -163,6 +168,8 @@ fn print_list_output_sizes() {
 fn primitive_i64_vortex(bencher: divan::Bencher) {
     let v = gen_i64(N, 0);
     let col = PrimitiveArray::from_iter(v.clone()).into_array();
+    mark_optimized(&col, &SESSION).unwrap();
+
     let bytes = (N * (1 + 8)) as u64;
     let encoder = RowEncoder::default();
     bencher
@@ -181,6 +188,8 @@ fn utf8_vortex(bencher: divan::Bencher) {
         .map(|w| 1 + (w.len().div_ceil(32) * 33) as u64)
         .sum();
     let col = VarBinViewArray::from_iter_str(words.iter().map(String::as_str)).into_array();
+    mark_optimized(&col, &SESSION).unwrap();
+
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))
@@ -211,6 +220,8 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     let struct_arr = StructArray::from_fields(&[("id", id_arr), ("name", name_arr)])
         .unwrap()
         .into_array();
+    mark_optimized(&struct_arr, &SESSION).unwrap();
+
     let encoder = RowEncoder::default();
     bencher
         .counter(BytesCount::new(total))

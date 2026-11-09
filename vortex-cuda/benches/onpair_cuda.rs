@@ -23,6 +23,7 @@ use vortex::array::arrays::VarBinArray;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -61,6 +62,7 @@ fn make_fixture(n: usize) -> OnPairBenchFixture {
     .into_array();
     let array = onpair_compress(&varbin, DEFAULT_CONFIG, setup_ctx.execution_ctx())
         .vortex_expect("OnPair compression failed");
+    mark_optimized(&array, &vortex_cuda::cuda_session()).unwrap();
 
     OnPairBenchFixture {
         array,

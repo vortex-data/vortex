@@ -23,6 +23,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -120,6 +121,9 @@ fn take(bencher: Bencher, args: (usize, usize, usize)) {
 }
 
 fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
+    mark_optimized(&array, &SESSION).unwrap();
+    mark_optimized(&indices, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, ctx)| {

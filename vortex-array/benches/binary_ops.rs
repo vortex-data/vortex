@@ -37,6 +37,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -358,6 +359,9 @@ fn bench_binary<T: Executable + 'static>(
     rhs: ArrayRef,
     operator: Operator,
 ) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     let len = lhs.len();
 

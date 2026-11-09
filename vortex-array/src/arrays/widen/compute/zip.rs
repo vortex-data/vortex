@@ -30,7 +30,7 @@ impl ZipKernel for Widen {
             };
             (other.values().clone(), ptype)
         } else if let Some(constant) = if_false.as_constant() {
-            let Some(ptype) = ptype_holding_values_and_scalar(array, constant)? else {
+            let Some(ptype) = ptype_holding_values_and_scalar(array, constant) else {
                 return Ok(None);
             };
             (if_false.clone(), ptype)

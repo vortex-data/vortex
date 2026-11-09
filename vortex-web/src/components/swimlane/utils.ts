@@ -4,7 +4,6 @@
 import type {
   LayoutTreeNode,
   ArrayEncodingNode,
-  Split,
   DtypeCategory,
   FlattenedRow,
   DisplayKind,
@@ -12,83 +11,55 @@ import type {
   PhysicalSegment,
 } from './types';
 
-// Encoding styles — keyed by encoding string, with fallback for unknown encodings
-export const ENCODING_STYLES: Record<string, { color: string; label: string }> = {
-  'vortex.struct': { color: '#5971FD', label: 'struct' },
-  'vortex.chunked': { color: '#CEE562', label: 'chunked' },
-  'vortex.flat': { color: '#2CB9D1', label: 'flat' },
-  'vortex.dict': { color: '#EEB3E1', label: 'dict' },
-  'vortex.zonemap': { color: '#FB863D', label: 'zonemap' },
-  'vortex.fsst': { color: '#EEB3E1', label: 'fsst' },
-  'vortex.roaring_bool': { color: '#EEB3E1', label: 'roaring' },
-  'vortex.roaring_int': { color: '#2CB9D1', label: 'roaring' },
-  'vortex.alp': { color: '#FB863D', label: 'alp' },
-  'vortex.alp_rd': { color: '#FB863D', label: 'alp-rd' },
-  'vortex.for': { color: '#CEE562', label: 'for' },
-  'vortex.bitpacked': { color: '#CEE562', label: 'bitpacked' },
-  'vortex.runend': { color: '#CEE562', label: 'run-end' },
-  'vortex.runend_bool': { color: '#CEE562', label: 'run-end' },
-  'vortex.zigzag': { color: '#2CB9D1', label: 'zigzag' },
-  'vortex.constant': { color: '#8F8F8F', label: 'const' },
-  'vortex.sparse': { color: '#8F8F8F', label: 'sparse' },
+// Encoding labels, keyed by encoding id, with a fallback for unknown encodings. Encodings take no
+// colour: in the design system a hue names a dtype family, so an encoding is named in text.
+export const ENCODING_STYLES: Record<string, { label: string }> = {
+  'vortex.struct': { label: 'struct' },
+  'vortex.chunked': { label: 'chunked' },
+  'vortex.flat': { label: 'flat' },
+  'vortex.dict': { label: 'dict' },
+  'vortex.zonemap': { label: 'zonemap' },
+  'vortex.fsst': { label: 'fsst' },
+  'vortex.roaring_bool': { label: 'roaring' },
+  'vortex.roaring_int': { label: 'roaring' },
+  'vortex.alp': { label: 'alp' },
+  'vortex.alp_rd': { label: 'alp-rd' },
+  'vortex.for': { label: 'for' },
+  'vortex.bitpacked': { label: 'bitpacked' },
+  'vortex.runend': { label: 'run-end' },
+  'vortex.runend_bool': { label: 'run-end' },
+  'vortex.zigzag': { label: 'zigzag' },
+  'vortex.constant': { label: 'const' },
+  'vortex.sparse': { label: 'sparse' },
 };
 
-const DEFAULT_ENCODING_STYLE = { color: '#8F8F8F', label: 'unknown' };
-
-export function getEncodingStyle(encoding: string): { color: string; label: string } {
-  return (
-    ENCODING_STYLES[encoding] ?? {
-      ...DEFAULT_ENCODING_STYLE,
-      label: encoding.split('.').pop() ?? encoding,
-    }
-  );
+export function getEncodingStyle(encoding: string): { label: string } {
+  return ENCODING_STYLES[encoding] ?? { label: encoding.split('.').pop() ?? encoding };
 }
 
-// Dtype colors (for flat chunk bars in swimlane)
-export const DTYPE_COLORS: Record<DtypeCategory, string> = {
-  bool: '#D97BC6',
-  int: '#2CB9D1',
-  float: '#FB863D',
-  utf8: '#5971FD',
-  datetime: '#8BB536',
-  list: '#A78BFA',
-  struct: '#999999',
-  other: '#777777',
-};
+/** The design system's class that sets `--vx-dt` to a dtype's colour. */
+export function dtypeClass(dtype?: string): string {
+  return `vx-dt-${getDtypeCategory(dtype)}`;
+}
 
-export const DTYPE_CATEGORIES: DtypeCategory[] = [
-  'bool',
-  'int',
-  'float',
-  'utf8',
-  'datetime',
-  'list',
-  'struct',
-  'other',
-];
-
-export const ROW_HEIGHT = 26;
-export const MIN_LABEL_WIDTH = 36;
+export const ROW_HEIGHT = 28;
 export const GROUP_SIZE = 10;
-/** Minimum rendered width (px) of a swimlane segment so tiny segments stay visible. */
-export const MIN_CELL_WIDTH = 3;
 
 /**
- * Determine dtype category from dtype string
+ * The family of a dtype as Vortex prints it ("i64", "utf8?", "list(f32)", "{a=i64}"). The same
+ * rules as the design system's `dtypeFamily` (components/lib/dtype.js).
  */
 export function getDtypeCategory(dtype?: string): DtypeCategory {
   if (!dtype) return 'other';
-  const d = dtype.toLowerCase();
+  const d = dtype.trim().toLowerCase().replace(/\?$/, '');
+  // A container first: its field names and element types must not pick its family.
+  if (d.startsWith('{') || d.startsWith('struct')) return 'struct';
+  if (/^(fixed_size_)?list\b/.test(d)) return 'list';
   if (d === 'bool' || d === 'boolean') return 'bool';
-  // Struct/list checks first — composite dtypes contain field names that would false-match others.
-  if (d.startsWith('{') || d === 'struct') return 'struct';
-  if (d.includes('list') || d.includes('array')) return 'list';
-  if (d.includes('utf8') || d.includes('string') || d.includes('binary')) return 'utf8';
-  if (d.includes('timestamp') || d.includes('date') || d.includes('time')) return 'datetime';
-  if (d.includes('int') || d.includes('uint') || d.startsWith('i') || d.startsWith('u'))
-    return 'int';
-  if (d.includes('float') || d.includes('double') || d.includes('decimal') || d.startsWith('f'))
-    return 'float';
+  if (/^(utf8|string|binary)\b/.test(d)) return 'utf8';
+  if (/timestamp|^date|^time/.test(d)) return 'datetime';
+  if (/^(u?int\d*|[iu]\d+)$/.test(d)) return 'int';
+  if (/^(f\d+|float\d*|double|decimal)\b/.test(d)) return 'float';
   return 'other';
 }
 
@@ -97,45 +68,6 @@ export function getDtypeCategory(dtype?: string): DtypeCategory {
  */
 export function rangesOverlap(a: [number, number], b: [number, number]): boolean {
   return a[0] < b[1] && b[0] < a[1];
-}
-
-/**
- * Collect all row boundaries from a LayoutTreeNode tree
- */
-export function collectBoundaries(node: LayoutTreeNode, set: Set<number> = new Set()): Set<number> {
-  set.add(node.rowOffset);
-  set.add(node.rowOffset + node.rowCount);
-
-  for (const child of node.children) {
-    collectBoundaries(child, set);
-  }
-
-  return set;
-}
-
-/**
- * Create splits from layout boundaries
- */
-export function createSplits(layout: LayoutTreeNode): Split[] {
-  const boundaries = Array.from(collectBoundaries(layout)).sort((a, b) => a - b);
-  return boundaries.slice(0, -1).map((start, i) => ({
-    id: `s${i}`,
-    rowRange: [start, boundaries[i + 1]] as [number, number],
-  }));
-}
-
-/**
- * Get the combined row range of selected splits
- */
-export function getSelectedRowRange(
-  splits: Split[],
-  selectedSplits: Set<string>,
-): [number, number] | null {
-  if (selectedSplits.size === 0) return null;
-  const selected = splits.filter((s) => selectedSplits.has(s.id));
-  const min = Math.min(...selected.map((s) => s.rowRange[0]));
-  const max = Math.max(...selected.map((s) => s.rowRange[1]));
-  return [min, max];
 }
 
 /**
@@ -154,32 +86,6 @@ export function getNodeDisplayName(node: LayoutTreeNode): string {
       return ct.name;
     case 'auxiliary':
       return ct.name;
-  }
-}
-
-/**
- * Get a badge label for schema mode
- */
-export function getSchemaLabel(node: LayoutTreeNode): string {
-  return node.dtype;
-}
-
-/**
- * Get a badge label for layout mode
- */
-export function getLayoutLabel(node: LayoutTreeNode): string {
-  const ct = node.childType;
-  switch (ct.kind) {
-    case 'root':
-      return getEncodingStyle(node.encoding).label;
-    case 'field':
-      return `[field] ${getEncodingStyle(node.encoding).label}`;
-    case 'chunk':
-      return `[chunk ${ct.chunkIndex}]`;
-    case 'transparent':
-      return `[transparent: ${ct.name}]`;
-    case 'auxiliary':
-      return `[aux: ${ct.name}]`;
   }
 }
 
@@ -231,8 +137,8 @@ export function groupChildren(
     const groupNodes = children.slice(i, Math.min(i + GROUP_SIZE, children.length));
     const startIdx = i;
     const endIdx = Math.min(i + GROUP_SIZE - 1, children.length - 1);
-    const firstNode = groupNodes[0];
-    const lastNode = groupNodes[groupNodes.length - 1];
+    const firstNode = groupNodes[0]!;
+    const lastNode = groupNodes[groupNodes.length - 1]!;
 
     groups.push({
       id: `${parentId}_group_${startIdx}_${endIdx}`,
@@ -409,37 +315,6 @@ export function findPathToNode(root: LayoutTreeNode, id: string): LayoutTreeNode
 }
 
 /**
- * Collect all node IDs in a subtree
- */
-export function collectSubtreeIds(node: LayoutTreeNode): Set<string> {
-  const ids = new Set<string>();
-  function walk(n: LayoutTreeNode) {
-    ids.add(n.id);
-    for (const child of n.children) walk(child);
-  }
-  walk(node);
-  return ids;
-}
-
-/**
- * Collect the leaf descendants of a node (nodes with no children), in row order.
- * Used to roll up a parent's data into a single swimlane bar so that container
- * layouts (structs, chunked, zone maps) are not rendered as empty outlines.
- */
-export function collectLeafDescendants(node: LayoutTreeNode): LayoutTreeNode[] {
-  const leaves: LayoutTreeNode[] = [];
-  function walk(n: LayoutTreeNode) {
-    if (n.children.length === 0) {
-      leaves.push(n);
-      return;
-    }
-    for (const child of n.children) walk(child);
-  }
-  for (const child of node.children) walk(child);
-  return leaves;
-}
-
-/**
  * Build a lookup from segment index to its physical byte placement and the dtype
  * of the layout node that owns it. Lets the swimlane plot bars by physical file
  * offset (revealing gaps in a column's storage) rather than by row.
@@ -548,11 +423,12 @@ export function shortEncoding(encoding: string): string {
 /**
  * Format bytes to human readable string
  */
+/** Bytes in decimal units (1 KB is 1,000 bytes), as Writing sets them and bench prints them. */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes < 1e3) return `${bytes} B`;
+  if (bytes < 1e6) return `${(bytes / 1e3).toFixed(1)} KB`;
+  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
 /**
@@ -566,10 +442,12 @@ export function formatRowRange(range: [number, number]): string {
 /**
  * Format row count to compact string (e.g., "27.1k")
  */
+/** A short count for a meta line ("100k", "1.5M"). Tables and facts print the full count. */
 export function formatRowCount(n: number): string {
+  const short = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1).replace(/\.0$/, ''));
   if (n < 1000) return String(n);
-  if (n < 1000000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1000000).toFixed(1)}M`;
+  if (n < 1e6) return `${short(n / 1e3)}k`;
+  return `${short(n / 1e6)}M`;
 }
 
 /**

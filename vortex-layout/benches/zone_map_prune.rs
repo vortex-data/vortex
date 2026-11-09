@@ -39,6 +39,7 @@ use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
@@ -246,6 +247,7 @@ fn build(column_dtype: DType, fields: Vec<(String, ArrayRef)>, num_zones: usize)
             .collect::<Vec<_>>(),
     )
     .unwrap();
+    mark_optimized(stats.as_array(), &SESSION).unwrap();
 
     // A trailing short zone, which is the common shape and forces the run-end row-count array.
     let row_count = ZONE_LEN * (num_zones as u64 - 1) + ZONE_LEN / 2;

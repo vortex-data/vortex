@@ -214,8 +214,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
@@ -301,8 +303,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
-        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
+        // Owned, so dropping it releases the exporter's copy as the C data interface requires.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(&ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let metadata = extract_metadata(env, &metadata)?;
@@ -354,9 +358,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_writeBatch(
 
         let ffi_array =
             unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
-        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        // Take the schema as well as the array. As the consumer, native code must release both, and dropping the
+        // owned schema does that; borrowing it would leak the exporter's copy on every batch.
+        let ffi_schema =
+            unsafe { FFI_ArrowSchema::from_raw(arrow_schema_addr as *mut FFI_ArrowSchema) };
 
-        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }
+        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, &ffi_schema) }
             .map_err(|e| JNIError::Vortex(vortex_err!("failed to import Arrow FFI data: {e}")))?;
 
         let batch = RecordBatch::from(StructArray::from(array_data));

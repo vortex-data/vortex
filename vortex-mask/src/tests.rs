@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 
@@ -8,140 +10,312 @@ use crate::AllOr;
 use crate::Mask;
 use crate::MaskIter;
 
-// Basic mask creation and properties tests
-#[test]
-fn mask_all_true() {
-    let mask = Mask::new_true(5);
-    assert_eq!(mask.len(), 5);
-    assert_eq!(mask.true_count(), 5);
-    assert_eq!(mask.density(), 1.0);
-    assert_eq!(mask.indices(), AllOr::All);
-    assert_eq!(mask.slices(), AllOr::All);
-    assert_eq!(mask.bit_buffer(), AllOr::All,);
+const MAX_LEN: usize = 200;
+
+fn draw_len(tc: &TestCase) -> usize {
+    tc.draw(gs::integers::<usize>().max_value(MAX_LEN))
 }
 
-#[test]
-fn mask_all_false() {
-    let mask = Mask::new_false(5);
-    assert_eq!(mask.len(), 5);
-    assert_eq!(mask.true_count(), 0);
-    assert_eq!(mask.density(), 0.0);
-    assert_eq!(mask.indices(), AllOr::None);
-    assert_eq!(mask.slices(), AllOr::None);
-    assert_eq!(mask.bit_buffer(), AllOr::None,);
-}
-
-#[test]
-fn mask_from() {
-    let masks = [
-        Mask::from_indices(5, vec![0, 2, 3]),
-        Mask::from_slices(5, vec![(0, 1), (2, 4)]),
-        Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false])),
-    ];
-
-    for mask in &masks {
-        assert_eq!(mask.len(), 5);
-        assert_eq!(mask.true_count(), 3);
-        assert_eq!(mask.density(), 0.6);
-        assert_eq!(mask.indices(), AllOr::Some(&[0, 2, 3][..]));
-        assert_eq!(mask.slices(), AllOr::Some(&[(0, 1), (2, 4)][..]));
-        assert_eq!(
-            mask.bit_buffer(),
-            AllOr::Some(&BitBuffer::from_iter([true, false, true, true, false]))
-        );
+fn draw_bits(tc: &TestCase, len: usize) -> Vec<bool> {
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => vec![true; len],
+        1 => vec![false; len],
+        _ => tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len)),
     }
 }
 
-#[test]
-fn length_zero_masks() {
-    let all_false = Mask::new_false(0);
-    let all_true = Mask::new_true(0);
-    let buffer_set = Mask::from_buffer(BitBuffer::new_set(0));
-    let buffer_unset = Mask::from_buffer(BitBuffer::new_unset(0));
-
-    assert!(all_false.all_false());
-    assert!(all_false.all_true());
-    assert!(all_true.all_false());
-    assert!(all_true.all_true());
-    assert!(buffer_set.all_false());
-    assert!(buffer_set.all_true());
-    assert!(buffer_unset.all_false());
-    assert!(buffer_unset.all_true());
+fn build_mask(tc: &TestCase, bits: &[bool]) -> Mask {
+    let len = bits.len();
+    match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 if bits.iter().all(|&b| b) => Mask::new_true(len),
+        0 if !bits.iter().any(|&b| b) => Mask::new_false(len),
+        0 | 1 => Mask::from_iter(bits.iter().copied()),
+        2 => Mask::from_indices(len, model_indices(bits)),
+        3 => Mask::from_slices(len, model_slices(bits)),
+        _ => {
+            let offset = tc.draw(gs::integers::<usize>().max_value(63));
+            let mut source = vec![true; offset];
+            source.extend_from_slice(bits);
+            source.extend([false, true, false]);
+            Mask::from_buffer(BitBuffer::from(source).slice(offset..offset + len))
+        }
+    }
 }
 
-// Mask value access tests
-#[test]
-fn test_mask_value() {
-    let all_true = Mask::new_true(5);
-    assert!(all_true.value(0));
-    assert!(all_true.value(4));
-
-    let all_false = Mask::new_false(5);
-    assert!(!all_false.value(0));
-    assert!(!all_false.value(4));
-
-    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    assert!(values.value(0));
-    assert!(!values.value(1));
-    assert!(values.value(2));
-    assert!(!values.value(3));
-    assert!(values.value(4));
+fn draw_mask_of_len(tc: &TestCase, len: usize) -> (Mask, Vec<bool>) {
+    let bits = draw_bits(tc, len);
+    (build_mask(tc, &bits), bits)
 }
 
-#[test]
-fn test_mask_first() {
-    assert_eq!(Mask::new_true(5).first(), Some(0));
-    assert_eq!(Mask::new_false(5).first(), None);
-    assert_eq!(Mask::new_true(0).first(), None);
-
-    let values = Mask::from_buffer(BitBuffer::from_iter([false, false, true, false, true]));
-    assert_eq!(values.first(), Some(2));
-
-    let values_indices = Mask::from_indices(5, vec![2, 4]);
-    assert_eq!(values_indices.first(), Some(2));
-
-    let values_slices = Mask::from_slices(5, vec![(2, 3), (4, 5)]);
-    assert_eq!(values_slices.first(), Some(2));
+fn draw_mask(tc: &TestCase) -> (Mask, Vec<bool>) {
+    let len = draw_len(tc);
+    draw_mask_of_len(tc, len)
 }
 
-#[test]
-fn test_mask_last() {
-    assert_eq!(Mask::new_true(5).last(), Some(4));
-    assert_eq!(Mask::new_false(5).last(), None);
-    assert_eq!(Mask::new_true(0).last(), None);
-
-    let buffer = BitBuffer::from_iter([true, false, true, false, true, false, true]);
-    let values = Mask::from_buffer(buffer.slice(1..6));
-    assert_eq!(values.last(), Some(3));
-
-    let values_indices = Mask::from_indices(5, vec![1, 3]);
-    assert_eq!(values_indices.last(), Some(3));
-
-    let values_slices = Mask::from_slices(5, vec![(1, 2), (3, 4)]);
-    assert_eq!(values_slices.last(), Some(3));
+fn model_indices(bits: &[bool]) -> Vec<usize> {
+    bits.iter()
+        .enumerate()
+        .filter_map(|(i, &b)| b.then_some(i))
+        .collect()
 }
 
-// Slice operations
-#[test]
-fn test_mask_slice() {
-    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false]));
+fn model_slices(bits: &[bool]) -> Vec<(usize, usize)> {
+    let mut slices: Vec<(usize, usize)> = Vec::new();
+    for i in model_indices(bits) {
+        match slices.last_mut() {
+            Some((_, end)) if *end == i => *end += 1,
+            _ => slices.push((i, i + 1)),
+        }
+    }
+    slices
+}
 
-    let sliced = mask.slice(1..4);
-    assert_eq!(sliced.len(), 3);
-    assert_eq!(sliced.true_count(), 2);
-    assert!(!sliced.value(0)); // false from index 1
-    assert!(sliced.value(1)); // true from index 2
-    assert!(sliced.value(2)); // true from index 3
+fn assert_matches_model(mask: &Mask, bits: &[bool]) {
+    let indices = model_indices(bits);
+    let slices = model_slices(bits);
+    assert_counts_match(mask, bits.len(), &indices);
+    assert_elements_match(mask, bits, &indices);
+    assert_representations_match(mask, bits, &indices, &slices);
+    assert_values_match(mask, bits, &indices, &slices);
+}
 
-    let all_true = Mask::new_true(10);
-    let sliced_true = all_true.slice(2..7);
-    assert!(sliced_true.all_true());
-    assert_eq!(sliced_true.len(), 5);
+fn assert_counts_match(mask: &Mask, len: usize, indices: &[usize]) {
+    assert_eq!(mask.len(), len);
+    assert_eq!(mask.is_empty(), len == 0);
+    assert_eq!(mask.true_count(), indices.len());
+    assert_eq!(mask.false_count(), len - indices.len());
+    assert_eq!(mask.all_true(), indices.len() == len);
+    assert_eq!(mask.all_false(), indices.is_empty());
+    if len > 0 {
+        #[expect(clippy::cast_precision_loss)]
+        let density = indices.len() as f64 / len as f64;
+        assert!((mask.density() - density).abs() < 1e-10);
+    }
+}
 
-    let all_false = Mask::new_false(10);
-    let sliced_false = all_false.slice(2..7);
-    assert!(sliced_false.all_false());
-    assert_eq!(sliced_false.len(), 5);
+fn assert_elements_match(mask: &Mask, bits: &[bool], indices: &[usize]) {
+    let len = bits.len();
+    assert_eq!(mask.iter().collect::<Vec<_>>(), bits);
+    assert_eq!(mask.iter().len(), len);
+    assert_eq!((0..len).map(|i| mask.value(i)).collect::<Vec<_>>(), bits);
+    assert_eq!(mask.first(), indices.first().copied());
+    assert_eq!(mask.last(), indices.last().copied());
+    for (n, &idx) in indices.iter().enumerate() {
+        assert_eq!(mask.rank(n), idx);
+    }
+}
+
+fn assert_representations_match(
+    mask: &Mask,
+    bits: &[bool],
+    indices: &[usize],
+    slices: &[(usize, usize)],
+) {
+    let len = bits.len();
+    let mask_indices = match mask.indices() {
+        AllOr::All => (0..len).collect(),
+        AllOr::None => Vec::new(),
+        AllOr::Some(indices) => indices.to_vec(),
+    };
+    assert_eq!(mask_indices, indices);
+
+    let mask_slices = match mask.slices() {
+        AllOr::All if len > 0 => vec![(0, len)],
+        AllOr::All | AllOr::None => Vec::new(),
+        AllOr::Some(slices) => slices.to_vec(),
+    };
+    assert_eq!(mask_slices, slices);
+
+    let buffer_bits = match mask.bit_buffer() {
+        AllOr::All => vec![true; len],
+        AllOr::None => vec![false; len],
+        AllOr::Some(buffer) => buffer.iter().collect(),
+    };
+    assert_eq!(buffer_bits, bits);
+    assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), bits);
+}
+
+fn assert_values_match(mask: &Mask, bits: &[bool], indices: &[usize], slices: &[(usize, usize)]) {
+    let len = bits.len();
+    let Some(values) = mask.values() else {
+        return;
+    };
+    assert!(!values.is_empty());
+    assert_eq!(values.len(), len);
+    assert_eq!(values.true_count(), indices.len());
+    assert_eq!(values.indices(), indices);
+    assert_eq!(values.slices(), slices);
+    assert_eq!(values.bit_buffer().iter().collect::<Vec<_>>(), bits);
+    assert_eq!((0..len).map(|i| values.value(i)).collect::<Vec<_>>(), bits);
+}
+
+#[hegel::test]
+fn mask(tc: TestCase) {
+    let (mask, bits) = draw_mask(&tc);
+    assert_matches_model(&mask, &bits);
+}
+
+#[hegel::test]
+fn mask_eq(tc: TestCase) {
+    let (lhs, lhs_bits) = draw_mask(&tc);
+    let rhs_bits = if tc.draw(gs::booleans()) {
+        lhs_bits.clone()
+    } else {
+        let len = if tc.draw(gs::booleans()) {
+            lhs_bits.len()
+        } else {
+            draw_len(&tc)
+        };
+        draw_bits(&tc, len)
+    };
+    let rhs = build_mask(&tc, &rhs_bits);
+
+    assert_eq!(lhs == rhs, lhs_bits == rhs_bits);
+    assert_eq!(rhs == lhs, lhs_bits == rhs_bits);
+}
+
+#[hegel::test]
+fn mask_slice(tc: TestCase) {
+    let (mask, bits) = draw_mask(&tc);
+    let end = tc.draw(gs::integers::<usize>().max_value(bits.len()));
+    let start = tc.draw(gs::integers::<usize>().max_value(end));
+    assert_matches_model(&mask.slice(start..end), &bits[start..end]);
+}
+
+#[hegel::test]
+fn mask_limit(tc: TestCase) {
+    let (mask, bits) = draw_mask(&tc);
+    let limit = tc.draw(gs::integers::<usize>().max_value(bits.len() + 2));
+    let mut remaining = limit;
+    let expected: Vec<bool> = bits
+        .iter()
+        .map(|&b| {
+            let keep = b && remaining > 0;
+            if keep {
+                remaining -= 1;
+            }
+            keep
+        })
+        .collect();
+    assert_matches_model(&mask.limit(limit), &expected);
+}
+
+#[hegel::test]
+fn mask_bitops(tc: TestCase) {
+    let len = draw_len(&tc);
+    let (lhs, lhs_bits) = draw_mask_of_len(&tc, len);
+    let (rhs, rhs_bits) = draw_mask_of_len(&tc, len);
+    let zip = |f: fn(bool, bool) -> bool| -> Vec<bool> {
+        lhs_bits
+            .iter()
+            .zip(&rhs_bits)
+            .map(|(&l, &r)| f(l, r))
+            .collect()
+    };
+
+    let and = zip(|l, r| l & r);
+    let or = zip(|l, r| l | r);
+    let and_not = zip(|l, r| l & !r);
+    let not: Vec<bool> = lhs_bits.iter().map(|&b| !b).collect();
+
+    assert_matches_model(&(&lhs & &rhs), &and);
+    assert_matches_model(&(lhs.clone() & &rhs), &and);
+    assert_matches_model(&(&lhs | &rhs), &or);
+    assert_matches_model(&(lhs.clone() | &rhs), &or);
+    assert_matches_model(&lhs.clone().bitand_not(&rhs), &and_not);
+    assert_matches_model(&!&lhs, &not);
+    assert_matches_model(&!lhs, &not);
+}
+
+#[hegel::test]
+fn mask_concat(tc: TestCase) {
+    let count = tc.draw(gs::integers::<usize>().max_value(4));
+    let (masks, bits): (Vec<Mask>, Vec<Vec<bool>>) = (0..count)
+        .map(|_| {
+            let len = tc.draw(gs::integers::<usize>().max_value(MAX_LEN / 4));
+            draw_mask_of_len(&tc, len)
+        })
+        .unzip();
+    let expected = bits.concat();
+
+    assert_matches_model(&Mask::concat(masks.iter()).unwrap(), &expected);
+    assert_matches_model(&Mask::from_iter(masks), &expected);
+}
+
+#[hegel::test]
+fn mask_from_excluded(tc: TestCase) {
+    let len = draw_len(&tc);
+    let bits = draw_bits(&tc, len);
+    let mut excluded = Vec::new();
+    for (i, _) in bits.iter().enumerate().filter(|&(_, &b)| !b) {
+        let copies = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        for _ in 0..copies {
+            let pos = tc.draw(gs::integers::<usize>().max_value(excluded.len()));
+            excluded.insert(pos, i);
+        }
+    }
+    assert_matches_model(&Mask::from_excluded_indices(len, excluded), &bits);
+}
+
+#[hegel::test]
+fn mask_from_intersection(tc: TestCase) {
+    let len = draw_len(&tc);
+    let lhs = draw_bits(&tc, len);
+    let rhs = draw_bits(&tc, len);
+    let expected: Vec<bool> = lhs.iter().zip(&rhs).map(|(&l, &r)| l && r).collect();
+    let mask = Mask::from_intersection_indices(
+        len,
+        model_indices(&lhs).into_iter(),
+        model_indices(&rhs).into_iter(),
+    );
+    assert_matches_model(&mask, &expected);
+}
+
+#[hegel::test]
+fn mask_valid_counts(tc: TestCase) {
+    let (mask, bits) = draw_mask(&tc);
+    let mut indices: Vec<usize> =
+        tc.draw(gs::vecs(gs::integers::<usize>().max_value(bits.len())).max_size(MAX_LEN));
+    indices.sort_unstable();
+    let expected: Vec<usize> = indices
+        .iter()
+        .map(|&idx| bits[..idx].iter().filter(|&&b| b).count())
+        .collect();
+    assert_eq!(mask.valid_counts_for_indices(&indices), expected);
+}
+
+#[hegel::test]
+fn mask_intersect_by_rank(tc: TestCase) {
+    let (mask, bits) = draw_mask(&tc);
+    let (rank, rank_bits) = draw_mask_of_len(&tc, mask.true_count());
+    let mut ranks = rank_bits.iter();
+    let expected: Vec<bool> = bits
+        .iter()
+        .map(|&b| b && *ranks.next().unwrap_or(&false))
+        .collect();
+    assert_matches_model(&mask.intersect_by_rank(&rank), &expected);
+}
+
+#[rstest]
+#[case::all_true(Mask::new_true(4), vec![true, true, true, true])]
+#[case::all_false(Mask::new_false(3), vec![false, false, false])]
+#[case::values(
+    Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false])),
+    vec![true, false, true, true, false]
+)]
+#[case::empty(Mask::new_true(0), vec![])]
+fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
+    let collected: Vec<bool> = mask.iter().collect();
+    assert_eq!(collected, expected);
+
+    let by_value: Vec<bool> = (0..mask.len()).map(|i| mask.value(i)).collect();
+    assert_eq!(collected, by_value);
+
+    let mut it = mask.iter();
+    assert_eq!(it.len(), mask.len());
+    if it.next().is_some() {
+        assert_eq!(it.len(), mask.len() - 1);
+    }
 }
 
 #[test]
@@ -151,109 +325,12 @@ fn test_mask_slice_out_of_bounds() {
     mask.slice(3..8); // offset + length > len
 }
 
-// Limit operations
 #[test]
-fn limit_all_true_mask() {
-    let all_true = Mask::new_true(4);
-    let limited_mask = all_true.clone().limit(2);
-    assert_eq!(all_true.len(), limited_mask.len());
-    assert_eq!(limited_mask.true_count(), 2);
-    assert_eq!(
-        limited_mask.bit_buffer(),
-        AllOr::Some(&BitBuffer::from_iter([true, true, false, false]))
-    );
-
-    let limited_mask = all_true.clone().limit(5);
-    assert_eq!(limited_mask, all_true);
-}
-
-#[test]
-fn limit_mask_values() {
-    let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-    let limited_mask = original_mask.clone().limit(2);
-
-    assert_eq!(
-        limited_mask.bit_buffer(),
-        AllOr::Some(&BitBuffer::from_iter([
-            true, true, false, false, false, false
-        ]))
-    );
-    assert_eq!(limited_mask.true_count(), 2);
-
-    let limited_mask = original_mask.limit(3);
-
-    assert_eq!(
-        limited_mask.bit_buffer(),
-        AllOr::Some(&BitBuffer::from_iter([
-            true, true, false, true, false, false
-        ]))
-    );
-    assert_eq!(limited_mask.true_count(), 3);
-
-    let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-    let limited_mask = original_mask.clone().limit(100);
-
-    assert_eq!(original_mask, limited_mask);
-}
-
-#[test]
-fn test_limit_all_false_mask() {
-    let all_false = Mask::new_false(10);
-    let limited = all_false.clone().limit(5);
-    assert_eq!(limited, all_false);
-    assert!(limited.all_false());
-}
-
-#[test]
-fn test_limit_mask_exact() {
-    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    let limited = mask.clone().limit(3);
-    assert_eq!(limited.true_count(), 3);
-    assert_eq!(limited, mask);
-}
-
-#[test]
-fn test_limit_mask_zero() {
-    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    let limited = mask.limit(0);
-    assert!(limited.all_false());
-    assert_eq!(limited.true_count(), 0);
-}
-
-// Buffer conversion tests
-#[test]
-fn test_mask_to_bit_buffer() {
-    let all_true = Mask::new_true(5);
-    let buffer = all_true.to_bit_buffer();
-    assert_eq!(buffer.true_count(), 5);
-    assert_eq!(buffer.len(), 5);
-
-    let all_false = Mask::new_false(5);
-    let buffer = all_false.to_bit_buffer();
-    assert_eq!(buffer.true_count(), 0);
-    assert_eq!(buffer.len(), 5);
-
-    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    let buffer = values.to_bit_buffer();
-    assert_eq!(buffer.true_count(), 3);
-    assert_eq!(buffer.len(), 5);
-}
-
-// MaskValues tests
-#[test]
-fn test_mask_values() {
-    let all_true = Mask::new_true(5);
-    assert!(all_true.values().is_none());
-
-    let all_false = Mask::new_false(5);
-    assert!(all_false.values().is_none());
-
-    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    let values = mask.values().unwrap();
-    assert_eq!(values.len(), 5);
-    assert_eq!(values.true_count(), 3);
-    assert!(values.value(0));
-    assert!(!values.value(1));
+#[should_panic(expected = "Masks must have the same length")]
+fn test_bitand_different_lengths() {
+    let mask1 = Mask::new_true(5);
+    let mask2 = Mask::new_true(3);
+    let _unused = &mask1 & &mask2;
 }
 
 #[test]
@@ -331,100 +408,6 @@ fn mask_from_buffer_with_slices_unset_bit() {
 }
 
 #[test]
-fn test_mask_values_is_empty() {
-    let empty_mask = Mask::from_buffer(BitBuffer::new_unset(0));
-    assert!(empty_mask.values().is_none());
-
-    let non_empty_mask = Mask::from_buffer(BitBuffer::from_iter([true, false]));
-    assert!(!non_empty_mask.values().unwrap().is_empty());
-}
-
-// Creation from excluded indices
-#[test]
-fn test_mask_from_excluded_indices() {
-    let mask = Mask::from_excluded_indices(5, vec![1, 3]);
-    assert_eq!(mask.len(), 5);
-    assert_eq!(mask.true_count(), 3);
-    assert!(mask.value(0));
-    assert!(!mask.value(1));
-    assert!(mask.value(2));
-    assert!(!mask.value(3));
-    assert!(mask.value(4));
-
-    let mask_empty = Mask::from_excluded_indices(5, vec![]);
-    assert!(mask_empty.all_true());
-    // Verify it returns the optimized AllTrue variant
-    assert!(matches!(mask_empty, Mask::AllTrue(5)));
-
-    let mask_all = Mask::from_excluded_indices(3, vec![0, 1, 2]);
-    assert!(mask_all.all_false());
-    // Verify it returns the optimized AllFalse variant
-    assert!(matches!(mask_all, Mask::AllFalse(3)));
-}
-
-// Intersection tests
-#[test]
-fn test_mask_from_intersection_indices() {
-    let lhs = vec![0, 2, 3, 5, 7, 9];
-    let rhs = vec![1, 2, 3, 4, 7, 8, 9];
-
-    let mask = Mask::from_intersection_indices(10, lhs.into_iter(), rhs.into_iter());
-    assert_eq!(mask.len(), 10);
-    assert_eq!(mask.true_count(), 4); // 2, 3, 7, 9
-    assert!(!mask.value(0));
-    assert!(!mask.value(1));
-    assert!(mask.value(2));
-    assert!(mask.value(3));
-    assert!(!mask.value(4));
-    assert!(!mask.value(5));
-    assert!(!mask.value(6));
-    assert!(mask.value(7));
-    assert!(!mask.value(8));
-    assert!(mask.value(9));
-}
-
-#[test]
-fn test_mask_from_intersection_indices_empty() {
-    let lhs = vec![0, 2, 4];
-    let rhs = vec![1, 3, 5];
-
-    let mask = Mask::from_intersection_indices(6, lhs.into_iter(), rhs.into_iter());
-    assert!(mask.all_false());
-    assert_eq!(mask.true_count(), 0);
-}
-
-#[test]
-fn test_mask_from_intersection_indices_same() {
-    let indices = vec![1, 3, 5, 7];
-
-    let mask =
-        Mask::from_intersection_indices(10, indices.clone().into_iter(), indices.into_iter());
-    assert_eq!(mask.len(), 10);
-    assert_eq!(mask.true_count(), 4);
-    assert!(mask.value(1));
-    assert!(mask.value(3));
-    assert!(mask.value(5));
-    assert!(mask.value(7));
-}
-
-// Valid counts tests
-#[test]
-fn test_mask_valid_counts_for_indices() {
-    let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false, true]));
-    let indices = vec![0, 2, 4, 6];
-    let counts = mask.valid_counts_for_indices(&indices);
-    assert_eq!(counts, vec![0, 1, 3, 4]);
-
-    let all_true = Mask::new_true(6);
-    let counts = all_true.valid_counts_for_indices(&indices);
-    assert_eq!(counts, vec![0, 2, 4, 6]);
-
-    let all_false = Mask::new_false(6);
-    let counts = all_false.valid_counts_for_indices(&indices);
-    assert_eq!(counts, vec![0, 0, 0, 0]);
-}
-
-#[test]
 #[should_panic]
 fn test_mask_valid_counts_for_indices_error() {
     let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
@@ -432,67 +415,6 @@ fn test_mask_valid_counts_for_indices_error() {
     mask.valid_counts_for_indices(&indices);
 }
 
-// FromIterator tests
-#[test]
-fn test_mask_from_iter_masks() {
-    let masks = vec![
-        Mask::from_buffer(BitBuffer::from_iter([true, false])),
-        Mask::from_buffer(BitBuffer::from_iter([true, true, false])),
-        Mask::from_buffer(BitBuffer::from_iter([false, true])),
-    ];
-
-    let combined = Mask::from_iter(masks);
-    assert_eq!(combined.len(), 7);
-    assert_eq!(combined.true_count(), 4);
-    assert!(combined.value(0));
-    assert!(!combined.value(1));
-    assert!(combined.value(2));
-    assert!(combined.value(3));
-    assert!(!combined.value(4));
-    assert!(!combined.value(5));
-    assert!(combined.value(6));
-}
-
-#[test]
-fn test_mask_from_iter_all_true() {
-    let masks = vec![Mask::new_true(3), Mask::new_true(2), Mask::new_true(4)];
-
-    let combined = Mask::from_iter(masks);
-    assert!(combined.all_true());
-    assert_eq!(combined.len(), 9);
-}
-
-#[test]
-fn test_mask_from_iter_all_false() {
-    let masks = vec![Mask::new_false(3), Mask::new_false(2), Mask::new_false(4)];
-
-    let combined = Mask::from_iter(masks);
-    assert!(combined.all_false());
-    assert_eq!(combined.len(), 9);
-}
-
-#[test]
-fn test_mask_from_iter_empty() {
-    let masks: Vec<Mask> = vec![];
-    let combined = Mask::from_iter(masks);
-    assert_eq!(combined.len(), 0);
-    assert!(combined.is_empty());
-}
-
-#[test]
-fn test_mask_from_iter_with_empty_masks() {
-    let masks = vec![
-        Mask::new_true(3),
-        Mask::new_true(0), // empty mask
-        Mask::new_false(2),
-    ];
-
-    let combined = Mask::from_iter(masks);
-    assert_eq!(combined.len(), 5);
-    assert_eq!(combined.true_count(), 3);
-}
-
-// Panic tests for invalid inputs
 #[test]
 #[should_panic]
 fn test_mask_from_indices_unsorted() {
@@ -535,7 +457,6 @@ fn test_mask_from_slices_overlapping() {
     Mask::from_slices(5, vec![(0, 3), (2, 4)]); // Overlapping ranges
 }
 
-// Threshold iterator tests
 #[test]
 fn test_mask_threshold_iter() {
     let all_true = Mask::new_true(5);
@@ -552,7 +473,6 @@ fn test_mask_threshold_iter() {
     }
 }
 
-// Caching tests
 #[test]
 fn test_mask_indices_caching() {
     // Test that indices are properly cached
@@ -595,7 +515,6 @@ fn test_mask_slices_caching() {
     }
 }
 
-// AllOr tests
 #[test]
 fn test_allor_unwrap_or_else() {
     let all: AllOr<i32> = AllOr::All;
@@ -644,166 +563,4 @@ fn test_allor_eq() {
     assert_ne!(all1, none1);
     assert_ne!(all1, some1);
     assert_ne!(none1, some1);
-}
-
-// Parameterized tests with rstest
-#[rstest]
-#[case::all_true(Mask::new_true(5), 5, 5, 0, 1.0)]
-#[case::all_false(Mask::new_false(5), 5, 0, 5, 0.0)]
-#[case::mixed(
-        Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true])),
-        5, 3, 2, 0.6
-    )]
-#[case::single_true(Mask::from_indices(10, vec![5]), 10, 1, 9, 0.1)]
-#[case::dense(Mask::from_indices(10, vec![0, 1, 2, 3, 4, 5, 6, 7, 8]), 10, 9, 1, 0.9)]
-fn test_mask_properties(
-    #[case] mask: Mask,
-    #[case] expected_len: usize,
-    #[case] expected_true: usize,
-    #[case] expected_false: usize,
-    #[case] expected_density: f64,
-) {
-    assert_eq!(mask.len(), expected_len);
-    assert_eq!(mask.true_count(), expected_true);
-    assert_eq!(mask.false_count(), expected_false);
-    assert!((mask.density() - expected_density).abs() < 1e-10);
-}
-
-#[rstest]
-#[case::indices(vec![0, 2, 4], vec![(0, 1), (2, 3), (4, 5)])]
-#[case::consecutive(vec![0, 1, 2], vec![(0, 3)])]
-#[case::gap(vec![0, 1, 4, 5], vec![(0, 2), (4, 6)])]
-#[case::single(vec![3], vec![(3, 4)])]
-fn test_indices_to_slices_conversion(
-    #[case] indices: Vec<usize>,
-    #[case] expected_slices: Vec<(usize, usize)>,
-) {
-    let mask = Mask::from_indices(10, indices.clone());
-
-    // Check indices
-    if let AllOr::Some(actual_indices) = mask.indices() {
-        assert_eq!(actual_indices, &indices[..]);
-    } else {
-        panic!("Expected Some variant for indices");
-    }
-
-    // Check slices
-    if let AllOr::Some(actual_slices) = mask.slices() {
-        assert_eq!(actual_slices, &expected_slices[..]);
-    } else {
-        panic!("Expected Some variant for slices");
-    }
-}
-
-#[rstest]
-#[case::empty_intersection(vec![0, 2, 4], vec![1, 3, 5], vec![])]
-#[case::full_intersection(vec![1, 3, 5], vec![1, 3, 5], vec![1, 3, 5])]
-#[case::partial_intersection(vec![0, 1, 2, 3], vec![2, 3, 4, 5], vec![2, 3])]
-#[case::subset_left(vec![1, 2], vec![0, 1, 2, 3], vec![1, 2])]
-#[case::subset_right(vec![0, 1, 2, 3], vec![1, 2], vec![1, 2])]
-fn test_intersection_indices(
-    #[case] left: Vec<usize>,
-    #[case] right: Vec<usize>,
-    #[case] expected: Vec<usize>,
-) {
-    let mask = Mask::from_intersection_indices(10, left.into_iter(), right.into_iter());
-
-    match mask.indices() {
-        AllOr::Some(indices) if expected.is_empty() => assert!(indices.is_empty()),
-        AllOr::Some(indices) => assert_eq!(indices, &expected[..]),
-        AllOr::None if expected.is_empty() => {}
-        AllOr::None | AllOr::All => panic!("Unexpected result for intersection"),
-    }
-}
-
-// Concat operation tests
-#[test]
-fn test_mask_concat_empty() {
-    let masks: Vec<Mask> = vec![];
-    let result = Mask::concat(masks.iter()).unwrap();
-    assert_eq!(result.len(), 0);
-    assert!(result.is_empty());
-}
-
-#[test]
-fn test_mask_concat_all_true() {
-    let masks = [Mask::new_true(3), Mask::new_true(2)];
-    let result = Mask::concat(masks.iter()).unwrap();
-    assert_eq!(result.len(), 5);
-    assert!(result.all_true());
-}
-
-#[test]
-fn test_mask_concat_all_false() {
-    let masks = [Mask::new_false(3), Mask::new_false(2)];
-    let result = Mask::concat(masks.iter()).unwrap();
-    assert_eq!(result.len(), 5);
-    assert!(result.all_false());
-}
-
-#[test]
-fn test_mask_concat_mixed_types() {
-    let masks = [
-        Mask::from_buffer(BitBuffer::from_iter([true, false, true])),
-        Mask::new_true(2),
-        Mask::new_false(3),
-    ];
-
-    let result = Mask::concat(masks.iter()).unwrap();
-    assert_eq!(result.len(), 8);
-    assert_eq!(result.true_count(), 4);
-
-    // Verify the concatenated values
-    assert!(result.value(0)); // from buffer
-    assert!(!result.value(1)); // from buffer
-    assert!(result.value(2)); // from buffer
-    assert!(result.value(3)); // from all_true
-    assert!(result.value(4)); // from all_true
-    assert!(!result.value(5)); // from all_false
-    assert!(!result.value(6)); // from all_false
-    assert!(!result.value(7)); // from all_false
-}
-
-// `Mask::iter` per-element bool iteration
-
-#[rstest]
-#[case::all_true(Mask::new_true(4), vec![true, true, true, true])]
-#[case::all_false(Mask::new_false(3), vec![false, false, false])]
-#[case::values(
-    Mask::from_buffer(BitBuffer::from_iter([true, false, true, true, false])),
-    vec![true, false, true, true, false]
-)]
-#[case::empty(Mask::new_true(0), vec![])]
-fn mask_iter_matches_value(#[case] mask: Mask, #[case] expected: Vec<bool>) {
-    // Iterator yields exactly one bool per element, matching `value`.
-    let collected: Vec<bool> = mask.iter().collect();
-    assert_eq!(collected, expected);
-
-    let by_value: Vec<bool> = (0..mask.len()).map(|i| mask.value(i)).collect();
-    assert_eq!(collected, by_value);
-
-    // ExactSizeIterator reports the right length, including after partial consumption.
-    let mut it = mask.iter();
-    assert_eq!(it.len(), mask.len());
-    if it.next().is_some() {
-        assert_eq!(it.len(), mask.len() - 1);
-    }
-}
-
-/// `from_excluded_indices` must count each excluded position once: `[0, 0]` excludes a single row.
-#[rstest]
-#[case::fewer_than_len(vec![0, 0], vec![1, 2])]
-#[case::equal_to_len(vec![0, 0, 0], vec![1, 2])]
-#[case::more_than_len(vec![0, 0, 0, 0], vec![1, 2])]
-#[case::non_adjacent(vec![2, 0, 2], vec![1])]
-#[case::all_excluded(vec![2, 0, 2, 1], vec![])]
-fn from_excluded_indices_counts_duplicates_once(
-    #[case] excluded: Vec<usize>,
-    #[case] included: Vec<usize>,
-) {
-    let mask = Mask::from_excluded_indices(3, excluded);
-    assert_eq!(mask.true_count(), included.len());
-    let expected = Mask::from_indices(3, included);
-    assert_eq!(mask, expected);
-    assert_eq!(mask.density(), expected.density());
 }

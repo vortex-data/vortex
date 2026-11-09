@@ -33,6 +33,9 @@ use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
 use crate::children::OwnedLayoutChildren;
+use crate::plan::physical::ListPackPlan;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::segments::SegmentSource;
 
 /// Child index of the elements layout.
@@ -161,6 +164,20 @@ impl VTable for List {
             session.clone(),
             ctx,
         )?))
+    }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        // SAFETY: List layout construction validates its element, offsets, and optional validity
+        // child shapes. Its slots are `[elements, offsets, validity]`, which are the ListPack
+        // slots.
+        let plan = unsafe {
+            ListPackPlan::from_slots_unchecked(
+                layout.dtype().clone(),
+                layout.row_count(),
+                PlanSlots::from_layout(&layout.to_layout()),
+            )
+        };
+        Ok(plan.into_plan())
     }
 }
 

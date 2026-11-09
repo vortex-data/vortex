@@ -27,7 +27,7 @@ impl FillNullReduce for Widen {
         let values = array.values();
         let dtype = match values.dtype() {
             DType::Primitive(..) => {
-                let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value)? else {
+                let Some(ptype) = ptype_holding_values_and_scalar(array, fill_value) else {
                     return Ok(None);
                 };
 

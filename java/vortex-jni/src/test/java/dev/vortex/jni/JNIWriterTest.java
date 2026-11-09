@@ -33,6 +33,7 @@ import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -146,6 +147,37 @@ public final class JNIWriterTest {
         value.setValueCount(3);
         variant.setValueCount(3);
         root.setRowCount(3);
+    }
+
+    @Test
+    public void testWriterReleasesEveryExportedSchema(@TempDir Path dir) throws IOException {
+        Session session = Session.create();
+        Schema schema = new Schema(List.of(Field.notNullable("v", new ArrowType.Int(64, true))));
+        // A dedicated allocator shows what the native writer still holds once the file is finished.
+        try (RootAllocator allocator = new RootAllocator()) {
+            try (VortexWriter writer = VortexWriter.builder(
+                                    session, dir.resolve("released.vortex").toString(), schema, allocator)
+                            .build();
+                    VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                for (int batch = 0; batch < 5; batch++) {
+                    BigIntVector values = (BigIntVector) root.getVector(0);
+                    values.allocateNew(1024);
+                    for (int i = 0; i < 1024; i++) {
+                        values.set(i, i + batch);
+                    }
+                    root.setRowCount(1024);
+                    try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                            ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                        Data.exportVectorSchemaRoot(allocator, root, null, array, arrowSchema);
+                        writer.writeBatch(array.memoryAddress(), arrowSchema.memoryAddress());
+                    }
+                    root.clear();
+                }
+                writer.finish();
+            }
+            // Native code is the consumer of every exported array and schema, so it must have released them all.
+            assertEquals(0, allocator.getAllocatedMemory());
+        }
     }
 
     @Test
@@ -382,6 +414,48 @@ public final class JNIWriterTest {
     }
 
     /** Write a single three-row batch of {@link #personSchema()} data. */
+    @Test
+    public void testUuidColumnStatisticsAreBytes() throws IOException {
+        String writePath =
+                tempDir.resolve("uuid_stats.vortex").toAbsolutePath().toUri().toString();
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Field uuid = new Field(
+                "id",
+                new FieldType(
+                        false, new ArrowType.FixedSizeBinary(16), null, Map.of(ARROW_EXTENSION_NAME, "arrow.uuid")),
+                null);
+        Schema schema = new Schema(List.of(uuid));
+        byte[] low = new byte[16];
+        byte[] high = new byte[16];
+        low[15] = 1;
+        high[0] = 0x7F;
+
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        try (VortexWriter writer =
+                VortexWriter.builder(session, writePath, schema, allocator).build()) {
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                FixedSizeBinaryVector ids = (FixedSizeBinaryVector) root.getVector("id");
+                ids.allocateNew(2);
+                ids.setSafe(0, high);
+                ids.setSafe(1, low);
+                root.setRowCount(2);
+
+                try (ArrowArray array = ArrowArray.allocateNew(allocator);
+                        ArrowSchema arrowSchema = ArrowSchema.allocateNew(allocator)) {
+                    Data.exportVectorSchemaRoot(allocator, root, null, array, arrowSchema);
+                    writer.writeBatch(array.memoryAddress(), arrowSchema.memoryAddress());
+                }
+            }
+
+            summary = writer.finish();
+        }
+
+        VortexColumnStatistics id = summary.columnStatistics().get(0);
+        assertArrayEquals(low, (byte[]) id.lowerBound().orElseThrow());
+        assertArrayEquals(high, (byte[]) id.upperBound().orElseThrow());
+    }
+
     /**
      * Editions before the aggregates, such as {@code core2025.10.0}, do not permit {@code vortex.min}. The writer then
      * writes only the legacy file statistics, and these must still have the min, max and null count.

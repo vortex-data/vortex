@@ -22,7 +22,7 @@ impl RowFnExecutionArgs<'_> {
     /// Run every stored payload, then attach the input validity without materializing its mask.
     pub(super) fn execute_dense(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let values = kernel(
@@ -90,10 +90,9 @@ impl RowFnExecutionArgs<'_> {
             .validity
             .execute_mask(self.batch.probe.row_count, ctx)?
         {
-            // An array-backed validity can materialize to all valid even though the cheap checks
-            // in `RowFnExecutionArgs::execute` could not prove that. The deferred error therefore
-            // came from an observable row and remains terminal. An empty mask is both all-valid
-            // and all-null, so preserve the all-valid behavior.
+            // The cheap checks in `BatchInputs::try_execute_without_retry` cannot see that an
+            // array-backed validity is all valid. If it is, a valid row caused the deferred error,
+            // so the error is final. An empty mask counts as all valid.
             Mask::AllTrue(_) | Mask::AllFalse(0) => return Err(deferred_error),
             Mask::AllFalse(_) => return Ok(self.all_null()),
             Mask::Values(valid_rows) => valid_rows,

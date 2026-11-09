@@ -5,7 +5,7 @@
 //!
 //! A Vortex array encoding is implemented by a small static vtable type plus an associated
 //! `TypedArrayData` value stored in each array instance. The vtable owns behavior such as
-//! validation, serialization, execution, child traversal, scalar access, and validity access.
+//! validation, execution, child traversal, scalar access, and validity access.
 //!
 //! The public [`ArrayRef`] API performs common precondition checks before calling
 //! into these traits. Implementations should focus on encoding-specific work and uphold the
@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -47,7 +46,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -55,8 +53,9 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed `DynArrayData` trait and the
-/// public [`ArrayPlugin`] registry trait.
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArrayData` trait.
+/// Serialization is not part of the vtable: encodings that support serde implement
+/// [`ArrayPlugin`] separately and register it with the session.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
 /// post-conditions. The pre-conditions are validated inside the `DynArrayData` and [`ArrayRef`]
@@ -115,35 +114,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>>;
 
-    /// Serialize encoding metadata into a byte buffer for IPC or file storage.
-    ///
-    /// Buffers and children are serialized separately through [`buffer`](Self::buffer),
-    /// [`nbuffers`](Self::nbuffers), and child traversal.
-    ///
-    /// Return `Ok(None)` if this encoding cannot be serialized. This includes in-memory-only
-    /// encodings and encodings whose wire format is owned by a separate [`ArrayPlugin`]. Do not
-    /// return an error for this case: the caller decides how to report an unserializable array.
-    /// Return an error only when an array that can be serialized fails to serialize.
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>>;
-
-    /// Deserialize an array from serialized metadata, buffers, and children.
-    ///
-    /// The returned [`ArrayParts`] are still validated by the generic adapter.
-    /// Deserializers should use the provided `session` to resolve plugin-owned metadata instead of
-    /// relying on global state.
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>>;
-
     /// Writes the array's logical values into a canonical builder.
     ///
     /// The default implementation executes the full array to [`Canonical`] and appends that result.
@@ -197,18 +167,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// known.
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
-        Ok(None)
-    }
-
-    /// Attempt to reduce `parent` after this array appears as one of its children.
-    ///
-    /// This is used by lazy arrays to let child execution unlock parent simplifications.
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        _ = (array, parent, child_idx);
         Ok(None)
     }
 }

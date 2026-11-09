@@ -54,12 +54,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::session::VortexSession;
-use vortex_array::aggregate_fn::session::AggregateFnSession;
-use vortex_array::dtype::session::DTypeSession;
-use vortex_array::memory::MemorySession;
-use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaExecutionCtx;
@@ -81,16 +75,7 @@ use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
-        .with::<ArraySession>()
-        .with::<KernelSession>()
-        .with::<DTypeSession>()
-        .with::<ScalarFnSession>()
-        .with::<AggregateFnSession>()
-        .with::<MemorySession>()
-        .with::<CudaSession>()
-});
+static SESSION: LazyLock<VortexSession> = LazyLock::new(cuda_session);
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -119,7 +104,9 @@ fn run_timed<T: DeviceRepr + NativePType>(
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
     let array_len_u64 = array_len as u64;
-    let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
+    let (plan_ptr, record_plan) = device_plan
+        .device_ptr(cuda_ctx.stream())
+        .map_err(|e| vortex_err!("Failed to access device plan: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -142,12 +129,16 @@ fn run_timed<T: DeviceRepr + NativePType>(
         shared_mem_bytes,
     };
 
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
-    }
-    drop(record_plan);
+    let launch = unsafe { launch_builder.launch(config) };
+    let completion = record_plan.finish();
+    launch
+        .inspect_err(|_| {
+            if let Err(error) = &completion {
+                tracing::error!(%error, "Failed to track device plan access after launch failure");
+            }
+        })
+        .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
+    completion.map_err(|e| vortex_err!("Failed to track device plan access: {e}"))?;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();

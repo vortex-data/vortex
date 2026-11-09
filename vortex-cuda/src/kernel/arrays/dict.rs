@@ -205,7 +205,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
             .arg(&mut output_slice);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         value_ptype,
@@ -290,7 +290,7 @@ async fn execute_dict_decimal_typed<
             .arg(&mut output_slice);
     })?;
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         V::DECIMAL_TYPE,
@@ -356,7 +356,7 @@ async fn execute_dict_varbinview(
         })?;
     });
 
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let output_device = CudaDeviceBuffer::new(output_slice)?;
 
     // Output views gathered by the kernel share the values' data buffers.
     // Outlined views reference into these buffers via buffer_index + offset,

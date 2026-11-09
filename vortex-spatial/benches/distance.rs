@@ -27,6 +27,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
@@ -125,6 +126,9 @@ fn execute(distance: VortexResult<impl IntoArray>, ctx: &mut ExecutionCtx) -> Ar
 }
 
 fn bench_distance(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let rows = lhs.len();
     let mut ctx = SESSION.create_execution_ctx();
     bencher

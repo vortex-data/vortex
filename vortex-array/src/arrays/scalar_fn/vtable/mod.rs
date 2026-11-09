@@ -11,11 +11,10 @@ use std::ops::Deref;
 use itertools::Itertools;
 use validity::ValidityArray;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -31,7 +30,6 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
-use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -45,7 +43,6 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnExecutionStep;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// A [`ScalarFn`]-encoded Vortex array.
@@ -144,26 +141,6 @@ impl VTable for ScalarFn {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // Not supported
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
-    }
-
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         array
             .scalar_fn()
@@ -186,19 +163,24 @@ impl VTable for ScalarFn {
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
 }
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
 pub struct AnyScalarFn;
+
+impl AnyScalarFn {
+    /// The parent id under which parent-reduce kernels that apply to any scalar function are
+    /// registered.
+    ///
+    /// A scalar function array's encoding id is its function's id, so these kernels cannot be
+    /// keyed by one encoding id. The optimizer tries them after the kernels registered for the
+    /// function's own id.
+    pub fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.scalar_fn.any");
+        *ID
+    }
+}
 impl Matcher for AnyScalarFn {
     type Match<'a> = ArrayView<'a, ScalarFn>;
 

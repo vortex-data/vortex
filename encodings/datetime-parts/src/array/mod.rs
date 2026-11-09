@@ -1,0 +1,286 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hasher;
+
+use vortex_array::AnyCanonical;
+use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::EqMode;
+use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
+use vortex_array::array_slots;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::TemporalArray;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::require_child;
+use vortex_array::smallvec::smallvec;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
+
+use crate::TemporalParts;
+use crate::canonical::decode_to_temporal;
+use crate::split_temporal;
+
+mod plugin;
+
+/// A [`DateTimeParts`]-encoded Vortex array.
+pub type DateTimePartsArray = Array<DateTimeParts>;
+
+impl ArrayHash for DateTimePartsData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _accuracy: EqMode) {}
+}
+
+impl ArrayEq for DateTimePartsData {
+    fn array_eq(&self, _other: &Self, _accuracy: EqMode) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, prost::Message)]
+#[repr(C)]
+pub struct DateTimePartsMetadata {
+    // Validity lives in the days array
+    // TODO(ngates): we should actually model this with a Tuple array when we have one.
+    #[prost(enumeration = "PType", tag = "1")]
+    pub(crate) days_ptype: i32,
+    #[prost(enumeration = "PType", tag = "2")]
+    pub(crate) seconds_ptype: i32,
+    #[prost(enumeration = "PType", tag = "3")]
+    pub(crate) subseconds_ptype: i32,
+}
+
+impl DateTimePartsMetadata {
+    pub fn get_days_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.days_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.days_ptype))
+    }
+
+    pub fn get_seconds_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.seconds_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.seconds_ptype))
+    }
+
+    pub fn get_subseconds_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.subseconds_ptype)
+            .map_err(|_| vortex_err!("Invalid PType {}", self.subseconds_ptype))
+    }
+}
+
+impl VTable for DateTimeParts {
+    type TypedArrayData = DateTimePartsData;
+
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromChild;
+
+    fn id(&self) -> ArrayId {
+        static ID: CachedId = CachedId::new("vortex.datetimeparts");
+        *ID
+    }
+
+    fn validate(
+        &self,
+        _data: &Self::TypedArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let slots = DateTimePartsSlotsView::from_slots(slots);
+        DateTimePartsData::validate(dtype, slots.days, slots.seconds, slots.subseconds, len)
+    }
+
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        vortex_panic!("DateTimePartsArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
+        vortex_panic!("DateTimePartsArray buffer_name index {idx} out of bounds")
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        DateTimePartsSlots::NAMES[idx].to_string()
+    }
+
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.days(), DateTimePartsSlots::DAYS => Primitive);
+        let array =
+            require_child!(array, array.seconds(), DateTimePartsSlots::SECONDS => AnyCanonical);
+        let array = require_child!(array, array.subseconds(), DateTimePartsSlots::SUBSECONDS => AnyCanonical);
+
+        let dtype = array.dtype().clone();
+        let parts = array.into_parts();
+
+        Ok(ExecutionResult::done(
+            decode_to_temporal(parts, &dtype, ctx)?.into_array(),
+        ))
+    }
+}
+
+#[array_slots(DateTimeParts)]
+pub struct DateTimePartsSlots {
+    /// The days component of the datetime, stored as an integer array.
+    #[slot(0)]
+    pub days: ArrayRef,
+    /// The seconds component of the datetime (within the day).
+    #[slot(1)]
+    pub seconds: ArrayRef,
+    /// The sub-second component of the datetime.
+    #[slot(2)]
+    pub subseconds: ArrayRef,
+}
+
+#[derive(Clone, Debug)]
+pub struct DateTimePartsData {}
+
+pub struct DateTimePartsParts {
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
+}
+
+pub trait DateTimePartsOwnedExt {
+    fn into_parts(self) -> DateTimePartsParts;
+}
+
+impl DateTimePartsOwnedExt for Array<DateTimeParts> {
+    fn into_parts(self) -> DateTimePartsParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let slots = DateTimePartsSlots::from_slots(parts.slots);
+                DateTimePartsParts {
+                    days: slots.days,
+                    seconds: slots.seconds,
+                    subseconds: slots.subseconds,
+                }
+            }
+            Err(array) => {
+                let view = DateTimePartsSlotsView::from_slots(array.as_ref().slots());
+                DateTimePartsParts {
+                    days: view.days.clone(),
+                    seconds: view.seconds.clone(),
+                    subseconds: view.subseconds.clone(),
+                }
+            }
+        }
+    }
+}
+
+impl Display for DateTimePartsData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DateTimeParts;
+
+impl DateTimeParts {
+    /// Construct a new [`DateTimePartsArray`] from its components.
+    pub fn try_new(
+        dtype: DType,
+        days: ArrayRef,
+        seconds: ArrayRef,
+        subseconds: ArrayRef,
+    ) -> VortexResult<DateTimePartsArray> {
+        let len = days.len();
+        DateTimePartsData::validate(&dtype, &days, &seconds, &subseconds, len)?;
+        let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
+        let data = DateTimePartsData {};
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data, slots))
+        })
+    }
+
+    /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
+    pub fn try_from_temporal(
+        temporal: TemporalArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<DateTimePartsArray> {
+        let dtype = temporal.dtype().clone();
+        let TemporalParts {
+            days,
+            seconds,
+            subseconds,
+        } = split_temporal(temporal, ctx)?;
+        Self::try_new(dtype, days, seconds, subseconds)
+    }
+}
+
+impl DateTimePartsData {
+    pub fn validate(
+        dtype: &DType,
+        days: &ArrayRef,
+        seconds: &ArrayRef,
+        subseconds: &ArrayRef,
+        len: usize,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(days.len(), len);
+
+        if !days.dtype().is_int() || (dtype.is_nullable() != days.dtype().is_nullable()) {
+            vortex_bail!(
+                "Expected integer with nullability {}, got {}",
+                dtype.is_nullable(),
+                days.dtype()
+            );
+        }
+        if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                seconds.dtype()
+            );
+        }
+        if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                subseconds.dtype()
+            );
+        }
+
+        if len != seconds.len() || len != subseconds.len() {
+            vortex_bail!(
+                "Mismatched lengths {} {} {}",
+                days.len(),
+                seconds.len(),
+                subseconds.len()
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl ValidityChild<DateTimeParts> for DateTimeParts {
+    fn validity_child(array: ArrayView<'_, DateTimeParts>) -> ArrayRef {
+        array.days().clone()
+    }
+}
