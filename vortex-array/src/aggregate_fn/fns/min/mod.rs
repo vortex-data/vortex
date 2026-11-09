@@ -18,6 +18,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
@@ -41,28 +42,36 @@ pub struct MinPartial {
 }
 
 impl MinPartial {
-    fn merge(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>, min: Scalar) {
+    fn merge(
+        &mut self,
+        args: AggregateArgs<'_, NumericalAggregateOpts>,
+        min: Scalar,
+    ) -> VortexResult<()> {
         if min.is_null() {
-            return;
+            return Ok(());
         }
 
         // NaN scalars are incomparable under `partial_min`; they poison the minimum when NaNs
         // participate, and are dropped when they are skipped.
         if scalar_is_nan(&min) || self.is_poisoned() {
             if !args.options.skip_nans {
-                self.poison(args);
+                self.poison(args)?;
             }
-            return;
+            return Ok(());
         }
 
         self.min = Some(match self.min.take() {
             Some(current) => partial_min(min, current).vortex_expect("incomparable min scalars"),
             None => min,
         });
+
+        Ok(())
     }
 
-    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) {
-        self.min = Some(nan_scalar(args.dtype));
+    fn poison(&mut self, args: AggregateArgs<'_, NumericalAggregateOpts>) -> VortexResult<()> {
+        self.min = Some(nan_scalar(args.dtype)?);
+
+        Ok(())
     }
 
     fn is_poisoned(&self) -> bool {
@@ -133,7 +142,7 @@ impl AggregateFnVTable for Min {
     ) -> VortexResult<Self::Partial> {
         let mut partial = MinPartial { min: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar.clone());
+        partial.merge(args, scalar.clone())?;
         Ok(partial)
     }
 
@@ -144,7 +153,7 @@ impl AggregateFnVTable for Min {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         if let Some(min) = second.min {
-            first.merge(args, min);
+            first.merge(args, min)?;
         }
         Ok(first)
     }
@@ -175,25 +184,29 @@ impl AggregateFnVTable for Min {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        // NaN-aware shortcircuits only apply to the NaN-including float minimum; everything else
-        // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
-            return Ok(false);
+            // `min_max` computes both extrema in one pass and caches both on `batch`, so a
+            // `Max` over the same batch reads the cached value instead of a second scan.
+            if let Some(result) = min_max(batch, ctx, *args.options)? {
+                partial.merge(args, result.min)?;
+            }
+            return Ok(true);
         }
+
         match batch.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping minimum (if any) is valid. `to_scalar`
                 // re-casts to the result dtype, so the cached scalar can merge as-is.
                 if let Some(min) = batch.statistics().get(Stat::Min).as_exact() {
-                    partial.merge(args, min);
+                    partial.merge(args, min)?;
                     return Ok(true);
                 }
                 Ok(false)
             }
             Precision::Exact(_) => {
-                partial.poison(args);
+                partial.poison(args)?;
                 Ok(true)
             }
             _ => Ok(false),
@@ -210,7 +223,7 @@ impl AggregateFnVTable for Min {
         // Delegate to the existing min_max implementation for now. A dedicated min aggregate
         // would avoid computing max when only min is needed.
         if let Some(result) = columnar_min_max(batch, *args.options, ctx)? {
-            partial.merge(args, result.min);
+            partial.merge(args, result.min)?;
         }
         Ok(())
     }

@@ -10,73 +10,59 @@ import {
   collectSubtreeSegments,
   shortEncoding,
 } from '../swimlane/utils';
-
-function formatNum(n: number): string {
-  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '_');
-}
+import { Facts } from './Facts';
 
 interface SummaryPaneProps {
   node: LayoutTreeNode | null;
   file: VortexFileState;
 }
 
+const count = (n: number) => n.toLocaleString('en-US');
+
 export function SummaryPane({ node, file }: SummaryPaneProps) {
   if (!node) {
-    // File-level summary
     return (
-      <div className="text-xs space-y-2">
-        <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">File Summary</h3>
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
-          <span>File</span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg">{file.fileName}</span>
-          <span>Size</span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg">
-            {formatBytes(file.fileSize)}
-          </span>
-          <span>Rows</span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg">
-            {formatRowCount(file.rowCount)}
-          </span>
-          <span>Segments</span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg">{file.segments.length}</span>
-          <span>Version</span>
-          <span className="text-vortex-fg-light dark:text-vortex-fg">v{file.version}</span>
+      <>
+        <div className="vx-pane-head">
+          <h2 className="vx-label x-side-title">File</h2>
         </div>
-      </div>
+        <div className="vx-pane-body">
+          <Facts
+            items={[
+              ['Name', file.fileName],
+              ['Size', formatBytes(file.fileSize)],
+              ['Rows', formatRowCount(file.rowCount)],
+              ['Segments', count(file.segments.length)],
+              ['Format version', `v${file.version}`],
+            ]}
+          />
+        </div>
+      </>
     );
   }
 
-  // Node-level summary
-  const name = getNodeDisplayName(node);
-  const subtreeSegmentIds = collectSubtreeSegments(node);
-  const reachableSegments = file.segments.filter((s) => subtreeSegmentIds.includes(s.index));
-  const totalBytes = reachableSegments.reduce((sum, s) => sum + s.byteLength, 0);
+  const segIds = new Set(collectSubtreeSegments(node));
+  const reachable = file.segments.filter((s) => segIds.has(s.index));
+  const totalBytes = reachable.reduce((sum, s) => sum + s.byteLength, 0);
 
   return (
-    <div className="text-xs space-y-2">
-      <h3 className="font-medium text-vortex-fg-light dark:text-vortex-fg">{name}</h3>
-      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-vortex-grey-dark">
-        <span>Encoding</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg" title={node.encoding}>
-          {shortEncoding(node.encoding)}
-        </span>
-        <span>Rows</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">{formatNum(node.rowCount)}</span>
-        <span>Row offset</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatNum(node.rowOffset)}
-        </span>
-        <span>Metadata</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">
-          {formatBytes(node.metadataBytes)}
-        </span>
-        <span>Data size</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">{formatBytes(totalBytes)}</span>
-        <span>Segments</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">{reachableSegments.length}</span>
-        <span>Children</span>
-        <span className="text-vortex-fg-light dark:text-vortex-fg">{node.children.length}</span>
+    <>
+      <div className="vx-pane-head">
+        <h2 className="vx-label x-side-title">{getNodeDisplayName(node)}</h2>
       </div>
-    </div>
+      <div className="vx-pane-body">
+        <Facts
+          items={[
+            ['Encoding', shortEncoding(node.encoding), node.encoding],
+            ['Rows', count(node.rowCount)],
+            ['Row offset', count(node.rowOffset)],
+            ['Metadata', formatBytes(node.metadataBytes)],
+            ['Data size', formatBytes(totalBytes)],
+            ['Segments', count(reachable.length)],
+            ['Children', count(node.children.length)],
+          ]}
+        />
+      </div>
+    </>
   );
 }

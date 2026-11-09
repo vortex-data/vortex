@@ -12,11 +12,10 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 use crate::segments::SegmentId;
@@ -49,7 +48,7 @@ impl SegmentScanPlan {
             vtable: SegmentScan,
             dtype,
             row_count,
-            children: PlanChildren::default(),
+            slots: PlanSlots::default(),
             data: SegmentScanData {
                 segment_id,
                 array_ctx,
@@ -89,12 +88,12 @@ impl PlanVTable for SegmentScan {
         None
     }
 
-    fn with_children(
+    fn with_slots(
         _plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("SegmentScan", children, 0)?;
+        slots.check_len("SegmentScan", 0)?;
         Ok(())
     }
 

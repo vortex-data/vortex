@@ -67,7 +67,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_array::ArrayView;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
@@ -167,7 +166,7 @@ async fn decode_onpair(
                 .arg(&num_rows_u64);
         })?;
 
-        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)?));
         return Ok(Canonical::VarBinView(unsafe {
             VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
         }));
@@ -211,7 +210,7 @@ pub(crate) async fn decode_onpair_varbin(
     let Some(decoded) = decode_onpair_bytes(onpair.as_view(), ctx).await? else {
         // Zero decoded bytes: all-zero offsets and an empty values heap.
         let offsets = ctx.copy_to_device(vec![0i32; len + 1])?.await?;
-        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?)?;
         let values = BufferHandle::new_device(allocation.slice(0..0));
         return Ok(DecodedVarBin {
             dtype,
@@ -496,7 +495,7 @@ where
     // Decode only batches intersecting the visible token window. The kernel's drain gates 16-byte
     // stores on `out_start % 16` relative to the buffer base, so the base must be 16-aligned.
     let mut bytes = ctx.device_alloc::<u8>(total_size)?;
-    let (bytes_base_ptr, _) = bytes.device_ptr(ctx.stream());
+    let bytes_base_ptr = bytes.device_address();
     assert_eq!(
         bytes_base_ptr % 16,
         0,
@@ -527,7 +526,7 @@ where
     )?;
 
     Ok(Some(OnPairDecoded {
-        bytes: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(bytes))),
+        bytes: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(bytes)?)),
         total_size,
         lengths,
     }))
@@ -672,6 +671,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::buffer::Buffer;
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
@@ -843,7 +843,7 @@ mod tests {
             Some(&b"after the window"[..]),
         ];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..4)?;
+        let sliced = onpair.slice(1..4)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -866,7 +866,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
         let values = vec![Some(&b"alpha"[..]), None, None, Some(&b"omega"[..])];
         let onpair = compress_onpair(values, DType::Utf8(Nullability::Nullable), &mut cuda_ctx)?;
-        let sliced = onpair.slice(1..3)?;
+        let sliced = onpair.slice(1..3)?.optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)
@@ -930,7 +930,9 @@ mod tests {
         )
         .into_array();
         let onpair = onpair_compress(&varbin, DEFAULT_CONFIG, cuda_ctx.execution_ctx())?;
-        let sliced = onpair.slice(19_997..20_101)?;
+        let sliced = onpair
+            .slice(19_997..20_101)?
+            .optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = OnPairExecutor
             .execute(sliced.clone(), &mut cuda_ctx)

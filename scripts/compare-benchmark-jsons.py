@@ -11,11 +11,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import argparse
 import math
 import os
 import re
-import subprocess
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
@@ -165,137 +164,77 @@ def extract_target_fields(name: str, target: object = None) -> pd.Series:
     return pd.Series({"engine": engine, "file_format": file_format, "query": query})
 
 
-def benchmark_identity(row: object) -> tuple[Any, Any, Any, str, str, Any] | None:
-    """Return the measurement identity used to find a matching baseline."""
+def ingest_dataset_label(record: dict[str, Any]) -> str:
+    """Join a record's dataset and variant into one label, skipping an absent variant."""
 
-    if row.get("metric") == FILE_SIZE_METRIC or isinstance(row.get("file_size"), dict):
+    label = str(record["dataset"])
+    if record.get("dataset_variant") is not None:
+        label += f"/{record['dataset_variant']}"
+    return label
+
+
+def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert one `--ingest-jsonl` record into a comparison row.
+
+    The names keep the shapes `comparison_target` parses: `_qNN/engine:format` for SQL queries
+    and `random-access/.../ext-variant` for random access, so both sides of the comparison get
+    the same engine, format, and query attribution.
+    """
+
+    kind = record.get("kind")
+    file_format = record.get("format")
+    row: dict[str, Any] = {"commit_id": record.get("commit_sha"), "storage": None, "unit": "ns"}
+    if kind == "query_measurement":
+        engine = record["engine"]
+        row["name"] = f"{record['dataset']}_q{record['query_idx']:02d}/{engine}:{file_format}"
+        row["storage"] = record["storage"]
+        # Like the results JSON, the scale factor and variant stay out of the name and in the
+        # dataset join key.
+        dims = {dim: record.get(dim) for dim in ("dataset_variant", "scale_factor") if record.get(dim) is not None}
+        if dims:
+            row["dataset"] = dims
+        row["target"] = {"engine": engine, "format": file_format}
+    elif kind == "random_access_time":
+        ext = "vortex" if str(file_format).startswith("vortex") else file_format
+        row["name"] = f"random-access/{record['dataset']}/{ext}-{record['open_mode']}"
+        row["target"] = {"engine": "vortex", "format": file_format}
+    elif kind == "compression_time":
+        op = {"encode": "compress", "decode": "decompress"}.get(record["op"], record["op"])
+        row["name"] = f"{op} time/{ingest_dataset_label(record)}"
+        row["target"] = {"engine": "vortex", "format": file_format}
+    elif kind == "compression_size":
+        row["name"] = f"{file_format} size/{ingest_dataset_label(record)}"
+        row["target"] = {"engine": "vortex", "format": file_format}
+        row["unit"] = "bytes"
+        row["value"] = record["value_bytes"]
+        return row
+    else:
         return None
-
-    name = row.get("name")
-    if name is None:
-        return None
-
-    engine, file_format, _query = comparison_target(name, row.get("target"))
-    return (
-        identity_value(name),
-        identity_value(row.get("storage")),
-        dataset_key(row.get("dataset")),
-        engine,
-        file_format,
-        identity_value(row.get("unit")),
-    )
+    row["value"] = record["value_ns"]
+    row["all_runtimes"] = record["all_runtimes_ns"]
+    return row
 
 
-def benchmark_identity_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Return timing rows with the identity used to match a PR benchmark."""
+def read_benchmark_rows(path: str) -> pd.DataFrame:
+    """Read comparison rows from a JSONL file; a missing file reads as no rows.
 
-    _file_size_rows, timing_rows = split_file_size_rows(df)
-    if timing_rows.empty or "name" not in timing_rows.columns:
-        return pd.DataFrame(columns=["commit_id", "benchmark_identity"])
-
-    timing_rows = timing_rows.copy()
-    if "commit_id" not in timing_rows.columns:
-        timing_rows["commit_id"] = pd.NA
-
-    timing_rows["benchmark_identity"] = [benchmark_identity(row) for _, row in timing_rows.iterrows()]
-
-    return timing_rows[["commit_id", "benchmark_identity"]]
-
-
-def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
-    """Read the latest copy of each row matching a history commit.
-
-    Re-running a develop workflow appends a second result block for the same
-    commit. Keeping the last copy of each logical row prevents a many-to-one
-    merge from weighting that baseline multiple times.
+    Lines carrying a `kind` are `--ingest-jsonl` records and are converted; any other line is
+    already a results-JSON row.
     """
 
-    rows_by_identity: dict[tuple[Any, ...], dict[str, Any]] = {}
-    with open(path, encoding="utf-8") as lines:
-        for line in lines:
-            if '"commit_id"' not in line or f'"{commit_id}"' not in line:
-                continue
-            record = orjson.loads(line)
-            if record.get("commit_id") != commit_id:
-                continue
-
-            file_size = record.get("file_size")
-            if isinstance(file_size, dict):
-                identity = (
-                    FILE_SIZE_METRIC,
-                    file_size.get("benchmark"),
-                    file_size.get("scale_factor"),
-                    file_size.get("format"),
-                    file_size.get("file"),
-                )
-            else:
-                identity = ("timing", benchmark_identity(record))
-            rows_by_identity[identity] = record
-    return pd.DataFrame(rows_by_identity.values())
-
-
-def git_tree_commit_ids() -> set[str]:
-    """Return every commit reachable from the checked-out branch head.
-
-    A shallow checkout reaches only its own tip, so every recorded baseline
-    commit looks unreachable and the report silently degrades into "no
-    baseline is available for this benchmark yet" — indistinguishable from a
-    genuinely new benchmark, and wrong. Refuse the guess and say what to fix.
-    """
-
-    is_shallow = subprocess.run(
-        ["git", "rev-parse", "--is-shallow-repository"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if is_shallow == "true":
-        raise SystemExit(
-            "Cannot resolve a baseline from a shallow checkout: the baseline is the newest "
-            "recorded commit reachable from HEAD, and a shallow clone reaches only its own "
-            "tip. Check the repository out with `fetch-depth: 0`."
-        )
-
-    commits = subprocess.run(
-        ["git", "rev-list", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    return set(commits.splitlines())
-
-
-def read_latest_baseline_rows(
-    path: str,
-    pr: pd.DataFrame,
-    reachable_commit_ids: set[str],
-) -> pd.DataFrame:
-    """Read rows from the latest reachable commit matching the PR benchmark.
-
-    A benchmark can be new to the PR workflow and therefore have no baseline
-    yet. Return an empty frame with the PR schema in that case so the report
-    can show the measurements without comparison.
-    """
-
-    pr_identities = set(benchmark_identity_rows(pr)["benchmark_identity"])
-    if not pr_identities:
-        return pd.read_json(path, lines=True)
-
-    baseline_commit_id = None
-    with open(path, encoding="utf-8") as lines:
-        for line in lines:
-            if '"name"' not in line or '"commit_id"' not in line:
-                continue
-            record = orjson.loads(line)
-            if benchmark_identity(record) in pr_identities:
-                commit_id = record.get("commit_id")
-                if commit_id is not None and commit_id in reachable_commit_ids:
-                    baseline_commit_id = commit_id
-
-    if baseline_commit_id is None:
-        return pr.iloc[0:0].copy()
-
-    return read_jsonl_rows_for_commit(path, baseline_commit_id)
+    rows = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as lines:
+            for line in lines:
+                if not line.strip():
+                    continue
+                record = orjson.loads(line)
+                row = ingest_record_row(record) if "kind" in record else record
+                if row is not None:
+                    rows.append(row)
+    if not rows:
+        return pd.DataFrame(columns=["commit_id", "name", "storage", "unit", "value", "all_runtimes", "target"])
+    return pd.DataFrame(rows)
 
 
 def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -1126,11 +1065,27 @@ def group_sort_key(group_key: tuple[str, str, str]) -> tuple[int, int, int, str,
 def main() -> None:
     """Render the benchmark comparison markdown used in CI PR comments."""
 
-    benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("base_records", help="Baseline records written by fetch-benchmark-baseline.py.")
+    parser.add_argument("pr_results", help="The PR run's results JSON, for file sizes and suite metadata.")
+    parser.add_argument("benchmark_name", nargs="?", default="")
+    parser.add_argument(
+        "--pr-records",
+        help="The PR run's --ingest-jsonl records. Without them, PR rows come from the results JSON "
+        "and have no baseline.",
+    )
+    args = parser.parse_args()
+    benchmark_name = args.benchmark_name
 
-    pr = pd.read_json(sys.argv[2], lines=True)
-    title = format_title(benchmark_name, pr)
-    base = read_latest_baseline_rows(sys.argv[1], pr, git_tree_commit_ids())
+    pr_results = pd.read_json(args.pr_results, lines=True)
+    title = format_title(benchmark_name, pr_results)
+    pr_file_sizes, pr = split_file_size_rows(pr_results)
+    if args.pr_records:
+        pr_records = read_benchmark_rows(args.pr_records)
+        if not pr_records.empty:
+            pr = pr_records
+    base_fetched = os.path.exists(args.base_records)
+    base_file_sizes, base = split_file_size_rows(read_benchmark_rows(args.base_records))
 
     base_commit_ids = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
@@ -1138,9 +1093,6 @@ def main() -> None:
     assert len(pr_commit_id) == 1, pr_commit_id
     base_commit_id = next(iter(base_commit_ids), None)
     pr_commit_id = next(iter(pr_commit_id))
-
-    base_file_sizes, base = split_file_size_rows(base)
-    pr_file_sizes, pr = split_file_size_rows(pr)
 
     base = normalize_measurement_rows(base)
     pr = normalize_measurement_rows(pr)
@@ -1213,7 +1165,13 @@ def main() -> None:
     if summary_fields:
         print("<br>".join(summary_fields))
         print("")
-    if base_commit_id is None:
+    if not base_fetched:
+        print(
+            "_The baseline could not be read from the benchmarks database; "
+            "PR measurements are shown without comparison._"
+        )
+        print("")
+    elif base_commit_id is None:
         print("_No baseline is available for this benchmark yet; PR measurements are shown without comparison._")
         print("")
     if verdict is not None or engine_summary is not None:
@@ -1287,7 +1245,8 @@ def main() -> None:
         print("")
         print("</details>")
 
-    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
+    # File sizes are not stored in the benchmarks database, so they have no baseline to compare.
+    file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")
         print("---")

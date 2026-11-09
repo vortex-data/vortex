@@ -28,9 +28,16 @@ pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -
 #[cfg(test)]
 mod test {
     use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::expr::Lambda;
+    use vortex_array::expr::checked_add;
+    use vortex_array::expr::col;
     use vortex_array::expr::get_item;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
+    use vortex_array::expr::root;
+    use vortex_array::expr::var;
+    use vortex_error::VortexResult;
 
     use super::replace;
 
@@ -50,5 +57,17 @@ mod test {
         let replacement = lit(42);
         let replaced_expr = replace(e, &needle, replacement);
         assert_eq!(replaced_expr.to_string(), "pack(a: 1i32, b: 42i32)");
+    }
+
+    #[test]
+    fn test_replace_leaves_a_lambda_alone() -> VortexResult<()> {
+        // The lambda is in `list_transform`'s options, not among its children.
+        let expr = list_transform(col("l"), Lambda::new(["x"], checked_add(var("x"), lit(1)))?);
+        assert_eq!(replace(expr.clone(), &var("x"), lit(0)), expr);
+        assert_eq!(
+            replace(expr, &root(), col("s")).to_string(),
+            "vortex.list.transform($.s.l, (x) -> (@x + 1i32))"
+        );
+        Ok(())
     }
 }

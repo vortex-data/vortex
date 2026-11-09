@@ -3,14 +3,16 @@
 
 //! Plan optimization.
 //!
-//! The optimizer applies static rewrites top-down, optimizes children, then retries rewrites
-//! exposed by the optimized children.
+//! The optimizer applies static rewrites top-down, optimizes the children in every present slot,
+//! then retries rewrites exposed by the optimized children.
 
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::plan::physical::Concat;
+use crate::plan::physical::LazyPlanRef;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::optimizer::reduce_parent;
 use crate::plan::physical::optimizer::reduce_plan;
 
@@ -18,8 +20,8 @@ fn reduce(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRe
     if let Some(rewritten) = reduce_plan(plan, session)? {
         return Ok(Some(rewritten));
     }
-    for child_idx in 0..plan.child_count() {
-        if let Some(rewritten) = reduce_parent(plan, child_idx, session)? {
+    for (slot, child) in plan.slots().present() {
+        if let Some(rewritten) = reduce_parent(child.get()?, plan, slot, session)? {
             return Ok(Some(rewritten));
         }
     }
@@ -40,27 +42,29 @@ pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef>
         return optimize(rewritten, session);
     }
 
-    let mut children: Option<Vec<PlanRef>> = None;
-    for (index, child) in plan.children().iter_refs().enumerate() {
-        let child = child?;
-        let optimized = optimize(child.clone(), session)?;
-        if let Some(children) = &mut children {
-            children.push(optimized);
-        } else if !PlanRef::ptr_eq(child, &optimized) {
-            let mut optimized_children = Vec::with_capacity(plan.child_count());
-            for previous in plan.children().iter_refs().take(index) {
-                optimized_children.push(previous?.clone());
+    // Absent slots stay absent, and unchanged slots keep their shared lazy slot.
+    let mut changed = false;
+    let slots = plan
+        .slots()
+        .iter()
+        .map(|slot| {
+            let Some(lazy) = slot else {
+                return Ok(None);
+            };
+            let child = lazy.get()?;
+            let optimized = optimize(child.clone(), session)?;
+            if PlanRef::ptr_eq(child, &optimized) {
+                return Ok(Some(lazy.clone()));
             }
-            optimized_children.push(optimized);
-            children = Some(optimized_children);
-        }
+            changed = true;
+            Ok(Some(LazyPlanRef::ready(optimized)))
+        })
+        .collect::<VortexResult<PlanSlots>>()?;
+    if !changed {
+        return Ok(plan);
     }
 
-    let Some(children) = children else {
-        return Ok(plan);
-    };
-
-    let plan = plan.with_children(children)?;
+    let plan = plan.with_slots(slots)?;
     if let Some(rewritten) = reduce(&plan, session)? {
         return optimize(rewritten, session);
     }

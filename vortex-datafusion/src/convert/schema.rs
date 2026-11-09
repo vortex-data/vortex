@@ -79,6 +79,15 @@ fn calculate_physical_field_type(
     logical_type: &DataType,
     arrow_session: &ArrowSession,
 ) -> DFResult<DataType> {
+    // An extension dtype has the layout of its storage dtype, and the field metadata that names the
+    // extension comes from the logical field. So the layout checks below use the storage dtype.
+    // Temporal dtypes export as native Arrow types (see `ArrowSession::to_arrow_field`), which only
+    // the default arm matches.
+    let mut storage_dtype = dtype;
+    while let DType::Extension(ext) = storage_dtype {
+        storage_dtype = ext.storage_dtype();
+    }
+
     // Check if the logical type is one that doesn't roundtrip through DType
     Ok(match logical_type {
         // Dictionary types lose their encoding when converted to DType
@@ -86,7 +95,7 @@ fn calculate_physical_field_type(
 
         // Non-view string/binary types become view types after roundtrip
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
-            if dtype.is_binary() || dtype.is_utf8() {
+            if storage_dtype.is_binary() || storage_dtype.is_utf8() {
                 logical_type.clone()
             } else {
                 return Err(exec_datafusion_err!(
@@ -100,12 +109,7 @@ fn calculate_physical_field_type(
 
         // For struct types, recursively check each field.
         DataType::Struct(logical_fields) => {
-            // Walk through any extension layers to reach the underlying struct fields.
-            let mut inner = dtype;
-            while let DType::Extension(ext) = inner {
-                inner = ext.storage_dtype();
-            }
-            if let DType::Struct(struct_dtype, _) = inner {
+            if let DType::Struct(struct_dtype, _) = storage_dtype {
                 let physical_fields: Vec<Field> = struct_dtype
                     .names()
                     .iter()
@@ -146,7 +150,7 @@ fn calculate_physical_field_type(
 
         // For list types, recursively check the element type
         DataType::List(logical_elem) | DataType::LargeList(logical_elem) => {
-            if let DType::List(elem_dtype, _) = dtype {
+            if let DType::List(elem_dtype, _) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
                     logical_elem.data_type(),
@@ -172,7 +176,7 @@ fn calculate_physical_field_type(
 
         // For fixed-size list types, recursively check the element type
         DataType::FixedSizeList(logical_elem, size) => {
-            if let DType::FixedSizeList(elem_dtype, ..) = dtype {
+            if let DType::FixedSizeList(elem_dtype, ..) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
                     logical_elem.data_type(),
@@ -195,7 +199,7 @@ fn calculate_physical_field_type(
         // Map field names and child metadata come from the reference schema, while child
         // types are recursively reconciled so nested extension metadata is preserved.
         DataType::Map(logical_entries, keys_sorted) => {
-            let DType::Map(map_dtype, _) = dtype else {
+            let DType::Map(map_dtype, _) = storage_dtype else {
                 return Err(exec_datafusion_err!(
                     "Failed to convert dtype to arrow: Vortex DType is {dtype} which is not compatible with {logical_type}"
                 ));
@@ -240,7 +244,7 @@ fn calculate_physical_field_type(
 
         // For list view types, recursively check the element type
         DataType::ListView(logical_elem) | DataType::LargeListView(logical_elem) => {
-            if let DType::List(elem_dtype, _) = dtype {
+            if let DType::List(elem_dtype, _) = storage_dtype {
                 let physical_elem_type = calculate_physical_field_type(
                     elem_dtype,
                     logical_elem.data_type(),
@@ -278,9 +282,16 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::Fields;
+    use vortex::array::EmptyMetadata;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::dtype::extension::ExtId;
+    use vortex::dtype::extension::ExtVTable;
+    use vortex::error::VortexResult;
+    use vortex::scalar::ScalarValue;
+    use vortex::session::registry::CachedId;
 
     use super::*;
 
@@ -618,6 +629,99 @@ mod tests {
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
         assert_eq!(physical_schema, logical_schema);
+        Ok(())
+    }
+
+    /// An extension type that accepts every storage dtype, so one type can wrap each layout.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct AnyStorage;
+
+    impl ExtVTable for AnyStorage {
+        type Metadata = EmptyMetadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        fn id(&self) -> ExtId {
+            static ID: CachedId = CachedId::new("test.any_storage");
+            *ID
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+
+        fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _ext_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok(storage_value)
+        }
+    }
+
+    #[test]
+    fn test_extension_storage_layouts_preserved() -> anyhow::Result<()> {
+        let item = || Arc::new(Field::new("item", DataType::Int32, false));
+        let entries = Field::new_struct(
+            "entries",
+            vec![
+                Field::new("key", DataType::Int32, false),
+                Field::new("value", DataType::Int32, false),
+            ],
+            false,
+        );
+        let logical_schema = Schema::new(vec![
+            Field::new("utf8_col", DataType::Utf8, true),
+            Field::new("list_col", DataType::List(item()), true),
+            Field::new("fsl_col", DataType::FixedSizeList(item(), 3), true),
+            Field::new("map_col", DataType::Map(Arc::new(entries), false), true),
+            Field::new("listview_col", DataType::ListView(item()), true),
+        ]);
+
+        let int32 = || DType::Primitive(PType::I32, Nullability::NonNullable);
+        let extension = |storage_dtype| -> VortexResult<DType> {
+            Ok(DType::Extension(
+                ExtDType::<AnyStorage>::try_new(EmptyMetadata, storage_dtype)?.erased(),
+            ))
+        };
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                ("utf8_col", extension(DType::Utf8(Nullability::Nullable))?),
+                (
+                    "list_col",
+                    extension(DType::list(int32(), Nullability::Nullable))?,
+                ),
+                (
+                    "fsl_col",
+                    extension(DType::FixedSizeList(
+                        Arc::new(int32()),
+                        3,
+                        Nullability::Nullable,
+                    ))?,
+                ),
+                (
+                    "map_col",
+                    extension(DType::map(int32(), int32(), false, Nullability::Nullable)?)?,
+                ),
+                // Vortex has one list dtype, which the table can also read as a `ListView`.
+                (
+                    "listview_col",
+                    extension(DType::list(int32(), Nullability::Nullable))?,
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+        assert_eq!(physical_schema, logical_schema);
+
         Ok(())
     }
 }

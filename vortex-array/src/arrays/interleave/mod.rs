@@ -48,7 +48,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 pub use self::array::InterleaveArray;
@@ -73,7 +72,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 /// The [`Interleave`] encoding. See the [module docs](self).
@@ -217,25 +215,6 @@ impl VTable for Interleave {
         InterleaveSlots::slot_name(idx)
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_bail!("Interleave array is not serializable")
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         execute::execute(array, ctx)
     }
@@ -322,10 +301,12 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
+    use crate::arrays::DecimalArray;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DecimalDType;
     use crate::dtype::PType;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -337,16 +318,25 @@ mod tests {
         ThirdValue,
     }
 
+    /// The value type, which picks the execution kernel.
+    #[derive(Clone, Copy)]
+    enum ValueKind {
+        Bool,
+        Primitive,
+        Decimal,
+    }
+
     #[rstest]
     #[case::array_selector(LazyChild::ArraySelector)]
     #[case::row_selector(LazyChild::RowSelector)]
     #[case::third_value(LazyChild::ThirdValue)]
     fn executes_lazy_children(
         #[case] lazy_child: LazyChild,
-        #[values(false, true)] boolean: bool,
+        #[values(ValueKind::Bool, ValueKind::Primitive, ValueKind::Decimal)] value_kind: ValueKind,
     ) -> VortexResult<()> {
-        let (mut values, expected) = if boolean {
-            (
+        let decimal_dtype = DecimalDType::new(9, 2);
+        let (mut values, expected) = match value_kind {
+            ValueKind::Bool => (
                 vec![
                     BoolArray::from_iter([true, false]).into_array(),
                     BoolArray::from_iter([false, true]).into_array(),
@@ -354,9 +344,8 @@ mod tests {
                 ],
                 BoolArray::from_iter([None, Some(true), Some(true), Some(false), Some(false)])
                     .into_array(),
-            )
-        } else {
-            (
+            ),
+            ValueKind::Primitive => (
                 vec![
                     PrimitiveArray::from_iter([10i32, 11]).into_array(),
                     PrimitiveArray::from_iter([20i32, 21]).into_array(),
@@ -364,7 +353,19 @@ mod tests {
                 ],
                 PrimitiveArray::from_option_iter([None, Some(10i32), Some(21), Some(30), Some(11)])
                     .into_array(),
-            )
+            ),
+            ValueKind::Decimal => (
+                vec![
+                    DecimalArray::from_iter([10i32, 11], decimal_dtype).into_array(),
+                    DecimalArray::from_iter([20i32, 21], decimal_dtype).into_array(),
+                    DecimalArray::from_option_iter([Some(30i32), None], decimal_dtype).into_array(),
+                ],
+                DecimalArray::from_option_iter(
+                    [None, Some(10i32), Some(21), Some(30), Some(11)],
+                    decimal_dtype,
+                )
+                .into_array(),
+            ),
         };
         let mut array_indices = PrimitiveArray::from_iter([2u8, 0, 1, 2, 0]).into_array();
         let mut row_indices = PrimitiveArray::from_iter([1u32, 0, 1, 0, 1]).into_array();
@@ -384,10 +385,9 @@ mod tests {
             !matches!(lazy_child, LazyChild::RowSelector)
         );
         for (i, value) in values.iter().enumerate() {
-            let matches = if boolean {
-                value.is::<Bool>()
-            } else {
-                value.is::<AnyColumnar>()
+            let matches = match value_kind {
+                ValueKind::Bool => value.is::<Bool>(),
+                ValueKind::Primitive | ValueKind::Decimal => value.is::<AnyColumnar>(),
             };
             assert_eq!(
                 matches,

@@ -9,7 +9,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -117,11 +116,7 @@ impl LayoutStrategy for CompressingStrategy {
                     // uncompressed size is measured once here and cached for the compressor.
                     chunk.statistics().compute_all(&stats, &mut ctx)?;
                     if UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
-                        uncompressed_size_in_bytes(
-                            &chunk,
-                            UncompressedSizeOpts::exact(),
-                            &mut ctx,
-                        )?;
+                        uncompressed_size_in_bytes(&chunk, &mut ctx)?;
                     }
                     Ok((sequence_id, compressor.compress_chunk(&chunk, &mut ctx)?))
                 })

@@ -20,6 +20,7 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::list::List;
@@ -216,7 +217,10 @@ impl WriteStrategyBuilder {
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
-            Default::default(),
+            DictLayoutOptions {
+                probe_len: self.row_block_size,
+                ..Default::default()
+            },
             probe_compressor,
         );
 

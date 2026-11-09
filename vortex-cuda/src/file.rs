@@ -3,14 +3,17 @@
 
 //! CUDA-aware Vortex file opening.
 
+use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::array::memory::MemorySessionExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::io::std_file::FileReadAt;
 use vortex::layout::DynLayout;
 use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
@@ -62,22 +65,33 @@ impl CudaOpenOptions {
     /// The footer and zone-map segments are read through the ordinary host path. All other file
     /// segments are staged through the session-scoped pinned buffer pool and transferred to the
     /// device.
+    ///
+    /// Every reader reads the file opened here: the footer of one file must not locate the
+    /// segments of a file that replaced it at the same path.
     pub async fn open_path(self, path: impl AsRef<Path>) -> VortexResult<VortexFile> {
         let path = path.as_ref().to_owned();
         register_cuda_layout(self.inner.session());
 
+        let file = File::open(&path)?;
+        let control_source = FileReadAt::from_file(
+            Arc::new(file.try_clone()?),
+            Arc::from(path.to_string_lossy().to_string()),
+            self.inner.session().handle(),
+            self.inner.session().allocator(),
+        );
         // A host cache cannot front the data source: cached host buffers would violate the CUDA
         // source's device-placement contract. It remains enabled on the control-plane source.
         let data_options = self.inner.clone().without_segment_cache();
-        let control_file = self.inner.open_path(&path).await?;
+        let control_file = self.inner.open(Arc::new(control_source)).await?;
         let footer = control_file.footer().clone();
 
         let session = control_file.session().clone();
         let cuda_session = session.cuda_session();
         let stream = cuda_session.stream()?;
         let pool = Arc::clone(cuda_session.pinned_buffer_pool());
-        let reader = PooledFileReadAt::open_with_options(
+        let reader = PooledFileReadAt::from_file(
             &path,
+            &file,
             session.handle(),
             pool,
             stream,
@@ -87,7 +101,7 @@ impl CudaOpenOptions {
         let reader = if self.read_at_options.is_direct_io() {
             reader
         } else {
-            reader.with_mapped_copy(&path, &cuda_session)?
+            reader.with_mapped_copy(&file, &cuda_session)?
         };
         drop(cuda_session);
         let reader = Arc::new(reader);

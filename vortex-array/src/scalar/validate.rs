@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Scalar validation keeps logical values compatible with their storage representations.
+//!
+//! The fast check and detailed error path accept the same values. Extension values are checked
+//! against the storage dtype before the extension's own validator runs.
+
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -10,8 +15,8 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
-use crate::dtype::PType;
-use crate::scalar::PValue;
+use crate::dtype::MapDType;
+use crate::dtype::UnionVariants;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -44,9 +49,7 @@ impl Scalar {
             | (DType::Utf8(_), ScalarValue::Utf8(_))
             | (DType::Binary(_), ScalarValue::Binary(_)) => true,
             (DType::Primitive(ptype, _), ScalarValue::Primitive(pvalue)) => {
-                // See `validate_detailed` for the `f16` backwards compatibility case.
                 pvalue.ptype() == *ptype
-                    || (matches!(ptype, PType::F16) && matches!(pvalue, PValue::U64(_)))
             }
             _ => Self::is_compatible_nested(dtype, value),
         }
@@ -97,7 +100,10 @@ impl Scalar {
                 Self::is_compatible(inner.dtype(), inner.value())
                     && (!inner.is_null() || matches!(inner.dtype(), DType::Null))
             }
-            (DType::Extension(ext_dtype), value) => ext_dtype.validate_storage_value(value).is_ok(),
+            (DType::Extension(ext_dtype), value) => {
+                Self::is_compatible(ext_dtype.storage_dtype(), Some(value))
+                    && ext_dtype.validate_storage_value(value).is_ok()
+            }
             _ => false,
         }
     }
@@ -141,29 +147,12 @@ impl Scalar {
             }
             DType::Primitive(ptype, _) => {
                 let ScalarValue::Primitive(pvalue) = value else {
-                    vortex_bail!("primitive dtype {ptype} expected Primitive value, got {value}",);
-                };
-
-                // Note that this is a backwards compatibility check for poor design in the
-                // previous implementation. `f16` `ScalarValue`s used to be serialized as
-                // `pb::ScalarValue::Uint64Value(v.to_bits() as u64)`, so we need to ensure
-                // that we can still represent them as such.
-                let f16_backcompat_still_works =
-                    matches!(ptype, &PType::F16) && matches!(pvalue, PValue::U64(_));
-
-                vortex_ensure!(
-                    f16_backcompat_still_works || pvalue.ptype() == *ptype,
-                    "primitive dtype {ptype} is not compatible with value {pvalue}",
-                );
-            }
-            DType::Decimal(dec_dtype, _) => {
-                let ScalarValue::Decimal(dvalue) = value else {
-                    vortex_bail!("decimal dtype expected Decimal value, got {value}");
+                    vortex_bail!("primitive dtype {ptype} expected Primitive value, got {value}");
                 };
 
                 vortex_ensure!(
-                    dvalue.fits_in_precision(*dec_dtype),
-                    "decimal value {dvalue} does not fit in precision of {dec_dtype}",
+                    pvalue.ptype() == *ptype,
+                    "primitive dtype {ptype} requires a matching value, got {pvalue}",
                 );
             }
             DType::Utf8(_) => {
@@ -176,6 +165,16 @@ impl Scalar {
                 vortex_ensure!(
                     matches!(value, ScalarValue::Binary(_)),
                     "binary dtype expected Binary value, got {value}",
+                );
+            }
+            DType::Decimal(dec_dtype, _) => {
+                let ScalarValue::Decimal(dvalue) = value else {
+                    vortex_bail!("decimal dtype expected Decimal value, got {value}");
+                };
+
+                vortex_ensure!(
+                    dvalue.fits_in_precision(*dec_dtype),
+                    "decimal value {dvalue} does not fit in precision of {dec_dtype}",
                 );
             }
             DType::List(elem_dtype, _) => {
@@ -206,35 +205,7 @@ impl Scalar {
                     )?;
                 }
             }
-            DType::Map(map, _) => {
-                let ScalarValue::Tuple(entries) = value else {
-                    vortex_bail!("map dtype expected Tuple value, got {value}");
-                };
-                let key_dtype = map.key_dtype();
-                let value_dtype = map.value_dtype();
-
-                for (index, entry) in entries.iter().enumerate() {
-                    let entry = entry.as_ref().ok_or_else(|| {
-                        vortex_error::vortex_err!("map entry at index {index} cannot be null")
-                    })?;
-                    let ScalarValue::Tuple(values) = entry else {
-                        vortex_bail!(
-                            "map entry at index {index} expected Tuple value, got {entry}"
-                        );
-                    };
-                    vortex_ensure_eq!(
-                        values.len(),
-                        2,
-                        "map entry at index {index} has the wrong number of values",
-                    );
-
-                    Self::validate_detailed(&key_dtype, values[0].as_ref())
-                        .map_err(|error| error.with_context(format!("map key at entry {index}")))?;
-                    Self::validate_detailed(&value_dtype, values[1].as_ref()).map_err(|error| {
-                        error.with_context(format!("map value at entry {index}"))
-                    })?;
-                }
-            }
+            DType::Map(map, _) => Self::validate_map(map, value)?,
             DType::Struct(fields, _) => {
                 let ScalarValue::Tuple(values) = value else {
                     vortex_bail!("struct dtype expected Tuple value, got {value}");
@@ -252,31 +223,7 @@ impl Scalar {
                     Self::validate_detailed(field, field_value.as_ref())?;
                 }
             }
-            DType::Union(variants, _) => {
-                let ScalarValue::Union(union_value) = value else {
-                    vortex_bail!("union dtype expected Union value, got {value}");
-                };
-
-                let type_id = union_value.type_id();
-                let Some(child_index) = variants.tag_to_child_index(type_id) else {
-                    vortex_bail!(
-                        "union value has unknown type ID {type_id}; expected one of {:?}",
-                        variants.type_ids()
-                    );
-                };
-
-                let child_dtype = variants
-                    .variant_by_index(child_index)
-                    .vortex_expect("resolved union child index must be valid");
-
-                Self::validate_detailed(&child_dtype, union_value.child_value()).map_err(
-                    |error| {
-                        error.with_context(format!(
-                            "union value for type ID {type_id} is invalid for dtype {child_dtype}"
-                        ))
-                    },
-                )?;
-            }
+            DType::Union(variants, _) => Self::validate_union(variants, value)?,
             DType::Variant(_) => {
                 let ScalarValue::Variant(inner) = value else {
                     vortex_bail!("variant dtype expected Variant value, got {value}");
@@ -289,10 +236,69 @@ impl Scalar {
                     inner.dtype(),
                 );
             }
-            DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
+            DType::Extension(ext_dtype) => {
+                Self::validate_detailed(ext_dtype.storage_dtype(), Some(value))?;
+
+                ext_dtype.validate_storage_value(value)?;
+            }
         }
 
         Ok(())
+    }
+
+    /// Validates map entries and adds their positions to storage validation errors.
+    fn validate_map(map: &MapDType, value: &ScalarValue) -> VortexResult<()> {
+        let ScalarValue::Tuple(entries) = value else {
+            vortex_bail!("map dtype expected Tuple value, got {value}");
+        };
+        let key_dtype = map.key_dtype();
+        let value_dtype = map.value_dtype();
+
+        for (index, entry) in entries.iter().enumerate() {
+            let entry = entry
+                .as_ref()
+                .ok_or_else(|| vortex_err!("map entry at index {index} cannot be null"))?;
+            let ScalarValue::Tuple(values) = entry else {
+                vortex_bail!("map entry at index {index} expected Tuple value, got {entry}");
+            };
+            vortex_ensure_eq!(
+                values.len(),
+                2,
+                "map entry at index {index} has the wrong number of values",
+            );
+
+            Self::validate_detailed(&key_dtype, values[0].as_ref())
+                .map_err(|error| error.with_context(format!("map key at entry {index}")))?;
+            Self::validate_detailed(&value_dtype, values[1].as_ref())
+                .map_err(|error| error.with_context(format!("map value at entry {index}")))?;
+        }
+
+        Ok(())
+    }
+
+    /// Validates the selected union child and adds its type ID to storage validation errors.
+    fn validate_union(variants: &UnionVariants, value: &ScalarValue) -> VortexResult<()> {
+        let ScalarValue::Union(union_value) = value else {
+            vortex_bail!("union dtype expected Union value, got {value}");
+        };
+
+        let type_id = union_value.type_id();
+        let Some(child_index) = variants.tag_to_child_index(type_id) else {
+            vortex_bail!(
+                "union value has unknown type ID {type_id}; expected one of {:?}",
+                variants.type_ids()
+            );
+        };
+
+        let child_dtype = variants
+            .variant_by_index(child_index)
+            .vortex_expect("resolved union child index must be valid");
+
+        Self::validate_detailed(&child_dtype, union_value.child_value()).map_err(|error| {
+            error.with_context(format!(
+                "union value for type ID {type_id} is invalid for dtype {child_dtype}"
+            ))
+        })
     }
 }
 
@@ -310,6 +316,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::dtype::UnionVariants;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalValue;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
@@ -342,6 +350,7 @@ mod tests {
         let list_dtype = DType::List(Arc::new(i32_dtype.clone()), NonNullable);
         let fsl_dtype = DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, NonNullable);
         let decimal_dtype = DType::Decimal(DecimalDType::new(3, 0), NonNullable);
+        let extension_dtype = DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased());
         let tuple = |values: Vec<Option<ScalarValue>>| Some(ScalarValue::Tuple(values));
 
         let cases = [
@@ -364,7 +373,13 @@ mod tests {
             (
                 DType::Primitive(PType::F16, NonNullable),
                 Some(ScalarValue::Primitive(PValue::U64(1))),
-                true,
+                false,
+            ),
+            (extension_dtype.clone(), i32_value(), true),
+            (
+                extension_dtype,
+                Some(ScalarValue::Primitive(PValue::F64(1.0))),
+                false,
             ),
             (
                 decimal_dtype.clone(),

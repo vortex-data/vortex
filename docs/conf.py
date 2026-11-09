@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-import hawkmoth.docstring
 from sphinx.util import logging
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
@@ -34,9 +33,9 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "vortex_theme",
+    "vortex_site_files",
 ]
 
-templates_path = ["_templates"]
 html_show_sourcelink = False
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md", "AGENTS.md"]
 
@@ -87,8 +86,13 @@ html_theme = "vortex"
 html_theme_path = ["_theme"]
 html_baseurl = "https://docs.vortex.dev/"
 html_static_path = ["_static", "_build/_gen_static"]
-html_extra_path = ["_headers"]  # Cloudflare Pages CSP headers
 html_favicon = "_static/vortex_logo.svg"  # relative to _static/
+# Copied to the site root: robots.txt, and favicon.ico for clients that ignore the icon link.
+html_extra_path = ["_extra"]
+# The 404 page, which the deploy serves for any address that matches no file.
+html_additional_pages = {"404": "404.html"}
+# Pages are served without `.html`. vortex_site_files sets the page links; this sets the search results'.
+html_link_suffix = ""
 
 os.makedirs(Path(__file__).parent / "_build" / "_gen_static", exist_ok=True)
 
@@ -114,12 +118,11 @@ nitpick_ignore += [
 
 hawkmoth_transform_default = "c_to_rust"
 
-# Track the hawkmoth references so we can warn if they are not all registered!
-C_DOCS: set[str] | None = None
-
 
 def _replace_rust_references(app, lines, transform, options) -> None:
-    """Replace Rust references with C equivalents in hawkmoth docstrings.
+    """Replace Rust references with C cross-references in hawkmoth docstrings.
+
+    The ``any`` role lets the C domain pick the function or type role for each reference.
 
     See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
     """
@@ -127,71 +130,11 @@ def _replace_rust_references(app, lines, transform, options) -> None:
         # Not for us!
         return
 
-    import sys
-
-    # This is one of my finest hacks...
-    # Hawkmoth doesn't expose type information to us. So we grab it from the caller's stack frame locals.
-    stack_frame = sys._getframe(6)
-    docs: hawkmoth.docstring.RootDocstring = stack_frame.f_locals["root"]
-
-    global C_DOCS
-    if C_DOCS is None:
-        C_DOCS = set(
-            d._name
-            for d in docs.walk(
-                recurse=False,  # Ignore e.g. enum members
-                filter_types=(
-                    hawkmoth.docstring.FunctionDocstring,
-                    hawkmoth.docstring.EnumDocstring,
-                    hawkmoth.docstring.UnionDocstring,
-                    hawkmoth.docstring.StructDocstring,
-                ),
-            )
-        )
-
-    # Remove the current docstring from the set of C docs
-    slf = stack_frame.f_locals["self"]
-    C_DOCS.discard(slf.arguments[0])
-
     # Pattern to match [`crate::path::to::function`]
     pattern = r"\[`([^:]+::)*?(vx_[^`]+)`\]"
 
-    def replace_match(match) -> str:
-        # Extract the function name (already starts with vx_)
-        # TODO(ngates): detect if the reference is a function or a type
-        func_name = match.group(2)
-
-        refs = list(docs.walk(filter_names=[func_name]))
-        if not refs:
-            # If we can't find the function, return the original match without a reference
-            return func_name
-        ref = refs[0]
-        if isinstance(ref, hawkmoth.docstring.FunctionDocstring):
-            # If it's a function, return the C identifier
-            return f":c:func:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.EnumDocstring):
-            # If it's an enum, return the C identifier
-            return f":c:type:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.TypedefDocstring):
-            # If it's a typedef, return the C identifier
-            return f":c:type:`{func_name}`"
-        elif isinstance(ref, hawkmoth.docstring.StructDocstring):
-            # If it's a typedef, return the C identifier
-            return f":c:type:`{func_name}`"
-        else:
-            return func_name
-
     for i, line in enumerate(lines):
-        lines[i] = re.sub(pattern, replace_match, line)
-
-
-def _post_process(app, builder) -> None:
-    """Post-process the documentation after writing."""
-    global C_DOCS
-    if C_DOCS:
-        # TODO(ngates): enable this one we've cleaned up the entire C API.
-        # log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
-        C_DOCS = None  # Reset for next build
+        lines[i] = re.sub(pattern, r":any:`\2`", line)
 
 
 # Most tools change their table formatting based on the perceived number of columns. Most will
@@ -256,31 +199,6 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(
             in_block = False
 
 
-def _resolve_breathe_cpp_references(app, env, node, contnode) -> object | None:
-    """Resolve relative C++ references emitted by Breathe.
-
-    Breathe emits cross-namespace parameter types with relative qualifiers (e.g. ``scalar::Scalar``
-    instead of ``vortex::scalar::Scalar``). This handler intercepts unresolved references and
-    re-resolves them under the ``vortex::`` namespace.
-    """
-    if node.get("refdomain") != "cpp" or node.get("reftype") != "identifier":
-        return None
-
-    target = node.get("reftarget", "")
-    if not target or target.startswith("vortex::"):
-        return None
-
-    cpp_domain = env.get_domain("cpp")
-    # Try resolving with the vortex:: prefix.
-    node = node.deepcopy()
-    node["reftarget"] = f"vortex::{target}"
-    return cpp_domain.resolve_xref(
-        env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode
-    )
-
-
 def setup(app) -> None:
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
-    app.connect("write-started", _post_process)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)
-    app.connect("missing-reference", _resolve_breathe_cpp_references)

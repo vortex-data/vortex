@@ -134,6 +134,8 @@ impl CachedId {
 impl Deref for CachedId {
     type Target = Id;
 
+    // Inlining keeps an interned read to one acquire load in callers in other crates.
+    #[inline]
     #[expect(
         clippy::disallowed_methods,
         reason = "CachedId interns its static id once here"

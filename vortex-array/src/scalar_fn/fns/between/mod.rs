@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -24,12 +25,15 @@ use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
+use crate::dtype::NativePType;
 use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
+use crate::require_input;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnExecutionResult;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
@@ -76,6 +80,14 @@ impl StrictComparison {
 
     pub const fn is_strict(&self) -> bool {
         matches!(self, StrictComparison::Strict)
+    }
+
+    /// Returns the total-order bound check that this comparison applies to two native values.
+    pub fn to_predicate<T: NativePType>(self) -> fn(T, T) -> bool {
+        match self {
+            StrictComparison::Strict => T::is_lt,
+            StrictComparison::NonStrict => T::is_le,
+        }
     }
 }
 
@@ -134,7 +146,7 @@ pub(super) fn short_circuit(
 /// The two compares that `Between` stands for, combined with Kleene `AND`.
 ///
 /// The returned array is lazy, so a reduce rule can call this function.
-fn as_two_compares(
+pub(crate) fn as_two_compares(
     arr: &ArrayRef,
     lower: &ArrayRef,
     upper: &ArrayRef,
@@ -332,6 +344,17 @@ impl ScalarFnVTable for Between {
         }
 
         between_canonical(&arr, &lower, &upper, options, ctx)
+    }
+
+    fn execute_step(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarFnExecutionResult> {
+        require_input!(args, 0 => AnyCanonical);
+        self.execute(options, args, ctx)
+            .map(ScalarFnExecutionResult::done)
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -775,5 +798,32 @@ mod tests {
         .unwrap();
 
         assert_eq!(to_int_indices(result, ctx).unwrap(), expected_indices);
+    }
+
+    /// A non-canonical input is executed through the executor before the between kernel runs.
+    #[test]
+    fn executes_non_canonical_input_iteratively() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let chunks = vec![
+            PrimitiveArray::from_iter([1i32, 5]).into_array(),
+            PrimitiveArray::from_iter([9i32, 12]).into_array(),
+        ];
+        let dtype = chunks[0].dtype().clone();
+        let chunked = crate::arrays::ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let result = chunked.between(
+            ConstantArray::new(5i32, 4).into_array(),
+            ConstantArray::new(10i32, 4).into_array(),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::Strict,
+            },
+        )?;
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, true, false]),
+            &mut ctx
+        );
+        Ok(())
     }
 }

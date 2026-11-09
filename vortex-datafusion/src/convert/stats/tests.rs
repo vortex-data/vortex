@@ -4,11 +4,14 @@
 use datafusion_common::ScalarValue as DFScalarValue;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
+use vortex::array::EmptyMetadata;
+use vortex::dtype::extension::ExtDType;
 use vortex::dtype::half::f16;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::scalar::ScalarValue;
 use vortex::session::VortexSession;
+use vortex_json::Json;
 
 use super::*;
 use crate::convert::scalar_from_df;
@@ -202,5 +205,35 @@ fn float_statistics_require_no_nans(
     assert_eq!(stats.min_value, expected(1.0));
     assert_eq!(stats.max_value, expected(2.0));
     assert_eq!(stats.sum_value, expected(3.0));
+    Ok(())
+}
+
+#[test]
+fn uncompressed_size_is_not_reported_as_byte_size() -> VortexResult<()> {
+    let stats = StatsSet::of(
+        Stat::UncompressedSizeInBytes,
+        VortexPrecision::exact(4096u64),
+    );
+    let dtype = DType::Utf8(Nullability::NonNullable);
+    assert_eq!(
+        stats_set_to_df(&stats, &dtype)?.byte_size,
+        Precision::Absent
+    );
+    Ok(())
+}
+
+#[test]
+fn test_extension_statistics_do_not_export_storage_values() -> VortexResult<()> {
+    let dtype = DType::Extension(
+        ExtDType::<Json>::try_new(EmptyMetadata, DType::Utf8(Nullability::NonNullable))?.erased(),
+    );
+    let value = ScalarValue::from(r#"{"x":1}"#);
+    let mut stats = StatsSet::of(Stat::Min, VortexPrecision::exact(value.clone()));
+    stats.set(Stat::Max, VortexPrecision::exact(value));
+
+    let converted = stats_set_to_df(&stats, &dtype)?;
+    assert_eq!(converted.min_value, Precision::Absent);
+    assert_eq!(converted.max_value, Precision::Absent);
+
     Ok(())
 }

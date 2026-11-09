@@ -28,6 +28,7 @@ use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::ExpressionClass;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
+use crate::duckdb::TableFilterRef;
 use crate::duckdb::TableFilterSetRef;
 use crate::table_function::ColumnAggregate;
 
@@ -201,6 +202,17 @@ fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: &Expression) {
     }
 }
 
+pub(crate) fn is_optional_table_filter(filter: &TableFilterRef) -> bool {
+    match filter.as_class() {
+        TableFilterClass::Optional(_) => true,
+        TableFilterClass::ExpressionRef(expr) => match expr.as_class() {
+            Some(ExpressionClass::BoundFunction(bfn)) => bfn.optional().is_some(),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 impl Filter {
     /// Creates a table filter expression, row selection, and row range from the table filter set,
     /// column metadata, additional filter expressions, and the top-level DType.
@@ -219,14 +231,7 @@ impl Filter {
                 let idx_u: usize = idx.as_();
                 !is_virtual_column(column_ids[idx_u])
             }) {
-                has_non_optional_filter |= match ex.as_class() {
-                    TableFilterClass::Optional(_) => false,
-                    TableFilterClass::ExpressionRef(expr) => match expr.as_class() {
-                        Some(ExpressionClass::BoundFunction(bfn)) => bfn.optional().is_none(),
-                        _ => true,
-                    },
-                    _ => true,
-                };
+                has_non_optional_filter |= !is_optional_table_filter(ex);
 
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();

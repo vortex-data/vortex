@@ -31,7 +31,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
-use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_falsified_by_file_stats;
+use crate::source::FileDataSource;
 use crate::v2::FileStatsLayoutReader;
 
 /// Represents a Vortex file, providing access to its metadata and content.
@@ -237,13 +238,14 @@ impl VortexFile {
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
     /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
-    /// statistics are available) and [`LayoutReaderDataSource`].
+    /// statistics are available) and [`LayoutReaderDataSource`]. Stored footer aggregates are
+    /// available through the source statistics methods without reading payloads.
     pub fn data_source(&self) -> VortexResult<DataSourceRef> {
         let reader = self.layout_reader()?;
 
-        Ok(Arc::new(LayoutReaderDataSource::new(
-            reader,
-            self.session.clone(),
+        Ok(Arc::new(FileDataSource::new(
+            LayoutReaderDataSource::new(reader, self.session.clone()),
+            self.file_stats().cloned(),
         )))
     }
 
@@ -284,7 +286,7 @@ impl VortexFile {
             return Ok(false);
         };
 
-        can_prune_file_stats(
+        is_falsified_by_file_stats(
             &filter.bind(self.footer.dtype())?,
             self.footer.row_count(),
             stats,

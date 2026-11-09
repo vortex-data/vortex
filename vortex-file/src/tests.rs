@@ -21,6 +21,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -32,6 +35,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
@@ -88,6 +92,7 @@ use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -169,13 +174,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_260 } else { 70_196 }
+    if cfg!(feature = "zstd") { 70_012 } else { 69_948 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_344
+        55_096
     )
 )]
 #[tokio::test]
@@ -253,6 +258,35 @@ async fn test_read_simple() {
 
     let result = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_decimal_widen_default_writer_roundtrip(
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(18, 2);
+    let values = DecimalArray::new(
+        buffer![-125i16, 50, 0, 250, 900],
+        DecimalDType::new(4, 2),
+        validity.clone(),
+    );
+    let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+    let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+    let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
+    let expected_values =
+        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
+
+    let actual = write_read_roundtrip(array).await?;
+
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
 }
 
 /// Wide decimals split into multi-part arrays only when the writer allows the v2 format. The
@@ -1491,6 +1525,7 @@ async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .write(&mut buf, array.to_array_stream())
         .await?;
@@ -1535,6 +1570,7 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     let mut buf_with_legacy = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .write(&mut buf_with_legacy, array.to_array_stream())
         .await?;
@@ -1542,6 +1578,7 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     let mut buf_without_legacy = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .exclude_legacy_statistics()
         .write(&mut buf_without_legacy, array.to_array_stream())
@@ -1578,6 +1615,133 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
             .all(|stats| stats.min().is_none() && stats.null_count().is_none())
     );
 
+    Ok(())
+}
+
+/// Both the nested and the legacy file statistics record the uncompressed size only when the
+/// enabled editions include it, or when editions are disabled.
+#[rstest]
+#[case::core(false, false, false)]
+#[case::preview(true, false, true)]
+#[case::editions_disabled(false, true, true)]
+#[tokio::test]
+async fn uncompressed_size_follows_editions(
+    #[case] preview: bool,
+    #[case] disable_editions: bool,
+    #[case] recorded: bool,
+) -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    if preview {
+        session.enable_edition(PREVIEW_2026_08_0)?;
+    }
+
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["c"].into(), vec![c], 3, Validity::NonNullable)?.into_array();
+    let options = session.write_options().include_nested_statistics();
+    let options = if disable_editions {
+        options.disable_editions()
+    } else {
+        options
+    };
+    let mut buf = ByteBufferMut::empty();
+    let summary = options.write(&mut buf, array.to_array_stream()).await?;
+
+    let three_i32 = recorded.then_some(12u64);
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    assert_eq!(
+        stat_value(c_stats, Stat::UncompressedSizeInBytes),
+        three_i32.map_or(Precision::Absent, |size| Precision::exact(
+            ScalarValue::from(size)
+        ))
+    );
+
+    let bytes = stats.write_flatbuffer_bytes()?;
+    let fb =
+        flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
+    let field_stats = fb.field_stats().vortex_expect("field_stats is written");
+    assert_eq!(field_stats.get(0).uncompressed_size_in_bytes(), three_i32);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn nested_statistics_are_excluded_by_default() -> VortexResult<()> {
+    let inner = StructArray::try_new(
+        ["b"].into(),
+        vec![PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array()],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["a", "c"].into(), vec![inner, c], 3, Validity::NonNullable)?
+        .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let bytes = stats.write_flatbuffer_bytes()?;
+    let fb =
+        flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
+    assert!(fb.entry_sets().is_none());
+    assert!(fb.partials().is_none());
+    assert_eq!(
+        fb.field_stats()
+            .vortex_expect("field_stats is written")
+            .len(),
+        2
+    );
+
+    // Readers fall back to the legacy layout: top-level fields only.
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let stats = file
+        .file_stats()
+        .expect("file statistics should be present");
+    assert!(stats.get_by_path(&field_path!(a.b)).is_none());
+    let (a_stats, _) = stats.get_by_path(&field_path!(a)).expect("a entry");
+    assert_eq!(
+        stat_value(a_stats, Stat::NullCount),
+        Precision::exact(ScalarValue::from(0u64))
+    );
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    assert_eq!(
+        stat_value(c_stats, Stat::Min),
+        Precision::exact(ScalarValue::from(4i32))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn exclude_legacy_statistics_without_nested_omits_statistics() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .exclude_legacy_statistics()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    assert!(summary.footer().statistics().is_none());
     Ok(())
 }
 
@@ -2289,6 +2453,35 @@ async fn unreadable_file_statistics_do_not_fail_the_open() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
+    let sum = SumV2.bind(NumericalAggregateOpts::default());
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1_i32, 2, 3].into_array())])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .disable_editions()
+        .with_file_statistics(vec![sum.clone()])
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
+    let partial = source
+        .field_statistic(&field_path!(numbers), &sum)
+        .await?
+        .as_exact()
+        .expect("stored partial");
+    let mut accumulator = sum.accumulator(&I32.into())?;
+    accumulator.combine_partials(&partial)?;
+    accumulator.combine_partials(&partial)?;
+    assert_eq!(
+        accumulator.final_scalar()?,
+        Scalar::primitive(12_i64, Nullability::Nullable)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_writer_with_statistics() -> VortexResult<()> {
     let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
         .into_array();
@@ -2385,6 +2578,7 @@ async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResu
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, array.to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
@@ -2445,6 +2639,25 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     assert_eq!(default.row_count(), 3);
     assert_eq!(default.metadata_segments().count(), 0);
     assert!(default.metadata_segment("json").is_none());
+
+    let segments_end = summary
+        .footer()
+        .segments_end()
+        .expect("valid segment ranges");
+    assert_eq!(
+        segments_end,
+        summary.footer().metadata_segment("large").unwrap().offset + large.len() as u64
+    );
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&bytes[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size());
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    assert_eq!(footer.segments_end(), Some(segments_end));
+    assert_eq!(footer.metadata_segments().count(), 4);
 
     let file = SESSION
         .open_options()
@@ -2584,10 +2797,8 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 }
 
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
+async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
+    let ts_array = buffer![1000i64].into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     let mut buf = ByteBufferMut::empty();
@@ -2596,7 +2807,6 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2604,70 +2814,18 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
-            Scalar::from(1704153600i64),
+            Scalar::from(1i64),
         )),
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
-///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
-#[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
-
-    // Write file with MILLISECONDS timestamps using this compressor.
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_compressor(compressor)
-        .build();
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("timestamp filter units must match the file dtype when binding");
     assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())
@@ -3016,9 +3174,14 @@ async fn probe_compressor_override_is_independent() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::embedded_dtype(false)]
+#[case::external_dtype(true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+async fn test_segment_ordering_zonemaps_after_data(
+    #[case] exclude_dtype: bool,
+) -> VortexResult<()> {
     // Create a multi-column struct with enough rows to produce zone maps.
     let n = 100_000;
     let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
@@ -3031,10 +3194,14 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("numbers", numbers),
         ("floats", floats),
     ])?;
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
-    let summary = SESSION
-        .write_options()
+    let mut options = SESSION.write_options();
+    if exclude_dtype {
+        options = options.exclude_dtype();
+    }
+    let summary = options
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
@@ -3106,6 +3273,33 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         "global: all data segments should come before all zone map segments",
     );
 
+    let segments_end = footer.segments_end().expect("valid segment ranges");
+    assert!(
+        all_zones_offsets
+            .iter()
+            .all(|offset| *offset < segments_end)
+    );
+    assert_eq!(buf.len() as u64, summary.size());
+    let mut deserializer = crate::Footer::deserializer(
+        ByteBuffer::copy_from(&buf[segments_end as usize..]),
+        SESSION.clone(),
+    )
+    .with_size(summary.size())
+    .with_some_dtype(exclude_dtype.then_some(dtype));
+    let crate::footer::DeserializeStep::Done(footer) = deserializer.deserialize()? else {
+        panic!("the tail after the segments must contain the footer");
+    };
+    let mut recovered_data_offsets = Vec::new();
+    let mut recovered_zones_offsets = Vec::new();
+    collect_all_zoned(
+        footer.layout().as_ref(),
+        footer.segment_map(),
+        &mut recovered_data_offsets,
+        &mut recovered_zones_offsets,
+    );
+    assert_eq!(recovered_data_offsets, all_data_offsets);
+    assert_eq!(recovered_zones_offsets, all_zones_offsets);
+
     Ok(())
 }
 
@@ -3161,6 +3355,7 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -3194,6 +3389,7 @@ async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, struct_x.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;

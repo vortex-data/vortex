@@ -3,6 +3,7 @@
 
 use std::ops::Not;
 
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -13,7 +14,8 @@ use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::match_each_native_ptype;
+use crate::dtype::ToBytes;
+use crate::match_each_ptype_width;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
@@ -29,17 +31,35 @@ impl FillNullKernel for Primitive {
         Ok(Some(match array.validity()? {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
-                match_each_native_ptype!(array.ptype(), |T| {
-                    let mut buffer = array.to_buffer::<T>().into_mut();
-                    let fill_value = fill_value
-                        .as_primitive()
-                        .typed_value::<T>()
-                        .vortex_expect("top-level fill_null ensure non-null fill value");
-                    for invalid_index in is_invalid.set_indices() {
-                        buffer[invalid_index] = fill_value;
-                    }
-                    PrimitiveArray::new(buffer.freeze(), result_validity).into_array()
-                })
+                let fill_value = fill_value.as_primitive();
+                assert_eq!(array.ptype(), fill_value.ptype());
+                let fill_value = fill_value
+                    .pvalue()
+                    .vortex_expect("fill_null requires a non-null fill value");
+                let values = array.buffer_handle().to_host_sync();
+                let alignment = values.alignment();
+
+                match_each_ptype_width!(
+                    array.ptype(),
+                    |W| {
+                        let mut buffer =
+                            Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
+                        let mut fill_bytes = [0u8; W];
+                        fill_bytes.copy_from_slice(fill_value.to_le_bytes());
+
+                        for invalid_index in is_invalid.set_indices() {
+                            buffer[invalid_index] = fill_bytes;
+                        }
+
+                        PrimitiveArray::from_byte_buffer(
+                            buffer.freeze().into_byte_buffer(),
+                            array.ptype(),
+                            result_validity,
+                        )
+                        .into_array()
+                    },
+                    _ => { unreachable!("primitive widths are specialized") },
+                )
             }
             _ => unreachable!("checked in entry point"),
         }))
@@ -47,7 +67,7 @@ impl FillNullKernel for Primitive {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;

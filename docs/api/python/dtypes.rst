@@ -1,4 +1,4 @@
-Data Types
+Data types
 ==========
 
 The logical types of the elements of an Array. Each logical type is implemented by a variety of

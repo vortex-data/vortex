@@ -92,7 +92,7 @@ jobs:
         with:
           distribution: "corretto"
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           pattern: libvortex_jni_*.zip
@@ -106,7 +106,7 @@ jobs:
           cp ../libvortex_jni_aarch64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
           cp ../libvortex_jni_x86_64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
           cp ../libvortex_jni_x86_64-pc-windows-msvc.zip/libvortex_jni.dll ./vortex-jni/src/main/resources/native/win-amd64
-      - name: Build Java
+      - name: Build all Java release artifacts
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
         run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache

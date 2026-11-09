@@ -67,7 +67,7 @@ impl LegacyDecimalColumn {
     /// expected form is its written form. A column that changes width gets zeros in its null
     /// slots, because a raw null-slot value need not fit the canonical width.
     fn expected(&self) -> VortexResult<ArrayRef> {
-        let canonical_type = DecimalType::smallest_decimal_value_type(&self.decimal_dtype);
+        let canonical_type = self.decimal_dtype.canonical_values_type();
         if canonical_type == self.stored_type {
             return self.written();
         }

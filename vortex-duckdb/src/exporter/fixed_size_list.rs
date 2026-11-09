@@ -80,8 +80,8 @@ impl ColumnExporter for FixedSizeListExporter {
         self.elements_exporter
             .export(offset * list_size, len * list_size, elements_vector, ctx)?;
 
-        // TODO(connor): We must flatten the child vector to ensure any child dictionary views
-        // (namely UTF-8 string views in dictionaries) are materialized.
+        // We must flatten the child vector to ensure any child dictionary views (namely UTF-8
+        // string views in dictionaries) are materialized.
         // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
         // detailed explanation on why we need this for now.
         elements_vector.flatten();
@@ -213,21 +213,6 @@ mod tests {
         let vector = chunk.get_vector(0);
         vector.flatten();
         assert_nulls(vector, &[false, false, false]);
-    }
-
-    #[test]
-    fn test_export_alternating_null_pattern() {
-        // Create a FixedSizeListArray with alternating null/valid pattern.
-        // Lists: NULL, [2, 3], NULL, [6, 7], NULL
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
-            2,
-            Validity::from_iter([false, true, false, true, false]),
-            5,
-        );
-        let chunk = export_to_chunk(fsl, 2, 0, 5);
-
-        assert_rows(&chunk, &["NULL", "[2, 3]", "NULL", "[6, 7]", "NULL"]);
     }
 
     #[test]

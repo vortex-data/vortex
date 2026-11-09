@@ -40,7 +40,6 @@ use vortex::encodings::fsst;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::Pco;
-use vortex::encodings::runend;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence;
 use vortex::encodings::sequence::sequence_encode;
@@ -50,6 +49,7 @@ use vortex::encodings::zstd;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexResult;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
@@ -67,7 +67,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     alp::initialize(&session);
     fastlanes::initialize(&session);
     fsst::initialize(&session);
-    runend::initialize(&session);
     sequence::initialize(&session);
     zigzag::initialize(&session);
     zstd::initialize(&session);
@@ -127,6 +126,11 @@ fn setup_primitive_arrays(len: u64) -> (PrimitiveArray, PrimitiveArray, Primitiv
         .unwrap()
         .execute::<PrimitiveArray>(&mut ctx)
         .unwrap();
+
+    mark_optimized(uint_array.as_array(), &SESSION).unwrap();
+    mark_optimized(int_array.as_array(), &SESSION).unwrap();
+    mark_optimized(float_array.as_array(), &SESSION).unwrap();
+
     (uint_array, int_array, float_array)
 }
 
@@ -173,6 +177,7 @@ fn bench_bitpacked_decompress_u32(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -193,6 +198,7 @@ fn bench_runend_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays(NUM_VALUES);
     let compressed =
         RunEnd::encode(uint_array.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -224,6 +230,7 @@ fn bench_delta_decompress_u32(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -233,9 +240,16 @@ fn bench_delta_decompress_u32(bencher: Bencher) {
 #[divan::bench(name = "for_compress_i32")]
 fn bench_for_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays(NUM_VALUES);
+    let values = int_array.to_buffer::<i32>();
+    let validity = int_array.validity().unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| (int_array.clone(), SESSION.create_execution_ctx()))
+        .with_inputs(|| {
+            let array = PrimitiveArray::new(values.clone(), validity.clone());
+            mark_optimized(array.as_array(), &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
+        })
         .bench_values(|(a, mut ctx)| FoR::encode(a, &mut ctx).unwrap());
 }
 
@@ -243,6 +257,7 @@ fn bench_for_compress_i32(bencher: Bencher) {
 fn bench_for_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays(NUM_VALUES);
     let compressed = FoR::encode(int_array, &mut SESSION.create_execution_ctx()).unwrap();
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -267,6 +282,7 @@ fn bench_dict_decompress_u32(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -286,6 +302,7 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
 fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays(NUM_VALUES);
     let compressed = zigzag_encode(int_array.as_view()).unwrap().into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -296,6 +313,7 @@ fn bench_zigzag_decompress_i32(bencher: Bencher) {
 #[divan::bench(name = "sequence_compress_u32")]
 fn bench_sequence_compress_u32(bencher: Bencher) {
     let seq_array = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
+    mark_optimized(seq_array.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (seq_array.clone(), SESSION.create_execution_ctx()))
@@ -308,6 +326,7 @@ fn bench_sequence_decompress_u32(bencher: Bencher) {
     let compressed = Sequence::try_new_typed(0, 1, Nullability::NonNullable, NUM_VALUES as usize)
         .unwrap()
         .into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -332,6 +351,7 @@ fn bench_alp_decompress_f64(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -341,13 +361,11 @@ fn bench_alp_decompress_f64(bencher: Bencher) {
 #[divan::bench(name = "alp_rd_compress_f64")]
 fn bench_alp_rd_compress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays(NUM_VALUES);
+    let encoder = RDEncoder::new(float_array.as_slice::<f64>());
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| &float_array)
-        .bench_refs(|a| {
-            let encoder = RDEncoder::new(a.as_slice::<f64>());
-            encoder.encode(a.as_view())
-        });
+        .with_inputs(|| (&float_array, &encoder))
+        .bench_refs(|(a, encoder)| encoder.encode(a.as_view()));
 }
 
 #[divan::bench(name = "alp_rd_decompress_f64")]
@@ -355,6 +373,7 @@ fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays(NUM_VALUES);
     let encoder = RDEncoder::new(float_array.as_slice::<f64>());
     let compressed = encoder.encode(float_array.as_view());
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -380,6 +399,7 @@ fn bench_pcodec_decompress_f64(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(compressed.as_array(), &SESSION).unwrap();
 
     with_byte_counter(bencher, PCO_NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -416,6 +436,7 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
 
     with_byte_counter(bencher, ZSTD_NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -429,6 +450,7 @@ fn bench_dict_compress_string(bencher: Bencher) {
         VarBinViewArray::from_iter_str(gen_varbin_words(STRING_NUM_VALUES, STRING_UNIQUENESS));
     let nbytes = varbinview_arr.nbytes();
     let array = varbinview_arr.into_array();
+    mark_optimized(&array, &SESSION).unwrap();
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -444,6 +466,8 @@ fn bench_dict_decompress_string(bencher: Bencher) {
         &mut SESSION.create_execution_ctx(),
     )
     .unwrap();
+    mark_optimized(dict.as_array(), &SESSION).unwrap();
+
     let nbytes = varbinview_arr.into_array().nbytes();
 
     with_byte_counter(bencher, nbytes)
@@ -456,6 +480,8 @@ fn bench_fsst_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(STRING_NUM_VALUES, STRING_UNIQUENESS))
             .into_array();
+    mark_optimized(&varbinview_arr, &SESSION).unwrap();
+
     let fsst_compressor =
         fsst_train_compressor(&varbinview_arr, &mut SESSION.create_execution_ctx()).unwrap();
     let nbytes = varbinview_arr.nbytes();
@@ -475,6 +501,8 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
     let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx)
         .unwrap()
         .into_array();
+    mark_optimized(&fsst_array, &SESSION).unwrap();
+
     let nbytes = varbinview_arr.nbytes();
 
     with_byte_counter(bencher, nbytes)
@@ -490,6 +518,8 @@ fn bench_zstd_compress_string(bencher: Bencher) {
         ZSTD_STRING_UNIQUENESS,
     ))
     .into_array();
+    mark_optimized(&varbinview_arr, &SESSION).unwrap();
+
     let nbytes = varbinview_arr.nbytes();
 
     with_byte_counter(bencher, nbytes)
@@ -520,6 +550,7 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
+    mark_optimized(&compressed, &SESSION).unwrap();
     let nbytes = varbinview_arr.nbytes();
 
     with_byte_counter(bencher, nbytes)

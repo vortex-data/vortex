@@ -57,7 +57,7 @@ jobs:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/volume=200gb/tag={2}-minimize', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
+          && format('runs-on={0}/region=us-east-1/runner={1}/volume=200gb/tag={2}-minimize', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     timeout-minutes: 240
     steps:

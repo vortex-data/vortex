@@ -88,6 +88,7 @@ pub use mask_future::*;
 pub use metadata::*;
 pub use smallvec;
 pub use vortex_array_macros::array_slots;
+pub use vortex_buffer::match_each_power_of_two_width;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Interner;

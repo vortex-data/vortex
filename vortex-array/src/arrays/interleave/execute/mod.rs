@@ -10,6 +10,8 @@
 //! [`Interleave::check`]: super::Interleave::check
 
 mod bool;
+mod decimal;
+mod fixed_width;
 mod primitive;
 
 use vortex_error::VortexResult;
@@ -27,6 +29,8 @@ pub(super) fn execute(
 ) -> VortexResult<ExecutionResult> {
     if array.dtype().is_boolean() {
         bool::execute(array, ctx)
+    } else if array.dtype().is_decimal() {
+        decimal::execute(array, ctx)
     } else if array.dtype().is_primitive() {
         primitive::execute(array, ctx)
     } else {

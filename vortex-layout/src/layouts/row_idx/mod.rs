@@ -32,7 +32,6 @@ use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_expr::transform::BoundPartitionedExpr;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_sequence::Sequence;
@@ -44,7 +43,7 @@ use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::RowSplits;
 use crate::SplitRange;
-use crate::layouts::partitioned::BoundPartitionedExprEval;
+use crate::layouts::partitioned::PartitionedEval;
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -118,7 +117,9 @@ impl RowIdxLayoutReader {
             .into_boxed_slice();
         partitioned.replace_partitions(partitions)?;
 
-        Ok(Partitioning::Partitioned(Arc::new(partitioned)))
+        Ok(Partitioning::Partitioned(Arc::new(PartitionedEval::new(
+            partitioned,
+        )?)))
     }
 }
 
@@ -129,7 +130,7 @@ enum Partitioning {
     // An expression that does not reference the row index.
     Child(BoundExpression),
     // Contains both the RowIdx and Child expressions, (e.g., `row_idx < child.some_field`).
-    Partitioned(Arc<BoundPartitionedExpr<Partition>>),
+    Partitioned(Arc<PartitionedEval<Partition>>),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -335,8 +336,9 @@ fn row_idx_array_future(
 ) -> ArrayFuture {
     let row_range = row_range.clone();
     async move {
-        // The filter is lazy: trivial masks reduce to the sequence itself or an empty array, and
-        // value masks are left for the consumer to execute alongside the expression.
+        // The filter is lazy: when the consumer optimizes or executes it, trivial masks reduce to
+        // the sequence itself or an empty array, and value masks execute alongside the
+        // expression.
         idx_array(row_offset, &row_range)
             .into_array()
             .filter(mask.await?)?
@@ -363,6 +365,7 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -538,6 +541,8 @@ mod tests {
                 MaskFuture::ready(Mask::new_true(5)),
             )
             .await
+            .unwrap()
+            .optimize_ctx(&new_session())
             .unwrap();
 
             assert!(result.is::<Sequence>());

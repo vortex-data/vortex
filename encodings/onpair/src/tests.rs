@@ -25,6 +25,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
@@ -284,7 +285,7 @@ fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
     // Sliced array: `codes_offsets` is narrowed (first boundary > 0), so the
     // point lookup must resolve indices relative to the slice.
     let (start, end) = (700usize, 1300usize);
-    let sliced = arr.slice(start..end)?;
+    let sliced = arr.slice(start..end)?.optimize_ctx(&SESSION)?;
     assert!(sliced.is::<OnPair>(), "slice dropped OnPair encoding");
     for &j in &[0usize, 1, 300, end - start - 1] {
         let got = sliced.execute_scalar(j, &mut ctx)?;
@@ -549,7 +550,7 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
     // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
     // end=n), and a near-full window.
     for (start, end) in [(1234usize, 1240usize), (0, 7), (4993, n), (1, n - 1)] {
-        let sliced = arr.clone().slice(start..end)?;
+        let sliced = arr.clone().slice(start..end)?.optimize_ctx(&SESSION)?;
         assert_eq!(sliced.len(), end - start);
         assert!(
             sliced.is::<OnPair>(),
@@ -644,5 +645,37 @@ fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
 
     let expected = values.into_array().take(codes)?;
     assert_arrays_eq!(dict, expected, &mut ctx);
+    Ok(())
+}
+
+/// A sparse dictionary over OnPair values appends through the take kernel, with null and repeated
+/// codes, after the values already in the builder.
+#[test]
+fn test_sparse_dict_over_onpair_appends_to_builder() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = take_input();
+    let onpair = compress_onpair(&values.clone().into_array(), &mut ctx)?;
+    let codes =
+        PrimitiveArray::from_option_iter([Some(1999u32), None, Some(0), Some(7), Some(1999)])
+            .into_array();
+    let dict = DictArray::try_new(codes.clone(), onpair.into_array())?.into_array();
+
+    let mut builder =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    builder.append_value("prefix");
+    dict.append_to_builder(&mut builder, &mut ctx)?;
+
+    let mut expected =
+        VarBinBuilder::<i32>::new_in(DType::Utf8(Nullability::Nullable), ctx.allocator());
+    expected.append_value("prefix");
+    values
+        .into_array()
+        .take(codes)?
+        .append_to_builder(&mut expected, &mut ctx)?;
+    assert_arrays_eq!(
+        builder.finish_into_varbin(),
+        expected.finish_into_varbin(),
+        &mut ctx
+    );
     Ok(())
 }
