@@ -14,9 +14,11 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -292,6 +294,19 @@ impl VortexFile {
             stats,
             &self.session,
         )
+    }
+
+    /// Returns whether file statistics rule out a predicate already bound to this file's dtype.
+    /// This does not construct a layout reader or read data segments.
+    pub fn can_prune_bound(&self, filter: &BoundExpression) -> VortexResult<bool> {
+        vortex_ensure!(
+            filter.is_root_bound_to(self.dtype()),
+            "File pruning predicate is bound to a different dtype"
+        );
+        let Some(stats) = self.footer.statistics() else {
+            return Ok(false);
+        };
+        is_falsified_by_file_stats(filter, self.row_count(), stats, &self.session)
     }
 
     /// Return the file's natural row splits as root-coordinate ranges.
