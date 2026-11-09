@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::slice;
 
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -24,12 +25,14 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::operators::Operator;
 use crate::scalar_fn::display::ExprDisplay;
 use crate::scalar_fn::is_not_null_node;
 
+/// Reduces a null check over `node`'s only child: `is_null` when `is_null` is set, and
+/// `is_not_null` otherwise.
+///
 /// In array context, reduce
 ///
 /// IsNull(x) -> if !x.nullable lit(false) else not(x.validity())
@@ -47,7 +50,13 @@ use crate::scalar_fn::is_not_null_node;
 /// is at most expensive as calculating x, but usually much cheaper. Although
 /// in two cases you exchange 4 computations to 4 computations, the latter
 /// four are cheaper.
-pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResult<Option<T>> {
+///
+/// `check` builds the same null check over a nullable node.
+pub fn reduce_null_check<T: ReduceNode>(
+    node: &T,
+    is_null: bool,
+    check: impl Fn(&T) -> VortexResult<T>,
+) -> VortexResult<Option<T>> {
     let child = node.child(0);
     if !child.node_dtype()?.is_nullable() {
         return Ok(Some(node.new_constant((!is_null).into())));
@@ -55,7 +64,7 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 
     if let ReduceNodeValidity::Reduced(validity) = child.validity()? {
         return Ok(Some(if is_null {
-            validity.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&validity))?
+            not_node(&validity)?
         } else {
             validity
         }));
@@ -87,20 +96,20 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 
     // is_null(nullable) (rule 1, 2)
     // is_not_null(nullable) (3, 4)
-    let left = if is_null {
-        nullable.new_node(IsNull.bind(EmptyOptions), std::slice::from_ref(&nullable))?
-    } else {
-        is_not_null_node(&nullable)?
-    };
+    let left = check(&nullable)?;
     // non_nullable (1, 4)
     // not(non_nullable) (2, 3)
     let right = if is_null == is_and {
         non_nullable
     } else {
-        non_nullable.new_node(Not.bind(EmptyOptions), std::slice::from_ref(&non_nullable))?
+        not_node(&non_nullable)?
     };
     let combine = if is_null { Operator::And } else { Operator::Or };
     Ok(Some(node.new_node(Binary.bind(combine), &[left, right])?))
+}
+
+fn not_node<T: ReduceNode>(value: &T) -> VortexResult<T> {
+    value.new_node(Not.bind(EmptyOptions), slice::from_ref(value))
 }
 
 /// Expression that checks for non-null values.
@@ -172,7 +181,7 @@ impl ScalarFnVTable for IsNotNull {
     }
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
-        reduce_null(false, node)
+        reduce_null_check(node, false, is_not_null_node)
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

@@ -23,6 +23,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::executor::DonePredicate;
 use crate::expr::BoundExpression;
 use crate::expr::stats::Stat;
@@ -327,6 +328,18 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn is_infallible(&self, options: &Self::Options) -> bool {
         _ = options;
         false
+    }
+
+    /// Returns the child whose field `field` this function's struct output passes through
+    /// unchanged, if any.
+    ///
+    /// Return `Some(i)` only when field `field` of the output equals field `field` of child `i`,
+    /// including its validity: the output must be null exactly where child `i` is null. A struct
+    /// projection such as `select` forwards each field it keeps. `get_item` uses this to read a
+    /// field straight from the child. The default is `None`.
+    fn forwarded_field(&self, options: &Self::Options, field: &FieldName) -> Option<usize> {
+        _ = (options, field);
+        None
     }
 
     /// Expresses statistic `stat` of this function's result in terms of statistics of its

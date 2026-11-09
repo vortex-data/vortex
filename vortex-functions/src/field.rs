@@ -4,8 +4,7 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
-
-use crate::dtype::FieldNames;
+use vortex_array::dtype::FieldNames;
 
 pub struct DisplayFieldNames<'a>(pub &'a FieldNames);
 

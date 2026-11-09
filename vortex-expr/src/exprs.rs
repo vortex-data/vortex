@@ -5,7 +5,6 @@
 
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -14,15 +13,12 @@ use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::builtin::not::Not;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_array::scalar_fn::builtin::pack::PackOptions;
-use vortex_array::scalar_fn::builtin::select::FieldSelection;
-use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
@@ -602,27 +598,6 @@ pub fn bound_fill_null(child: BoundExpression, fill_value: BoundExpression) -> B
         .vortex_expect("fill-null expressions require compatible child and fill dtypes")
 }
 
-// ---- IsNull ----
-
-/// Creates an expression that checks for null values.
-///
-/// Returns a boolean array indicating which positions contain null values.
-///
-/// ```rust
-/// # use vortex_expr::{is_null, root};
-/// let expr = is_null(root());
-/// ```
-pub fn is_null(child: Expression) -> Expression {
-    IsNull.new_expr(EmptyOptions, vec![child])
-}
-
-/// Creates a bound expression that checks for null values.
-pub fn bound_is_null(child: BoundExpression) -> BoundExpression {
-    IsNull
-        .try_new_bound_expr(EmptyOptions, [child])
-        .vortex_expect("is-null expressions are always well-typed")
-}
-
 // ---- IsNotNull ----
 
 /// Creates an expression that checks for non-null values.
@@ -657,54 +632,6 @@ pub fn bound_mask(array: BoundExpression, mask: BoundExpression) -> BoundExpress
         .vortex_expect("mask expressions require a boolean mask")
 }
 
-// ---- Select ----
-
-/// Creates an expression that selects (includes) specific fields from an array.
-///
-/// Projects only the specified fields from the child expression, which must be of DType struct.
-/// ```rust
-/// # use vortex_expr::select;
-/// # use vortex_expr::root;
-/// let expr = select(["name", "age"], root());
-/// ```
-pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
-/// Creates a bound expression that selects specific fields from a struct expression.
-pub fn bound_select(field_names: impl Into<FieldNames>, child: BoundExpression) -> BoundExpression {
-    Select
-        .try_new_bound_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("select expressions require fields from a struct child")
-}
-
-/// Creates an expression that excludes specific fields from an array.
-///
-/// Projects all fields except the specified ones from the input struct expression.
-///
-/// ```rust
-/// # use vortex_expr::select_exclude;
-/// # use vortex_expr::root;
-/// let expr = select_exclude(["internal_id", "metadata"], root());
-/// ```
-pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
-/// Creates a bound expression that excludes specific fields from a struct expression.
-pub fn bound_select_exclude(
-    fields: impl Into<FieldNames>,
-    child: BoundExpression,
-) -> BoundExpression {
-    Select
-        .try_new_bound_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("select expressions require fields from a struct child")
-}
-
 /// Constructors for expressions whose children have already been bound and type-checked.
 ///
 /// These mirror the unbound constructors in this crate and panic when the supplied children do not
@@ -723,7 +650,6 @@ pub mod bound {
     pub use super::bound_gt as gt;
     pub use super::bound_gt_eq as gt_eq;
     pub use super::bound_is_not_null as is_not_null;
-    pub use super::bound_is_null as is_null;
     pub use super::bound_lit as lit;
     pub use super::bound_lt as lt;
     pub use super::bound_lt_eq as lt_eq;
@@ -734,6 +660,4 @@ pub mod bound {
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;
     pub use super::bound_root as root;
-    pub use super::bound_select as select;
-    pub use super::bound_select_exclude as select_exclude;
 }

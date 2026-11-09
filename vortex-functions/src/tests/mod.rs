@@ -3,6 +3,9 @@
 
 //! Expression display, binding and optimizer tests that involve this crate's functions.
 
+mod is_null;
+mod select;
+
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -28,8 +31,6 @@ use vortex_expr::not_eq;
 use vortex_expr::or;
 use vortex_expr::pack;
 use vortex_expr::root;
-use vortex_expr::select;
-use vortex_expr::select_exclude;
 
 use crate::between::BetweenOptions;
 use crate::between::StrictComparison;
@@ -37,6 +38,8 @@ use crate::expr::between;
 use crate::expr::bound::case_when as bound_case_when;
 use crate::expr::case_when;
 use crate::expr::merge;
+use crate::expr::select;
+use crate::expr::select_exclude;
 
 #[test]
 fn test_display_tree_select() {

@@ -4,11 +4,10 @@
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::StructFields;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
-use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
-
-use crate::BoundExpression;
-use crate::analysis::AnnotationFn;
+use vortex_expr::BoundExpression;
+use vortex_expr::analysis::AnnotationFn;
+use vortex_functions::select::Select;
 
 /// Returns the "free fields" for this bound expression node.
 ///

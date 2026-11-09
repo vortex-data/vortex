@@ -14,6 +14,7 @@ use vortex_expr::ScalarFnExprExt;
 
 use crate::between::Between;
 use crate::between::BetweenOptions;
+use crate::is_null::IsNull;
 use crate::list_contains::ListContains;
 use crate::list_contains::ListContainsOptions;
 use crate::zip::Zip;
@@ -25,6 +26,9 @@ pub trait ExprFunctions: Sized {
 
     /// Check if a list contains a value.
     fn list_contains(&self, value: Expression) -> VortexResult<Expression>;
+
+    /// Is null check.
+    fn is_null(&self) -> VortexResult<Expression>;
 }
 
 impl ExprFunctions for Expression {
@@ -35,6 +39,10 @@ impl ExprFunctions for Expression {
     fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
         ListContains.try_new_expr(ListContainsOptions::default(), [self.clone(), value])
     }
+
+    fn is_null(&self) -> VortexResult<Expression> {
+        IsNull.try_new_expr(EmptyOptions, [self.clone()])
+    }
 }
 
 /// Builder methods on [`ArrayRef`] for this crate's scalar functions.
@@ -44,6 +52,9 @@ pub trait ArrayFunctions: Sized {
 
     /// Check if a list contains a value.
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Is null check.
+    fn is_null(&self) -> VortexResult<ArrayRef>;
 
     /// Compare a values between lower </<= value </<= upper
     fn between(
@@ -61,6 +72,10 @@ impl ArrayFunctions for ArrayRef {
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
         Ok(ListContains::try_new(self.clone(), value)?.into_array())
+    }
+
+    fn is_null(&self) -> VortexResult<ArrayRef> {
+        Ok(IsNull::new(self.clone()).into_array())
     }
 
     fn between(

@@ -42,7 +42,6 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -53,6 +52,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::is_null::IsNull;
 use crate::zip::zip_nullability_union;
 
 /// Options for the n-ary CaseWhen expression.
@@ -510,7 +510,6 @@ mod tests {
     use vortex_expr::get_item;
     use vortex_expr::gt;
     use vortex_expr::is_not_null;
-    use vortex_expr::is_null;
     use vortex_expr::lit;
     use vortex_expr::proto::ExprSerializeProtoExt;
     use vortex_expr::root;
@@ -520,6 +519,7 @@ mod tests {
     use super::*;
     use crate::expr::case_when;
     use crate::expr::case_when_no_else;
+    use crate::expr::is_null;
     use crate::expr::nested_case_when;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {

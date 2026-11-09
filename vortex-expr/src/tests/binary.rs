@@ -370,31 +370,6 @@ fn test_and_reject_non_bool() {
 }
 
 #[test]
-fn test_isnull_and_reduce() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
-    let right = BoolArray::from_iter([true, false, true]).into_array();
-
-    // IsNull(and(x, y)) -> and(IsNull(x), y) -> and(not(x.validity), y)
-    //            ^ nullable
-    for (lhs, rhs) in [(left.clone(), right.clone()), (right.clone(), left)] {
-        let array = lhs
-            .binary(rhs, Operator::And)?
-            .is_null()?
-            .optimize_ctx(&SESSION)?;
-        assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::And);
-        assert_arrays_eq!(
-            array.as_::<ScalarFn>().get_child(0), // not(left.validity())
-            BoolArray::from_iter([false, false, true]),
-            &mut ctx
-        );
-        assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
-        assert_arrays_eq!(array, BoolArray::from_iter([false, false, true]), &mut ctx);
-    }
-    Ok(())
-}
-
-#[test]
 fn test_isnotnull_or_reduce() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();

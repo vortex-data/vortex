@@ -11,7 +11,6 @@ use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::mask::Mask;
 use vortex_array::scalar_fn::builtin::not::Not;
 use vortex_array::scalar_fn::builtin::operators::Operator;
@@ -30,9 +29,6 @@ pub trait ExprBuiltins: Sized {
 
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression>;
-
-    /// Is null check.
-    fn is_null(&self) -> VortexResult<Expression>;
 
     /// Is not null check.
     fn is_not_null(&self) -> VortexResult<Expression>;
@@ -62,10 +58,6 @@ impl ExprBuiltins for Expression {
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
         GetItem.try_new_expr(field_name.into(), [self.clone()])
-    }
-
-    fn is_null(&self) -> VortexResult<Expression> {
-        IsNull.try_new_expr(EmptyOptions, [self.clone()])
     }
 
     fn is_not_null(&self) -> VortexResult<Expression> {

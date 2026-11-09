@@ -31,7 +31,9 @@ pub mod dynamic;
 pub mod dynamic_expression;
 pub mod expr;
 pub mod ext_storage;
+mod field;
 pub mod is_nan;
+pub mod is_null;
 pub mod like;
 pub mod list_contains;
 pub mod list_length;
@@ -42,6 +44,7 @@ pub mod lower_bound;
 pub mod merge;
 pub mod pruning;
 pub mod replace_time_zone;
+pub mod select;
 pub mod strpos;
 pub mod variant_get;
 pub mod zip;
@@ -62,11 +65,13 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(case_when::CaseWhen);
     scalar_fns.register(ext_storage::ExtStorage);
     scalar_fns.register(is_nan::IsNan);
+    scalar_fns.register(is_null::IsNull);
     scalar_fns.register(list_length::ListLength);
     scalar_fns.register(list_sum::ListSum);
     scalar_fns.register(lower::Lower);
     scalar_fns.register(merge::Merge);
     scalar_fns.register(replace_time_zone::ReplaceTimeZone);
+    scalar_fns.register(select::Select);
     scalar_fns.register(strpos::Strpos);
 }
 

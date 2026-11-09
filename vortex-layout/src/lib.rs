@@ -28,6 +28,7 @@ pub use strategy::*;
 use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
+pub mod analysis;
 mod children;
 pub mod display;
 mod encoding;

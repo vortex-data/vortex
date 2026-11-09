@@ -632,8 +632,8 @@ mod tests {
     use vortex_expr::cast;
     use vortex_expr::gt;
     use vortex_expr::is_not_null;
-    use vortex_expr::is_null;
     use vortex_expr::lit;
+    use vortex_functions::expr::is_null;
     use vortex_functions::expr::list_length;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;

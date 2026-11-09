@@ -238,27 +238,25 @@ mod tests {
         .vortex_expect("construction")
         .into_array();
 
-        let result = array.is_null().vortex_expect("is_null");
+        let result = array.is_not_null().vortex_expect("is_not_null");
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([false]),
+            BoolArray::from_iter([true]),
             &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
-    fn test_reduce_isnull() -> VortexResult<()> {
+    fn test_reduce_is_not_null() -> VortexResult<()> {
         let ctx = &mut SESSION.create_execution_ctx();
         let validity = BoolArray::from_iter([true, false, true]).into_array();
 
-        assert_arrays_eq!(validity.is_null()?, ConstantArray::new(false, 3), ctx);
         assert_arrays_eq!(validity.is_not_null()?, ConstantArray::new(true, 3), ctx);
 
         let buffer = buffer![1, 2, 3];
         let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
 
         assert_arrays_eq!(nullable.is_not_null()?, validity, ctx);
-        assert_arrays_eq!(nullable.is_null()?, validity.not()?, ctx);
 
         Ok(())
     }

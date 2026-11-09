@@ -23,7 +23,6 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
-use vortex_expr::analysis::referenced_field_paths;
 use vortex_functions::between::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
@@ -35,6 +34,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
+use crate::analysis::referenced_field_paths;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::limit::RowLimit;

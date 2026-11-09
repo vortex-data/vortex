@@ -1,29 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::slice;
+
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::is_not_null::reduce_null_check;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
-
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArray;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::is_not_null::reduce_null;
-use crate::validity::Validity;
 
 /// Expression that checks for null values.
 #[derive(Clone)]
@@ -94,7 +95,9 @@ impl ScalarFnVTable for IsNull {
     }
 
     fn reduce<T: ReduceNode>(&self, _options: &Self::Options, node: &T) -> VortexResult<Option<T>> {
-        reduce_null(true, node)
+        reduce_null_check(node, true, |value| {
+            value.new_node(IsNull.bind(EmptyOptions), slice::from_ref(value))
+        })
     }
 
     fn is_strict(&self, _instance: &Self::Options) -> bool {

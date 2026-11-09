@@ -22,7 +22,6 @@ use crate::and;
 use crate::col;
 use crate::get_item;
 use crate::is_not_null;
-use crate::is_null;
 use crate::lit;
 use crate::not;
 use crate::or;
@@ -60,10 +59,6 @@ fn reduce_to_constant() -> VortexResult<()> {
         optimized(is_not_null(col("b")), &dtype)?,
         lit(true).bind(&dtype)?
     );
-    assert_eq!(
-        optimized(is_null(col("b")), &dtype)?,
-        lit(false).bind(&dtype)?
-    );
     Ok(())
 }
 
@@ -77,14 +72,6 @@ fn reduce_kleene() -> VortexResult<()> {
     assert_eq!(
         optimized(is_not_null(or(col("a"), col("b"))), &dtype)?,
         or(is_not_null(col("a")), col("b")).bind(&dtype)?
-    );
-    assert_eq!(
-        optimized(is_null(and(col("a"), col("b"))), &dtype)?,
-        and(is_null(col("a")), col("b")).bind(&dtype)?
-    );
-    assert_eq!(
-        optimized(is_null(or(col("a"), col("b"))), &dtype)?,
-        and(is_null(col("a")), not(col("b"))).bind(&dtype)?
     );
     Ok(())
 }

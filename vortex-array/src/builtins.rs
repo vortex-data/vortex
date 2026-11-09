@@ -23,7 +23,6 @@ use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::fill_null::FillNull;
 use crate::scalar_fn::builtin::get_item::GetItem;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
-use crate::scalar_fn::builtin::is_null::IsNull;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::operators::Operator;
@@ -38,9 +37,6 @@ pub trait ArrayBuiltins: Sized {
 
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef>;
-
-    /// Is null check.
-    fn is_null(&self) -> VortexResult<ArrayRef>;
 
     /// Is not null check.
     fn is_not_null(&self) -> VortexResult<ArrayRef>;
@@ -89,10 +85,6 @@ impl ArrayBuiltins for ArrayRef {
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef> {
         Ok(GetItem::try_new(self.clone(), field_name)?.into_array())
-    }
-
-    fn is_null(&self) -> VortexResult<ArrayRef> {
-        Ok(IsNull::new(self.clone()).into_array())
     }
 
     fn is_not_null(&self) -> VortexResult<ArrayRef> {

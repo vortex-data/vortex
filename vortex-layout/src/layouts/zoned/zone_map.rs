@@ -437,7 +437,6 @@ mod tests {
     use vortex_expr::gt;
     use vortex_expr::gt_eq;
     use vortex_expr::is_not_null;
-    use vortex_expr::is_null;
     use vortex_expr::lit;
     use vortex_expr::lt;
     use vortex_expr::not_eq;
@@ -448,6 +447,7 @@ mod tests {
     use vortex_expr::stats::all_null;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_functions::expr::dynamic;
+    use vortex_functions::expr::is_null;
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;

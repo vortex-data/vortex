@@ -127,11 +127,11 @@ mod tests {
     use vortex_expr::ArrayExprExt;
     use vortex_expr::get_item;
     use vortex_expr::root;
-    use vortex_expr::select;
     use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use crate::expr::ext_storage;
+    use crate::expr::select;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();

@@ -102,7 +102,7 @@ mod tests {
     use crate::and;
     use crate::col;
     use crate::get_item;
-    use crate::is_null;
+    use crate::is_not_null;
     use crate::lit;
     use crate::or;
     use crate::root;
@@ -209,9 +209,9 @@ mod tests {
     fn unrelated_expressions_are_preserved() -> VortexResult<()> {
         let binder = TestBinder::new(false);
 
-        let bound = bind_stats(is_null(col("f")).bind(&binder.input_scope)?, &binder)?;
+        let bound = bind_stats(is_not_null(col("f")).bind(&binder.input_scope)?, &binder)?;
 
-        assert_eq!(bound, is_null(col("f")).bind(&binder.input_scope)?);
+        assert_eq!(bound, is_not_null(col("f")).bind(&binder.input_scope)?);
         Ok(())
     }
 }

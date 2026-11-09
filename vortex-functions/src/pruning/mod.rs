@@ -30,6 +30,9 @@ use vortex_expr::stats::session::StatsSessionExt;
 use vortex_session::VortexSession;
 
 use self::dynamic_expression::DynamicExpressionStatsRewrite;
+use self::is_null::IsNullAllNonNullStatsRewrite;
+use self::is_null::IsNullAllNullStatsRewrite;
+use self::is_null::IsNullNullCountStatsRewrite;
 use self::like_variant::LikeVariant;
 use crate::between::Between;
 use crate::dynamic::DynamicComparison;
@@ -39,6 +42,7 @@ use crate::like::Like;
 use crate::list_contains::ListContains;
 
 mod dynamic_expression;
+mod is_null;
 mod like_variant;
 
 /// Register the stats rewrite rules for this crate's scalar functions.
@@ -48,6 +52,9 @@ pub fn initialize(session: &VortexSession) {
     stats.register_rewrite(IsNanNaNCountStatsRewrite);
     stats.register_rewrite(IsNanAllNonNanStatsRewrite);
     stats.register_rewrite(IsNanAllNanStatsRewrite);
+    stats.register_rewrite(IsNullNullCountStatsRewrite);
+    stats.register_rewrite(IsNullAllNonNullStatsRewrite);
+    stats.register_rewrite(IsNullAllNullStatsRewrite);
     stats.register_rewrite(LikeStatsRewrite);
     stats.register_rewrite(ListContainsNanCountStatsRewrite);
     stats.register_rewrite(ListContainsAllNonNanStatsRewrite);
