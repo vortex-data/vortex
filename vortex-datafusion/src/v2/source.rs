@@ -87,6 +87,7 @@ use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::config::OptimizerOptions;
 use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
@@ -145,6 +146,7 @@ use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
+use crate::convert::stats::selectivity::filtered_statistics;
 use crate::convert::stats::stats_set_to_df;
 
 // Bound active Scan API partition streams independently of the DataFusion output count.
@@ -340,6 +342,9 @@ impl VortexDataSourceBuilder {
             leftover_statistics: statistics,
             filter: None,
             dynamic_filters: Vec::new(),
+            estimated_filters: Vec::new(),
+            unestimated_filters: false,
+            default_filter_selectivity: OptimizerOptions::default().default_filter_selectivity,
             limit: None,
             ordered: self.output_ordering.is_some(),
             target_parallelism: get_available_parallelism().unwrap_or(1),
@@ -348,6 +353,34 @@ impl VortexDataSourceBuilder {
 }
 
 impl VortexDataSource {
+    /// Apply the selectivity of the pushed filters to `statistics`, the unfiltered statistics of
+    /// the output.
+    ///
+    /// DataFusion drops the `FilterExec` of every filter this source accepts, so without this
+    /// the scan would report every row of the source.
+    fn filtered_statistics(&self, statistics: Statistics) -> Statistics {
+        let filtered = filtered_statistics(
+            Statistics {
+                num_rows: statistics.num_rows,
+                total_byte_size: statistics.total_byte_size,
+                column_statistics: self.initial_statistics.clone(),
+            },
+            &self.initial_schema,
+            &self.estimated_filters,
+            self.unestimated_filters,
+            f64::from(self.default_filter_selectivity) / 100.0,
+        );
+        if self.leftover_projection.is_none() {
+            return filtered;
+        }
+        // A projection replaced the initial columns, so only the row count and size carry over.
+        Statistics {
+            num_rows: filtered.num_rows,
+            total_byte_size: filtered.total_byte_size,
+            ..statistics.to_inexact()
+        }
+    }
+
     /// Create a builder for a [`VortexDataSource`].
     pub fn builder(data_source: DataSourceRef, session: VortexSession) -> VortexDataSourceBuilder {
         VortexDataSourceBuilder {
@@ -402,7 +435,6 @@ pub struct VortexDataSource {
     /// The initial Vortex projection expression (e.g. column selection from the builder).
     initial_projection: Expression,
     /// Column statistics for the initial projection columns.
-    #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
@@ -429,6 +461,13 @@ pub struct VortexDataSource {
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
     filter: Option<Expression>,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// The static filters in `filter` over `initial_schema`, from which statistics estimate how
+    /// many rows the scan returns.
+    estimated_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Whether `filter` holds a static filter that is not in `estimated_filters`.
+    unestimated_filters: bool,
+    /// The selectivity, in percent, of filters that statistics cannot estimate.
+    default_filter_selectivity: u8,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
     /// Whether to preserve the order of the output rows.
@@ -832,9 +871,8 @@ impl DataSource for VortexDataSource {
             total_byte_size,
             column_statistics,
         };
-        // A filter can remove the rows that supplied an exact count or extremum.
         let statistics = if self.filter.is_some() {
-            statistics.to_inexact()
+            self.filtered_statistics(statistics)
         } else {
             statistics
         };
@@ -920,7 +958,7 @@ impl DataSource for VortexDataSource {
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn DataSource>>> {
         // Filters arriving after fetch must remain above that row limit.
         if filters.is_empty() || self.limit.is_some() {
@@ -952,6 +990,12 @@ impl DataSource for VortexDataSource {
             {
                 converted.push(expression);
                 pushdown_results.push(PushedDown::Yes);
+                // Until a projection is swapped in, the scan outputs the initial columns.
+                if self.leftover_projection.is_none() {
+                    this.estimated_filters.push(filter);
+                } else {
+                    this.unestimated_filters = true;
+                }
             } else {
                 pushdown_results.push(PushedDown::No);
             }
@@ -969,6 +1013,7 @@ impl DataSource for VortexDataSource {
             .into_iter()
             .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
         this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
+        this.default_filter_selectivity = config.optimizer.default_filter_selectivity;
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),

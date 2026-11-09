@@ -213,6 +213,53 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Push `a < 100` over `a` in `[0, 999]`, optionally swapping in a projection first or after.
+#[rstest]
+// A tenth of the range survives, whether or not a projection follows.
+#[case::filter(None, Precision::Inexact(100))]
+#[case::filter_then_projection(Some(false), Precision::Inexact(100))]
+// A filter over projected columns is not estimated, so it keeps the default 20%.
+#[case::projection_then_filter(Some(true), Precision::Inexact(200))]
+#[tokio::test]
+async fn statistics_apply_filter_selectivity(
+    #[case] project_first: Option<bool>,
+    #[case] expected: Precision<usize>,
+) -> anyhow::Result<()> {
+    let batch = RecordBatch::try_from_iter([(
+        "a",
+        Arc::new(Int32Array::from_iter_values(0..1_000)) as ArrayRef,
+    )])?;
+    let source: Arc<dyn DataSource> = Arc::new(vortex_source_from_batch(batch).await?);
+    let project = |source: Arc<dyn DataSource>| -> anyhow::Result<Arc<dyn DataSource>> {
+        source
+            .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+                Arc::new(df_expr::Column::new("a", 0)),
+                "a",
+            )]))?
+            .ok_or_else(|| anyhow!("projection was not swapped"))
+    };
+    let filter = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        Operator::Lt,
+        df_expr::lit(100_i32),
+    ));
+
+    let mut source = source;
+    if project_first == Some(true) {
+        source = project(source)?;
+    }
+    source = source
+        .try_pushdown_filters(vec![filter], &ConfigOptions::new())?
+        .updated_node
+        .ok_or_else(|| anyhow!("filter was not accepted"))?;
+    if project_first == Some(false) {
+        source = project(source)?;
+    }
+
+    assert_eq!(source.partition_statistics(None)?.num_rows, expected);
+    Ok(())
+}
+
 #[rstest]
 #[case(Operator::And, vec![30, 20], vec![30], vec![20])]
 #[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20])]
