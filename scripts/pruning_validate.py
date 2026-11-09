@@ -34,7 +34,7 @@ cases = [
 ]
 cases += [("tpcds-focus", "tpcds", 1, "4,16,59,65,66,71,72", 30)]
 if not args.local:
-    cases = [("polarsignals", "polarsignals", 1, None, 10), ("tpch-sf10-focus", "tpch", 10, "6,7", 20), *cases]
+    cases = [("polarsignals-v1-control", "polarsignals", 1, None, 10), ("tpch-sf10-focus", "tpch", 10, "6,7", 20), *cases]
 rng = random.Random(11348)
 orders = {}
 for name, *_ in cases:
@@ -74,11 +74,13 @@ def run(case: tuple[str, str, int | None, str | None, int], label: str, key: str
         return records[key]
     name, suite, scale, queries, _ = case
     output = out / (key + ".jsonl")
+    # Match BENCHMARK_SCAN_V1 in bench_orchestrator/config.py for this nested suite.
+    scan_v1 = suite == "polarsignals"
     command = [
         str(binaries[label]),
         suite,
         "--scan-v1",
-        "false",
+        str(scan_v1).lower(),
         "--formats",
         "vortex",
         "--iterations",
