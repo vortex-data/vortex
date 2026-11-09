@@ -25,6 +25,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::dynamic;
@@ -232,6 +234,38 @@ fn filtered_chunk_sizing(
     let dtype = array.dtype();
     assert_eq!(
         filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        expected,
+    );
+    Ok(())
+}
+
+/// Several fixed-width columns share the narrow budget while their values total 32 bytes a row.
+#[rstest]
+#[case::four_i64(4, 1_048_576)]
+#[case::five_i64(5, 131_072)]
+fn filtered_chunk_sizing_sums_fixed_widths(
+    #[case] columns: usize,
+    #[case] expected: usize,
+) -> VortexResult<()> {
+    let names: Vec<String> = (0..columns).map(|column| format!("c{column}")).collect();
+    let dtype = DType::struct_(
+        names.iter().map(|name| {
+            (
+                name.as_str(),
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+            )
+        }),
+        Nullability::NonNullable,
+    );
+    let projection = pack(
+        names
+            .iter()
+            .map(|name| (name.as_str(), get_item(name.as_str(), root()))),
+        Nullability::NonNullable,
+    );
+    let filter = gt(get_item("c0", root()), lit(10i64));
+    assert_eq!(
+        filtered_rows_per_chunk(&dtype, &projection.bind(&dtype)?, &filter.bind(&dtype)?)?,
         expected,
     );
     Ok(())
@@ -578,7 +612,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
             ))
         })
         .collect::<VortexResult<Vec<_>>>()?;
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     let ints = chunked_flat()
         .write_stream(
             ArrayContext::empty().into(),
@@ -703,7 +737,7 @@ async fn primitive_column() -> VortexResult<()> {
     let (segments, layout) = write(&session, table().as_ref()).await?;
     let dtype = layout.dtype().clone();
     let actual = collect_scan(
-        DType::Primitive(vortex_array::dtype::PType::I32, false.into()),
+        DType::Primitive(PType::I32, false.into()),
         builder(&session, &segments, &layout)?
             .with_projection(get_item("ints", root()).bind(&dtype)?)
             .with_row_range(990..1010),
@@ -750,7 +784,7 @@ async fn chunked_ints(
             ))
         })
         .collect::<Vec<_>>();
-    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let dtype = DType::Primitive(PType::I32, false.into());
     chunked_flat()
         .write_stream(
             ArrayContext::empty().into(),
