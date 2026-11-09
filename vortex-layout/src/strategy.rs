@@ -18,11 +18,21 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 
-/// A shared counter of the bytes that layout strategies are holding but have not yet emitted.
+/// A shared counter of the bytes that a write accepted but did not yet send to the file.
+///
+/// The count has two parts:
+///
+/// - The bytes that layout strategies hold. Each strategy reports its own retained bytes with
+///   [`Self::reserve`], which releases the reservation on drop. These bytes are compressed or
+///   not, as the position of the strategy in the strategy tree sets.
+/// - The bytes of the segments that the layouts emitted, but that wait for earlier segments.
+///   Segments reach the file in sequence order, so a layout that holds an early sequence ID can
+///   hold back the later segments. These bytes are compressed.
+///
+/// The bytes written to the file plus this count are an estimate of the final file size.
 ///
 /// Clones share the same counter, so a tracker can be handed to a writer before the write begins
-/// and polled while it runs. Strategies report their own retained bytes with
-/// [`Self::reserve`], which releases the reservation on drop.
+/// and polled while it runs.
 #[derive(Clone, Debug, Default)]
 pub struct BufferedBytesTracker(Arc<AtomicU64>);
 
@@ -32,7 +42,7 @@ impl BufferedBytesTracker {
         Self::default()
     }
 
-    /// Returns the number of bytes currently retained by layout strategies.
+    /// Returns the number of bytes that the write accepted but did not yet send to the file.
     pub fn buffered_bytes(&self) -> u64 {
         self.0.load(Ordering::Relaxed)
     }
@@ -164,7 +174,7 @@ impl LayoutWriterContext {
         &self.buffered_bytes
     }
 
-    /// Returns the number of bytes currently retained by layout strategies.
+    /// Returns the number of bytes that the write accepted but did not yet send to the file.
     pub fn buffered_bytes(&self) -> u64 {
         self.buffered_bytes.buffered_bytes()
     }

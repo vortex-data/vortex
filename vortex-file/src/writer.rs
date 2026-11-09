@@ -144,8 +144,10 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Returns the tracker accounting for bytes that layout strategies are holding but have not
-    /// yet emitted.
+    /// Returns the tracker of the bytes that the write accepted but did not yet send to the file.
+    ///
+    /// These are the bytes that layout strategies hold and the segments that wait for earlier
+    /// segments. See [`BufferedBytesTracker`].
     ///
     /// The tracker is shared with the write these options start, so it can be captured before
     /// calling [`Self::write`] and polled while the write runs. [`Writer::buffered_bytes`] exposes
@@ -345,7 +347,11 @@ impl VortexWriteOptions {
         // Create a channel to send buffers from the segment sink to the output stream.
         let (send, recv_stream) = bounded(1);
 
-        let segments = Arc::new(BufferedSegmentSink::new(send, position));
+        let segments = Arc::new(BufferedSegmentSink::new(
+            send,
+            position,
+            self.buffered_bytes.clone(),
+        ));
 
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
@@ -366,12 +372,15 @@ impl VortexWriteOptions {
 
         // Flush buffers as they arrive
         pin_mut!(recv_stream);
-        while let Some(buffer) = recv_stream.next().await {
-            if buffer.is_empty() {
-                continue;
+        while let Some(segment_buffer) = recv_stream.next().await {
+            let (buffer, reservation) = segment_buffer.into_parts();
+            if !buffer.is_empty() {
+                position += buffer.len() as u64;
+                write.write_all(buffer).await?;
             }
-            position += buffer.len() as u64;
-            write.write_all(buffer).await?;
+
+            // The bytes are in the bytes written now, so they stop counting as buffered.
+            drop(reservation);
         }
 
         let (layout, segment_specs) = layout_fut.await?;
@@ -663,7 +672,9 @@ impl Writer<'_> {
         self.bytes_written.load(Ordering::Relaxed)
     }
 
-    /// Returns the number of bytes currently buffered by the layout writers.
+    /// Returns the number of bytes that the writer accepted but did not yet send to the file.
+    ///
+    /// See [`BufferedBytesTracker`].
     pub fn buffered_bytes(&self) -> u64 {
         self.buffered_bytes.buffered_bytes()
     }
@@ -742,7 +753,9 @@ impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
         self.writer.bytes_written()
     }
 
-    /// Returns the number of bytes currently buffered by layout strategies.
+    /// Returns the number of bytes that the writer accepted but did not yet send to the file.
+    ///
+    /// See [`BufferedBytesTracker`].
     pub fn buffered_bytes(&self) -> u64 {
         self.writer.buffered_bytes()
     }

@@ -251,11 +251,12 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Return the number of uncompressed bytes accepted by the writer but not yet written to the sink.
+     * Return the number of bytes accepted by the writer but not yet written to the sink.
      *
-     * <p>Together with {@link #bytesWritten()}, this lets callers estimate the in-progress file size: bytes that
-     * reached the sink are already compressed, while buffered bytes are still uncompressed and will shrink by roughly
-     * the file's observed compression ratio once flushed. After {@link #finish()}, this is zero.
+     * <p>The count includes the data that layout strategies hold and the compressed segments that wait for earlier
+     * segments. The default write strategy holds compressed data. Together with {@link #bytesWritten()}, this gives an
+     * estimate of the in-progress file size: {@code bytesWritten() + bufferedBytes()}. After {@link #finish()}, this is
+     * zero.
      */
     public synchronized long bufferedBytes() {
         if (summary != null) {
