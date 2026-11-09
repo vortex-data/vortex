@@ -11,6 +11,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
+use datafusion_datasource::FileRange;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_groups::FileGroup;
@@ -19,6 +20,7 @@ use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
@@ -39,6 +41,7 @@ use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_pruning::PruningPredicate;
 use datafusion_pruning::build_pruning_predicate;
+use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::expr::Expression;
@@ -207,6 +210,8 @@ pub struct VortexSource {
     /// Used with FilePruner to skip files based on statistics and partition values.
     pub(crate) full_predicate: Option<PhysicalExprRef>,
     static_pruning_predicate: Arc<OnceLock<Option<Arc<PruningPredicate>>>>,
+    /// Inputs retained by an earlier pruning pass on this scan configuration.
+    pruned_file_inputs: Option<Arc<PrunedFileInputs>>,
     /// Accepted exact predicates, evaluated natively or as per-file residuals.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
@@ -233,6 +238,40 @@ pub struct VortexSource {
     options: VortexTableOptions,
 }
 
+/// Preserve the grouping decision across optimizer passes without sharing mutable state
+/// between source clones or applying it to a different file population.
+struct PrunedFileInputs {
+    object_store_url: ObjectStoreUrl,
+    files: Vec<(ObjectMeta, Option<FileRange>)>,
+}
+
+impl PrunedFileInputs {
+    fn new(config: &FileScanConfig) -> Self {
+        Self {
+            object_store_url: config.object_store_url.clone(),
+            files: config
+                .file_groups
+                .iter()
+                .flat_map(FileGroup::iter)
+                .map(|file| (file.object_meta.clone(), file.range.clone()))
+                .collect(),
+        }
+    }
+
+    fn matches(&self, config: &FileScanConfig) -> bool {
+        self.object_store_url == config.object_store_url
+            && self
+                .files
+                .iter()
+                .map(|(meta, range)| (meta, range))
+                .eq(config
+                    .file_groups
+                    .iter()
+                    .flat_map(FileGroup::iter)
+                    .map(|file| (&file.object_meta, &file.range)))
+    }
+}
+
 impl VortexSource {
     /// Creates a new `VortexSource` for a table schema and [`VortexSession`].
     ///
@@ -254,6 +293,7 @@ impl VortexSource {
             projection,
             full_predicate: None,
             static_pruning_predicate: Arc::new(OnceLock::new()),
+            pruned_file_inputs: None,
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
@@ -555,17 +595,37 @@ impl FileSource for VortexSource {
                 !DynamicFilterTracking::classify(predicate).contains_dynamic_filter()
             });
         let pruned_groups = can_prune.then(|| self.prune_file_groups(config)).flatten();
+        let has_pruned_inputs = pruned_groups.is_some()
+            || self
+                .pruned_file_inputs
+                .as_ref()
+                .is_some_and(|inputs| inputs.matches(config));
         let input_groups = pruned_groups.as_deref().unwrap_or(&config.file_groups);
-        let file_groups = match FileGroupPartitioner::new()
-            .with_target_partitions(target_partitions)
-            .with_repartition_file_min_size(repartition_file_min_size)
-            .with_preserve_order_within_groups(output_ordering.is_some())
-            .repartition_file_groups(input_groups)
-        {
-            Some(groups) => groups,
-            // Pruning still applies when the remaining data is too small to split.
-            None if pruned_groups.is_some() => input_groups.to_vec(),
-            None => return Ok(None),
+        let file_count = input_groups.iter().map(FileGroup::len).sum::<usize>();
+        let file_groups = if can_prune && has_pruned_inputs && file_count < target_partitions {
+            // Avoid splitting a small set of files retained by pruning. A static predicate
+            // alone does not justify reducing DataFusion's scan and exchange parallelism.
+            if file_count == 0 {
+                vec![FileGroup::default()]
+            } else {
+                input_groups
+                    .iter()
+                    .flat_map(FileGroup::iter)
+                    .map(|file| FileGroup::new(vec![file.clone()]))
+                    .collect()
+            }
+        } else {
+            match FileGroupPartitioner::new()
+                .with_target_partitions(target_partitions)
+                .with_repartition_file_min_size(repartition_file_min_size)
+                .with_preserve_order_within_groups(output_ordering.is_some())
+                .repartition_file_groups(input_groups)
+            {
+                Some(groups) => groups,
+                // Pruning still applies when the remaining data is too small to split.
+                None if pruned_groups.is_some() => input_groups.to_vec(),
+                None => return Ok(None),
+            }
         };
         let mut repartitioned = if pruned_groups.is_some() {
             // Whole-table counts no longer describe the retained files, even when predicate
@@ -577,6 +637,10 @@ impl FileSource for VortexSource {
             config.clone()
         };
         repartitioned.file_groups = file_groups;
+        let mut source = self.clone();
+        source.pruned_file_inputs = (can_prune && has_pruned_inputs)
+            .then(|| Arc::new(PrunedFileInputs::new(&repartitioned)));
+        repartitioned.file_source = Arc::new(source);
         Ok(Some(repartitioned))
     }
 
@@ -602,6 +666,7 @@ impl FileSource for VortexSource {
             None => Some(conjunction(filters.clone())),
         };
         source.static_pruning_predicate = Arc::new(OnceLock::new());
+        source.pruned_file_inputs = None;
 
         if !source.options.predicate_pushdown {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
@@ -872,7 +937,8 @@ mod tests {
             .repartitioned(target_partitions, 0, None, &config)?
             .ok_or_else(|| anyhow::anyhow!("expected a repartitioned scan"))?;
         assert_eq!(result.statistics().num_rows, Precision::Inexact(600));
-        let repeated = source
+        let repeated = result
+            .file_source
             .repartitioned(3, 0, None, &result)?
             .ok_or_else(|| anyhow::anyhow!("expected repeated repartitioning"))?;
         for result in [&result, &repeated] {
@@ -897,6 +963,249 @@ mod tests {
                 }
                 assert_eq!(end, 100);
             }
+        }
+        Ok(())
+    }
+
+    fn whole_file_test_config(source: &VortexSource) -> FileScanConfig {
+        FileScanConfigBuilder::new(ObjectStoreUrl::local_filesystem(), Arc::new(source.clone()))
+            .with_file(pruning_test_file(
+                "excluded",
+                Precision::Exact(ScalarValue::Int32(Some(1))),
+            ))
+            .with_file(PartitionedFile::new("first", 100))
+            .with_file(PartitionedFile::new("second", 100))
+            .build()
+    }
+
+    #[test]
+    fn repartition_keeps_files_whole_only_after_pruning() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let mut config = whole_file_test_config(&source);
+        for target_partitions in [4, 8, 3] {
+            config = config
+                .file_source
+                .repartitioned(target_partitions, 0, None, &config)?
+                .ok_or_else(|| anyhow::anyhow!("expected whole-file groups"))?;
+            assert_eq!(config.file_groups.len(), 2);
+            for (group, name) in config.file_groups.iter().zip(["first", "second"]) {
+                assert_eq!(group.len(), 1);
+                assert_eq!(group[0].path().as_ref(), name);
+                assert_eq!(group[0].range(), (0, 100));
+            }
+        }
+        assert!(source.pruned_file_inputs.is_none());
+        // The original source has no pruning history for these already-retained inputs.
+        let sibling = source
+            .repartitioned(4, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected byte-range groups"))?;
+        assert_eq!(sibling.file_groups.len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_preserves_ranges_when_crossing_target_threshold() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let mut config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file(pruning_test_file(
+            "excluded",
+            Precision::Exact(ScalarValue::Int32(Some(1))),
+        ))
+        .with_file(PartitionedFile::new("first", 100))
+        .with_file(PartitionedFile::new("second", 300))
+        .build();
+
+        // A smaller target can split retained files. Later passes preserve those ranges,
+        // rather than reconstructing the original whole files.
+        for (target_partitions, expected) in [
+            (
+                4,
+                vec![vec![("first", (0, 100))], vec![("second", (0, 300))]],
+            ),
+            (
+                2,
+                vec![
+                    vec![("first", (0, 100)), ("second", (0, 100))],
+                    vec![("second", (100, 300))],
+                ],
+            ),
+            (
+                4,
+                vec![
+                    vec![("first", (0, 100))],
+                    vec![("second", (0, 100))],
+                    vec![("second", (100, 300))],
+                ],
+            ),
+        ] {
+            config = config
+                .file_source
+                .repartitioned(target_partitions, 0, None, &config)?
+                .ok_or_else(|| anyhow::anyhow!("expected repartitioned groups"))?;
+            let actual = config
+                .file_groups
+                .iter()
+                .map(|group| {
+                    group
+                        .iter()
+                        .map(|file| (file.path().as_ref(), file.range()))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "target partitions: {target_partitions}");
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    fn repartition_splits_files_when_pruning_keeps_every_input(
+        #[values(1, 3)] file_count: usize,
+        #[values(false, true)] exact_bounds: bool,
+    ) -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let files = (0..file_count)
+            .map(|index| {
+                let mut file = if exact_bounds {
+                    pruning_test_file(
+                        &index.to_string(),
+                        Precision::Exact(ScalarValue::Int32(Some(9))),
+                    )
+                } else {
+                    PartitionedFile::new(index.to_string(), 1024)
+                };
+                file.object_meta.size = 1024;
+                file
+            })
+            .collect();
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file_group(FileGroup::new(files))
+        .build();
+        let result = source
+            .repartitioned(32, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected byte-range groups"))?;
+        assert_eq!(result.file_groups.len(), 32);
+        for index in 0..file_count {
+            let path = index.to_string();
+            let mut end = 0;
+            for file in result.file_groups.iter().flat_map(FileGroup::iter) {
+                if file.path().as_ref() == path {
+                    let (start, next_end) = file.range();
+                    assert_eq!(start, end);
+                    assert!(next_end > start);
+                    end = next_end;
+                }
+            }
+            assert_eq!(end, 1024);
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("store")]
+    #[case("range")]
+    #[case("object")]
+    #[case("order")]
+    #[case("files")]
+    fn repartition_invalidates_pruning_history_for_changed_inputs(
+        #[case] change: &str,
+    ) -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let config = whole_file_test_config(&source);
+        let mut pruned = source
+            .repartitioned(4, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected pruned groups"))?;
+        match change {
+            "store" => pruned.object_store_url = ObjectStoreUrl::parse("s3://other")?,
+            "range" => {
+                let file = pruned.file_groups[0][0].clone().with_range(0, 50);
+                pruned.file_groups[0] = FileGroup::new(vec![file]);
+            }
+            "object" => {
+                let mut file = pruned.file_groups[0][0].clone();
+                file.object_meta.version = Some("replacement".to_owned());
+                pruned.file_groups[0] = FileGroup::new(vec![file]);
+            }
+            "order" => pruned.file_groups.swap(0, 1),
+            "files" => pruned
+                .file_groups
+                .push(FileGroup::new(vec![PartitionedFile::new("third", 100)])),
+            _ => anyhow::bail!("unknown input change"),
+        }
+        let result = pruned
+            .file_source
+            .repartitioned(4, 0, None, &pruned)?
+            .ok_or_else(|| anyhow::anyhow!("expected byte-range groups"))?;
+        assert_eq!(result.file_groups.len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn added_filters_clear_only_the_cloned_pruning_history() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let config = whole_file_test_config(&source);
+        let pruned = source
+            .repartitioned(4, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected pruned groups"))?;
+        let additional = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(4)))),
+        ));
+        let updated = pruned
+            .file_source
+            .try_pushdown_filters(vec![additional], &ConfigOptions::new())?
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected an updated source"))?;
+        let result = updated
+            .repartitioned(4, 0, None, &pruned)?
+            .ok_or_else(|| anyhow::anyhow!("expected byte-range groups"))?;
+        assert_eq!(result.file_groups.len(), 4);
+        let unchanged = pruned
+            .file_source
+            .repartitioned(4, 0, None, &pruned)?
+            .ok_or_else(|| anyhow::anyhow!("expected whole-file groups"))?;
+        assert_eq!(unchanged.file_groups.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_preserves_existing_ranges_across_repeated_calls() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let mut config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file_group(FileGroup::new(vec![
+            pruning_test_file("excluded", Precision::Exact(ScalarValue::Int32(Some(1)))),
+            PartitionedFile::new("first", 100).with_range(10, 30),
+            PartitionedFile::new("first", 100).with_range(60, 90),
+            PartitionedFile::new("second", 200).with_range(40, 150),
+        ]))
+        .build();
+        let expected = vec![
+            ("first".to_owned(), (10, 30)),
+            ("first".to_owned(), (60, 90)),
+            ("second".to_owned(), (40, 150)),
+        ];
+        for target_partitions in [8, 4, 16] {
+            config = config
+                .file_source
+                .repartitioned(target_partitions, 0, None, &config)?
+                .ok_or_else(|| anyhow::anyhow!("expected a repartitioned scan"))?;
+            let mut ranges = config
+                .file_groups
+                .iter()
+                .flat_map(FileGroup::iter)
+                .map(|file| (file.path().to_string(), file.range()))
+                .collect::<Vec<_>>();
+            ranges.sort_unstable();
+            assert_eq!(ranges, expected);
         }
         Ok(())
     }
