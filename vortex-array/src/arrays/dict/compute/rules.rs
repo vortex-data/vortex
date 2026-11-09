@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
@@ -15,8 +16,10 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Filter;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Slice;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
@@ -26,13 +29,15 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
@@ -61,16 +66,29 @@ impl ArrayReduceRule<Dict> for DictConstantCodesRule {
     }
 }
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&DictionaryChunkedValuesPullUpRule),
-    ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
-    ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
+    kernels.register_reduce_parent_rule(
+        Chunked,
+        Dict,
+        const { &DictionaryChunkedValuesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnValuesPushDownRule },
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn,
+        Dict,
+        const { &DictionaryScalarFnCodesPullUpRule },
+    );
+    kernels.register_reduce_parent_rule(Slice, Dict, const { &SliceReduceAdaptor(Dict) });
+}
 
 /// Pull a common dictionary values array above chunked dictionary codes.
 ///

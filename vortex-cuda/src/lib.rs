@@ -137,6 +137,9 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// [`CudaSession`] for CUDA tests and benchmarks. Array session variables are initialized
 /// with their defaults on first use.
 ///
+/// The session registers the default file encodings, so the optimizer has their parent-reduce
+/// rules.
+///
 /// Each call returns an independent session with its own kernel registry and stream pool.
 /// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
 /// context-level state must use [`CudaContext::new_non_primary`] with [`CudaSession::with_context`].
@@ -146,5 +149,7 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
 #[cfg(any(test, feature = "_test-harness"))]
 pub fn cuda_session() -> vortex::session::VortexSession {
-    vortex::session::VortexSession::empty().with::<CudaSession>()
+    let session = vortex::session::VortexSession::empty().with::<CudaSession>();
+    vortex::file::register_default_encodings(&session);
+    session
 }

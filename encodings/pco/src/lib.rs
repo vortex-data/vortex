@@ -9,14 +9,13 @@
 //!
 //! Pco supports integer and floating-point primitive dtypes handled by the upstream `pco` crate.
 //! It is normally selected through the BtrBlocks compressor when the `pco` feature is enabled.
-//! To deserialize arrays manually, register the encoding in the array session:
+//! To deserialize arrays manually, register the encoding with the session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
 //! use vortex_session::VortexSession;
 //!
 //! let session = VortexSession::empty();
-//! session.arrays().register(vortex_pco::Pco);
+//! vortex_pco::initialize(&session);
 //! ```
 
 mod array;
@@ -26,6 +25,14 @@ mod rules;
 mod slice;
 
 pub use array::*;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Register the Pco encoding and its parent-reduce rules with the session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(Pco);
+    rules::register_parent_rules(session);
+}
 
 #[derive(Clone, prost::Message)]
 /// Metadata for one Pco page.

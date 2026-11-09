@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -9,18 +10,22 @@ use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Slice;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Primitive)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Masked, Primitive, const { &PrimitiveMaskedValidityRule });
+    kernels.register_reduce_parent_rule(Cast, Primitive, const { &CastReduceAdaptor(Primitive) });
+    kernels.register_reduce_parent_rule(MaskFn, Primitive, const { &MaskReduceAdaptor(Primitive) });
+    kernels.register_reduce_parent_rule(Slice, Primitive, const { &SliceReduceAdaptor(Primitive) });
+}
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
 ///

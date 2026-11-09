@@ -27,4 +27,5 @@ pub use utils::*;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
+    compute::rules::register_parent_rules(session);
 }
