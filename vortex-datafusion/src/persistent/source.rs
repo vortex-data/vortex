@@ -556,16 +556,32 @@ impl FileSource for VortexSource {
             });
         let pruned_groups = can_prune.then(|| self.prune_file_groups(config)).flatten();
         let input_groups = pruned_groups.as_deref().unwrap_or(&config.file_groups);
-        let file_groups = match FileGroupPartitioner::new()
-            .with_target_partitions(target_partitions)
-            .with_repartition_file_min_size(repartition_file_min_size)
-            .with_preserve_order_within_groups(output_ordering.is_some())
-            .repartition_file_groups(input_groups)
-        {
-            Some(groups) => groups,
-            // Pruning still applies when the remaining data is too small to split.
-            None if pruned_groups.is_some() => input_groups.to_vec(),
-            None => return Ok(None),
+        let file_count = input_groups.iter().map(FileGroup::len).sum::<usize>();
+        let file_groups = if can_prune && file_count < target_partitions {
+            // V2 scans parallelize chunks within a file. Preserve one group per surviving
+            // file so DataFusion can repartition batches before downstream operators, instead
+            // of repeating scan setup and dictionary decoding for many tiny byte ranges.
+            if file_count == 0 {
+                vec![FileGroup::default()]
+            } else {
+                input_groups
+                    .iter()
+                    .flat_map(FileGroup::iter)
+                    .map(|file| FileGroup::new(vec![file.clone()]))
+                    .collect()
+            }
+        } else {
+            match FileGroupPartitioner::new()
+                .with_target_partitions(target_partitions)
+                .with_repartition_file_min_size(repartition_file_min_size)
+                .with_preserve_order_within_groups(output_ordering.is_some())
+                .repartition_file_groups(input_groups)
+            {
+                Some(groups) => groups,
+                // Pruning still applies when the remaining data is too small to split.
+                None if pruned_groups.is_some() => input_groups.to_vec(),
+                None => return Ok(None),
+            }
         };
         let mut repartitioned = if pruned_groups.is_some() {
             // Whole-table counts no longer describe the retained files, even when predicate
@@ -897,6 +913,62 @@ mod tests {
                 }
                 assert_eq!(end, 100);
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_keeps_filtered_files_whole_below_target_parallelism() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file(PartitionedFile::new("first", 100))
+        .with_file(PartitionedFile::new("second", 100))
+        .build();
+        let result = source
+            .repartitioned(4, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected whole-file groups"))?;
+        assert_eq!(result.file_groups.len(), 2);
+        for (group, name) in result.file_groups.iter().zip(["first", "second"]) {
+            assert_eq!(group.len(), 1);
+            assert_eq!(group[0].path().as_ref(), name);
+            assert_eq!(group[0].range(), (0, 100));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_preserves_existing_ranges_across_repeated_calls() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let mut config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file_group(FileGroup::new(vec![
+            PartitionedFile::new("first", 100).with_range(10, 30),
+            PartitionedFile::new("first", 100).with_range(60, 90),
+            PartitionedFile::new("second", 200).with_range(40, 150),
+        ]))
+        .build();
+        let expected = vec![
+            ("first".to_owned(), (10, 30)),
+            ("first".to_owned(), (60, 90)),
+            ("second".to_owned(), (40, 150)),
+        ];
+        for target_partitions in [8, 4, 16] {
+            config = source
+                .repartitioned(target_partitions, 0, None, &config)?
+                .ok_or_else(|| anyhow::anyhow!("expected a repartitioned scan"))?;
+            let mut ranges = config
+                .file_groups
+                .iter()
+                .flat_map(FileGroup::iter)
+                .map(|file| (file.path().to_string(), file.range()))
+                .collect::<Vec<_>>();
+            ranges.sort_unstable();
+            assert_eq!(ranges, expected);
         }
         Ok(())
     }
