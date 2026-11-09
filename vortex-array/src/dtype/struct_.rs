@@ -117,6 +117,22 @@ impl FieldDType {
     pub fn value(&self) -> VortexResult<DType> {
         self.inner.value()
     }
+
+    /// Returns the DType if it is owned or already parsed, without parsing a lazy view.
+    pub(crate) fn parsed(&self) -> Option<&DType> {
+        match &self.inner {
+            FieldDTypeInner::Owned(owned) => Some(owned),
+            FieldDTypeInner::View(_, lock) => lock.get(),
+        }
+    }
+
+    /// Returns the lazy view over a flatbuffer, or `None` if owned.
+    pub(crate) fn view(&self) -> Option<&ViewedDType> {
+        match &self.inner {
+            FieldDTypeInner::Owned(_) => None,
+            FieldDTypeInner::View(view, _) => Some(view),
+        }
+    }
 }
 
 impl FieldDTypeInner {
@@ -421,6 +437,11 @@ impl StructFields {
                 .value_ref()
                 .vortex_expect("field DType must be valid")
         })
+    }
+
+    /// Returns the field dtypes as stored, without parsing lazy views.
+    pub(crate) fn raw_fields(&self) -> &[FieldDType] {
+        &self.0.dtypes
     }
 
     /// Project a subset of fields from the struct
