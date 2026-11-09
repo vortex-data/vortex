@@ -5,21 +5,36 @@ package dev.vortex.spark.io;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.io.NativeReadable;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FutureDataInputStreamBuilder;
+import org.apache.hadoop.fs.RawLocalFileSystem;
+import org.apache.hadoop.fs.impl.FutureDataInputStreamBuilderImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -55,6 +70,74 @@ final class HadoopReadableTest {
 
         try (NativeReadable readable = HadoopReadable.open(conf, file.toString(), 64)) {
             assertEquals(64, readable.length());
+        }
+    }
+
+    @Test
+    void everyStreamUsesTheResolvedLengthAndRandomReadPolicy() throws IOException {
+        byte[] content = content(64);
+        Path file = write("builder.vortex", content);
+        for (long suppliedLength : new long[] {-1, content.length}) {
+            try (TrackingFileSystem fs = trackingFileSystem();
+                    HadoopReadable readable =
+                            HadoopReadable.open(fs.getConf(), trackedPath(fs, file), suppliedLength)) {
+                assertEquals(suppliedLength < 0 ? 1 : 0, fs.stats);
+                // Open one stream directly and let a pooled read open a second.
+                try (var first = readable.openStream()) {
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(content.length);
+                    readable.readFully(0, buffer);
+                    assertArrayEquals(content, drain(buffer));
+                }
+                assertEquals(2, fs.openOptions.size());
+                for (Configuration options : fs.openOptions) {
+                    assertEquals("64", options.get("fs.option.openfile.length"));
+                    assertEquals("random", options.get("fs.option.openfile.read.policy"));
+                }
+            }
+        }
+    }
+
+    @Test
+    void failedAsynchronousOpensPreserveTheirOriginalExceptions() throws IOException {
+        Path file = write("failed-open.vortex", content(64));
+        IOException missing = new FileNotFoundException("missing object");
+        for (Throwable failure : new Throwable[] {
+            missing,
+            new UncheckedIOException(missing),
+            new IllegalArgumentException("invalid option"),
+            new AssertionError("open failed")
+        }) {
+            try (TrackingFileSystem fs = trackingFileSystem();
+                    HadoopReadable readable = HadoopReadable.open(fs.getConf(), trackedPath(fs, file), 64)) {
+                fs.nextOpen = CompletableFuture.failedFuture(failure);
+                Throwable expected = failure instanceof UncheckedIOException ? missing : failure;
+                assertSame(
+                        expected,
+                        assertThrows(expected.getClass(), () -> readable.readFully(0, ByteBuffer.allocateDirect(1))));
+            }
+        }
+    }
+
+    @Test
+    void interruptedOpenPreservesInterruptAndClosesALateStream() throws IOException {
+        Path file = write("interrupted-open.vortex", content(64));
+        try (TrackingFileSystem fs = trackingFileSystem();
+                HadoopReadable readable = HadoopReadable.open(fs.getConf(), trackedPath(fs, file), 64)) {
+            CompletableFuture<FSDataInputStream> pending = new CompletableFuture<>();
+            fs.nextOpen = pending;
+            Thread.currentThread().interrupt();
+            try {
+                InterruptedIOException failure = assertThrows(
+                        InterruptedIOException.class, () -> readable.readFully(0, ByteBuffer.allocateDirect(1)));
+                assertTrue(Thread.currentThread().isInterrupted());
+                assertTrue(failure.getCause() instanceof InterruptedException);
+            } finally {
+                Thread.interrupted();
+            }
+            assertFalse(pending.isCancelled());
+            FSDataInputStream lateStream = fs.open(new org.apache.hadoop.fs.Path(trackedPath(fs, file)));
+            pending.complete(lateStream);
+            assertThrows(IOException.class, lateStream::read);
         }
     }
 
@@ -146,6 +229,55 @@ final class HadoopReadableTest {
         }
 
         assertArrayEquals(new byte[] {9}, Files.readAllBytes(file));
+    }
+
+    private static TrackingFileSystem trackingFileSystem() throws IOException {
+        Configuration trackingConf = new Configuration();
+        trackingConf.setClass("fs.tracking.impl", TrackingFileSystem.class, FileSystem.class);
+        return (TrackingFileSystem) FileSystem.get(URI.create("tracking://" + UUID.randomUUID()), trackingConf);
+    }
+
+    private static String trackedPath(TrackingFileSystem fs, Path file) {
+        return new org.apache.hadoop.fs.Path("tracking", fs.getUri().getAuthority(), file.toString()).toString();
+    }
+
+    /** Hadoop instantiates this filesystem through the test configuration. */
+    public static final class TrackingFileSystem extends RawLocalFileSystem {
+        private URI uri;
+        private int stats;
+        private final List<Configuration> openOptions = new ArrayList<>();
+        private CompletableFuture<FSDataInputStream> nextOpen;
+
+        @Override
+        public void initialize(URI name, Configuration configuration) throws IOException {
+            uri = name;
+            super.initialize(name, configuration);
+        }
+
+        @Override
+        public URI getUri() {
+            return uri != null ? uri : super.getUri();
+        }
+
+        @Override
+        public FileStatus getFileStatus(org.apache.hadoop.fs.Path path) throws IOException {
+            stats++;
+            return super.getFileStatus(path);
+        }
+
+        @Override
+        public FutureDataInputStreamBuilder openFile(org.apache.hadoop.fs.Path path) {
+            return new FutureDataInputStreamBuilderImpl(this, path) {
+                @Override
+                public CompletableFuture<FSDataInputStream> build() throws IOException {
+                    assertTrue(getMandatoryKeys().isEmpty(), "Open options must remain optional for other filesystems");
+                    openOptions.add(new Configuration(getOptions()));
+                    return nextOpen != null
+                            ? nextOpen
+                            : CompletableFuture.completedFuture(TrackingFileSystem.this.open(path, getBufferSize()));
+                }
+            };
+        }
     }
 
     private Path write(String name, byte[] content) throws IOException {

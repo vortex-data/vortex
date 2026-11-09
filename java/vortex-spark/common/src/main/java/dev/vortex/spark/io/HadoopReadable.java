@@ -5,13 +5,18 @@ package dev.vortex.spark.io;
 
 import dev.vortex.io.PooledReadable;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.StreamCapabilities;
+import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.util.functional.FutureIO;
 
 /** A {@link dev.vortex.io.NativeReadable} that serves Vortex's reads from a Hadoop {@link FileSystem}. */
 public final class HadoopReadable extends PooledReadable {
@@ -46,7 +51,24 @@ public final class HadoopReadable extends PooledReadable {
 
     @Override
     protected PositionalStream openStream() throws IOException {
-        return new HadoopStream(fs.open(path));
+        // Given the length, S3A on Hadoop 3.3.5+ skips the metadata HEAD per stream; older Hadoop
+        // (Spark 3.5) ignores these keys. String keys because 3.3.4 lacks the OpenFileOptions constants.
+        CompletableFuture<FSDataInputStream> opened = fs.openFile(path)
+                .opt("fs.option.openfile.length", Long.toString(length()))
+                .opt("fs.option.openfile.read.policy", "random")
+                .build();
+        try {
+            return new HadoopStream(opened.get());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            InterruptedIOException failure = new InterruptedIOException("Interrupted while opening " + path);
+            failure.initCause(e);
+            // Cancelling a future need not stop the underlying open. Close any stream it produces later.
+            var unused = opened.thenAccept(IOUtils::closeStream);
+            throw failure;
+        } catch (ExecutionException e) {
+            return FutureIO.raiseInnerCause(e);
+        }
     }
 
     private static final class HadoopStream implements PositionalStream {
