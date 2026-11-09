@@ -55,8 +55,9 @@ struct Inner {
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
-    /// The rows of the file live work of its scans still claims.
-    liveness: Liveness,
+    /// The rows of the file live work of its scans still claims, or `None` for a cache that keeps
+    /// its values for as long as it lives.
+    liveness: Option<Liveness>,
 }
 
 impl Default for Inner {
@@ -69,7 +70,7 @@ impl Default for Inner {
             filters: Mutex::default(),
             values: ValueCache::with_liveness(liveness.clone()),
             retained: Arc::default(),
-            liveness,
+            liveness: Some(liveness),
         }
     }
 }
@@ -84,8 +85,31 @@ impl ScanCache {
         }))
     }
 
-    /// The liveness every scan of the file reports its live work to.
-    pub fn liveness(&self) -> Liveness {
+    /// A cache that keeps the values its scans decode, such as dictionary values, for as long as
+    /// it lives, for an owner that scans the file repeatedly. Its scans track no liveness.
+    pub fn retaining_values() -> Self {
+        Self::keeping_values(Arc::default())
+    }
+
+    /// [`retaining_values`](Self::retaining_values), retaining up to `bytes` of recently read
+    /// segments.
+    #[cfg(test)]
+    pub(super) fn retaining_values_with_retained_bytes(bytes: u64) -> Self {
+        Self::keeping_values(Arc::new(RetainedSegments::new(bytes)))
+    }
+
+    fn keeping_values(retained: Arc<RetainedSegments>) -> Self {
+        Self(Arc::new(Inner {
+            values: ValueCache::default(),
+            liveness: None,
+            retained,
+            ..Inner::default()
+        }))
+    }
+
+    /// The liveness every scan of the file reports its live work to, or `None` when the cache
+    /// keeps its values for as long as it lives.
+    pub fn liveness(&self) -> Option<Liveness> {
         self.0.liveness.clone()
     }
 

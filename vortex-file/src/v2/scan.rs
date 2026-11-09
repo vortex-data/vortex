@@ -234,12 +234,12 @@ fn run_stream<A: Send + 'static>(
     root: Box<dyn Planner>,
     scope: WorkScope,
     io: Arc<dyn IoSource>,
-    liveness: Liveness,
+    liveness: Option<Liveness>,
     map_fn: MapFn<A>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded<A>>> {
     let mut run = Run::new();
-    run.admit_with_liveness(root, scope, Arc::clone(&io), liveness);
+    run.admit_tracked(root, scope, Arc::clone(&io), liveness);
     let state = RunState {
         handle,
         run: Some(run),

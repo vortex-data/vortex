@@ -26,7 +26,6 @@ use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
-use vortex_scan::planning::driver::RowClaim;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -62,19 +61,15 @@ pub struct VortexFile {
 #[derive(Clone)]
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
+    /// Keeps the values its scans decode, such as dictionary values, for the next scan to reuse.
     plans: ScanCache,
-    /// A claim on every row of the file, held as long as the file caches, so the values its scans
-    /// decode, such as dictionary values, outlive each scan for the next one to reuse.
-    _retained: Arc<RowClaim>,
 }
 
 impl FileScanCache {
     fn new(footer: &Footer) -> Self {
-        let plans = ScanCache::default();
         Self {
             locations: segment_locations(footer),
-            _retained: Arc::new(plans.liveness().claim(0..footer.row_count())),
-            plans,
+            plans: ScanCache::retaining_values(),
         }
     }
 }

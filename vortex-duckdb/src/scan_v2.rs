@@ -89,7 +89,7 @@ impl FileScan {
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
-        root.admit_with_liveness(
+        root.admit_tracked(
             compose(&scan, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,

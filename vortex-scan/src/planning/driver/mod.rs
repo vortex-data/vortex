@@ -295,7 +295,7 @@ impl Run {
         scope: WorkScope,
         io: Arc<dyn IoSource>,
     ) -> RootId {
-        self.admit_root(root, scope, io, None)
+        self.admit_tracked(root, scope, io, None)
     }
 
     /// Admits `root` like [`admit`](Self::admit), and has the root and every item descended from
@@ -309,7 +309,7 @@ impl Run {
         io: Arc<dyn IoSource>,
         liveness: Liveness,
     ) -> RootId {
-        self.admit_root(root, scope, io, Some(liveness))
+        self.admit_tracked(root, scope, io, Some(liveness))
     }
 
     /// Admits a child a planner spawned, handed over in [`Progress::Spawn`] with its claim.
@@ -328,7 +328,9 @@ impl Run {
         self.admit_claimed(child, scope, io, liveness, claim)
     }
 
-    fn admit_root(
+    /// Admits `root` like [`admit_with_liveness`](Self::admit_with_liveness) when `liveness` is
+    /// given, and like [`admit`](Self::admit) otherwise.
+    pub fn admit_tracked(
         &mut self,
         root: Box<dyn Planner>,
         scope: WorkScope,

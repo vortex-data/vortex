@@ -260,7 +260,7 @@ fn compose(scan: &Arc<PreparedScan>, rows: Range<u64>) -> Box<dyn Planner> {
 async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Vec<Batch>> {
     let io = scan.io();
     let mut run = Run::new();
-    run.admit_with_liveness(
+    run.admit_tracked(
         compose(scan, rows.clone()),
         WorkScope {
             file_ordinal: 0,
@@ -600,7 +600,9 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
     // The scan's rows stay claimed between the chunks, as the root of an engine's scan claims
     // the rows it has yet to plan.
-    let _scan_claim = scan.liveness().claim(scan.rows().clone());
+    let _scan_claim = scan
+        .liveness()
+        .map(|liveness| liveness.claim(scan.rows().clone()));
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
@@ -766,15 +768,30 @@ async fn chunked_ints(
         .await
 }
 
-/// A shared [`ScanCache`] keeps dictionary values between scans while their rows are claimed;
-/// once no work claims them, or without a shared cache, each scan reads them again.
+/// How [`scan_cache_reuses_values_between_scans`] shares a cache between its scans.
+#[derive(Clone, Copy, PartialEq)]
+enum Sharing {
+    /// A shared cache, with a claim on every row held across both scans.
+    Claimed,
+    /// A shared cache, with nothing claimed between the scans.
+    Released,
+    /// A shared cache that keeps its values for as long as it lives.
+    Retaining,
+    /// No shared cache.
+    Uncached,
+}
+
+/// A shared [`ScanCache`] keeps dictionary values between scans while their rows are claimed, or
+/// for its whole life when it retains values; once no work claims them, or without a shared
+/// cache, each scan reads them again.
 #[rstest]
-#[case::claimed(Some(true), 1)]
-#[case::released(Some(false), 4)]
-#[case::uncached(None, 4)]
+#[case::claimed(Sharing::Claimed, 1)]
+#[case::released(Sharing::Released, 4)]
+#[case::retaining(Sharing::Retaining, 1)]
+#[case::uncached(Sharing::Uncached, 4)]
 #[tokio::test]
 async fn scan_cache_reuses_values_between_scans(
-    #[case] claimed: Option<bool>,
+    #[case] sharing: Sharing,
     #[case] second_scan_reads: usize,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -786,12 +803,17 @@ async fn scan_cache_reuses_values_between_scans(
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
-    file.cache = claimed.map(|_| ScanCache::with_retained_bytes(0));
+    file.cache = match sharing {
+        Sharing::Claimed | Sharing::Released => Some(ScanCache::with_retained_bytes(0)),
+        Sharing::Retaining => Some(ScanCache::retaining_values_with_retained_bytes(0)),
+        Sharing::Uncached => None,
+    };
     let _claim = file
         .cache
         .as_ref()
-        .filter(|_| claimed == Some(true))
-        .map(|cache| cache.liveness().claim(0..layout.row_count()));
+        .and_then(ScanCache::liveness)
+        .filter(|_| sharing == Sharing::Claimed)
+        .map(|liveness| liveness.claim(0..layout.row_count()));
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -849,7 +871,9 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so only the values come from the cache.
     let cache = ScanCache::with_retained_bytes(0);
-    let _claim = cache.liveness().claim(0..layout.row_count());
+    let _claim = cache
+        .liveness()
+        .map(|liveness| liveness.claim(0..layout.row_count()));
     file.cache = Some(cache);
 
     let projection = gt(root(), lit(15i32)).bind(layout.dtype())?;

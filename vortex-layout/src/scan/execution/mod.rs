@@ -101,8 +101,8 @@ pub struct PreparedScan {
     /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
     /// always read the same complete row domain, independently of a chunk's selection.
     pub(super) values: ValueCache,
-    /// The liveness the scan's work reports to.
-    pub(super) liveness: Liveness,
+    /// The liveness the scan's work reports to, if its cache tracks one.
+    pub(super) liveness: Option<Liveness>,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
 }
@@ -124,9 +124,10 @@ impl PreparedScan {
     }
 
     /// The liveness a driver admits the scan's work with, through
-    /// [`Run::admit_with_liveness`](vortex_scan::planning::driver::Run::admit_with_liveness), so
-    /// dictionary values the scan decodes are kept while its live work still covers their rows.
-    pub fn liveness(&self) -> Liveness {
+    /// [`Run::admit_tracked`](vortex_scan::planning::driver::Run::admit_tracked), so dictionary
+    /// values the scan decodes are kept while its live work still covers their rows. `None` when
+    /// the scan's cache keeps its values for as long as it lives.
+    pub fn liveness(&self) -> Option<Liveness> {
         self.liveness.clone()
     }
 
