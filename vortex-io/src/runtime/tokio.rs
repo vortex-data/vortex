@@ -4,6 +4,10 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+#[cfg(unix)]
+use custom_labels::Labelset;
+#[cfg(unix)]
+use custom_labels::asynchronous::Label;
 use futures::future::BoxFuture;
 
 use crate::runtime::AbortHandle;
@@ -45,8 +49,6 @@ impl Executor for tokio::runtime::Handle {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
         #[cfg(unix)]
         {
-            use custom_labels::asynchronous::Label;
-
             let fut = fut.with_current_labels();
             Box::new(tokio::runtime::Handle::spawn(self, fut).abort_handle())
         }
@@ -59,8 +61,6 @@ impl Executor for tokio::runtime::Handle {
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         #[cfg(unix)]
         {
-            use custom_labels::asynchronous::Label;
-
             Box::new(
                 tokio::runtime::Handle::spawn(self, async move { cpu() }.with_current_labels())
                     .abort_handle(),
@@ -75,8 +75,6 @@ impl Executor for tokio::runtime::Handle {
     fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         #[cfg(unix)]
         {
-            use custom_labels::Labelset;
-
             let mut set = Labelset::clone_from_current();
             Box::new(
                 tokio::runtime::Handle::spawn_blocking(self, move || set.enter(task))
@@ -95,16 +93,23 @@ struct CurrentTokioRuntime;
 
 impl Executor for CurrentTokioRuntime {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        Executor::spawn(&tokio::runtime::Handle::current(), fut)
+        spawn_current(fut)
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Executor::spawn_cpu(&tokio::runtime::Handle::current(), cpu)
+        spawn_current(async move { cpu() })
     }
 
     fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Executor::spawn_blocking_io(&tokio::runtime::Handle::current(), task)
     }
+}
+
+fn spawn_current(fut: impl Future<Output = ()> + Send + 'static) -> AbortHandleRef {
+    #[cfg(unix)]
+    let fut = fut.with_current_labels();
+    // Tokio borrows the scoped handle here, avoiding a shared runtime refcount update per spawn.
+    Box::new(tokio::spawn(fut).abort_handle())
 }
 
 impl AbortHandle for tokio::task::AbortHandle {
@@ -173,8 +178,10 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::FutureExt;
+    use rstest::rstest;
     use tokio::runtime::Runtime as TokioRt;
     use tokio::sync::oneshot;
+    use vortex_error::VortexResult;
 
     use super::*;
 
@@ -193,9 +200,40 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_and_abort() {
+    fn current_handle_follows_entered_runtime() -> VortexResult<()> {
+        let handle = TokioRuntime::current();
+        for _ in 0..2 {
+            let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+            let id = runtime.handle().id();
+            runtime.block_on(async {
+                assert_eq!(
+                    handle
+                        .spawn(async { tokio::runtime::Handle::current().id() })
+                        .await,
+                    id
+                );
+                assert_eq!(
+                    handle
+                        .spawn_cpu(|| tokio::runtime::Handle::current().id())
+                        .await,
+                    id
+                );
+            });
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn test_spawn_and_abort(#[case] current: bool) {
         let tokio_rt = TokioRt::new().unwrap();
         let runtime = TokioRuntime::from(tokio_rt.handle());
+        let handle = if current {
+            TokioRuntime::current()
+        } else {
+            runtime.handle()
+        };
 
         let counter = Arc::new(AtomicUsize::new(0));
         let task_counter = Arc::clone(&counter);
@@ -211,7 +249,10 @@ mod tests {
             let _ = release_recv.await;
             task_counter.fetch_add(1, Ordering::SeqCst);
         };
-        let task = runtime.handle().spawn(future.boxed());
+        let task = {
+            let _guard = tokio_rt.enter();
+            handle.spawn(future.boxed())
+        };
 
         tokio_rt
             .block_on(started_recv)
