@@ -5,24 +5,24 @@
 
 use std::sync::LazyLock;
 
-use vortex_array::expr::col;
-use vortex_array::expr::eq;
-use vortex_array::expr::is_not_null;
-use vortex_array::expr::is_null;
-use vortex_array::expr::lit;
-use vortex_array::expr::or;
-use vortex_array::expr::test_harness;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::ScalarFnExprExt;
+use crate::col;
+use crate::eq;
+use crate::is_not_null;
+use crate::is_null;
+use crate::lambda::row_count::RowCount;
+use crate::lit;
+use crate::or;
 use crate::stats::StatsSession;
 use crate::stats::all_non_null;
 use crate::stats::all_null;
 use crate::stats::null_count;
 use crate::stats::rewrite::BoundExpressionPruneExt;
+use crate::test_harness;
 
 static STATS_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<StatsSession>());

@@ -3,7 +3,7 @@
 
 //! Expression constructors for this crate's scalar functions.
 //!
-//! These complement the constructors in `vortex_array::expr`.
+//! These complement the constructors in `vortex_expr`.
 
 use std::sync::Arc;
 
@@ -11,18 +11,18 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::Lambda;
-use vortex_array::expr::lit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_expr::Expression;
+use vortex_expr::Lambda;
+use vortex_expr::ScalarFnExprExt;
+use vortex_expr::lit;
 
 use crate::between::Between;
 use crate::between::BetweenOptions;
@@ -178,7 +178,7 @@ pub fn bound_nested_case_when(
 /// ```rust
 /// # use vortex_array::dtype::Nullability;
 /// # use vortex_functions::expr::merge;
-/// # use vortex_array::expr::{get_item, root};
+/// # use vortex_expr::{get_item, root};
 /// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```
 pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
@@ -217,7 +217,7 @@ pub fn bound_merge_opts(
 ///
 /// ```rust
 /// # use vortex_functions::expr::byte_length;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// let expr = byte_length(root());
 /// ```
 pub fn byte_length(input: Expression) -> Expression {
@@ -235,7 +235,7 @@ pub fn bound_byte_length(input: BoundExpression) -> BoundExpression {
 ///
 /// ```rust
 /// # use vortex_functions::expr::lower;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// let expr = lower(root());
 /// ```
 pub fn lower(input: Expression) -> Expression {
@@ -247,7 +247,7 @@ pub fn lower(input: Expression) -> Expression {
 ///
 /// ```rust
 /// # use vortex_functions::expr::strpos;
-/// # use vortex_array::expr::{lit, root};
+/// # use vortex_expr::{lit, root};
 /// let expr = strpos(root(), lit("needle"));
 /// ```
 pub fn strpos(input: Expression, search: Expression) -> Expression {
@@ -258,7 +258,7 @@ pub fn strpos(input: Expression, search: Expression) -> Expression {
 ///
 /// ```rust
 /// # use vortex_functions::expr::ext_storage;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// let expr = ext_storage(root());
 /// ```
 pub fn ext_storage(input: Expression) -> Expression {
@@ -278,7 +278,7 @@ pub fn bound_ext_storage(input: BoundExpression) -> BoundExpression {
 ///
 /// ```rust
 /// # use vortex_functions::expr::list_length;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// let expr = list_length(root());
 /// ```
 pub fn list_length(input: Expression) -> Expression {
@@ -302,7 +302,7 @@ pub fn bound_list_length(input: BoundExpression) -> BoundExpression {
 ///
 /// ```rust
 /// # use vortex_functions::expr::list_sum;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// let expr = list_sum(root());
 /// ```
 pub fn list_sum(input: Expression) -> Expression {
@@ -426,7 +426,7 @@ pub fn bound_dynamic(
 /// ```rust
 /// # use vortex_functions::between::BetweenOptions;
 /// # use vortex_functions::between::StrictComparison;
-/// # use vortex_array::expr::{lit, root};
+/// # use vortex_expr::{lit, root};
 /// # use vortex_functions::expr::between;
 /// let opts = BetweenOptions {
 ///     lower_strict: StrictComparison::NonStrict,
@@ -465,7 +465,7 @@ pub fn bound_between(
 /// SQL's three-valued `IN`, where a null element makes that `null`, use [`in_list`].
 ///
 /// ```rust
-/// # use vortex_array::expr::{lit, root};
+/// # use vortex_expr::{lit, root};
 /// # use vortex_functions::expr::list_contains;
 /// let expr = list_contains(root(), lit(42));
 /// ```
@@ -488,7 +488,7 @@ pub fn list_contains_opts(
 /// `not(in_list(..))` never admits such a row.
 ///
 /// ```rust
-/// # use vortex_array::expr::{lit, root};
+/// # use vortex_expr::{lit, root};
 /// # use vortex_functions::expr::in_list;
 /// let expr = in_list(root(), lit(vec![1, 2, 3]));
 /// ```
@@ -518,7 +518,7 @@ pub fn in_list(needle: Expression, list: Expression) -> Expression {
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// # use vortex_functions::expr::in_list_of;
 /// let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 /// let expr = in_list_of(root(), dtype, vec![3i32.into(), 1i32.into(), 2i32.into()])?;
@@ -734,7 +734,7 @@ fn bound_like_with_options(
 /// follows the input. Only primitive float inputs are supported.
 ///
 /// ```rust
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::root;
 /// # use vortex_functions::expr::is_nan;
 /// let expr = is_nan(root());
 /// ```
@@ -754,7 +754,7 @@ pub fn bound_is_nan(child: BoundExpression) -> BoundExpression {
 /// Creates a zip expression that conditionally selects between two arrays.
 ///
 /// ```rust
-/// # use vortex_array::expr::{lit, root};
+/// # use vortex_expr::{lit, root};
 /// # use vortex_functions::expr::zip_expr;
 /// let expr = zip_expr(lit(true), root(), lit(0i32));
 /// ```
@@ -804,7 +804,7 @@ pub fn bound_dynamic_expression(
 /// The lambda takes one parameter, the element.
 ///
 /// ```rust
-/// # use vortex_array::expr::{Lambda, checked_add, col, lit, var};
+/// # use vortex_expr::{Lambda, checked_add, col, lit, var};
 /// # use vortex_functions::expr::list_transform;
 /// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
 /// let expr = list_transform(col("l"), lambda);

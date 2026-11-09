@@ -17,20 +17,20 @@ use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::and;
-use vortex_array::expr::bound::and_collect;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::lit;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::literal::Literal;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::BoundExpression;
+use crate::ScalarFnExprExt;
+use crate::bound::and;
+use crate::bound::and_collect;
+use crate::bound::eq;
+use crate::bound::lit;
+use crate::lambda::row_count::RowCount;
 use crate::stats::derive::stat_expr;
 
 pub fn row_count() -> BoundExpression {

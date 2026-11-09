@@ -10,12 +10,12 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::lit;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
+use vortex_expr::Expression;
+use vortex_expr::eq;
+use vortex_expr::get_item;
+use vortex_expr::lit;
+use vortex_expr::or;
+use vortex_expr::root;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

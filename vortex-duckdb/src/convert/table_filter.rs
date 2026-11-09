@@ -12,6 +12,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;

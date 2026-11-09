@@ -15,7 +15,7 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::expr;
 use vortex::expr::Expression;
-use vortex::expr::binary;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::lit;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::functions::between::BetweenOptions;

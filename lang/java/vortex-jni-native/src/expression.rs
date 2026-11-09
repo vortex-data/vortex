@@ -47,6 +47,7 @@ use vortex::encodings::uuid::UuidMetadata;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and_collect;
 use vortex::expr::between;
 use vortex::expr::binary;

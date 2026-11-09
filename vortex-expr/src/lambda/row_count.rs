@@ -3,26 +3,25 @@
 
 use std::fmt::Formatter;
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::scalar_fn::ExactScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::registry::CachedId;
-
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::ScalarFn;
-use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::expr::display::ExprDisplay;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTable;
 
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
@@ -96,7 +95,7 @@ impl ScalarFnVTable for RowCount {
 /// Returns whether `array` contains a [`RowCount`] placeholder.
 ///
 /// Traversal is limited to lazy [`ScalarFnArray`] nodes produced by
-/// [`ArrayRef::apply`][crate::ArrayRef::apply]. Other arrays are evaluation
+/// [`ArrayExprExt::apply`](crate::ArrayExprExt::apply). Other arrays are evaluation
 /// leaves and cannot contain unevaluated placeholders.
 ///
 /// [`ScalarFnArray`]: vortex_array::arrays::ScalarFnArray
@@ -157,10 +156,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar_fn::EmptyOptions;
 
-    use crate::scalar_fn::EmptyOptions;
-    use crate::scalar_fn::internal::row_count::RowCount;
-    use crate::scalar_fn::vtable::ScalarFnVTableExt;
+    use crate::ScalarFnExprExt;
+    use crate::lambda::row_count::RowCount;
 
     #[test]
     fn row_count_helper_dtype() {

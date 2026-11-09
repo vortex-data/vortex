@@ -269,18 +269,19 @@ mod tests {
     use vortex_array::dtype::PType::U32;
     use vortex_array::dtype::PType::U64;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
     use vortex_array::scalar_fn::builtin::pack::Pack;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::Expression;
     use vortex_expr::analysis::make_bound_free_field_annotator;
+    use vortex_expr::col;
+    use vortex_expr::get_item;
+    use vortex_expr::pack;
+    use vortex_expr::root;
     use vortex_expr::transform::partition_bound;
     use vortex_session::VortexSession;
 

@@ -4,15 +4,16 @@
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::traversal::FoldDownContext;
-use vortex_array::expr::traversal::FoldUp;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeFolderContext;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+
+use crate::BoundExpression;
+use crate::traversal::FoldDownContext;
+use crate::traversal::FoldUp;
+use crate::traversal::NodeExt;
+use crate::traversal::NodeFolderContext;
 
 /// Returns the rooted field paths referenced by an expression.
 ///
@@ -128,15 +129,15 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
-    use vortex_array::expr::select;
-    use vortex_array::expr::select_exclude;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+    use crate::Expression;
+    use crate::get_item;
+    use crate::pack;
+    use crate::root;
+    use crate::select;
+    use crate::select_exclude;
 
     fn scope() -> DType {
         DType::Struct(

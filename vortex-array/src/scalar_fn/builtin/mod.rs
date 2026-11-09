@@ -20,6 +20,7 @@ pub(crate) use binary::LegacyBinary;
 pub mod boolean;
 pub mod cast;
 pub mod compare;
+mod field;
 pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;

@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Builder methods for this crate's scalar functions, complementing
-//! [`ExprBuiltins`](vortex_array::builtins::ExprBuiltins) and
+//! [`ExprBuiltins`](vortex_expr::ExprBuiltins) and
 //! [`ArrayBuiltins`](vortex_array::builtins::ArrayBuiltins).
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexResult;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
 
 use crate::between::Between;
 use crate::between::BetweenOptions;

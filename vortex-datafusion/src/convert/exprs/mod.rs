@@ -50,7 +50,7 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 use vortex::expr::Expression;
 use vortex::expr::Lambda;
-use vortex::expr::binary;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::ext_storage;

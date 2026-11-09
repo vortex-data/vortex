@@ -27,6 +27,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
