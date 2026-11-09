@@ -36,6 +36,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::FileCache;
 use crate::Manifest;
 use crate::ManifestBuilder;
 use crate::MemoryStorage;
@@ -48,6 +49,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 struct CountingStorage {
     inner: Arc<MemoryStorage>,
     reads: Arc<Mutex<HashMap<String, usize>>>,
+    opens: Mutex<usize>,
 }
 
 impl CountingStorage {
@@ -55,6 +57,7 @@ impl CountingStorage {
         Self {
             inner,
             reads: Arc::default(),
+            opens: Mutex::new(0),
         }
     }
 
@@ -65,6 +68,7 @@ impl CountingStorage {
 
 impl TableStorage for CountingStorage {
     fn open(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        *self.opens.lock() += 1;
         Ok(Arc::new(CountingRead {
             inner: self.inner.open(path)?,
             path: path.to_string(),
@@ -256,5 +260,36 @@ async fn a_rewritten_file_fails_the_scan() -> VortexResult<()> {
     .try_collect()
     .await;
     assert!(result.is_err());
+    Ok(())
+}
+
+#[rstest]
+#[case::inline_footers(true)]
+#[case::read_footers(false)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_cache_skips_opening_files_again(#[case] inline: bool) -> VortexResult<()> {
+    let (storage, manifest) = table(inline).await?;
+    let counting = Arc::new(CountingStorage::new(storage));
+    let cache = Arc::new(FileCache::new());
+    let scan = || {
+        TableScan::new(
+            SESSION.clone(),
+            Arc::clone(&counting) as _,
+            Arc::clone(&manifest),
+        )
+        .with_file_cache(Arc::clone(&cache))
+    };
+    let first: Vec<ScopedBatch> = scan()
+        .execute(&SequentialDriver::new())
+        .try_collect()
+        .await?;
+    assert_eq!(*counting.opens.lock(), usize::try_from(FILES)?);
+    let second: Vec<ScopedBatch> = scan()
+        .execute(&SequentialDriver::new())
+        .try_collect()
+        .await?;
+    // No file is opened, or its footer read, a second time.
+    assert_eq!(*counting.opens.lock(), usize::try_from(FILES)?);
+    assert_eq!(ids(first)?, ids(second)?);
     Ok(())
 }

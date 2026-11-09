@@ -24,6 +24,7 @@ pub mod writer;
 
 pub use manifest::Manifest;
 pub use manifest::ManifestEntry;
+pub use scan::FileCache;
 pub use scan::TableScan;
 pub use storage::LocalStorage;
 pub use storage::MemoryStorage;

@@ -21,6 +21,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use futures::stream::BoxStream;
+use parking_lot::Mutex;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_error::VortexResult;
@@ -28,6 +29,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
+use vortex_file::VortexFile;
 use vortex_file::v2::compose;
 use vortex_io::VortexReadAt;
 use vortex_io::request::Completion;
@@ -67,6 +69,34 @@ pub struct TableScan {
     projection: Expression,
     filter: Option<Expression>,
     selections: Option<HashMap<u64, Selection>>,
+    cache: Option<Arc<FileCache>>,
+}
+
+/// Files a table's scans have opened, kept so later scans skip the footer and reuse each
+/// file's scan plans. Keyed by path and footer hash, so a rewritten file is opened afresh.
+#[derive(Default)]
+pub struct FileCache {
+    files: Mutex<HashMap<(String, u64), VortexFile>>,
+}
+
+impl FileCache {
+    /// An empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn get(&self, entry: &ManifestEntry) -> Option<VortexFile> {
+        self.files
+            .lock()
+            .get(&(entry.path.clone(), entry.footer_hash))
+            .cloned()
+    }
+
+    fn insert(&self, entry: &ManifestEntry, file: VortexFile) {
+        self.files
+            .lock()
+            .insert((entry.path.clone(), entry.footer_hash), file);
+    }
 }
 
 impl TableScan {
@@ -83,6 +113,7 @@ impl TableScan {
             projection: root(),
             filter: None,
             selections: None,
+            cache: None,
         }
     }
 
@@ -103,6 +134,12 @@ impl TableScan {
     /// matches an index found. Files with no selection are not opened at all.
     pub fn with_file_selections(mut self, selections: HashMap<u64, Selection>) -> Self {
         self.selections = Some(selections);
+        self
+    }
+
+    /// Opens files through `cache`, and keeps the files this scan opens there.
+    pub fn with_file_cache(mut self, cache: Arc<FileCache>) -> Self {
+        self.cache = Some(cache);
         self
     }
 
@@ -136,6 +173,7 @@ impl TableScan {
             storage: self.storage,
             projection: self.projection,
             filter: self.filter,
+            cache: self.cache,
         });
         PlanRoot::new(
             WorkScope {
@@ -162,6 +200,7 @@ struct Shared {
     storage: Arc<dyn TableStorage>,
     projection: Expression,
     filter: Option<Expression>,
+    cache: Option<Arc<FileCache>>,
 }
 
 /// One file the scan opens.
@@ -196,16 +235,27 @@ impl Planner for TablePlanner {
         let Some(file) = self.files.next() else {
             return Ok(PlannerOutput::Done);
         };
-        let read = self.shared.storage.open(&file.entry.path)?;
         let scope = WorkScope {
             file_ordinal: file.ordinal,
             rows: 0..file.entry.row_count,
         };
-        let io: Arc<dyn IoService> = Arc::new(ReadAtIoService::new(Arc::clone(&read)));
+        let cached = self
+            .shared
+            .cache
+            .as_ref()
+            .and_then(|cache| cache.get(&file.entry));
+        let (source, io): (FileSource, Arc<dyn IoService>) = match cached {
+            Some(opened) => (FileSource::Opened(Box::new(opened)), Arc::new(NoIo)),
+            None => {
+                let read = self.shared.storage.open(&file.entry.path)?;
+                let io = Arc::new(ReadAtIoService::new(Arc::clone(&read)));
+                (FileSource::Read(read), io)
+            }
+        };
         let planner = FilePlanner {
             shared: Arc::clone(&self.shared),
             file,
-            read,
+            source: Some(source),
             slot: IoSlot::default(),
             done: false,
         };
@@ -218,14 +268,23 @@ impl Planner for TablePlanner {
 struct FilePlanner {
     shared: Arc<Shared>,
     file: TableFile,
-    read: Arc<dyn VortexReadAt>,
+    source: Option<FileSource>,
     slot: IoSlot,
     done: bool,
 }
 
+/// How a file planner gets its file: already opened by an earlier scan, or from its bytes.
+enum FileSource {
+    Opened(Box<VortexFile>),
+    Read(Arc<dyn VortexReadAt>),
+}
+
 impl FilePlanner {
-    fn open(&mut self, region: vortex_buffer::ByteBuffer) -> VortexResult<PlannerOutput> {
-        self.done = true;
+    fn open(
+        &mut self,
+        read: Arc<dyn VortexReadAt>,
+        region: vortex_buffer::ByteBuffer,
+    ) -> VortexResult<PlannerOutput> {
         let entry = &self.file.entry;
         vortex_ensure_eq!(
             footer_hash(&region),
@@ -242,8 +301,23 @@ impl FilePlanner {
                 .open_options()
                 .with_footer(footer)
                 .with_file_size(entry.byte_size)
-                .open(Arc::clone(&self.read)),
+                .open(read),
         )?;
+        let file = match &self.shared.cache {
+            Some(cache) => {
+                let file = file.with_caching();
+                cache.insert(entry, file.clone());
+                file
+            }
+            None => file,
+        };
+        self.plan(file)
+    }
+
+    /// Prunes `file` on its statistics, or prepares its scan and hands over its planners.
+    fn plan(&mut self, file: VortexFile) -> VortexResult<PlannerOutput> {
+        self.done = true;
+        let session = &self.shared.session;
         if let Some(filter) = &self.shared.filter
             && file.can_prune(filter)?
         {
@@ -290,11 +364,21 @@ impl Planner for FilePlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        let read = match self.source.take() {
+            Some(FileSource::Opened(file)) => return self.plan(*file),
+            Some(FileSource::Read(read)) => read,
+            None => vortex_bail!("the file planner ran after it finished"),
+        };
         if let Some(region) = self.file.entry.footer.clone() {
-            return self.open(region);
+            return self.open(read, region);
         }
-        match self.slot.take() {
-            Some(IoResult::Bytes(region)) => self.open(region.try_into_host_sync()?),
+        let result = self.slot.take();
+        if result.is_none() {
+            // Keep the source for the delivery.
+            self.source = Some(FileSource::Read(Arc::clone(&read)));
+        }
+        match result {
+            Some(IoResult::Bytes(region)) => self.open(read, region.try_into_host_sync()?),
             Some(IoResult::Size(_)) => vortex_bail!("a footer read was answered with a size"),
             None => {
                 let entry = &self.file.entry;
