@@ -17,6 +17,7 @@ mod legacy_builder;
 mod pruning;
 mod reader;
 mod schema;
+mod segments;
 pub mod writer;
 pub mod zone_map;
 
@@ -32,6 +33,7 @@ pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
 pub(crate) use schema::default_bounded_stat_max_bytes;
 pub(crate) use schema::legacy_stats_to_aggregates;
+pub use segments::zone_map_segments;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;

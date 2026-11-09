@@ -21,6 +21,7 @@ mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 pub mod object_store;
+pub mod page_cache;
 mod read_at;
 pub mod request;
 pub mod runtime;
