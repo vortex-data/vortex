@@ -116,6 +116,7 @@ pub struct CUmemPool_attribute(pub c_int);
 
 impl CUmemPool_attribute {
     pub const CU_MEMPOOL_ATTR_RELEASE_THRESHOLD: Self = Self(4);
+    pub const CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT: Self = Self(5);
     pub const CU_MEMPOOL_ATTR_USED_MEM_CURRENT: Self = Self(7);
 }
 
@@ -131,6 +132,29 @@ impl CUpointer_attribute {
 }
 
 pub const CU_MEMORYTYPE_HOST: c_uint = 0x1;
+
+pub const CU_MEM_ALLOCATION_TYPE_PINNED: c_int = 0x1;
+pub const CU_MEM_HANDLE_TYPE_NONE: c_int = 0x0;
+pub const CU_MEM_LOCATION_TYPE_DEVICE: c_int = 0x1;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CUmemLocation {
+    pub type_: c_int,
+    pub id: c_int,
+}
+
+/// Memory pool properties. `reserved` covers the trailing fields of newer headers (`maxSize`,
+/// `usage`), whose zero values select the driver defaults.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct CUmemPoolProps {
+    pub allocType: c_int,
+    pub handleTypes: c_int,
+    pub location: CUmemLocation,
+    pub win32SecurityAttributes: *mut c_void,
+    pub reserved: [u8; 64],
+}
 
 pub const CU_STREAM_NON_BLOCKING: c_uint = 0x1;
 pub const CU_MEMHOSTALLOC_PORTABLE: c_uint = 0x1;
@@ -213,16 +237,15 @@ driver_api! {
     fn cuDeviceGetName(name: *mut c_char, len: c_int, device: CUdevice);
     fn cuDeviceGetMemPool(pool: *mut CUmemoryPool, device: CUdevice);
     fn cuDevicePrimaryCtxRetain(context: *mut CUcontext, device: CUdevice);
+    fn cuDeviceTotalMem_v2(bytes: *mut usize, device: CUdevice);
     fn cuDevicePrimaryCtxRelease_v2(device: CUdevice);
     fn cuCtxCreate_v2(context: *mut CUcontext, flags: c_uint, device: CUdevice);
     fn cuCtxDestroy_v2(context: CUcontext);
     fn cuCtxGetCurrent(context: *mut CUcontext);
     fn cuCtxSetCurrent(context: CUcontext);
     fn cuCtxSynchronize();
-    fn cuCtxGetStreamPriorityRange(least: *mut c_int, greatest: *mut c_int);
     fn cuMemGetInfo_v2(free: *mut usize, total: *mut usize);
     fn cuStreamCreate(stream: *mut CUstream, flags: c_uint);
-    fn cuStreamCreateWithPriority(stream: *mut CUstream, flags: c_uint, priority: c_int);
     fn cuStreamDestroy_v2(stream: CUstream);
     fn cuStreamSynchronize(stream: CUstream);
     fn cuStreamWaitEvent(stream: CUstream, event: CUevent, flags: c_uint);
@@ -240,6 +263,12 @@ driver_api! {
     fn cuEventQuery(event: CUevent);
     fn cuEventElapsedTime(milliseconds: *mut f32, start: CUevent, end: CUevent);
     fn cuMemAllocAsync(pointer: *mut CUdeviceptr, bytes: usize, stream: CUstream);
+    fn cuMemAllocFromPoolAsync(
+        pointer: *mut CUdeviceptr,
+        bytes: usize,
+        pool: CUmemoryPool,
+        stream: CUstream,
+    );
     fn cuMemFreeAsync(pointer: CUdeviceptr, stream: CUstream);
     fn cuMemAlloc_v2(pointer: *mut CUdeviceptr, bytes: usize);
     fn cuMemFree_v2(pointer: CUdeviceptr);
@@ -273,6 +302,8 @@ driver_api! {
         data: *mut *mut c_void,
         pointer: CUdeviceptr,
     );
+    fn cuMemPoolCreate(pool: *mut CUmemoryPool, props: *const CUmemPoolProps);
+    fn cuMemPoolDestroy(pool: CUmemoryPool);
     fn cuMemPoolSetAttribute(
         pool: CUmemoryPool,
         attribute: CUmemPool_attribute,

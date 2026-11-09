@@ -24,6 +24,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   NIGHTLY_TOOLCHAIN: nightly-2026-09-10
+  TY_VERSION: 0.0.98
 
 jobs:
   duckdb-mirror:
@@ -92,7 +93,7 @@ jobs:
         if: "!cancelled()"
         run: |
           uv sync --all-packages --no-install-workspace
-          uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
+          uvx ty@$TY_VERSION check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 
       # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
       # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
@@ -444,7 +445,7 @@ jobs:
               enable-sccache: "true"
           - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
             with:
-              python-version: "3.11"
+              python-version: "3.15"
           - name: Restore Cargo registry
             id: cargo-registry
             uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -508,7 +509,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b  # v1
         with:
           command: build
-          maturin-version: 1.15.0
+          maturin-version: 1.16.0
           target: x86_64-pc-windows-msvc
           args: >
             --profile ci
@@ -662,7 +663,7 @@ jobs:
           - uses: ./.github/actions/setup-prebuild
             with:
               enable-sccache: "true"
-          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6
+          - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6
       - name: Build documentation and run Java checks
         run: ./gradlew --parallel javadoc check
         working-directory: ./java

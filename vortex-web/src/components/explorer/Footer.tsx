@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { ThemePicker } from '../ThemePicker';
+
 const LINKS = [
   { href: 'https://vortex.dev/charter.pdf', label: 'Charter' },
   { href: 'https://lfprojects.org/policies/code-of-conduct/', label: 'Code of conduct' },
@@ -11,7 +13,10 @@ const LINKS = [
 /**
  * The design system's Footer card, the one footer every Vortex surface draws: The Linux
  * Foundation's logo (the system's CSS inverts it in Light), the line LF Projects requires, the
- * credit, and the project's links.
+ * credit, the project's links, and the theme switch, which the system's CSS moves up to the
+ * mark's line on a phone. The Explorer shows the footer on its start page only. Each run of text
+ * is one string, so React writes it as one text node, as the docs do; a `{' '}` splits it, and
+ * Chromium then sets the glyphs a pixel apart from the docs' and the site's footer.
  */
 export function Footer() {
   return (
@@ -25,14 +30,15 @@ export function Footer() {
         loading="lazy"
       />
       <p className="vx-footer-text">
-        Copyright © Vortex a Series of LF Projects, LLC. For web site terms of use, trademark policy
-        and other project policies please see{' '}
+        {
+          'Copyright © Vortex a Series of LF Projects, LLC. For web site terms of use, trademark policy and other project policies please see '
+        }
         <a className="vx-link" href="https://lfprojects.org/policies">
           lfprojects.org/policies
         </a>
-        .{' '}
+        {'. '}
         <span className="vx-footer-credit">
-          Donated by{' '}
+          {'Donated by '}
           <a className="vx-link" href="https://spiraldb.com">
             Spiral
           </a>
@@ -46,6 +52,7 @@ export function Footer() {
           </a>
         ))}
       </nav>
+      <ThemePicker />
     </footer>
   );
 }

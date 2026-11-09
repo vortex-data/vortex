@@ -4,17 +4,22 @@
 import { type ReactNode, useEffect, useRef } from 'react';
 import { Icon } from '../Icon';
 import { MarkGithub } from '../MarkGithub';
-import { ThemePicker } from '../ThemePicker';
+import { MarkSlack } from '../MarkSlack';
+import { MarkX } from '../MarkX';
 
 const REPO = 'vortex-data/vortex';
 const REPO_URL = `https://github.com/${REPO}`;
+// Read at build time (vite.config.ts); '' when GitHub did not answer.
+const STARS = import.meta.env.VITE_GITHUB_STARS;
+// vortex.dev's redirect to the Slack invite.
+const SLACK_URL = 'https://vortex.dev/slack';
+const X_URL = 'https://x.com/vortexdotdev';
 
 const LINKS = [
   { label: 'Docs', href: 'https://docs.vortex.dev' },
-  { label: 'Bench', href: 'https://bench.vortex.dev' },
+  { label: 'Benchmarks', href: 'https://bench.vortex.dev' },
   { label: 'Explorer', href: import.meta.env.BASE_URL, current: true },
   { label: 'Blog', href: 'https://vortex.dev/blog' },
-  { label: 'Slack', href: 'https://vortex.dev/slack' },
 ];
 
 function Links() {
@@ -81,9 +86,10 @@ interface HeaderProps {
 
 /**
  * The design system's Header card, the one header every Vortex surface draws: the wordmark, the
- * links, the Explorer's tools, then the end group: the theme switch, the GitHub button, and on a
- * narrow screen the Menu. Below 640px the switch and the GitHub button move to twin rows in the
- * Menu's panel. The wordmark points back to vortex.dev.
+ * links, the Explorer's tools, then the end group: the socials (X, Slack, and the GitHub button),
+ * and on a narrow screen the Menu. The theme switch is in the Footer. Below 960px X and Slack move
+ * to twin rows in the Menu's panel, and the GitHub button and the Menu are icon squares; below
+ * 640px GitHub follows. The wordmark points back to vortex.dev.
  */
 export function Header({ tools, menu }: HeaderProps) {
   return (
@@ -112,30 +118,65 @@ export function Header({ tools, menu }: HeaderProps) {
       </nav>
       {tools && <div className="vx-header-tools">{tools}</div>}
       <div className="vx-header-end">
-        <ThemePicker />
-        <a
-          className="vx-btn vx-btn-secondary is-mono vx-header-github"
-          href={REPO_URL}
-          aria-label={`${REPO} on GitHub`}
-        >
-          <MarkGithub />
-          <span className="vx-header-repo">{REPO}</span>
-        </a>
+        <div className="vx-header-social">
+          <a
+            className="vx-nav-link vx-header-social-link"
+            href={X_URL}
+            aria-label="Vortex on X"
+            title="Vortex on X"
+          >
+            <MarkX />
+          </a>
+          <a
+            className="vx-nav-link vx-header-social-link"
+            href={SLACK_URL}
+            aria-label="Vortex on Slack"
+            title="Vortex on Slack"
+          >
+            <MarkSlack />
+          </a>
+          <a
+            className="vx-btn vx-btn-secondary is-mono vx-header-github"
+            href={REPO_URL}
+            aria-label={`${STARS ? `${STARS} stars, ` : ''}${REPO} on GitHub`}
+            title={`${REPO} on GitHub`}
+          >
+            <MarkGithub />
+            {STARS && (
+              <span className="vx-btn-count">
+                <Icon name="star" />
+                {STARS}
+              </span>
+            )}
+          </a>
+        </div>
         <Menu
           spill={
             <>
               {menu}
-              <div className="vx-header-menu-spill">
-                <span className="vx-label">Theme</span>
-                <ThemePicker />
-              </div>
               <a
-                className="vx-label vx-nav-link vx-header-menu-spill"
+                className="vx-label vx-nav-link vx-header-menu-spill is-social"
                 href={REPO_URL}
                 aria-label={`${REPO} on GitHub`}
               >
                 GitHub
                 <MarkGithub />
+              </a>
+              <a
+                className="vx-label vx-nav-link vx-header-menu-spill is-social is-icon"
+                href={SLACK_URL}
+                aria-label="Vortex on Slack"
+              >
+                Slack
+                <MarkSlack />
+              </a>
+              <a
+                className="vx-label vx-nav-link vx-header-menu-spill is-social is-icon"
+                href={X_URL}
+                aria-label="Vortex on X"
+              >
+                X
+                <MarkX />
               </a>
             </>
           }

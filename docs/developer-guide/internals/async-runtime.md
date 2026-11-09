@@ -1,4 +1,4 @@
-# Runtime and Threading Model
+# Runtime and threading model
 
 Vortex defines its own async runtime abstraction in the `vortex-io` crate. This abstraction
 decouples the rest of the ecosystem from any particular async runtime, allowing different

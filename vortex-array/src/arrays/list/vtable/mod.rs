@@ -4,14 +4,12 @@
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -21,27 +19,22 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::ListSlots;
-use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_list_builder;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
 mod operations;
+mod plugin;
 mod validity;
 /// A [`List`]-encoded Vortex array.
 pub type ListArray = Array<List>;
@@ -105,27 +98,6 @@ impl VTable for List {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn serialize(
-        array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            ListMetadata {
-                elements_len: array.elements().len() as u64,
-                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
-    }
-
     fn validate(
         &self,
         _data: &ListData,
@@ -154,58 +126,6 @@ impl VTable for List {
         );
 
         Ok(())
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = ListMetadata::decode(metadata)?;
-        let offset_ptype = metadata.get_offset_ptype()?;
-        let validity = if children.len() == 2 {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 3 {
-            let validity = children.get(2, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 2 or 3 children, got {}", children.len());
-        };
-
-        let DType::List(element_dtype, _) = &dtype else {
-            vortex_bail!("Expected List dtype, got {:?}", dtype);
-        };
-        let elements = children.get(
-            0,
-            element_dtype.as_ref(),
-            usize::try_from(metadata.elements_len)?,
-        )?;
-
-        let offsets = children.get(
-            1,
-            &DType::Primitive(offset_ptype, Nullability::NonNullable),
-            len + 1,
-        )?;
-
-        let data = ListData::try_build(
-            elements.clone(),
-            offsets.clone(),
-            validity.clone(),
-            &mut session.create_execution_ctx(),
-        )?;
-        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -251,6 +171,8 @@ mod tests {
     use super::List;
     use super::ListMetadata;
     use crate::ArrayRef;
+    use crate::array::ArrayDeserialization;
+    use crate::array::ArrayPlugin;
     use crate::array::VTable;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -270,7 +192,11 @@ mod tests {
         }
         .encode_to_vec();
         let children: Vec<ArrayRef> = Vec::new();
-        let result = List.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        let result = ArrayPlugin::deserialize(
+            &List,
+            ArrayDeserialization::new(VTable::id(&List), &dtype, 0, &metadata, &[], &children),
+            &SESSION,
+        );
         assert!(result.is_err_and(|err| {
             err.to_string()
                 .contains("ListMetadata offset_ptype must be a known PType, got 11")

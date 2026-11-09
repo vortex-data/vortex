@@ -96,6 +96,28 @@ Run `cargo shear --fix` to apply suggested fixes, then review the manifest chang
 used only by generated code or to enable transitive features may need an entry in the affected
 crate's `[package.metadata.cargo-shear]` `ignored` list, with a comment explaining why.
 
+### Dependency release cooldown
+
+New releases wait 7 days before they reach the Python and JavaScript lock files, so most malicious
+publishes are found and removed upstream first. Renovate applies the wait to the version updates
+that it proposes. For lock file refreshes, uv applies the wait to `uv.lock` through `exclude-newer`
+in the root `pyproject.toml`. npm and Bun apply it to the JavaScript lock files, as `renovate.json`
+describes. `Cargo.lock` has no such wait. The weekly Rust lock file maintenance takes the latest
+compatible crate releases at once.
+
+Renovate opens security updates at once, but uv still refuses a fix released less than 7 days ago.
+The security PR then reports that it could not update `uv.lock`. To take the fix, add this
+exception to the PR's `pyproject.toml`:
+
+```toml
+[tool.uv]
+exclude-newer-package = { <package> = false }
+```
+
+Then run `uv lock --upgrade-package <package>`. Plain `uv lock` keeps the vulnerable version if it
+still satisfies the constraints, for example for a transitive dependency. Remove the exception once
+that release is 7 days old.
+
 ### Python bindings
 
 `vortex-data` is a mixed Python and Rust package. `uv` manages its Python environment, and

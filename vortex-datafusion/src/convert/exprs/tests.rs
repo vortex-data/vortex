@@ -38,10 +38,12 @@ use datafusion::physical_expr::create_physical_expr;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::buffer::NullBuffer;
+use datafusion_common::arrow::buffer::OffsetBuffer;
 use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::datatypes::i256 as arrow_i256;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
+use datafusion_expr::HigherOrderUDF;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::ScalarUDF;
 use datafusion_functions::core::coalesce::CoalesceFunc;
@@ -131,6 +133,31 @@ fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<
     Ok(Arc::new(ScalarFunctionExpr::try_new(
         Arc::new(function),
         vec![list],
+        schema,
+        Arc::new(ConfigOptions::new()),
+    )?))
+}
+
+/// Plans `array_transform(list, (param) -> body)` as DataFusion does: the parameter is the list's
+/// element field, numbered after the columns of `schema` and any enclosing lambda's parameters.
+fn array_transform_expr(
+    list: Arc<dyn PhysicalExpr>,
+    param: &str,
+    index: usize,
+    body: impl FnOnce(Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>>,
+    schema: &Schema,
+) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let (DataType::List(element) | DataType::LargeList(element)) = list.data_type(schema)? else {
+        return Err(exec_datafusion_err!("array_transform requires a list"));
+    };
+    let variable = Arc::new(df_expr::LambdaVariable::new(
+        index,
+        Arc::new(element.as_ref().clone().with_name(param)),
+    ));
+    let lambda = df_expr::LambdaExpr::try_new(vec![param.to_string()], body(variable)?)?;
+    Ok(Arc::new(HigherOrderFunctionExpr::try_new_with_schema(
+        Arc::new(HigherOrderUDF::new_from_impl(ArrayTransform::new())),
+        vec![list, Arc::new(lambda)],
         schema,
         Arc::new(ConfigOptions::new()),
     )?))
@@ -2274,6 +2301,164 @@ fn test_native_array_sum_nan() -> anyhow::Result<()> {
             .typed_value::<f64>()
             .is_some_and(f64::is_nan)
     );
+    Ok(())
+}
+
+/// `[[1, null, 2], [], [null, null], null, [0, 3]]` as the `xs` column.
+fn int_lists() -> anyhow::Result<RecordBatch> {
+    let lists = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None, Some(2)]),
+        Some(vec![]),
+        Some(vec![None, None]),
+        None,
+        Some(vec![Some(0), Some(3)]),
+    ]);
+    Ok(RecordBatch::try_from_iter([(
+        "xs",
+        Arc::new(lists) as arrow_array::ArrayRef,
+    )])?)
+}
+
+fn is_not_null_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::IsNotNullExpr::new(x)))
+}
+
+fn eq_zero_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::BinaryExpr::new(
+        x,
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(0)))),
+    )))
+}
+
+fn plus_one_body(x: Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>> {
+    Ok(Arc::new(df_expr::BinaryExpr::new(
+        x,
+        DFOperator::Plus,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(1)))),
+    )))
+}
+
+/// Builds a lambda body from its parameter.
+type LambdaBody = fn(Arc<dyn PhysicalExpr>) -> DFResult<Arc<dyn PhysicalExpr>>;
+
+#[rstest]
+#[case::is_not_null(is_not_null_body)]
+#[case::eq(eq_zero_body)]
+#[case::plus(plus_one_body)]
+fn test_native_array_transform(
+    #[case] body: LambdaBody,
+    #[values(false, true)] summed: bool,
+) -> anyhow::Result<()> {
+    let batch = int_lists()?;
+    let schema = batch.schema();
+    let xs = Arc::new(df_expr::Column::new("xs", 0));
+    let mut expr = array_transform_expr(xs, "x", 1, body, &schema)?;
+    if summed {
+        expr = array_sum_expr(expr, &schema)?;
+    }
+    assert_native_matches(expr, batch)
+}
+
+/// `100 / x` never sees the zero under a null list, as DataFusion drops the values under nulls.
+#[test]
+fn test_native_array_transform_skips_values_under_null_lists() -> anyhow::Result<()> {
+    let lists = ListArray::try_new(
+        Arc::new(Field::new("item", DataType::Int64, true)),
+        OffsetBuffer::from_lengths([2, 1, 1]),
+        Arc::new(Int64Array::from(vec![1, 2, 0, 4])),
+        Some(NullBuffer::from(vec![true, false, true])),
+    )?;
+    let batch = RecordBatch::try_from_iter([("xs", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xs", 0)),
+        "x",
+        1,
+        |x| {
+            Ok(Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(100)))),
+                DFOperator::Divide,
+                x,
+            )))
+        },
+        &schema,
+    )?;
+    expr.evaluate(&batch)?;
+    assert_native_matches(expr, batch)
+}
+
+/// `array_transform(xss, (x) -> array_transform(x, (y) -> y IS NOT NULL))`, and the same with the
+/// inner parameter also named `x`, shadowing the outer one.
+#[rstest]
+#[case::distinct("y")]
+#[case::shadowed("x")]
+fn test_native_nested_array_transform(#[case] inner_param: &str) -> anyhow::Result<()> {
+    let inner = ListArray::from_iter_primitive::<Int64Type, _, _>([
+        Some(vec![Some(1), None]),
+        Some(vec![]),
+        None,
+        Some(vec![Some(2)]),
+    ]);
+    let lists = ListArray::try_new(
+        Arc::new(Field::new("item", inner.data_type().clone(), true)),
+        OffsetBuffer::from_lengths([2, 0, 2]),
+        Arc::new(inner),
+        Some(NullBuffer::from(vec![true, true, false])),
+    )?;
+    let batch = RecordBatch::try_from_iter([("xss", Arc::new(lists) as arrow_array::ArrayRef)])?;
+    let schema = batch.schema();
+    let expr = array_transform_expr(
+        Arc::new(df_expr::Column::new("xss", 0)),
+        "x",
+        1,
+        |x| array_transform_expr(x, inner_param, 2, is_not_null_body, &schema),
+        &schema,
+    )?;
+    assert_native_matches(expr, batch)
+}
+
+/// A body may read only its own parameter: a column, even one named like the parameter, or an
+/// enclosing lambda's parameter keeps `array_transform` in DataFusion.
+#[rstest]
+#[case::column(false)]
+#[case::outer_parameter(true)]
+fn test_array_transform_reading_outside_falls_back(#[case] nested: bool) -> DFResult<()> {
+    let element = Field::new("item", DataType::Int64, true);
+    let schema = Schema::new(vec![
+        Field::new(
+            "xss",
+            DataType::new_list(DataType::new_list(DataType::Int64, true), true),
+            true,
+        ),
+        Field::new("xs", DataType::List(Arc::new(element)), true),
+        Field::new("x", DataType::Int64, true),
+    ]);
+    let plus_column = |x: Arc<dyn PhysicalExpr>| -> DFResult<Arc<dyn PhysicalExpr>> {
+        Ok(Arc::new(df_expr::BinaryExpr::new(
+            x,
+            DFOperator::Plus,
+            Arc::new(df_expr::Column::new("x", 2)),
+        )))
+    };
+    let expr = if nested {
+        array_transform_expr(
+            Arc::new(df_expr::Column::new("xss", 0)),
+            "x",
+            3,
+            |x| array_transform_expr(Arc::clone(&x), "y", 4, |_| Ok(x), &schema),
+            &schema,
+        )?
+    } else {
+        array_transform_expr(
+            Arc::new(df_expr::Column::new("xs", 1)),
+            "x",
+            3,
+            plus_column,
+            &schema,
+        )?
+    };
+    assert!(!converts(&expr, &schema)?);
     Ok(())
 }
 

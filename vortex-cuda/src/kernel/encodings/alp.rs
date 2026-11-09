@@ -125,7 +125,7 @@ where
     ctx.synchronize_stream()?;
     drop(device_patches);
 
-    let output_buf = CudaDeviceBuffer::new(output_slice);
+    let output_buf = CudaDeviceBuffer::new(output_slice)?;
     let output_handle = BufferHandle::new_device(output_buf.slice_typed::<A>(0..array_len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,

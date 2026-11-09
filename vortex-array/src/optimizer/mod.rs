@@ -2,53 +2,42 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The optimizer applies metadata-only rewrite rules (`reduce` and `reduce_parent`) in a
-//! fixpoint loop until no more transformations are possible.
+//! fixpoint loop until no more rules apply.
 //!
-//! Optimization runs between execution steps, which is what enables cross-step optimizations:
-//! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
+//! Optimization runs between execution steps. After a child is decoded, `reduce_parent` rules
+//! that did not match before can match.
 //!
-//! There are three public entry points on [`ArrayOptimizer`]:
+//! Parent-reduce rules come from the session's [`kernels::ArrayKernels`]. To optimize, use
+//! [`ArrayOptimizer::optimize_ctx`] with the session or with an [`ExecutionCtx`] created from it.
 //!
-//! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables, and only
-//!   rewrites the root node.
-//! - [`ArrayOptimizer::optimize_ctx`] also consults the session's active
-//!   [`kernels::ArrayKernels`] registry before static parent-reduce rules, so this is the entry
-//!   point used by execution. It optimizes the root, then the descendants below it that were
-//!   never optimized, then the root again if a child changed.
-//! - [`ArrayOptimizer::optimize_recursive`] is the same as [`ArrayOptimizer::optimize_ctx`].
+//! Array constructors do not optimize. The optimizer works top down: it tries the rules of a node,
+//! then optimizes the children that were never optimized, and tries the rules of the node again if
+//! a child changed. Thus a rule for a child encoding sees that encoding, not a lazy wrapper around
+//! it. The nodes that a rule builds are optimized before the next pass, so two rules that are
+//! inverses of each other cannot rewrite a node back and forth.
 //!
-//! With a session, the optimizer works top down. It first tries the rules of a node on its children
-//! as they are, so a rule that drops or replaces a child does not optimize that child first. Then
-//! it optimizes the children that were never optimized, and if any child changed, it tries the
-//! rules of the node again. Thus a parent rule or kernel keyed on a child's encoding still sees
-//! that encoding rather than a lazy wrapper around it, such as a slice of an FSST array under a
-//! `LIKE`. Children already optimized are left without visiting their subtrees.
-//!
-//! Whenever a rule rewrites a node, the nodes the rule built are optimized bottom up before the
-//! next pass on the node. Otherwise two rules that are inverses of each other, such as
-//! `slice(get_item(s))` and `get_item(slice(s))`, could rewrite the node back and forth.
-//!
-//! Each array records whether the optimizer has taken it to its fixpoint. A new array starts
-//! unoptimized, and optimizing with a session marks the arrays it returns, so optimizing an array
-//! again returns it without trying any rule. The optimizer marks a node only after it optimized
-//! the children of the node, so the descendants of a marked node are marked too. The mark does not
-//! record the session: an array optimized with one session is not optimized again with a session
-//! that registers more kernels.
+//! The optimizer marks the arrays that it returns. Optimizing a marked array again tries no rule.
 
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
-use crate::optimizer::kernels::ArrayKernels;
+use crate::array::ArrayId;
+use crate::arrays::ScalarFn;
+use crate::arrays::scalar_fn::AnyScalarFn;
+use crate::executor::ExecutionCtx;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::ParentReduceKernels;
 use crate::trace_op;
 
 pub mod kernels;
@@ -58,9 +47,9 @@ pub mod rules;
 /// Increasing this value permits longer rewrite chains but delays detection of cyclic rules.
 const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 
-/// Records whether the optimizer has already optimized an array node and all of its descendants.
+/// Records whether the optimizer has already taken an array node to its fixpoint.
 ///
-/// A shared array never changes, so a node that the optimizer took to its fixpoint stays there.
+/// A shared array never changes, so a node that reached the optimizer's fixpoint stays there.
 /// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
 /// state.
 ///
@@ -116,58 +105,136 @@ impl OptimizedState {
 /// node. Thus every decoded node is marked, and the optimizer does not try reduce or
 /// parent-reduce rules on any of them. Only the nodes that an encoding's deserializer builds itself
 /// around its decoded children stay unmarked. Arrays are usually written as the compressor built
-/// them, so this skips rules on decoded arrays without the guarantee that none applies.
+/// them, so this skips rules on decoded arrays without the guarantee that none applies. A rule
+/// that rewrites a parent of a decoded node, such as a slice pushed into a dictionary, optimizes
+/// the new nodes it builds, but not the decoded nodes that it keeps.
 pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
     array.optimized_state().mark_optimized();
 }
 
+/// The parent-reduce kernels [`ArrayOptimizer`] optimizes with, from [`AsOptimizerKernels`].
+///
+/// A [`VortexSession`] snapshots its registered kernels for each call. An [`ExecutionCtx`] reuses
+/// the snapshot it took from its session when it was created, so a kernel that optimizes what it
+/// builds, possibly once per element, passes its context.
+#[derive(Clone, Copy)]
+pub struct OptimizerKernels<'a>(KernelSource<'a>);
+
+#[derive(Clone, Copy)]
+enum KernelSource<'a> {
+    Session(&'a VortexSession),
+    Snapshot(&'a ParentReduceKernels),
+}
+
+impl OptimizerKernels<'_> {
+    fn with_reduce_parent_kernels<R>(self, f: impl FnOnce(&ParentReduceKernels) -> R) -> R {
+        match self.0 {
+            KernelSource::Session(session) => session.kernels().with_reduce_parent_kernels(f),
+            KernelSource::Snapshot(kernels) => f(kernels),
+        }
+    }
+}
+
+/// A source of the parent-reduce kernels [`ArrayOptimizer`] optimizes with.
+pub trait AsOptimizerKernels {
+    /// The kernels to optimize with.
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_>;
+}
+
+impl AsOptimizerKernels for VortexSession {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Session(self))
+    }
+}
+
+impl AsOptimizerKernels for LazyLock<VortexSession> {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Session(self))
+    }
+}
+
+impl AsOptimizerKernels for ExecutionCtx {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Snapshot(self.reduce_parent_kernels()))
+    }
+}
+
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
-    /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
+    /// Optimize the array with only the parent-reduce rules that `vortex-array` registers by
+    /// default.
     ///
-    /// This uses only static rules registered on encoding vtables. Use [`Self::optimize_ctx`]
-    /// when a session-scoped [`kernels::ArrayKernels`] registry should participate.
+    /// Encodings outside `vortex-array` register their rules with a session, so this misses them.
+    /// The result is not marked as optimized, so optimizing it later with a session still tries
+    /// the session's rules.
+    #[deprecated(
+        note = "use `optimize_ctx` with the session, or an `ExecutionCtx` created from it, instead"
+    )]
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the array tree using static rules and the active [`kernels::ArrayKernels`]
-    /// registry on `session`, if any.
+    /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
-    /// The descendants that were never optimized are optimized before the root. Session kernels
-    /// are checked for each `(parent_encoding_id, child_encoding_id)` pair before the child's
-    /// static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on `session`,
-    /// if any. If `session` does not contain a [`kernels::KernelSession`], this behaves like
-    /// [`Self::optimize`] on the root and its never optimized descendants.
-    fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
+    /// The root is optimized first, then the descendants that were never optimized, then the root
+    /// again if a child changed. Parent-reduce kernels are looked up for each
+    /// `(parent_encoding_id, child_encoding_id)` pair in the [`kernels::KernelSession`] of the
+    /// session, or of the session an execution context was created from.
+    fn optimize_ctx(&self, kernels: &(impl AsOptimizerKernels + ?Sized)) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// This is the same as [`Self::optimize_ctx`]: optimizing a node first optimizes every
+    /// This is the same as [`Self::optimize_ctx`]: optimizing a node also optimizes every
     /// descendant that was never optimized.
-    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
+    fn optimize_recursive(
+        &self,
+        kernels: &(impl AsOptimizerKernels + ?Sized),
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self) -> VortexResult<ArrayRef> {
+        /// A session that holds only the parent-reduce rules `vortex-array` registers by default.
+        static BUILTIN_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
         if self.optimized_state().is_optimized() {
             return Ok(self.clone());
         }
 
-        Optimizer::new(None).optimize_root(self.clone())
+        BUILTIN_SESSION
+            .kernels()
+            .with_reduce_parent_kernels(|kernels| {
+                Optimizer {
+                    kernels,
+                    mark: false,
+                    rewritten_shared: HashMap::new(),
+                }
+                .optimize_array(self)
+            })
     }
 
-    fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+    fn optimize_ctx(&self, kernels: &(impl AsOptimizerKernels + ?Sized)) -> VortexResult<ArrayRef> {
         if self.optimized_state().is_optimized() {
             return Ok(self.clone());
         }
 
-        let session_kernels = session.kernels();
-        let session_kernels: &ArrayKernels = &session_kernels;
-        Optimizer::new(Some(session_kernels)).optimize_array(self)
+        kernels
+            .optimizer_kernels()
+            .with_reduce_parent_kernels(|kernels| optimize_with_kernels(self, kernels))
     }
 
-    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        self.optimize_ctx(session)
+    fn optimize_recursive(
+        &self,
+        kernels: &(impl AsOptimizerKernels + ?Sized),
+    ) -> VortexResult<ArrayRef> {
+        self.optimize_ctx(kernels)
     }
+}
+
+/// [`ArrayOptimizer::optimize_ctx`] against a snapshot of the session's parent-reduce kernels.
+pub(crate) fn optimize_with_kernels(
+    array: &ArrayRef,
+    kernels: &ParentReduceKernels,
+) -> VortexResult<ArrayRef> {
+    Optimizer::new(kernels).optimize_array(array)
 }
 
 /// An array keyed by identity: two keys are equal only when they hold the same array, as
@@ -196,11 +263,10 @@ impl Hash for ArrayByPtr {
 /// Execution keeps one optimizer for all of [`ArrayRef::execute_until`], so a shared node that one
 /// step rewrote is not rewritten again when a later step reaches it through another parent.
 pub(crate) struct Optimizer<'a> {
-    /// The session kernels, tried before the static parent-reduce rules.
-    ///
-    /// Without them, the optimizer rewrites only the root node and does not mark the result, so
-    /// optimizing it later with a session still tries the session kernels.
-    session_kernels: Option<&'a ArrayKernels>,
+    kernels: &'a ParentReduceKernels,
+    /// Whether to mark the arrays this optimizer returns as optimized. Only the deprecated
+    /// [`ArrayOptimizer::optimize`] leaves them unmarked, since it misses the session's rules.
+    mark: bool,
     /// The shared nodes this optimizer rewrote, each with the array it was rewritten into.
     ///
     /// Many parents can hold the same unoptimized node, such as the struct below every field of a
@@ -211,10 +277,11 @@ pub(crate) struct Optimizer<'a> {
 }
 
 impl<'a> Optimizer<'a> {
-    /// Creates an optimizer that tries `session_kernels` before the static parent-reduce rules.
-    pub(crate) fn new(session_kernels: Option<&'a ArrayKernels>) -> Self {
+    /// Creates an optimizer that tries `kernels` and marks the arrays it returns.
+    pub(crate) fn new(kernels: &'a ParentReduceKernels) -> Self {
         Self {
-            session_kernels,
+            kernels,
+            mark: true,
             rewritten_shared: HashMap::new(),
         }
     }
@@ -242,8 +309,8 @@ impl<'a> Optimizer<'a> {
         Ok(optimized)
     }
 
-    /// Optimizes the root of `array` top down: first the root, then the descendants below it that
-    /// were never optimized, then the root again while its children change. Marks the result.
+    /// Optimizes `array` top down: first the root, then the descendants below it that were never
+    /// optimized, then the root again while its children change. Marks the result.
     fn optimize(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
         if array.optimized_state().is_optimized() {
             return Ok(array);
@@ -269,26 +336,26 @@ impl<'a> Optimizer<'a> {
             optimized.statistics().inherit_from(array.statistics());
         }
 
-        optimized.optimized_state().mark_optimized();
+        if self.mark {
+            optimized.optimized_state().mark_optimized();
+        }
+
         Ok(optimized)
     }
 
     /// Runs the reduce and parent-reduce rules on the root of `current_array` to fixpoint.
     ///
-    /// With session kernels, the nodes each rewrite built are optimized before the next pass.
+    /// The nodes each rewrite built are optimized before the next pass.
     fn optimize_root(&mut self, mut current_array: ArrayRef) -> VortexResult<ArrayRef> {
         let mut any_optimizations = false;
 
-        trace_op!(record_optimize_start(
-            &current_array,
-            self.session_kernels.is_some()
-        ));
+        trace_op!(record_optimize_start(&current_array));
 
         for _ in 0..=MAX_OPTIMIZER_REWRITE_PASS {
             trace_op!(record_optimize_loop_start(&current_array));
 
             if let Some(new_array) = current_array.reduce()? {
-                current_array = self.optimize_rewritten(new_array)?;
+                current_array = self.optimize_new_nodes(new_array)?;
                 any_optimizations = true;
                 trace_op!(record_optimize_loop_end());
                 continue;
@@ -296,30 +363,31 @@ impl<'a> Optimizer<'a> {
 
             trace_op!(record_optimize_reduce_none(&current_array));
 
-            // Try children in order; the first parent rewrite restarts the fixpoint loop.
+            // Try children in order; the first parent rewrite restarts the fixpoint loop. A parent
+            // that no kernel is registered for skips its children without probing each pair.
             let mut reduced_parent = None;
-            for (slot_idx, slot) in current_array.slots().iter().enumerate() {
-                let Some(child) = slot else {
-                    continue;
-                };
-
-                // Session kernels take precedence over the child's static parent-reduce rules.
-                if let Some(session_kernels) = self.session_kernels
-                    && let Some(new_array) =
-                        try_session_parent_reduce(session_kernels, &current_array, child, slot_idx)?
-                {
-                    reduced_parent = Some(new_array);
-                    break;
-                }
-
-                if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
-                    reduced_parent = Some(new_array);
-                    break;
+            let candidates = ReduceParentCandidates::new(self.kernels, &current_array);
+            if !candidates.is_empty() {
+                for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+                    let Some(child) = slot else {
+                        continue;
+                    };
+                    if candidates.contains(child)
+                        && let Some(new_array) = reduce_parent_with_kernels(
+                            self.kernels,
+                            &current_array,
+                            child,
+                            slot_idx,
+                        )?
+                    {
+                        reduced_parent = Some(new_array);
+                        break;
+                    }
                 }
             }
 
             if let Some(new_array) = reduced_parent {
-                current_array = self.optimize_rewritten(new_array)?;
+                current_array = self.optimize_new_nodes(new_array)?;
                 any_optimizations = true;
                 trace_op!(record_optimize_loop_end());
                 continue;
@@ -334,16 +402,6 @@ impl<'a> Optimizer<'a> {
         }
 
         vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
-    }
-
-    /// Optimizes the nodes that a rule built below the array it returned, if the optimizer has
-    /// session kernels.
-    fn optimize_rewritten(&mut self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        if self.session_kernels.is_none() {
-            return Ok(array);
-        }
-
-        self.optimize_new_nodes(array)
     }
 
     /// Optimizes the nodes below `array` that were never optimized, such as those a rule built
@@ -366,7 +424,6 @@ impl<'a> Optimizer<'a> {
                 }
                 _ => None,
             };
-
             match optimized {
                 Some(optimized) => new_slots
                     .get_or_insert_with(|| {
@@ -382,37 +439,122 @@ impl<'a> Optimizer<'a> {
                 }
             }
         }
-
         let Some(new_slots) = new_slots else {
             return Ok(array);
         };
-
         // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
         // the parent's logical values and statistics remain valid.
         unsafe { array.with_slots(new_slots) }
     }
 }
 
-fn try_session_parent_reduce(
-    kernels: &ArrayKernels,
+/// The child ids that parent-reduce kernels are registered for under one parent: those for the
+/// parent's encoding id and, for a scalar function array, those for [`AnyScalarFn::id`].
+struct ReduceParentCandidates<'a> {
+    exact: &'a [ArrayId],
+    any_scalar_fn: &'a [ArrayId],
+    /// Whether either list holds [`AnyScalarFn::id`], so any scalar function child is a candidate.
+    any_scalar_fn_child: bool,
+}
+
+impl<'a> ReduceParentCandidates<'a> {
+    fn new(kernels: &'a ParentReduceKernels, parent: &ArrayRef) -> Self {
+        let exact = kernels.children(parent.encoding_id()).unwrap_or_default();
+        let any_scalar_fn = if parent.is::<ScalarFn>() {
+            kernels.children(AnyScalarFn.id()).unwrap_or_default()
+        } else {
+            &[]
+        };
+        let any_scalar_fn_child = (!exact.is_empty() || !any_scalar_fn.is_empty()) && {
+            let any_id = AnyScalarFn.id();
+            exact.contains(&any_id) || any_scalar_fn.contains(&any_id)
+        };
+        Self {
+            exact,
+            any_scalar_fn,
+            any_scalar_fn_child,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.exact.is_empty() && self.any_scalar_fn.is_empty()
+    }
+
+    /// Returns whether any kernel may apply to `child` under this parent.
+    fn contains(&self, child: &ArrayRef) -> bool {
+        let id = child.encoding_id();
+        self.exact.contains(&id)
+            || self.any_scalar_fn.contains(&id)
+            || (self.any_scalar_fn_child && child.is::<ScalarFn>())
+    }
+}
+
+/// Tries the parent-reduce kernels registered for `child` under `parent`.
+///
+/// Kernels registered for the exact encoding ids come first. A scalar function array also matches
+/// kernels registered under [`AnyScalarFn::id`], on either side, which are tried after them.
+pub(crate) fn reduce_parent_with_kernels(
+    kernels: &ParentReduceKernels,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(reduce_parent_fns) =
-        kernels.find_reduce_parent(parent.encoding_id(), child.encoding_id())
-    else {
+    let any_scalar_fn = AnyScalarFn.id();
+    let parent_ids = [
+        Some(parent.encoding_id()),
+        parent.is::<ScalarFn>().then_some(any_scalar_fn),
+    ];
+    let child_ids = [
+        Some(child.encoding_id()),
+        child.is::<ScalarFn>().then_some(any_scalar_fn),
+    ];
+    for parent_id in parent_ids.into_iter().flatten() {
+        for child_id in child_ids.into_iter().flatten() {
+            if let Some(reduced) =
+                try_parent_reduce_kernels(kernels, parent_id, child_id, parent, child, slot_idx)?
+            {
+                return Ok(Some(reduced));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn try_parent_reduce_kernels(
+    kernels: &ParentReduceKernels,
+    parent_id: ArrayId,
+    child_id: ArrayId,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(reduce_parent_kernels) = kernels.get(parent_id, child_id) else {
         return Ok(None);
     };
 
     #[allow(clippy::unused_enumerate_index)]
-    for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
-        if let Some(new_array) = reduce_parent(child, parent, slot_idx)? {
+    for (_kernel_idx, kernel) in reduce_parent_kernels.iter().enumerate() {
+        if let Some(new_array) = kernel.reduce_parent(child, parent, slot_idx)? {
+            vortex_ensure_eq!(
+                new_array.len(),
+                parent.len(),
+                "parent-reduce kernel for {} under {} changed the length",
+                child.encoding_id(),
+                parent.encoding_id(),
+            );
+            vortex_ensure_eq!(
+                new_array.dtype(),
+                parent.dtype(),
+                "parent-reduce kernel for {} under {} changed the dtype",
+                child.encoding_id(),
+                parent.encoding_id(),
+            );
             trace_op!(record_session_parent_reduce_applied(
                 parent,
                 child,
                 slot_idx,
                 _kernel_idx,
+                kernel,
                 &new_array,
             ));
 
@@ -424,6 +566,7 @@ fn try_session_parent_reduce(
             child,
             slot_idx,
             _kernel_idx,
+            kernel,
         ));
     }
 
@@ -441,9 +584,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::arrays::FilterArray;
     use crate::arrays::Primitive;
-    use crate::arrays::SliceArray;
     use crate::arrays::StructArray;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
@@ -453,13 +594,9 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    fn lazy_slice(array: ArrayRef, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
-        Ok(SliceArray::try_new(array, range)?.into_array())
-    }
-
     #[test]
     fn optimize_marks_result_and_skips_it_after() -> VortexResult<()> {
-        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
+        let sliced = buffer![1i32, 2, 3, 4].into_array().slice(1..3)?;
         assert!(!sliced.optimized_state().is_optimized());
 
         let optimized = sliced.optimize_ctx(&SESSION)?;
@@ -471,21 +608,7 @@ mod tests {
         ));
 
         // A new array built over an optimized one starts unoptimized.
-        assert!(
-            !lazy_slice(optimized, 0..1)?
-                .optimized_state()
-                .is_optimized()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn optimize_without_session_does_not_mark() -> VortexResult<()> {
-        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
-
-        let optimized = sliced.optimize()?;
-        assert!(optimized.is::<Primitive>());
-        assert!(!optimized.optimized_state().is_optimized());
+        assert!(!optimized.slice(0..1)?.optimized_state().is_optimized());
         Ok(())
     }
 
@@ -493,7 +616,7 @@ mod tests {
     fn optimize_rewrites_a_shared_node_once() -> VortexResult<()> {
         // Both fields hold the same unoptimized slice. The second field reuses the rewrite of the
         // first, so the optimizer does not rewrite the slice and its subtree again.
-        let shared = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..3)?;
+        let shared = buffer![1i32, 2, 3, 4].into_array().slice(1..3)?;
         let parent =
             StructArray::from_fields(&[("a", shared.clone()), ("b", shared)])?.into_array();
 
@@ -507,9 +630,10 @@ mod tests {
 
     #[test]
     fn optimize_marks_every_descendant() -> VortexResult<()> {
-        let sliced = lazy_slice(buffer![1i32, 2, 3, 4].into_array(), 1..4)?;
-        let filtered =
-            FilterArray::try_new(sliced, Mask::from_iter([true, false, true]))?.into_array();
+        let array = buffer![1i32, 2, 3, 4].into_array();
+        let filtered = array
+            .slice(1..4)?
+            .filter(Mask::from_iter([true, false, true]))?;
 
         let optimized = filtered.optimize_ctx(&SESSION)?;
         assert!(
@@ -531,12 +655,7 @@ mod tests {
             .statistics()
             .set(Stat::IsSorted, Precision::exact(ScalarValue::Bool(true)));
 
-        let sliced = lazy_slice(array, 1..3)?;
-        sliced
-            .statistics()
-            .set(Stat::IsSorted, Precision::exact(ScalarValue::Bool(true)));
-
-        let optimized = sliced.optimize_ctx(&SESSION)?;
+        let optimized = array.slice(1..3)?.optimize_ctx(&SESSION)?;
         assert!(optimized.is::<Primitive>());
         assert_eq!(
             optimized.statistics().get_as::<bool>(Stat::IsSorted),

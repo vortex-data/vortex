@@ -142,6 +142,7 @@ pub use widen::WidenArray;
 pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
     chunked::initialize(session);
+    constant::initialize(session);
     decimal::initialize(session);
     dict::initialize(session);
     extension::initialize(session);
@@ -150,11 +151,15 @@ pub(crate) fn initialize(session: &VortexSession) {
     list::initialize(session);
     listview::initialize(session);
     map::initialize(session);
+    masked::initialize(session);
     null::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
     runend::initialize(session);
+    scalar_fn::initialize(session);
+    slice::initialize(session);
     struct_::initialize(session);
+    union::initialize(session);
     varbin::initialize(session);
     varbinview::initialize(session);
     variant::initialize(session);

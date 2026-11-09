@@ -22,7 +22,6 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
-use futures::Stream;
 use futures::StreamExt;
 use jni::EnvUnowned;
 use jni::objects::JByteArray;
@@ -41,7 +40,6 @@ use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::scan::DataSourceScan;
 use vortex::scan::PartitionRef;
@@ -398,11 +396,15 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                 })
             })
             .buffered(lookahead);
-        let iter = scan_iterator(&RUNTIME, split_concurrency, batches).map(
-            |result: VortexResult<RecordBatch>| {
-                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
-            },
-        );
+
+        // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
+        // rather than the per-core queue of `block_on_stream_thread_safe`.
+        let iter =
+            RUNTIME
+                .block_on_stream_prefetch(batches)
+                .map(|result: VortexResult<RecordBatch>| {
+                    result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+                });
 
         let reader = RecordBatchIteratorAdapter::new(iter, schema);
         let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));
@@ -413,23 +415,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
     });
 }
 
-fn scan_iterator<R: Send + 'static>(
-    runtime: &CurrentThreadRuntime,
-    split_concurrency: Option<NonZeroUsize>,
-    stream: impl Stream<Item = R> + Send + 'static,
-) -> Box<dyn Iterator<Item = R> + Send> {
-    if split_concurrency.is_some() {
-        // The thread-safe bridge queues another batch per core, independently of the stream's
-        // conversion lookahead. Drive capped scans directly so that queue cannot bypass the cap.
-        Box::new(runtime.block_on_stream(stream))
-    } else {
-        Box::new(runtime.block_on_stream_thread_safe(|_| stream))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroUsize;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -439,8 +426,6 @@ mod tests {
     use rstest::rstest;
     use vortex::io::runtime::BlockingRuntime;
     use vortex::io::runtime::current::CurrentThreadRuntime;
-
-    use super::scan_iterator;
 
     #[rstest]
     #[case(1)]
@@ -461,7 +446,7 @@ mod tests {
                 })
             })
             .buffered(max);
-        let mut iter = scan_iterator(&runtime, NonZeroUsize::new(max), batches);
+        let mut iter = runtime.block_on_stream_prefetch(batches);
         assert_eq!(iter.next(), Some(0));
 
         // Let background work finish while the consumer keeps its first batch open.

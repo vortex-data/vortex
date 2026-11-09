@@ -3,8 +3,8 @@
 
 //! Iterative array execution.
 //!
-//! The single-step [`Executable`] implementation for [`ArrayRef`] optimizes the array with the
-//! context's session, then tries `execute_parent`, then `execute` once. The matcher-driven
+//! The single-step [`Executable`] implementation for [`ArrayRef`] tries `reduce`,
+//! `reduce_parent`, `execute_parent`, then `execute` once. The matcher-driven
 //! [`ArrayRef::execute_until`] loop interprets [`ExecutionStep::ExecuteSlot`],
 //! [`ExecutionStep::AppendChild`], and [`ExecutionStep::Done`] using an explicit stack plus an
 //! optional builder, so encodings can advance without recursive descent.
@@ -43,13 +43,13 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::Optimizer;
-use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
+use crate::optimizer::kernels::ParentReduceKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
+use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
 
@@ -181,21 +181,20 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        // One optimizer serves the whole execution, so a shared node that one step rewrote is
-        // reused when a later step reaches it. The session is cloned so the optimizer does not
-        // borrow `ctx`.
-        let session = ctx.session().clone();
-        let session_kernels = session.kernels();
-        let session_kernels: &ArrayKernels = &session_kernels;
-        let mut optimizer = Optimizer::new(Some(session_kernels));
+        // Cloning the context's kernels releases the borrow of `ctx`, which the kernels need.
+        let ctx_kernels = Arc::clone(&ctx.kernels);
 
-        // Each node is optimized when execution reaches it: the root here, with the nodes below it
-        // that were never optimized, and a child when execution focuses it.
+        // One optimizer serves the whole execution, so a shared node that one step rewrote is
+        // reused when a later step reaches it.
+        let mut optimizer = Optimizer::new(&ctx_kernels.reduce_parent);
+
+        // Constructors build lazy arrays, so each node is optimized when execution reaches it: the
+        // root here, with the nodes below it that were never optimized, and a child when execution
+        // focuses it.
         let mut current_array = optimizer.optimize_array(&self)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
-        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
-        let kernels = execute_parent_kernels.as_ref();
+        let kernels = ctx_kernels.execute_parent.as_ref();
         let max_iterations = max_iterations();
 
         trace_op!(record_execute_until_start::<M>(&current_array));
@@ -335,6 +334,10 @@ impl ArrayRef {
                     trace_op!(record_append_child(i, &parent, &child));
                     trace_op!(record_builder_append(&child));
 
+                    // `append_to_builder` optimizes the child itself. The shared optimizer here
+                    // also reuses a shared node that an earlier step of this execution rewrote.
+                    let child = optimizer.optimize_array(&child)?;
+
                     // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
                     child.append_to_builder(
@@ -382,13 +385,24 @@ struct StackFrame {
     original_len: usize,
 }
 
+/// The kernels an [`ExecutionCtx`] snapshotted from its session when it was created.
+///
+/// The context holds them in its own `Arc`, which execution clones for each array it executes.
+/// Only this context and its clones share that `Arc`, so the clone does not write to a reference
+/// count that every thread shares, as cloning a snapshot of the session's registries would.
+#[derive(Debug)]
+struct ContextKernels {
+    execute_parent: Arc<ParentExecutionKernels>,
+    reduce_parent: Arc<ParentReduceKernels>,
+}
+
 /// Execution context for batch CPU compute.
 #[derive(Debug, Clone)]
 pub struct ExecutionCtx {
     session: VortexSession,
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
-    execute_parent_kernels: Arc<ParentExecutionKernels>,
+    kernels: Arc<ContextKernels>,
     // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
     aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
@@ -400,15 +414,20 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     ///
-    /// This captures a snapshot of the session's execute-parent kernel registry. Kernels
-    /// registered after this context is created are not visible to it; create a new
-    /// [`ExecutionCtx`] after registration to use newly registered kernels.
+    /// This captures a snapshot of the session's execute-parent and parent-reduce kernel
+    /// registries. Kernels registered after this context is created are not visible to it; create
+    /// a new [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
-        let execute_parent_kernels = session.kernels().execute_parent_snapshot();
+        let session_kernels = session.kernels();
+        let kernels = Arc::new(ContextKernels {
+            execute_parent: session_kernels.execute_parent_snapshot(),
+            reduce_parent: session_kernels.reduce_parent_snapshot(),
+        });
+        drop(session_kernels);
         Self {
             session,
             allocator: OnceLock::new(),
-            execute_parent_kernels,
+            kernels,
             aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
@@ -423,6 +442,12 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// The parent-reduce kernels this context snapshotted from its session, which optimizing with
+    /// the context uses instead of looking up the session's kernels again.
+    pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
+        &self.kernels.reduce_parent
     }
 
     /// Get the allocator for this execution context.
@@ -495,7 +520,7 @@ impl Drop for ExecutionCtx {
 
 /// Single-step execution: takes one step toward canonical form.
 ///
-/// Steps through optimize, execute_parent, then execute. For `ExecuteSlot`,
+/// Steps through reduce, reduce_parent, execute_parent, then execute. For `ExecuteSlot`,
 /// only a single child execution step is performed — the child is executed once and put back,
 /// making this a lightweight, bounded operation.
 ///
@@ -515,7 +540,7 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
-        let optimized = array.optimize_ctx(ctx.session())?;
+        let optimized = optimize_with_kernels(&array, &ctx.kernels.reduce_parent)?;
         if !ArrayRef::ptr_eq(&optimized, &array) {
             optimized.statistics().inherit_from(array.statistics());
             trace_op!(record_single_step_applied("optimize", &array, &optimized));
@@ -523,8 +548,8 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("optimize", &array));
 
-        let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
-        let kernels = execute_parent_kernels.as_ref();
+        let ctx_kernels = Arc::clone(&ctx.kernels);
+        let kernels = ctx_kernels.execute_parent.as_ref();
         let has_parent_kernels = has_execute_parent_kernels(kernels, &array);
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
@@ -672,7 +697,7 @@ fn execute_parent_for_child(
     let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
     if let Some(plugins) = kernels.get(&key) {
         #[allow(clippy::unused_enumerate_index)]
-        for (_plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
+        for (_plugin_idx, plugin) in plugins.iter().enumerate() {
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
                     vortex_ensure_eq!(
@@ -1061,7 +1086,8 @@ mod tests {
         let before_registration = session.create_execution_ctx();
         assert!(
             !before_registration
-                .execute_parent_kernels
+                .kernels
+                .execute_parent
                 .contains_key(&key)
         );
 
@@ -1074,12 +1100,13 @@ mod tests {
 
         assert!(
             !before_registration
-                .execute_parent_kernels
+                .kernels
+                .execute_parent
                 .contains_key(&key)
         );
 
         let after_registration = session.create_execution_ctx();
-        assert!(after_registration.execute_parent_kernels.contains_key(&key));
+        assert!(after_registration.kernels.execute_parent.contains_key(&key));
     }
 
     #[test]
@@ -1090,7 +1117,7 @@ mod tests {
 
         let before = session.create_execution_ctx();
         assert!(!has_execute_parent_kernels(
-            &before.execute_parent_kernels,
+            &before.kernels.execute_parent,
             &bool_array
         ));
 
@@ -1102,11 +1129,11 @@ mod tests {
 
         let after = session.create_execution_ctx();
         assert!(has_execute_parent_kernels(
-            &after.execute_parent_kernels,
+            &after.kernels.execute_parent,
             &bool_array
         ));
         assert!(!has_execute_parent_kernels(
-            &after.execute_parent_kernels,
+            &after.kernels.execute_parent,
             &primitive
         ));
     }
