@@ -6,7 +6,8 @@
 //! A planner says what it needs: compute, or reads. This driver decides where each runs, and
 //! DuckDB's own threads run all of it. Each file is prepared once, and the thread that initializes
 //! it cuts the scanned rows into parts on the file's layout splits, the units a V1 scan hands its
-//! threads, after pruning the scan as a whole when its filter is dynamic. A thread takes the next
+//! threads, grouping small adjacent parts for static filters and pruning the scan as a whole
+//! when its filter is dynamic. A thread takes the next
 //! part and runs it on a run of its own, inline, waiting only for its reads: with a filter, the
 //! part's pruning plans first, continuing into the chunks of the rows pruning kept; without, the
 //! chunks directly. Threads join the file only while parts are left, so the threads a file
@@ -22,8 +23,19 @@ use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
+use vortex::array::expr::BoundExpression;
+use vortex::array::expr::stats::Stat;
+use vortex::array::scalar::Scalar;
+use vortex::array::scalar_fn::fns::binary::Binary;
+use vortex::array::scalar_fn::fns::cast::Cast;
+use vortex::array::scalar_fn::fns::get_item::GetItem;
+use vortex::array::scalar_fn::fns::literal::Literal;
+use vortex::array::scalar_fn::fns::operators::Operator;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::file::FileStatistics;
+use vortex::file::Footer;
 use vortex::io::request::IoConsumer;
 use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
@@ -47,6 +59,83 @@ use crate::RUNTIME;
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
 const CHUNKS_PER_THREAD: usize = 1;
+
+/// Amortizes filter planning across small layout splits while retaining enough tasks for DuckDB's
+/// threads. Grouping preserves layout boundaries so dictionaries are not split between threads.
+const MIN_FILTERED_PART_ROWS: u64 = 8 * 1024;
+
+/// Selective filters leave less engine work per task, so amortize their Vortex planning over
+/// larger parts when exact statistics bound the number of matching rows.
+pub(crate) fn filtered_part_rows(footer: &Footer, filter: Option<&BoundExpression>) -> u64 {
+    let matches = footer
+        .statistics()
+        .zip(filter)
+        .and_then(|(stats, filter)| binary_flag_matches(filter, stats, footer.row_count()));
+    if matches.is_some_and(|matches| matches <= footer.row_count() / 4) {
+        32 * 1024
+    } else {
+        MIN_FILTERED_PART_ROWS
+    }
+}
+
+fn binary_flag_matches(filter: &BoundExpression, stats: &FileStatistics, rows: u64) -> Option<u64> {
+    let operator = filter.as_opt::<Binary>()?;
+    if *operator == Operator::And {
+        // A conjunction cannot match more rows than either child; no independence assumption.
+        return filter
+            .children()
+            .iter()
+            .filter_map(|child| binary_flag_matches(child, stats, rows))
+            .min();
+    }
+    if !matches!(operator, Operator::Eq | Operator::NotEq) {
+        return None;
+    }
+    let (field, value) = if let Some(value) = filter.child(1).as_opt::<Literal>() {
+        (filter.child(0), value)
+    } else {
+        (filter.child(1), filter.child(0).as_opt::<Literal>()?)
+    };
+    if !field.dtype().is_int() || !value.dtype().is_int() {
+        return None;
+    }
+    let value = u64::try_from(value).ok()?;
+    if value > 1 {
+        return None;
+    }
+    let (aggregates, dtype) = stats.get_by_path(&field_path(field)?)?;
+    if !dtype.is_int() {
+        return None;
+    }
+    let exact = |stat: Stat| -> Option<u64> {
+        let scalar: Scalar = aggregates.get(&stat.aggregate_fn()?).as_exact()?;
+        u64::try_from(&scalar).ok()
+    };
+    let min = exact(Stat::Min)?;
+    let max = exact(Stat::Max)?;
+    if min > max || max > 1 {
+        return None;
+    }
+    let non_null = rows.checked_sub(exact(Stat::NullCount)?)?;
+    let ones = exact(Stat::Sum)?;
+    let zeros = non_null.checked_sub(ones)?;
+    Some(if (value == 1) == (*operator == Operator::Eq) {
+        ones
+    } else {
+        zeros
+    })
+}
+
+fn field_path(expr: &BoundExpression) -> Option<FieldPath> {
+    if expr.is_root() {
+        return Some(FieldPath::root());
+    }
+    if expr.is::<Cast>() {
+        return field_path(expr.child(0));
+    }
+    let name = expr.as_opt::<GetItem>()?;
+    Some(field_path(expr.child(0))?.push(name.clone()))
+}
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -79,17 +168,19 @@ impl FileScan {
     ///
     /// `splits` are the file's layout split boundaries, as a V1 scan of the same fields cuts it.
     /// `dynamic` says the filter's value changes while the scan runs, as a top-N's bound does.
+    /// `minimum_part_rows` amortizes planning over adjacent splits for static filters only.
     pub(crate) fn try_new(
         builder: ScanBuilder,
         splits: &[u64],
         dynamic: bool,
+        minimum_part_rows: u64,
     ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
         root.admit(
-            compose(&scan, splits, dynamic),
+            compose(&scan, splits, dynamic, minimum_part_rows),
             WorkScope {
                 file_ordinal: 0,
                 rows,
@@ -177,11 +268,19 @@ impl FileScan {
 
 /// The planners of a scan, composed: with a dynamic filter, its pruning plans first over the scan's
 /// rows, continuing into the parts of the rows they keep; otherwise, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
+fn compose(
+    scan: &Arc<PreparedScan>,
+    splits: &[u64],
+    dynamic: bool,
+    minimum_part_rows: u64,
+) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
-        let parts = part_ranges(rows.clone(), splits);
+        let mut parts = part_ranges(rows.clone(), splits);
+        if scan.filter().is_some() && !dynamic {
+            parts = group_parts(parts, minimum_part_rows);
+        }
         let first_row = rows.start;
         move |kept: Option<Mask>| -> Box<dyn Planner> {
             Box::new(PartPlanner::new(scan, parts, first_row, kept))
@@ -195,8 +294,9 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
 }
 
 /// Spawns a planner per part of a scan's rows that zone pruning left something of, in row order.
-/// Parts are the file's layout splits, so a layout chunk, and the dictionary it carries, is
-/// exported by one thread, which lets DuckDB evaluate an expression over that dictionary once.
+/// Parts follow the file's layout splits, grouping small adjacent splits for static filters.
+/// A layout chunk, and the dictionary it carries, is exported by one thread, which lets DuckDB
+/// evaluate an expression over that dictionary once.
 ///
 /// With a filter, each part prunes over its own rows before its chunks, on the thread that takes
 /// it, like the per-split pruning of a V1 scan, so the pruning of a file's parts runs in parallel.
@@ -298,24 +398,21 @@ fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use std::ops::Range;
-
-    use rstest::rstest;
-
-    use super::part_ranges;
-
-    #[rstest]
-    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
-    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
-    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
-    #[case::empty(5..5, &[0, 10], vec![])]
-    fn parts_follow_splits(
-        #[case] rows: Range<u64>,
-        #[case] splits: &[u64],
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(part_ranges(rows, splits), expected);
+/// Joins adjacent parts until the group reaches `minimum`, preserving gaps and split boundaries.
+fn group_parts(parts: Vec<Range<u64>>, minimum: u64) -> Vec<Range<u64>> {
+    let mut grouped: Vec<Range<u64>> = Vec::new();
+    for part in parts {
+        if let Some(previous) = grouped.last_mut()
+            && previous.end == part.start
+            && previous.end - previous.start < minimum
+        {
+            previous.end = part.end;
+        } else {
+            grouped.push(part);
+        }
     }
+    grouped
 }
+
+#[cfg(test)]
+mod tests;
