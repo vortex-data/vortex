@@ -34,14 +34,22 @@ scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t arr
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
-            out[base_idx + i] = op(in[base_idx + i]);
+            if constexpr (Op::uses_index) {
+                out[base_idx + i] = op(in[base_idx + i], base_idx + i);
+            } else {
+                out[base_idx + i] = op(in[base_idx + i]);
+            }
         }
     }
 
     // Remainder loop for elements that don't fit in the vectorized loop.
     uint64_t remaining_start = block_end_vec * VALUES_PER_LOOP;
     for (uint64_t idx = remaining_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
-        out[idx] = op(in[idx]);
+        if constexpr (Op::uses_index) {
+            out[idx] = op(in[idx], idx);
+        } else {
+            out[idx] = op(in[idx]);
+        }
     }
 }
 
@@ -64,7 +72,11 @@ __device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, 
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
-            values[base_idx + i] = op(values[base_idx + i]);
+            if constexpr (Op::uses_index)  {
+                values[base_idx + i] = op(values[base_idx + i], base_idx + i);
+            } else {
+                values[base_idx + i] = op(values[base_idx + i]);
+            }
         }
     }
 
