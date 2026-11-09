@@ -24,6 +24,7 @@ use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -166,7 +167,13 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array_uncanonical()
                     .map(move |array| {
-                        let array = unshared(array?).apply_bound(&expr)?;
+                        let array = array?;
+                        let array = if expr.contains::<Like>()? {
+                            array
+                        } else {
+                            unshared(array)
+                        };
+                        let array = array.apply_bound(&expr)?;
                         Ok(Shared::new(array).into_array())
                     })
                     .boxed()
@@ -179,6 +186,10 @@ impl DictReader {
 /// A [`Shared`] values array decodes all of its values the first time any of them is needed,
 /// which blocks the kernels its source encoding has for the expression applied over it. Until
 /// it is decoded, apply the expression to the source instead.
+///
+/// `LIKE` keeps the shared array: string sources such as OnPair have no `LIKE` kernel, so
+/// matching on the source would decode every value without caching them, and a projection of
+/// the same column would decode them again.
 fn unshared(values: ArrayRef) -> ArrayRef {
     match values.as_opt::<Shared>() {
         Some(shared) => shared.current_array_ref().clone(),
@@ -875,6 +886,39 @@ mod tests {
             let expected = expected.fill_null(false)?.execute::<Mask>(&mut ctx)?;
             assert_eq!(actual, expected);
             assert!(!shared_values_decoded(&reader));
+            Ok(())
+        })
+    }
+
+    /// A `LIKE` filter decodes the shared values once, so a projection of the same layout reuses
+    /// them instead of decoding them again.
+    #[test]
+    fn like_filter_shares_decoded_values() -> VortexResult<()> {
+        let array = many_values();
+        let pattern = like(root(), lit("%/page/1%"));
+        let expected = array.clone().apply(&pattern)?;
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let (layout, segments) = write_dict_layout(array.clone(), &session).await;
+            assert_eq!(layout.encoding_id().as_ref(), "vortex.dict");
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let rows = 0..layout.row_count();
+
+            let projection = root().bind(reader.dtype())?;
+            drop(reader.projection_evaluation(
+                &rows,
+                &projection,
+                MaskFuture::new_true(array.len()),
+            )?);
+
+            let filter = pattern.bind(reader.dtype())?;
+            let actual = reader
+                .filter_evaluation(&rows, &filter, MaskFuture::new_true(array.len()))?
+                .await?;
+            let expected = expected.fill_null(false)?.execute::<Mask>(&mut ctx)?;
+            assert_eq!(actual, expected);
+            assert!(shared_values_decoded(&reader));
             Ok(())
         })
     }
