@@ -476,6 +476,24 @@ jobs:
           RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
         run: cargo nextest run --no-run @($env:NEXTEST_WINDOWS_ARGS -split ' ')
 
+      # Diagnoses the flaky LNK1318 "Unexpected PDB error; LIMIT (12)": shows if the
+      # disk is full or if the PDBs of the DuckDB test binaries are near the 4 GiB limit.
+      - name: Show disk space and largest PDBs (Windows)
+        if: ${{ !cancelled() && (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') }}
+        continue-on-error: true
+        run: |
+          Get-PSDrive C | Format-Table Name, @{n='UsedGiB';e={[math]::Round($_.Used / 1GB, 2)}}, @{n='FreeGiB';e={[math]::Round($_.Free / 1GB, 2)}}
+
+          $target = "target\ci"
+          if (Test-Path $target) {
+            $total = (Get-ChildItem $target -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            "Size of ${target}: {0:N2} GiB" -f ($total / 1GB)
+
+            Get-ChildItem "$target\deps" -Filter *.pdb -File -ErrorAction SilentlyContinue |
+              Sort-Object Length -Descending | Select-Object -First 15 |
+              Format-Table Name, @{n='SizeMiB';e={[math]::Round($_.Length / 1MB, 1)}}, LastWriteTime
+          }
+
       - name: Run Rust Tests (Windows)
         id: tests
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
