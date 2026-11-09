@@ -40,6 +40,7 @@ public final class VortexWriter implements AutoCloseable {
     private final Schema arrowSchema;
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile VortexWriteSummary summary;
+    private double finalCompressionRatio = 1.0;
 
     private VortexWriter(long pointer, Schema arrowSchema) {
         Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
@@ -251,12 +252,12 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Return the number of bytes accepted by the writer but not yet written to the sink.
+     * Return the number of compressed bytes that the writer holds and did not write to the sink yet.
      *
-     * <p>The count includes the data that layout strategies hold and the compressed segments that wait for earlier
-     * segments. The default write strategy holds compressed data. Together with {@link #bytesWritten()}, this gives an
-     * estimate of the in-progress file size: {@code bytesWritten() + bufferedBytes()}. After {@link #finish()}, this is
-     * zero.
+     * <p>The count includes the compressed data that layout strategies hold and the compressed segments that wait for
+     * earlier segments. It does not include the data that the writer did not compress yet, such as queued batches and
+     * the data that the writer coalesces before compression. Use {@link #estimatedSize()} for an estimate of the file
+     * size. After {@link #finish()}, this is zero.
      */
     public synchronized long bufferedBytes() {
         if (summary != null) {
@@ -269,6 +270,46 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
+     * Return an estimate of the size of the file if the writer finished now.
+     *
+     * <p>The estimate is {@link #bytesWritten()}, plus {@link #bufferedBytes()}, plus the bytes that the writer
+     * accepted but did not compress yet multiplied by {@link #compressionRatio()}. The uncompressed bytes include the
+     * queued batches, the data that the writer coalesces before compression, and the chunks that are being compressed.
+     * The estimate does not include the footer.
+     *
+     * <p>Use this to roll files at a target size. The estimate goes up as batches are written, and it can go down a
+     * small amount when the measured compression ratio changes. After {@link #finish()}, it is the exact completed file
+     * size and is equal to {@link VortexWriteSummary#fileSize()}.
+     */
+    public synchronized long estimatedSize() {
+        if (summary != null) {
+            return summary.fileSize();
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        long estimatedSize = NativeWriter.estimatedSize(pointer);
+        Preconditions.checkState(estimatedSize >= 0, "native writer returned an invalid estimated size");
+        return estimatedSize;
+    }
+
+    /**
+     * Return the compressed bytes divided by the uncompressed bytes over the data that the writer compressed so far.
+     *
+     * <p>Before the writer compresses its first full chunk, the ratio comes from the small probes that the writer
+     * compresses to choose encodings. Before any compression, the ratio is {@code 1.0}. Multiply the uncompressed size
+     * of data that the caller holds by this ratio to estimate its compressed size. After {@link #finish()}, this is the
+     * ratio that the writer measured before {@code finish()} started.
+     */
+    public synchronized double compressionRatio() {
+        if (summary != null) {
+            return finalCompressionRatio;
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        double ratio = NativeWriter.compressionRatio(pointer);
+        Preconditions.checkState(ratio >= 0, "native writer returned an invalid compression ratio");
+        return ratio;
+    }
+
+    /**
      * Flush pending batches, finalize the file, and return its statistics and physical sizes.
      *
      * <p>This method is idempotent. Later calls return the same immutable summary.
@@ -276,6 +317,7 @@ public final class VortexWriter implements AutoCloseable {
     public synchronized VortexWriteSummary finish() throws IOException {
         if (closed.compareAndSet(false, true)) {
             try {
+                finalCompressionRatio = NativeWriter.compressionRatio(pointer);
                 summary = NativeWriter.finish(pointer);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
