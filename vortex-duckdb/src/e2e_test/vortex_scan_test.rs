@@ -8,6 +8,7 @@ use std::path::Path;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use anyhow::Result;
 use geo_types::LineString;
@@ -36,11 +37,17 @@ use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fastlanes::RLEData;
+use vortex::expr::col;
+use vortex::expr::eq;
+use vortex::expr::lit;
+use vortex::expr::stats::Stat;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::multi::MultiFileSession;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
+use vortex::session::SessionExt;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
@@ -1428,12 +1435,81 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     ));
     let path = file.path().to_string_lossy();
 
-    crate::set_scan_v2(false);
-    let v1 = query_i64_column(&path, query)?;
-    crate::set_scan_v2(true);
-    let v2 = query_i64_column(&path, query);
-    crate::set_scan_v2(false);
-
-    assert_eq!(v2?, v1);
+    let v1 = with_scan_v2(false, || query_i64_column(&path, query))?;
+    let v2 = with_scan_v2(true, || query_i64_column(&path, query))?;
+    assert_eq!(v2, v1);
     Ok(())
+}
+
+// Serialize tests that change the process-wide scan mode, restoring it even on failure.
+fn with_scan_v2<T>(enabled: bool, run: impl FnOnce() -> T) -> T {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _lock = LOCK.lock().unwrap();
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::set_scan_v2(self.0);
+        }
+    }
+    let _restore = Restore(crate::scan_v2());
+    crate::set_scan_v2(enabled);
+    run()
+}
+
+#[rstest]
+#[case::sparse(4, 32 * 1024)]
+#[case::dense(3, 8 * 1024)]
+fn test_vortex_scan_v2_groups_nullable_binary_flag_parts(
+    #[case] one_every: i64,
+    #[case] expected_part_rows: u64,
+) -> Result<()> {
+    let rows = 100_000i64;
+    let expected = (0..rows)
+        .filter(|row| row % 10 != 0 && row % one_every == 0)
+        .collect::<Vec<_>>();
+    let array = StructArray::try_from_iter([
+        (
+            "numbers",
+            (0..rows).collect::<PrimitiveArray>().into_array(),
+        ),
+        (
+            "flag",
+            PrimitiveArray::from_option_iter(
+                (0..rows).map(|row| (row % 10 != 0).then_some(i16::from(row % one_every == 0))),
+            )
+            .into_array(),
+        ),
+    ])?;
+    let path = create_temp_file();
+    RUNTIME.block_on(async {
+        let mut output = async_fs::File::create(&path).await?;
+        // Older files can contain exact sums. New default writers omit them, so explicitly
+        // reproduce that metadata to exercise the selective-part heuristic.
+        let stats = [Stat::Min, Stat::Max, Stat::NullCount, Stat::Sum]
+            .into_iter()
+            .map(|stat| stat.aggregate_fn().unwrap())
+            .collect();
+        SESSION
+            .write_options()
+            .disable_editions()
+            .with_file_statistics(stats)
+            .write(&mut output, array.into_array().to_array_stream())
+            .await?;
+        Ok::<_, anyhow::Error>(())
+    })?;
+    let path = path.path().to_string_lossy();
+    with_scan_v2(true, || {
+        let actual = query_i64_column(
+            &path,
+            "SELECT numbers FROM ? WHERE flag = 1 ORDER BY numbers",
+        )?;
+        assert_eq!(actual, expected);
+        let footer = SESSION.get::<MultiFileSession>().get_footer(&path).unwrap();
+        let filter = eq(col("flag"), lit(1i16)).bind(footer.dtype())?;
+        assert_eq!(
+            crate::scan_v2::filtered_part_rows(&footer, Some(&filter)),
+            expected_part_rows
+        );
+        Ok(())
+    })
 }

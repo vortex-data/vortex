@@ -50,6 +50,7 @@ use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
 use crate::scan_v2::FileScan;
+use crate::scan_v2::filtered_part_rows;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
@@ -239,7 +240,16 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .filter
             .as_ref()
             .is_some_and(|filter| DynamicExprUpdates::new(filter).is_some());
-        let scan = FileScan::try_new(v2_builder(state, global), &splits, dynamic)?;
+        let minimum_part_rows = filtered_part_rows(
+            state.file.footer(),
+            global.filter.filter.as_ref().filter(|_| !dynamic),
+        );
+        let scan = FileScan::try_new(
+            v2_builder(state, global),
+            &splits,
+            dynamic,
+            minimum_part_rows,
+        )?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
