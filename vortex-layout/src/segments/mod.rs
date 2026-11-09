@@ -9,6 +9,7 @@
 //! scans.
 
 mod cache;
+mod retain;
 mod shared;
 mod sink;
 mod source;
@@ -20,6 +21,8 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 pub use cache::*;
+pub use retain::RetainedSegments;
+pub use retain::RetainingSegmentSource;
 pub use shared::*;
 pub use sink::*;
 pub use source::*;

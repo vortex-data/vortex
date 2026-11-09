@@ -22,6 +22,7 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+mod concat;
 pub mod planning;
 pub mod row_mask;
 pub mod selection;
@@ -47,6 +48,8 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+
+pub use self::concat::ConcatPartition;
 
 /// A sendable stream of partitions.
 pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;

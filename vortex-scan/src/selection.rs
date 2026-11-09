@@ -7,6 +7,7 @@ use std::ops::Not;
 use std::ops::Range;
 
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -94,6 +95,60 @@ impl Selection {
     }
 }
 
+impl Selection {
+    /// The selection of the rows that `mask` sets, where the mask's first position is row
+    /// `start`. Rows outside the mask are not selected.
+    pub fn from_mask(start: u64, mask: &Mask) -> Self {
+        let indices = mask
+            .values()
+            .map(|values| {
+                values
+                    .indices()
+                    .iter()
+                    .map(|&index| start + index as u64)
+                    .collect::<Buffer<u64>>()
+            })
+            .unwrap_or_else(|| {
+                if mask.all_true() {
+                    Buffer::from_iter(start..start + mask.len() as u64)
+                } else {
+                    Buffer::empty()
+                }
+            });
+
+        // SAFETY: a mask's set indices are strictly increasing, and so are they after the shift.
+        Selection::IncludeByIndex(unsafe { StrictSortedBuffer::new_unchecked(indices) })
+    }
+
+    /// The selected rows within `range`, in increasing order.
+    pub fn indices_in_range(&self, range: &Range<u64>) -> Vec<u64> {
+        if range.start >= range.end {
+            return Vec::new();
+        }
+
+        match self {
+            Selection::All => range.clone().collect(),
+            Selection::IncludeByIndex(include) => indices_range(range, include)
+                .map(|idx_range| include[idx_range].to_vec())
+                .unwrap_or_default(),
+            Selection::IncludeRoaring(roaring) => {
+                let mut selected = roaring.iter();
+                selected.advance_to(range.start);
+                selected.take_while(|&idx| idx < range.end).collect()
+            }
+            Selection::ExcludeByIndex(_) | Selection::ExcludeRoaring(_) => {
+                let mask = self.row_mask(range);
+                let mask = mask.mask();
+                range
+                    .clone()
+                    .enumerate()
+                    .filter_map(|(index, row)| mask.value(index).then_some(row))
+                    .collect()
+            }
+        }
+    }
+}
+
 /// Build the mask of positions within `range` that are set in `roaring`.
 ///
 /// Seeks straight to `range` rather than intersecting the whole treemap, and short-circuits splits
@@ -174,6 +229,7 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
+    use vortex_mask::Mask;
 
     use super::Selection;
     use crate::strict_sorted_buffer::StrictSortedBuffer;
@@ -189,6 +245,36 @@ mod tests {
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
         Selection::ExcludeByIndex(strict_sorted(indices))
+    }
+
+    #[rstest::rstest]
+    #[case::all(Selection::All, vec![2, 3, 4, 5, 6, 7])]
+    #[case::include(include([1, 3, 5, 7, 9]), vec![3, 5, 7])]
+    #[case::exclude(exclude([1, 3, 5, 7, 9]), vec![2, 4, 6])]
+    #[case::include_roaring(
+        Selection::IncludeRoaring([1, 3, 5, 7, 9].into_iter().collect()),
+        vec![3, 5, 7],
+    )]
+    #[case::exclude_roaring(
+        Selection::ExcludeRoaring([1, 3, 5, 7, 9].into_iter().collect()),
+        vec![2, 4, 6],
+    )]
+    fn indices_in_range_match_the_row_mask(
+        #[case] selection: Selection,
+        #[case] expected: Vec<u64>,
+    ) {
+        assert_eq!(selection.indices_in_range(&(2..8)), expected);
+        assert!(selection.indices_in_range(&(5..5)).is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case::some(Mask::from_indices(5, [0, 2, 3]), vec![10, 12, 13])]
+    #[case::all(Mask::new_true(3), vec![10, 11, 12])]
+    #[case::none(Mask::new_false(3), vec![])]
+    fn from_mask_selects_the_set_rows(#[case] mask: Mask, #[case] expected: Vec<u64>) {
+        let selection = Selection::from_mask(10, &mask);
+        assert_eq!(selection.indices_in_range(&(0..100)), expected);
+        assert_eq!(selection.row_count(100), expected.len() as u64);
     }
 
     #[test]
