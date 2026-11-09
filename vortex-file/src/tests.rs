@@ -52,8 +52,10 @@ use vortex_array::dtype::i256;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
+use vortex_array::expr::bound::and as bound_and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
+use vortex_array::expr::dynamic;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -74,6 +76,7 @@ use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -118,6 +121,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
 
+use crate::FilePruningPredicate;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -3346,6 +3350,180 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
 
+    Ok(())
+}
+
+#[rstest]
+#[case(gt(col("age"), lit(5)), [true, false, true])]
+#[case(eq(col("age"), lit(9)), [true, false, true])]
+#[case(or(lt(col("age"), lit(0)), gt(col("age"), lit(5))), [true, false, true])]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn prepared_file_pruning_uses_each_files_statistics(
+    #[case] filter: Expression,
+    #[case] expected: [bool; 3],
+) -> VortexResult<()> {
+    let dtype = DType::struct_(
+        [("age", DType::Primitive(I32, Nullability::NonNullable))],
+        Nullability::NonNullable,
+    );
+    let prepared = FilePruningPredicate::try_new(filter.bind(&dtype)?, &SESSION)?
+        .vortex_expect("comparison supports file pruning");
+    for (value, expected) in [1_i32, 9, 1].into_iter().zip(expected) {
+        let array = StructArray::from_fields(&[("age", buffer![value].into_array())])?;
+        let mut buf = ByteBufferMut::empty();
+        SESSION
+            .write_options()
+            .write(&mut buf, array.into_array().to_array_stream())
+            .await?;
+        let file = SESSION.open_options().open_buffer(buf)?;
+        assert_eq!(prepared.can_prune(&file)?, expected);
+        assert_eq!(
+            prepared.can_prune_footer(file.footer(), &SESSION)?,
+            expected
+        );
+        assert_eq!(prepared.can_prune(&file)?, file.can_prune(&filter)?);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn prepared_file_pruning_handles_nullable_truncated_string_bounds() -> VortexResult<()> {
+    let long = "x".repeat(100);
+    let array = StructArray::from_fields(&[(
+        "value",
+        VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some(long.as_str())])
+            .into_array(),
+    )])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .write(&mut buf, array.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    let (values, _) = stats
+        .get_by_path(&field_path!(value))
+        .vortex_expect("value statistics were written");
+    let max = stat_value(values, Stat::Max)
+        .as_inexact()
+        .vortex_expect("the reopened string maximum is an inexact bound");
+    assert_ne!(max, ScalarValue::from(long.as_str()));
+
+    for (filter, expected) in [
+        (eq(col("value"), lit(long.as_str())), false),
+        (gt(col("value"), lit("z")), true),
+        (lt(col("value"), lit("0")), true),
+    ] {
+        let prepared = FilePruningPredicate::try_new(filter.bind(file.dtype())?, &SESSION)?
+            .vortex_expect("comparison supports file pruning");
+        assert_eq!(prepared.can_prune(&file)?, expected);
+        assert_eq!(
+            prepared.can_prune_footer(file.footer(), &SESSION)?,
+            expected
+        );
+        assert_eq!(file.can_prune(&filter)?, expected);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn prepared_file_pruning_handles_missing_stats_and_wrong_dtype() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("age", buffer![1_i32].into_array())])?;
+    let prepared =
+        FilePruningPredicate::try_new(gt(col("age"), lit(5)).bind(array.dtype())?, &SESSION)?
+            .vortex_expect("comparison supports file pruning");
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_file_statistics(Vec::new())
+        .write(&mut buf, array.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert!(!prepared.can_prune(&file)?);
+
+    let array = StructArray::from_fields(&[("age", buffer![1_i64].into_array())])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert!(prepared.can_prune(&file).is_err());
+    Ok(())
+}
+
+#[test]
+fn prepared_file_pruning_rejects_mismatched_roots() -> VortexResult<()> {
+    let dtype = DType::struct_(
+        [("age", DType::Primitive(I32, Nullability::NonNullable))],
+        Nullability::NonNullable,
+    );
+    let other_dtype = DType::struct_(
+        [(
+            "age",
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )],
+        Nullability::NonNullable,
+    );
+    let filter = bound_and(
+        gt(col("age"), lit(5_i32)).bind(&dtype)?,
+        gt(col("age"), lit(5_i64)).bind(&other_dtype)?,
+    );
+    let error = FilePruningPredicate::try_new(filter, &SESSION)
+        .expect_err("a pruning predicate cannot have two root schemas");
+    assert!(
+        error
+            .to_string()
+            .contains("roots bound to different dtypes")
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case(false, true)]
+#[case(true, false)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn prepared_file_pruning_literals_accept_any_schema(
+    #[case] value: bool,
+    #[case] expected: bool,
+) -> VortexResult<()> {
+    let prepared = FilePruningPredicate::try_new(lit(value).bind(&DType::Null)?, &SESSION)?
+        .vortex_expect("literal predicates support file pruning");
+    for array in [buffer![1_i32].into_array(), buffer![1_i64].into_array()] {
+        let array = StructArray::from_fields(&[("age", array)])?;
+        let mut buf = ByteBufferMut::empty();
+        SESSION
+            .write_options()
+            .write(&mut buf, array.into_array().to_array_stream())
+            .await?;
+        let file = SESSION.open_options().open_buffer(buf)?;
+        assert_eq!(prepared.can_prune(&file)?, expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn prepared_file_pruning_rejects_nested_dynamic_predicates() -> VortexResult<()> {
+    let dtype = DType::struct_(
+        [("age", DType::Primitive(I32, Nullability::NonNullable))],
+        Nullability::NonNullable,
+    );
+    let dynamic = dynamic(
+        CompareOperator::Gt,
+        || Some(5_i32.into()),
+        DType::Primitive(I32, Nullability::NonNullable),
+        true,
+        col("age"),
+    );
+    let filter = and(gt(col("age"), lit(0)), dynamic).bind(&dtype)?;
+    assert!(FilePruningPredicate::try_new(filter, &SESSION)?.is_none());
     Ok(())
 }
 

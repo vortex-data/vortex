@@ -20,6 +20,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex::file::FilePruningPredicate;
 use vortex::file::Footer;
 use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
@@ -167,12 +168,20 @@ impl OpenFileReader {
         &self.scan_state().reader
     }
 
-    fn can_skip(&self, filter: &Filter, layout_pruning: bool) -> VortexResult<bool> {
+    fn can_skip(
+        &self,
+        filter: &Filter,
+        prepared: Option<&FilePruningPredicate>,
+        layout_pruning: bool,
+    ) -> VortexResult<bool> {
         let Some(filter) = &filter.filter else {
             return Ok(false);
         };
         if !layout_pruning {
-            return self.scan_state().file.can_prune_bound(filter);
+            return match prepared {
+                Some(prepared) => prepared.can_prune(&self.scan_state().file),
+                None => self.scan_state().file.can_prune_bound(filter),
+            };
         }
         let row_count = self.reader().row_count();
         let row_range = 0..row_count;
@@ -218,7 +227,11 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter, global.layout_pruning)? {
+    if file.can_skip(
+        &global.filter,
+        global.file_pruning_predicate.as_ref(),
+        global.layout_pruning,
+    )? {
         // DuckDB releases a skipped file under the global lock. Here only the
         // file-local lock is held, so drop the scan state now.
         file.scan_state = None;
