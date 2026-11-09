@@ -5,6 +5,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -413,6 +414,48 @@ fn optimize_drops_identity_expressions() -> VortexResult<()> {
     let plan: PlanRef = EvalPlan::try_new(expression, child)?.into_plan();
 
     assert!(optimize(plan, &SESSION)?.is::<Filter>());
+    Ok(())
+}
+
+#[rstest]
+#[case::first(0)]
+#[case::middle(1)]
+#[case::last(2)]
+fn optimize_preserves_sibling_and_absent_slots(#[case] rewritten: usize) -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let children = (0..3)
+        .map(|id| {
+            SegmentScanPlan::new(
+                dtype.clone(),
+                10,
+                SegmentId::from(id),
+                ReadContext::new([]),
+                None,
+            )
+            .into_plan()
+        })
+        .collect::<Vec<_>>();
+    let mut fields = children.clone();
+    fields[rewritten] =
+        EvalPlan::try_new(root().bind(&dtype)?, fields[rewritten].clone())?.into_plan();
+    let original = PackPlan::try_new(
+        StructFields::from_iter([("a", dtype.clone()), ("b", dtype.clone()), ("c", dtype)]),
+        Nullability::NonNullable,
+        10,
+        fields,
+        None,
+    )?
+    .into_plan();
+
+    let optimized = optimize(original.clone(), &SESSION)?;
+    assert_eq!(optimized.dtype(), original.dtype());
+    assert_eq!(optimized.row_count(), original.row_count());
+    assert_eq!(optimized.nslots(), 4);
+    assert!(optimized.slot(0)?.is_none());
+    for (index, child) in children.iter().enumerate() {
+        assert!(PlanRef::ptr_eq(&child_of(&optimized, index + 1)?, child));
+    }
+    assert!(child_of(&original, rewritten + 1)?.is::<Eval>());
     Ok(())
 }
 
