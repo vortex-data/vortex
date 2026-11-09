@@ -112,9 +112,10 @@ struct Work {
     next_child: u64,
     /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
     outstanding: HashMap<IoRequestId, IoTarget>,
-    /// The rows this item may still touch, when its root tracks liveness. Dropping the item
-    /// releases them.
-    claim: Option<RowClaim>,
+    /// The rows this item may still touch, when its root tracks liveness. A child within its
+    /// parent's claim shares it, so spawning and retiring it never touch the liveness; the rows
+    /// are released once every item holding the claim is dropped.
+    claim: Option<Arc<RowClaim>>,
 }
 
 impl Work {
@@ -173,7 +174,7 @@ impl Work {
         let Some(rows) = remaining else {
             return Ok(());
         };
-        let claimed = claim.rows();
+        let claimed = claim.rows().clone();
         if rows.start > rows.end {
             vortex_bail!(
                 "work for scope {:?} reported unordered remaining rows {rows:?}",
@@ -183,10 +184,15 @@ impl Work {
         // A claim only shrinks: rows outside it were never claimed.
         let end = rows.end.clamp(claimed.start, claimed.end);
         let start = rows.start.clamp(claimed.start, end);
-        if (start..end) == *claimed {
+        if (start..end) == claimed {
             return Ok(());
         }
-        claim.restrict_to(start..end);
+        match Arc::get_mut(claim) {
+            Some(claim) => claim.restrict_to(start..end),
+            // Children still hold the claim over their rows: claim the narrower rows afresh and
+            // leave the shared claim to them.
+            None => *claim = Arc::new(claim.liveness().claim(start..end)),
+        }
         Ok(())
     }
 }
@@ -350,7 +356,13 @@ impl Run {
                 liveness,
             },
         );
-        self.spawn_claimed(id, scope, Item::Planner(root), vec![id.0], claim);
+        self.spawn_claimed(
+            id,
+            scope,
+            Item::Planner(root),
+            vec![id.0],
+            claim.map(Arc::new),
+        );
         id
     }
 
@@ -492,8 +504,17 @@ impl Run {
         Ok(())
     }
 
-    fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Vec<u64>) {
-        self.spawn_claimed(root, scope, item, path, None);
+    /// Queues a child of `parent`, sharing the parent's claim when it covers the child's rows.
+    fn spawn_child(&mut self, parent: &Work, scope: WorkScope, item: Item, path: Vec<u64>) {
+        let claim = parent
+            .claim
+            .as_ref()
+            .filter(|claim| {
+                let claimed = claim.rows();
+                claimed.start <= scope.rows.start && scope.rows.end <= claimed.end
+            })
+            .cloned();
+        self.spawn_claimed(parent.root, scope, item, path, claim);
     }
 
     /// Queues `item`, holding `claim` for it, or a new claim over its scope when it has none and
@@ -504,14 +525,14 @@ impl Run {
         scope: WorkScope,
         item: Item,
         path: Vec<u64>,
-        mut claim: Option<RowClaim>,
+        mut claim: Option<Arc<RowClaim>>,
     ) {
         let id = IoOwnerId(self.next_owner);
         self.next_owner += 1;
         if let Some(root) = self.roots.get_mut(&root) {
             root.live += 1;
             if claim.is_none() {
-                claim = root.claim(&scope);
+                claim = root.claim(&scope).map(Arc::new);
             }
         }
         let work = Box::new(Work {
@@ -588,17 +609,17 @@ impl Run {
                 self.submit(&mut work, batch)?;
                 self.settle(work)?;
             }
-            // A child claims its rows when it is spawned, before its parent narrows, so rows
+            // A child holds its rows when it is spawned, before its parent narrows, so rows
             // handed from parent to child are never left unclaimed in between.
             Output::Planner(PlannerOutput::Planner(scope, child)) => {
                 let path = work.child_path();
-                self.spawn(work.root, scope, Item::Planner(child), path);
+                self.spawn_child(&work, scope, Item::Planner(child), path);
                 work.narrow()?;
                 self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::Morsel(scope, morsel)) => {
                 let path = work.child_path();
-                self.spawn(work.root, scope, Item::Morsel(morsel), path);
+                self.spawn_child(&work, scope, Item::Morsel(morsel), path);
                 work.narrow()?;
                 self.queue.insert(work);
             }
