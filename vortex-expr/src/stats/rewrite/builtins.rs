@@ -17,7 +17,6 @@ use vortex_array::scalar_fn::builtin::boolean::Boolean;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::compare::Compare;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
-use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::BooleanOperator;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
@@ -47,9 +46,6 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(BooleanNanCountStatsRewrite);
     session.register_rewrite(BooleanAllNonNanStatsRewrite);
     session.register_rewrite(LiteralStatsRewrite);
-    session.register_rewrite(IsNullNullCountStatsRewrite);
-    session.register_rewrite(IsNullAllNonNullStatsRewrite);
-    session.register_rewrite(IsNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullNullCountStatsRewrite);
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
@@ -327,65 +323,6 @@ fn boolean_falsify<P: NonNanProof>(
 }
 
 #[derive(Debug)]
-struct IsNullNullCountStatsRewrite;
-
-impl StatsRewriteRule for IsNullNullCountStatsRewrite {
-    fn scalar_fn_id(&self) -> ScalarFnId {
-        IsNull.id()
-    }
-
-    fn falsify(
-        &self,
-        expr: &BoundExpression,
-        session: &VortexSession,
-    ) -> VortexResult<Option<BoundExpression>> {
-        Ok(null_count(expr.child(0), session).map(|null_count| eq(null_count, lit(0u64))))
-    }
-
-    fn satisfy(
-        &self,
-        expr: &BoundExpression,
-        session: &VortexSession,
-    ) -> VortexResult<Option<BoundExpression>> {
-        Ok(null_count(expr.child(0), session).map(|null_count| eq(null_count, row_count())))
-    }
-}
-
-#[derive(Debug)]
-struct IsNullAllNonNullStatsRewrite;
-
-impl StatsRewriteRule for IsNullAllNonNullStatsRewrite {
-    fn scalar_fn_id(&self) -> ScalarFnId {
-        IsNull.id()
-    }
-
-    fn falsify(
-        &self,
-        expr: &BoundExpression,
-        session: &VortexSession,
-    ) -> VortexResult<Option<BoundExpression>> {
-        Ok(all_non_null(expr.child(0), session))
-    }
-}
-
-#[derive(Debug)]
-struct IsNullAllNullStatsRewrite;
-
-impl StatsRewriteRule for IsNullAllNullStatsRewrite {
-    fn scalar_fn_id(&self) -> ScalarFnId {
-        IsNull.id()
-    }
-
-    fn satisfy(
-        &self,
-        expr: &BoundExpression,
-        session: &VortexSession,
-    ) -> VortexResult<Option<BoundExpression>> {
-        Ok(all_null(expr.child(0), session))
-    }
-}
-
-#[derive(Debug)]
 struct IsNotNullNullCountStatsRewrite;
 
 impl StatsRewriteRule for IsNotNullNullCountStatsRewrite {
@@ -479,7 +416,6 @@ mod tests {
     use crate::gt;
     use crate::gt_eq;
     use crate::is_not_null;
-    use crate::is_null;
     use crate::lambda::row_count::RowCount;
     use crate::lit;
     use crate::lt;
@@ -656,14 +592,6 @@ mod tests {
     #[test]
     fn rewrites_null_falsifiers() -> VortexResult<()> {
         assert_rewrite_eq!(
-            falsify(&is_null(col("a")))?,
-            Some(or(
-                eq(stat(col("a"), Stat::NullCount), lit(0u64)),
-                all_non_null(&col("a")),
-            ))
-        );
-
-        assert_rewrite_eq!(
             falsify(&is_not_null(col("a")))?,
             Some(or(
                 eq(
@@ -678,17 +606,6 @@ mod tests {
 
     #[test]
     fn rewrites_null_satisfiers() -> VortexResult<()> {
-        assert_rewrite_eq!(
-            satisfy(&is_null(col("a")))?,
-            Some(or(
-                eq(
-                    stat(col("a"), Stat::NullCount),
-                    RowCount.new_expr(EmptyOptions, []),
-                ),
-                all_null(&col("a")),
-            ))
-        );
-
         assert_rewrite_eq!(
             satisfy(&is_not_null(col("a")))?,
             Some(or(

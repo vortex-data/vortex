@@ -6,6 +6,29 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use prost::Message;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::proto::expr::FieldNames as ProtoFieldNames;
+use vortex_array::proto::expr::SelectOpts;
+use vortex_array::proto::expr::select_opts::Opts;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -15,30 +38,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrays::StructArray;
-use crate::arrays::struct_::StructArrayExt;
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
-use crate::proto::expr::FieldNames as ProtoFieldNames;
-use crate::proto::expr::SelectOpts;
-use crate::proto::expr::select_opts::Opts;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::field::DisplayFieldNames;
-use crate::scalar_fn::builtin::pack::Pack;
-use crate::scalar_fn::builtin::pack::PackOptions;
-use crate::scalar_fn::display::ExprDisplay;
+use crate::field::DisplayFieldNames;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -277,6 +277,15 @@ impl ScalarFnVTable for Select {
     fn is_infallible(&self, _instance: &FieldSelection) -> bool {
         // If this type-checks, it is infallible.
         true
+    }
+
+    fn forwarded_field(&self, selection: &FieldSelection, field: &FieldName) -> Option<usize> {
+        // The selection keeps the child's validity, so every field it keeps is the child's field.
+        let kept = match selection {
+            FieldSelection::Include(fields) => fields.as_ref().contains(field),
+            FieldSelection::Exclude(fields) => !fields.as_ref().contains(field),
+        };
+        kept.then_some(0)
     }
 }
 

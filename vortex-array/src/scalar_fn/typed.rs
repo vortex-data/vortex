@@ -26,6 +26,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
@@ -129,6 +130,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn child_name(&self, child_idx: usize) -> ChildName;
     fn is_strict(&self) -> bool;
     fn is_infallible(&self) -> bool;
+    fn forwarded_field(&self, field: &FieldName) -> Option<usize>;
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
@@ -251,6 +253,10 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
 
     fn is_infallible(&self) -> bool {
         V::is_infallible(&self.vtable, &self.options)
+    }
+
+    fn forwarded_field(&self, field: &FieldName) -> Option<usize> {
+        V::forwarded_field(&self.vtable, &self.options, field)
     }
 
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result {

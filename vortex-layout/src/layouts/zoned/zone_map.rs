@@ -413,13 +413,13 @@ mod tests {
     use vortex_expr::Expression;
     use vortex_expr::cast;
     use vortex_expr::is_not_null;
-    use vortex_expr::is_null;
     use vortex_expr::lit;
     use vortex_expr::not_eq;
     use vortex_expr::root;
     use vortex_expr::stats::all_non_null;
     use vortex_expr::stats::all_null;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+    use vortex_functions::expr::is_null;
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;

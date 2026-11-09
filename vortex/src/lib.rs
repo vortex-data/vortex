@@ -403,10 +403,10 @@ mod test {
     use vortex_expr::gt;
     use vortex_expr::lit;
     use vortex_expr::root;
-    use vortex_expr::select;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
+    use vortex_functions::expr::select;
     use vortex_session::VortexSession;
 
     use crate as vortex;

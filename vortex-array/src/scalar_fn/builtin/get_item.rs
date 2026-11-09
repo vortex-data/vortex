@@ -34,8 +34,6 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::pack::Pack;
-use crate::scalar_fn::builtin::select::FieldSelection;
-use crate::scalar_fn::builtin::select::Select;
 use crate::scalar_fn::display::ExprDisplay;
 
 #[derive(Clone)]
@@ -71,7 +69,8 @@ impl GetItem {
         )
     }
 
-    /// Extract a constant field, bypass a selection, or read a field directly from a pack.
+    /// Extract a constant field, read through a function that forwards the field, or read a field
+    /// directly from a pack.
     fn maybe_apply_now<T: ReduceNode>(
         struct_node: &T,
         field_name: &FieldName,
@@ -82,18 +81,11 @@ impl GetItem {
             ));
         }
 
-        if let Some(selection) = struct_node
+        if let Some(child_idx) = struct_node
             .scalar_fn()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<Select>())
+            .and_then(|scalar_fn| scalar_fn.signature().forwarded_field(field_name))
         {
-            let included = match selection {
-                FieldSelection::Include(fields) => fields.as_ref().contains(field_name),
-                FieldSelection::Exclude(fields) => !fields.as_ref().contains(field_name),
-            };
-            if included {
-                return Self::apply_now(&struct_node.child(0), field_name).map(Some);
-            }
-            return Ok(None);
+            return Self::apply_now(&struct_node.child(child_idx), field_name).map(Some);
         }
 
         let Some(pack) = struct_node

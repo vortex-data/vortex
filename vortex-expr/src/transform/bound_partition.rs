@@ -368,19 +368,37 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
+    use vortex_array::scalar_fn::builtin::get_item::GetItem;
 
     use super::*;
-    use crate::analysis::make_bound_free_field_annotator;
+    use crate::analysis::AnnotationFn;
     use crate::checked_add;
     use crate::col;
     use crate::get_item;
     use crate::lit;
     use crate::pack;
     use crate::root;
+
+    /// Annotates each top-level field read from the root scope, the way the scan's field-access
+    /// analysis does for expressions without a `select`.
+    fn free_field_annotator(
+        scope: &StructFields,
+    ) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
+        move |expr: &BoundExpression| {
+            let Some(scalar_fn) = expr.as_scalar() else {
+                return scope.names().iter().cloned().collect();
+            };
+            match scalar_fn.as_opt::<GetItem>() {
+                Some(field_name) if expr.children()[0].is_root() => vec![field_name.clone()],
+                _ => vec![],
+            }
+        }
+    }
 
     #[fixture]
     fn dtype() -> DType {
@@ -405,7 +423,7 @@ mod tests {
         dtype: &DType,
     ) -> VortexResult<BoundPartitionedExpr<FieldName>> {
         let fields = dtype.as_struct_fields_opt().unwrap();
-        partition_bound(expr, make_bound_free_field_annotator(fields))
+        partition_bound(expr, free_field_annotator(fields))
     }
 
     #[rstest]

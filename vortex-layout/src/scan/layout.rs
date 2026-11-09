@@ -626,11 +626,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_expr::root;
     use vortex_expr::Expression;
     use vortex_expr::eq;
     use vortex_expr::lit;
     use vortex_expr::pack;
+    use vortex_expr::root;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_metrics::DefaultMetricsRegistry;
