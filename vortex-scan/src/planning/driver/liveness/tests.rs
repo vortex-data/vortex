@@ -115,6 +115,22 @@ fn pinning_unclaimed_rows_drops_the_value_at_once() {
 }
 
 #[test]
+fn a_split_claim_keeps_its_rows_until_each_part_is_dropped() {
+    let (liveness, events) = (Liveness::new(), Events::default());
+    let mut back = liveness.claim(0..8);
+    pin_rows(&liveness, &events, "front", 0..4);
+    pin_rows(&liveness, &events, "back", 4..8);
+    let front = back.split_front(4);
+    assert_eq!((front.rows(), back.rows()), (&(0..4), &(4..8)));
+    assert!(events.take().is_empty());
+    drop(front);
+    assert_eq!(events.take(), ["drop front"]);
+    drop(back);
+    assert_eq!(events.take(), ["drop back"]);
+    assert_eq!(liveness.pinned(), 0);
+}
+
+#[test]
 fn a_file_lifetime_lasts_until_no_claim_is_live() {
     let (liveness, events) = (Liveness::new(), Events::default());
     assert!(!liveness.pin(Lifetime::File, Tracked("early", events.clone())));

@@ -624,12 +624,22 @@ impl Run {
                 self.queue.insert(work);
             }
             // The owner admits an independent child later, possibly on another run. The child's
-            // claim travels with it, so its rows stay claimed while the parent narrows.
+            // claim travels with it, so its rows stay claimed while the parent narrows. A child
+            // at the front of a claim only its parent holds takes those rows over, which keeps
+            // a planner handing out its rows in order off the liveness lock.
             Output::Planner(PlannerOutput::Spawn(scope, child)) => {
-                let claim = self
-                    .roots
-                    .get(&work.root)
-                    .and_then(|root| root.claim(&scope));
+                let claim = match work.claim.as_mut().and_then(Arc::get_mut) {
+                    Some(parent)
+                        if parent.rows().start == scope.rows.start
+                            && scope.rows.end <= parent.rows().end =>
+                    {
+                        Some(parent.split_front(scope.rows.end))
+                    }
+                    _ => self
+                        .roots
+                        .get(&work.root)
+                        .and_then(|root| root.claim(&scope)),
+                };
                 self.events.push_back(Progress::Spawn(scope, child, claim));
                 work.narrow()?;
                 self.queue.insert(work);

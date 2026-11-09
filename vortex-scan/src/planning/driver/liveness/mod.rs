@@ -230,6 +230,26 @@ impl RowClaim {
         self.rows = rows;
         drop(evicted);
     }
+
+    /// Splits the claim's rows before `end` off into a claim of their own, keeping the rest.
+    ///
+    /// The rows stay claimed throughout, so this never takes the liveness lock.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `end` is outside the claim.
+    pub fn split_front(&mut self, end: u64) -> RowClaim {
+        assert!(
+            self.rows.start <= end && end <= self.rows.end,
+            "the split must lie within the claim"
+        );
+        let front = RowClaim {
+            liveness: self.liveness.clone(),
+            rows: self.rows.start..end,
+        };
+        self.rows.start = end;
+        front
+    }
 }
 
 impl Drop for RowClaim {
