@@ -974,11 +974,7 @@ async fn test_ree_dict_predicate_memtable_oracle(
 /// The rows each Vortex scan in `plan` returned, after its predicate.
 fn vortex_scan_rows(plan: &Arc<dyn ExecutionPlan>) -> Vec<usize> {
     let mut rows = Vec::new();
-    if plan
-        .downcast_ref::<DataSourceExec>()
-        .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
-        .is_some_and(|config| config.file_source.is::<VortexSource>())
-    {
+    if vortex_source(plan.as_ref()).is_some() {
         rows.extend(plan.metrics().and_then(|metrics| metrics.output_rows()));
     }
     for child in plan.children() {
