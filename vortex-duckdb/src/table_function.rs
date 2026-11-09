@@ -39,6 +39,7 @@ use vortex::expr::Expression;
 use vortex::expr::analysis::referenced_field_paths;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
+use vortex::file::FilePruningPredicate;
 #[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
 use vortex::proto::expr as expr_pb;
@@ -185,6 +186,7 @@ impl<'a> TableInitInput<'a> {
 pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
+    pub file_pruning_predicate: Option<FilePruningPredicate>,
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
@@ -360,9 +362,20 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     // For projections without input fields, the layout probe starts zone reads before V2
     // planning. Keep that overlap for count-only and constant-projection scans.
     let layout_pruning = !scan_v2 || referenced_field_paths(&projection)?.iter().next().is_none();
+    let file_pruning_predicate = if !layout_pruning {
+        filter
+            .filter
+            .as_ref()
+            .map(|filter| FilePruningPredicate::try_new(filter.clone(), &SESSION))
+            .transpose()?
+            .flatten()
+    } else {
+        None
+    };
     Ok(GlobalState {
         projection,
         filter,
+        file_pruning_predicate,
         aggregates: bind_data.aggregates.clone(),
         has_count_star,
         aggregate_state: Mutex::new(AggregateState::default()),
