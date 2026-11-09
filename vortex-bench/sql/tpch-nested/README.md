@@ -54,8 +54,8 @@ Spark script instead casts money to `DECIMAL(12,2)`, writes 512 MiB row groups a
 partitions the four largest tables by their partition column; none of that is reproduced here.
 Vortex files are written with the list layout, so the struct fields of each `<table>_data`
 list are stored as separate columns. The V2 scan cannot read the list layout yet, so CI runs
-this suite on the V1 scan, like the other list-layout suites (statpopgen, PolarSignals), while
-the flat suite runs on V2.
+this suite on the V1 scan, while the flat suite runs on V2. It is the only suite that writes the
+list layout.
 
 The `--opt shape=<shape>` option selects the nesting. `list` (the default and only shape so
 far) is Comet's layout; the data directory and query directory are keyed by it.
