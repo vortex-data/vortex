@@ -248,6 +248,11 @@ impl ScanBuilder {
             segments: cache.retaining(file.segments),
             ranges,
             cache,
+            segment_lengths: file
+                .locations
+                .iter()
+                .map(|location| location.length)
+                .collect(),
             locations: file.locations,
             projection,
             filter,

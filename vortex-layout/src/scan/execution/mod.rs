@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_buffer::Alignment;
+use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
@@ -50,6 +51,7 @@ use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
 use crate::scan::v2::io::SegmentRanges;
 use crate::scan::v2::io::SegmentScanIo;
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentSource;
 
 /// Where a segment's bytes live in the file.
@@ -64,12 +66,23 @@ pub struct SegmentLocation {
 }
 
 impl SegmentLocation {
-    /// The byte range a read of the segment asks for.
-    fn target(&self) -> IoTarget {
-        IoTarget::Range {
-            offset: self.offset,
-            len: self.length as usize,
-            alignment: self.alignment,
+    /// The byte range a read of `bytes` of the segment asks for. Only a read of the whole
+    /// segment keeps its alignment.
+    fn target(&self, bytes: &SegmentBytes) -> VortexResult<IoTarget> {
+        let range = bytes.resolve(u64::from(self.length))?;
+        Ok(IoTarget::Range {
+            offset: self.offset + range.start,
+            len: usize::try_from(range.end - range.start)?,
+            alignment: self.alignment(bytes),
+        })
+    }
+
+    /// The alignment that a read of `bytes` of the segment delivers.
+    fn alignment(&self, bytes: &SegmentBytes) -> Alignment {
+        if *bytes == SegmentBytes::All {
+            self.alignment
+        } else {
+            Alignment::none()
         }
     }
 }
@@ -92,6 +105,8 @@ pub struct PreparedScan {
     pub(super) cache: ScanCache,
     /// The location of every segment, indexed by segment id.
     pub(super) locations: Arc<[SegmentLocation]>,
+    /// The byte length of every segment, indexed by segment id.
+    pub(super) segment_lengths: Arc<[u32]>,
     /// The optimized projection plan, over the scan's root row domain.
     pub(super) projection: PlanRef,
     /// The filter's conjuncts, their plans and their pruning plans.

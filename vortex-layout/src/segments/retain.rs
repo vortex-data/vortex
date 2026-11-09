@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::buffer::BufferHandle;
 
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -126,6 +127,22 @@ impl SegmentSource for RetainingSegmentSource {
             .request(id)
             .inspect_ok(move |buffer| retained.insert(id, buffer))
             .boxed()
+    }
+
+    fn reads_ranges(&self) -> bool {
+        self.inner.reads_ranges()
+    }
+
+    /// Serves part of a retained segment from it. It does not retain a part that it reads.
+    fn request_bytes(&self, id: SegmentId, bytes: SegmentBytes) -> SegmentFuture {
+        if bytes == SegmentBytes::All {
+            return self.request(id);
+        }
+
+        if let Some(buffer) = self.retained.get(id) {
+            return futures::future::ready(bytes.slice(buffer)).boxed();
+        }
+        self.inner.request_bytes(id, bytes)
     }
 }
 

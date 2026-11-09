@@ -14,6 +14,7 @@ use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -60,6 +61,19 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                 }
             }
         }
+    }
+
+    fn reads_ranges(&self) -> bool {
+        self.inner.reads_ranges()
+    }
+
+    /// Shares only the reads of whole segments. A read of part of a segment goes to the inner
+    /// source.
+    fn request_bytes(&self, id: SegmentId, bytes: SegmentBytes) -> SegmentFuture {
+        if bytes == SegmentBytes::All {
+            return self.request(id);
+        }
+        self.inner.request_bytes(id, bytes)
     }
 }
 

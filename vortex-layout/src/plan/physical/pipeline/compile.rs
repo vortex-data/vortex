@@ -14,12 +14,14 @@ use super::DEFAULT_CAPACITY;
 use super::port::PortId;
 use super::port::SourceEnd;
 use super::scan::Core;
+use super::scan::SegmentRead;
 use super::values::ValueCache;
 use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Operator;
 use crate::plan::physical::operator::Source;
+use crate::plan::physical::operators::PointReads;
 use crate::plan::physical::operators::ScanSource;
 
 /// A pipeline under construction: a source and the stages after it, not yet given outlets, so a
@@ -148,11 +150,24 @@ impl Compiler<'_> {
         } else {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
-        self.core.segments.push(scan.segment_id());
+
+        let segment_id = scan.segment_id();
+        let segment_length = self.core.segment_length(segment_id);
+        let points = PointReads::plan(scan, segment_length, slice.as_ref(), filter.as_ref())?;
+        match &points {
+            Some(points) => self.core.segments.extend(
+                points
+                    .reads()
+                    .map(|bytes| SegmentRead { segment_id, bytes }),
+            ),
+            None => self.core.segments.push(SegmentRead::all(segment_id)),
+        }
+
         Ok(Some(Chain::new(ScanSource::new(
             scan.clone(),
             slice,
             filter,
+            points,
         ))))
     }
 }

@@ -20,6 +20,7 @@ use vortex_metrics::Label;
 use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -305,6 +306,27 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Some(result) => async move { result }.boxed(),
             None => request,
         }
+    }
+
+    fn reads_ranges(&self) -> bool {
+        self.source.reads_ranges()
+    }
+
+    /// Serves part of a cached segment from the cache. It does not cache a part that it reads.
+    fn request_bytes(&self, id: SegmentId, bytes: SegmentBytes) -> SegmentFuture {
+        if bytes == SegmentBytes::All {
+            return self.request(id);
+        }
+
+        let cache = Arc::clone(&self.cache);
+        let source = Arc::clone(&self.source);
+        async move {
+            if let Ok(Some(segment)) = cache.get(id).await {
+                return bytes.slice(BufferHandle::new_host(segment));
+            }
+            source.request_bytes(id, bytes).await
+        }
+        .boxed()
     }
 }
 

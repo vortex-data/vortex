@@ -53,6 +53,7 @@ pub(super) use self::port::PortId;
 pub use self::scan::ReadId;
 pub use self::scan::ReadRequest;
 pub use self::scan::Scan;
+pub use self::scan::SegmentRead;
 pub use self::scan::Split;
 pub use self::scan::Turn;
 pub use self::values::ValueCache;

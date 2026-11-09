@@ -12,6 +12,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_expr::transform::find_between;
 use vortex_io::request::IoBatch;
@@ -40,10 +41,10 @@ use crate::plan::physical::SegmentScan;
 use crate::plan::physical::Zoned;
 use crate::plan::physical::optimize;
 use crate::plan::physical::pipeline::Scan;
+use crate::plan::physical::pipeline::SegmentRead;
 use crate::plan::physical::pipeline::Split;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
-use crate::segments::SegmentId;
 
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub struct FilterPlans {
@@ -180,21 +181,26 @@ pub(super) struct FilterPlanner {
     next_hint: u32,
 }
 
-/// The segments `plans` read over `rows` under `mask`, each once, in id order. Compiling finds
-/// them without IO.
+/// The segment reads `plans` issue over `rows` under `mask`, each once, in segment id order.
+/// Compiling finds them without IO.
 pub(super) fn segments_read<'a>(
     session: &VortexSession,
     plans: impl Iterator<Item = &'a PlanRef>,
     rows: Range<u64>,
     mask: &Mask,
-) -> VortexResult<Vec<SegmentId>> {
-    let mut segments = Vec::new();
+    segment_lengths: &Arc<[u32]>,
+) -> VortexResult<Vec<SegmentRead>> {
+    let mut reads = Vec::new();
+    let mut seen = FxHashSet::default();
     for plan in plans {
-        segments.extend(Scan::segments(session, plan, rows.clone(), mask)?);
+        for read in Scan::reads(session, plan, rows.clone(), mask, Some(segment_lengths))? {
+            if seen.insert(read.clone()) {
+                reads.push(read);
+            }
+        }
     }
-    segments.sort_unstable();
-    segments.dedup();
-    Ok(segments)
+    reads.sort_by_key(|read| read.segment_id);
+    Ok(reads)
 }
 
 impl FilterPlanner {
@@ -213,26 +219,30 @@ impl FilterPlanner {
     }
 }
 
-/// Publishes a hint for each of `segments` not in `seen`, and adds it there.
+/// Publishes a hint for each of `reads` not in `seen`, and adds it there.
 pub(super) fn hint(
     locations: &[SegmentLocation],
     next_hint: &mut u32,
     intent: IoIntent,
-    segments: &[SegmentId],
-    seen: &mut FxHashSet<SegmentId>,
+    reads: &[SegmentRead],
+    seen: &mut FxHashSet<SegmentRead>,
     batch: &mut IoBatch,
-) {
-    for &segment in segments {
-        if !seen.insert(segment) {
+) -> VortexResult<()> {
+    for read in reads {
+        if !seen.insert(read.clone()) {
             continue;
         }
+        let location = locations
+            .get(*read.segment_id as usize)
+            .ok_or_else(|| vortex_err!("segment {} has no known location", read.segment_id))?;
         batch.push(IoRequest {
             intent,
             request: IoRequestId(*next_hint),
-            target: locations[*segment as usize].target(),
+            target: location.target(&read.bytes)?,
         });
         *next_hint -= 1;
     }
+    Ok(())
 }
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
@@ -279,12 +289,14 @@ impl Planner for FilterPlanner {
                     .map(|(_, plan)| plan),
                 rows.clone(),
                 &selected.mask,
+                &self.scan.segment_lengths,
             )?;
             let projection = segments_read(
                 session,
                 std::iter::once(&self.scan.projection),
                 rows,
                 &selected.mask,
+                &self.scan.segment_lengths,
             )?;
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
@@ -296,7 +308,7 @@ impl Planner for FilterPlanner {
                 &predicates,
                 &mut seen,
                 &mut batch,
-            );
+            )?;
             hint(
                 locations,
                 &mut self.next_hint,
@@ -304,7 +316,7 @@ impl Planner for FilterPlanner {
                 &projection,
                 &mut seen,
                 &mut batch,
-            );
+            )?;
             if !batch.is_empty() {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
@@ -375,6 +387,7 @@ impl Planner for FilterPlanner {
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
+            .with_segment_lengths(Arc::clone(&self.scan.segment_lengths))
             .with_value_cache(self.scan.values.clone());
             self.active = Some((
                 index,

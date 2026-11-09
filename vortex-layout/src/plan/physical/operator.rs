@@ -17,7 +17,9 @@ use vortex_session::VortexSession;
 use super::pipeline::Arena;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
+use super::pipeline::SegmentRead;
 use crate::plan::physical::PlanRef;
+use crate::segments::SegmentBytes;
 use crate::segments::SegmentId;
 
 /// The output of one non-blocking compute call.
@@ -167,8 +169,8 @@ pub(crate) struct InletCompile {
 pub struct Cx<'a> {
     pub(super) arena: &'a mut Arena,
     pub(super) inlets: &'a [PortId],
-    pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
-    pub(super) reads: &'a mut SmallVec<[SegmentId; 1]>,
+    pub(super) bytes: &'a mut VecDeque<(SegmentRead, BufferHandle)>,
+    pub(super) reads: &'a mut SmallVec<[SegmentRead; 1]>,
     pub(super) compiles: &'a mut SmallVec<[InletCompile; 1]>,
     pub(super) session: &'a VortexSession,
     pub(super) exec: &'a mut ExecutionCtx,
@@ -189,7 +191,17 @@ impl Cx<'_> {
     /// `SourceReady::Blocked(SourceBlocked::Io)` after queuing the reads needed for
     /// this call.
     pub fn request_read(&mut self, segment: SegmentId) {
-        self.reads.push(segment);
+        self.reads.push(SegmentRead::all(segment));
+    }
+
+    /// Queues a read of some bytes of a segment during [`Source::ready`], as
+    /// [`request_read`](Self::request_read) does. [`take_read`](Self::take_read) tells the reads
+    /// of one segment apart when they arrive.
+    pub fn request_bytes(&mut self, segment: SegmentId, bytes: SegmentBytes) {
+        self.reads.push(SegmentRead {
+            segment_id: segment,
+            bytes,
+        });
     }
 
     /// Asks, during [`Source::ready`], for `plan` to be compiled over `rows` of its domain,
@@ -230,6 +242,12 @@ impl Cx<'_> {
 
     /// Takes an arrived segment's ID and bytes, oldest arrival first.
     pub fn take_segment(&mut self) -> Option<(SegmentId, BufferHandle)> {
+        self.take_read()
+            .map(|(read, bytes)| (read.segment_id, bytes))
+    }
+
+    /// Takes an arrived read and its bytes, oldest arrival first.
+    pub fn take_read(&mut self) -> Option<(SegmentRead, BufferHandle)> {
         self.bytes.pop_front()
     }
 
