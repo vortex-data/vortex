@@ -630,6 +630,7 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
@@ -780,8 +781,10 @@ mod tests {
 
     /// DataFusion drops the `FilterExec` of an accepted filter, so the source's statistics must
     /// apply its selectivity: one row for an equality over 1,000 distinct values.
-    #[test]
-    fn filtered_statistics_apply_accepted_filters() -> anyhow::Result<()> {
+    #[rstest]
+    fn filtered_statistics_apply_accepted_filters(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
         let filter = Arc::new(df_expr::BinaryExpr::new(
             Arc::new(Column::new("name", 0)),
@@ -797,7 +800,10 @@ mod tests {
             }],
         };
 
-        let source = sort_test_source(Arc::clone(&schema));
+        let source = sort_test_source(Arc::clone(&schema)).with_options(VortexTableOptions {
+            scan_v2,
+            ..Default::default()
+        });
         assert_eq!(source.filtered_statistics(statistics.clone()), statistics);
 
         let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
