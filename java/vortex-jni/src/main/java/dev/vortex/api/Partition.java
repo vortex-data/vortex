@@ -6,6 +6,7 @@ package dev.vortex.api;
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.jni.NativePartition;
+import java.lang.ref.Reference;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.arrow.c.ArrowArrayStream;
@@ -43,12 +44,16 @@ public final class Partition {
     /** Estimated row count of the partition. Empty when unknown. */
     public OptionalLong rowCount() {
         Preconditions.checkState(!consumed.get(), "partition already consumed");
-        long[] out = new long[2];
-        NativePartition.rowCount(pointer, out);
-        if (out[1] == 0) {
-            return OptionalLong.empty();
+        try {
+            long[] out = new long[2];
+            NativePartition.rowCount(pointer, out);
+            if (out[1] == 0) {
+                return OptionalLong.empty();
+            }
+            return OptionalLong.of(out[0]);
+        } finally {
+            Reference.reachabilityFence(this);
         }
-        return OptionalLong.of(out[0]);
     }
 
     /**
@@ -59,16 +64,30 @@ public final class Partition {
         if (!consumed.compareAndSet(false, true)) {
             throw new IllegalStateException("partition already consumed");
         }
-        // Native side unconditionally takes ownership of the partition, regardless of
-        // whether the call subsequently throws, so it is correct to flip `consumed`
-        // before invoking JNI. The cleaner then always skips free for this handle.
-        ArrowArrayStream stream = ArrowArrayStream.allocateNew(allocator);
         try {
-            NativePartition.scanArrow(session.nativePointer(), pointer, stream.memoryAddress());
-        } catch (RuntimeException ex) {
-            stream.close();
-            throw ex;
+            ArrowArrayStream stream;
+            try {
+                stream = ArrowArrayStream.allocateNew(allocator);
+            } catch (RuntimeException | Error failure) {
+                // JNI has not taken the partition yet, and the Cleaner skips consumed partitions.
+                NativePartition.free(pointer);
+                throw failure;
+            }
+            try {
+                // JNI consumes the partition even when it throws.
+                NativePartition.scanArrow(session.nativePointer(), pointer, stream.memoryAddress());
+                // Closes the stream struct once its reader has taken the stream.
+                return Data.importArrayStream(allocator, stream);
+            } catch (RuntimeException | Error failure) {
+                // Import can fail before moving the stream into its reader.
+                if (stream.snapshot().release != 0) {
+                    stream.release();
+                }
+                stream.close();
+                throw failure;
+            }
+        } finally {
+            Reference.reachabilityFence(this);
         }
-        return Data.importArrayStream(allocator, stream);
     }
 }

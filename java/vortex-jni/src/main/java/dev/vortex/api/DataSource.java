@@ -7,6 +7,8 @@ import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeReadable;
 import dev.vortex.jni.NativeDataSource;
+import java.lang.ref.Cleaner;
+import java.lang.ref.Reference;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -22,17 +24,21 @@ import org.apache.arrow.vector.types.pojo.Schema;
  * A set of Vortex files opened through a {@link Session}. Data sources are cheap to open (only the first file is read
  * eagerly, to determine the schema) and can be scanned multiple times.
  *
- * <p>Native resources are released automatically via {@link VortexCleaner} when the data source becomes unreachable.
+ * <p>Call {@link #close()} to release this handle and its cached file resources promptly. Scans and partitions already
+ * created from it remain valid and retain the resources they still need. {@link VortexCleaner} releases an unclosed
+ * handle when it becomes unreachable.
  */
-public final class DataSource {
+public final class DataSource implements AutoCloseable {
     private final Session session;
     private final long pointer;
+    private final Cleaner.Cleanable cleanable;
+    private boolean closed;
 
     private DataSource(Session session, long pointer) {
         Preconditions.checkArgument(pointer != 0, "invalid data source pointer");
         this.session = Objects.requireNonNull(session, "session");
         this.pointer = pointer;
-        VortexCleaner.register(this, () -> NativeDataSource.free(pointer));
+        cleanable = VortexCleaner.register(this, () -> NativeDataSource.free(pointer));
     }
 
     /** Open a single URI. */
@@ -88,8 +94,8 @@ public final class DataSource {
      * for external I/O abstractions (for example Iceberg's {@code FileIO}). Each file is identified by
      * {@link NativeReadable#name()}, which must be unique within {@code readables}.
      *
-     * <p>The readables must remain open until this data source and all scans created from it are closed; native code
-     * never closes them.
+     * <p>The readables must remain open until this data source is closed and every derived scan, partition, and Arrow
+     * reader has finished reading. Native code never closes them.
      *
      * @param session open session
      * @param readables byte sources
@@ -118,10 +124,13 @@ public final class DataSource {
     }
 
     /** Arrow schema of the data source (and of scans produced from it). */
-    public Schema arrowSchema(BufferAllocator allocator) {
+    public synchronized Schema arrowSchema(BufferAllocator allocator) {
+        Preconditions.checkState(!closed, "data source is closed");
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
             NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
+        } finally {
+            Reference.reachabilityFence(this);
         }
     }
 
@@ -130,14 +139,19 @@ public final class DataSource {
      * {@code DataSource::row_count}: {@link RowCount.Unknown} when no estimate is available, {@link RowCount.Estimate}
      * for an inexact hint, {@link RowCount.Exact} when the count is authoritative.
      */
-    public RowCount rowCount() {
-        long[] out = new long[2];
-        NativeDataSource.rowCount(pointer, out);
-        return switch ((int) out[1]) {
-            case 1 -> new RowCount.Estimate(out[0]);
-            case 2 -> new RowCount.Exact(out[0]);
-            default -> RowCount.Unknown.INSTANCE;
-        };
+    public synchronized RowCount rowCount() {
+        Preconditions.checkState(!closed, "data source is closed");
+        try {
+            long[] out = new long[2];
+            NativeDataSource.rowCount(pointer, out);
+            return switch ((int) out[1]) {
+                case 1 -> new RowCount.Estimate(out[0]);
+                case 2 -> new RowCount.Exact(out[0]);
+                default -> RowCount.Unknown.INSTANCE;
+            };
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     /** Precision-aware row count. See {@link #rowCount()}. */
@@ -181,14 +195,19 @@ public final class DataSource {
      * sizes), {@link ByteSize.Estimate} for an inexact hint (some files contribute extrapolated sizes), and
      * {@link ByteSize.Exact} when every file has a known size.
      */
-    public ByteSize byteSize() {
-        long[] out = new long[2];
-        NativeDataSource.byteSize(pointer, out);
-        return switch ((int) out[1]) {
-            case 1 -> new ByteSize.Estimate(out[0]);
-            case 2 -> new ByteSize.Exact(out[0]);
-            default -> ByteSize.Unknown.INSTANCE;
-        };
+    public synchronized ByteSize byteSize() {
+        Preconditions.checkState(!closed, "data source is closed");
+        try {
+            long[] out = new long[2];
+            NativeDataSource.byteSize(pointer, out);
+            return switch ((int) out[1]) {
+                case 1 -> new ByteSize.Estimate(out[0]);
+                case 2 -> new ByteSize.Exact(out[0]);
+                default -> ByteSize.Unknown.INSTANCE;
+            };
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     /** Precision-aware byte size. See {@link #byteSize()}. */
@@ -226,33 +245,48 @@ public final class DataSource {
     }
 
     /** Submit a scan. */
-    public Scan scan(ScanOptions options) {
-        Objects.requireNonNull(options, "options");
+    public synchronized Scan scan(ScanOptions options) {
+        Preconditions.checkState(!closed, "data source is closed");
+        try {
+            Objects.requireNonNull(options, "options");
 
-        long projectionPtr = options.projection().map(Expression::nativePointer).orElse(0L);
-        long filterPtr = options.filter().map(Expression::nativePointer).orElse(0L);
-        long begin = options.rowRangeBegin().orElse(0L);
-        long end = options.rowRangeEnd().orElse(0L);
-        ScanOptions.SelectionMode selectionMode = options.selectionMode();
-        long[] selectionIndices = selectionIndices(options);
-        byte[] selectionRoaringBitmap = selectionRoaringBitmap(options);
-        long limit = options.limit().orElse(0L);
-        boolean ordered = options.ordered();
-        int splitConcurrency = options.splitConcurrency().orElse(0);
+            long projectionPtr =
+                    options.projection().map(Expression::nativePointer).orElse(0L);
+            long filterPtr = options.filter().map(Expression::nativePointer).orElse(0L);
+            long begin = options.rowRangeBegin().orElse(0L);
+            long end = options.rowRangeEnd().orElse(0L);
+            ScanOptions.SelectionMode selectionMode = options.selectionMode();
+            long[] selectionIndices = selectionIndices(options);
+            byte[] selectionRoaringBitmap = selectionRoaringBitmap(options);
+            long limit = options.limit().orElse(0L);
+            boolean ordered = options.ordered();
+            int splitConcurrency = options.splitConcurrency().orElse(0);
 
-        long scanPtr = dev.vortex.jni.NativeScan.create(
-                pointer,
-                projectionPtr,
-                filterPtr,
-                begin,
-                end,
-                selectionIndices,
-                selectionRoaringBitmap,
-                selectionMode.code(),
-                limit,
-                ordered,
-                splitConcurrency);
-        return Scan.fromPointer(session, scanPtr);
+            long scanPtr = dev.vortex.jni.NativeScan.create(
+                    pointer,
+                    projectionPtr,
+                    filterPtr,
+                    begin,
+                    end,
+                    selectionIndices,
+                    selectionRoaringBitmap,
+                    selectionMode.code(),
+                    limit,
+                    ordered,
+                    splitConcurrency);
+            return Scan.fromPointer(session, scanPtr);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /** Releases this handle once; existing scans, partitions, and batches remain valid. */
+    @Override
+    public synchronized void close() {
+        if (!closed) {
+            closed = true;
+            cleanable.clean();
+        }
     }
 
     private static long[] selectionIndices(ScanOptions options) {

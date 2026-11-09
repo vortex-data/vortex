@@ -16,7 +16,7 @@ import java.nio.ByteBuffer;
  * opening one underlying stream per concurrent call, or delegating to a positional-read API).
  *
  * <p>Lifecycle: the creator owns this object. Native code never calls {@link #close()}; close it only after every data
- * source or scan built on top of it has been closed.
+ * source built on top of it has been closed and every derived scan, partition, and Arrow reader has finished reading.
  */
 public interface NativeReadable extends Closeable {
     /**
