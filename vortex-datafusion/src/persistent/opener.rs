@@ -84,7 +84,7 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
-use crate::persistent::scan_v2::ScanDriver;
+use crate::persistent::scan_v2::run_scan;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -520,8 +520,8 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
+                // Unless set, a partition's scan runs as many workers as the engine's partitions
+                // leave cores idle: at one partition per core, a single worker.
                 let concurrency = scan_concurrency.unwrap_or_else(|| {
                     get_available_parallelism()
                         .unwrap_or(1)
@@ -555,8 +555,14 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                Ok(run_scan(
+                    handle,
+                    concurrency,
+                    has_output_ordering,
+                    scan,
+                    root,
+                    map_batch,
+                ))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
