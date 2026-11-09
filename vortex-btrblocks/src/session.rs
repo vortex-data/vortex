@@ -57,6 +57,7 @@ impl Default for CompressionSession {
                 &integer::IntDictScheme,
                 &integer::RunEndScheme,
                 &integer::SequenceScheme,
+                &integer::RunEndSequenceScheme,
                 &integer::IntRLEScheme,
                 &DELTA_SCHEME,
                 #[cfg(feature = "pco")]
