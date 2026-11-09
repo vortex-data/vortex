@@ -122,7 +122,8 @@
     "cast_bitpacked": 6,
     "compute_between": 11,
     "for_decode": 0,
-    "for_encode": 0
+    "for_encode": 0,
+    "patched_search": 6
   },
   "vortex-file": {
     "split_collection": 3
