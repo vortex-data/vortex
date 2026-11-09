@@ -8,14 +8,9 @@
 #include "config.cuh"
 #include "types.cuh"
 
-// Codes under null positions may hold any value, and so may corrupt input, so every gather
-// checks the code against the dictionary length.
-template <typename IndexT>
-__device__ inline bool in_dictionary(IndexT code, uint64_t values_len) {
-    return static_cast<uint64_t>(code) < values_len;
-}
-
-// A code outside the dictionary writes a zero value instead of reading past the end of `values`.
+// Codes under null positions may hold any value, and so may corrupt input, so every gather checks
+// the code against the dictionary length. A code outside the dictionary writes a zero value instead
+// of reading past the end of `values`.
 template <typename ValueT, typename IndexT>
 __device__ void dict_kernel(const IndexT *const __restrict codes,
                             uint64_t codes_len,
@@ -29,7 +24,7 @@ __device__ void dict_kernel(const IndexT *const __restrict codes,
 
     for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
         const IndexT code = codes[idx];
-        output[idx] = in_dictionary(code, values_len) ? values[code] : ValueT {};
+        output[idx] = static_cast<uint64_t>(code) < values_len ? values[code] : ValueT {};
     }
 }
 
@@ -63,7 +58,7 @@ __device__ void dict_bool_kernel(const IndexT *const __restrict codes,
 #pragma unroll
         for (uint32_t bit = 0; bit < 8; ++bit) {
             const uint64_t row = row_start + bit;
-            if (row < codes_len && in_dictionary(codes[row], values_len)) {
+            if (row < codes_len && static_cast<uint64_t>(codes[row]) < values_len) {
                 const uint64_t value_idx = values_bit_offset + static_cast<uint64_t>(codes[row]);
                 const uint8_t value = (values[value_idx / 8] >> (value_idx % 8)) & 1;
                 packed |= static_cast<uint8_t>(value << bit);
