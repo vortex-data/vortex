@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decoded segments shared by every scan of a file while live work still covers their rows.
+//! Decoded segments shared by every scan of a file while live work still covers their readers'
+//! rows.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -15,16 +16,15 @@ use vortex_scan::planning::driver::Liveness;
 
 use crate::segments::SegmentId;
 
-/// The root rows each segment of a file serves, by segment id.
-pub type SegmentRows = Arc<FxHashMap<SegmentId, Range<u64>>>;
-
 /// Whole decoded segments, shared by the filter, pruning, and projection pipelines of every
-/// chunk of a file, each kept while the driver reports live work over the rows it serves.
+/// chunk of a file while the driver reports live work over the rows of a split that read them.
 ///
-/// A segment that spans chunks, or that a chunk's filter and projection both read, is otherwise
-/// decoded once per reader. Here the first reader's decode is kept, pinned in the file's
-/// [`Liveness`] to the segment's root rows, and dropped as soon as no planner or morsel claims
-/// any of them, so the cache holds no more than the work in flight can still use.
+/// A segment that a chunk's filter and projection both read, or that neighbouring chunks
+/// overlap, is otherwise decoded once per reader. Here the first reader's decode is kept, pinned
+/// in the file's [`Liveness`] to the root rows of the split that read it. Every later reader that
+/// takes the decode pins it to its own split's rows as well, and the decode is dropped once none
+/// of those rows is claimed by live work, so the cache holds no more than the work in flight can
+/// still use.
 ///
 /// The default cache keeps nothing.
 #[derive(Clone, Default)]
@@ -32,38 +32,46 @@ pub struct DecodedSegments(Option<Arc<Inner>>);
 
 struct Inner {
     liveness: Liveness,
-    rows: SegmentRows,
     entries: Mutex<Entries>,
 }
 
 #[derive(Default)]
 struct Entries {
-    arrays: FxHashMap<SegmentId, (ArrayRef, u64)>,
+    decodes: FxHashMap<SegmentId, Entry>,
     next_generation: u64,
 }
 
-/// Removes its segment's entry when liveness drops it, unless a later decode replaced it.
-struct Evict {
+struct Entry {
+    array: ArrayRef,
+    generation: u64,
+    /// The live pins holding the decode.
+    pins: usize,
+}
+
+/// One reader's pin on a decode. Dropping the last pin of a decode removes it.
+struct Pin {
     inner: Weak<Inner>,
     segment: SegmentId,
     generation: u64,
 }
 
-impl Drop for Evict {
+impl Drop for Pin {
     fn drop(&mut self) {
         let Some(inner) = self.inner.upgrade() else {
             return;
         };
         let evicted = {
             let mut entries = inner.entries.lock();
-            let generation = entries
-                .arrays
-                .get(&self.segment)
-                .map(|(_, generation)| *generation);
-            if generation == Some(self.generation) {
-                entries.arrays.remove(&self.segment)
-            } else {
-                None
+            match entries.decodes.get_mut(&self.segment) {
+                Some(entry) if entry.generation == self.generation => {
+                    entry.pins -= 1;
+                    if entry.pins == 0 {
+                        entries.decodes.remove(&self.segment)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             }
         };
         drop(evicted);
@@ -71,64 +79,85 @@ impl Drop for Evict {
 }
 
 impl DecodedSegments {
-    /// A cache pinning each segment to its rows in `rows`, or to the whole file when `rows` does
-    /// not list it.
-    pub fn new(liveness: Liveness, rows: SegmentRows) -> Self {
+    /// A cache whose decodes are kept while `liveness` reports live work over their readers'
+    /// rows.
+    pub fn new(liveness: Liveness) -> Self {
         Self(Some(Arc::new(Inner {
             liveness,
-            rows,
             entries: Mutex::default(),
         })))
     }
 
-    /// The decoded segment an earlier reader kept.
-    pub(crate) fn get(&self, segment: SegmentId) -> Option<ArrayRef> {
+    /// The decoded segment an earlier reader kept, now also kept for a reader of `rows`.
+    pub(crate) fn get(&self, segment: SegmentId, rows: &Range<u64>) -> Option<ArrayRef> {
         let inner = self.0.as_ref()?;
-        inner
-            .entries
-            .lock()
-            .arrays
-            .get(&segment)
-            .map(|(array, _)| array.clone())
+        let (array, generation) = {
+            let mut entries = inner.entries.lock();
+            let entry = entries.decodes.get_mut(&segment)?;
+            entry.pins += 1;
+            (entry.array.clone(), entry.generation)
+        };
+        inner.pin(segment, generation, rows);
+        Some(array)
     }
 
     /// Whether a decode of `segment` is kept.
     pub(crate) fn contains(&self, segment: SegmentId) -> bool {
         self.0
             .as_ref()
-            .is_some_and(|inner| inner.entries.lock().arrays.contains_key(&segment))
+            .is_some_and(|inner| inner.entries.lock().decodes.contains_key(&segment))
     }
 
-    /// Keeps `array`, the decode of `segment`, while live work claims the segment's rows, and
-    /// returns the decode readers should use: an earlier reader's when two race.
-    pub(crate) fn insert(&self, segment: SegmentId, array: ArrayRef) -> ArrayRef {
+    /// Keeps `array`, the decode of `segment` by a reader of `rows`, while live work claims those
+    /// rows, and returns the decode readers should use: an earlier reader's when two race.
+    pub(crate) fn insert(
+        &self,
+        segment: SegmentId,
+        array: ArrayRef,
+        rows: &Range<u64>,
+    ) -> ArrayRef {
         let Some(inner) = self.0.as_ref() else {
             return array;
         };
-        let generation = {
+        let (array, generation) = {
             let mut entries = inner.entries.lock();
-            if let Some((kept, _)) = entries.arrays.get(&segment) {
-                return kept.clone();
-            }
             let generation = entries.next_generation;
-            entries.next_generation += 1;
-            entries.arrays.insert(segment, (array.clone(), generation));
-            generation
+            match entries.decodes.get_mut(&segment) {
+                Some(entry) => {
+                    entry.pins += 1;
+                    (entry.array.clone(), entry.generation)
+                }
+                None => {
+                    entries.next_generation += 1;
+                    entries.decodes.insert(
+                        segment,
+                        Entry {
+                            array: array.clone(),
+                            generation,
+                            pins: 1,
+                        },
+                    );
+                    (array, generation)
+                }
+            }
         };
-        let lifetime = inner
-            .rows
-            .get(&segment)
-            .map_or(Lifetime::File, |rows| Lifetime::Rows(rows.clone()));
-        // Pinning unclaimed rows drops the guard at once, which removes the entry again. The
-        // entries lock is released first, as the guard takes it.
-        inner.liveness.pin(
-            lifetime,
-            Evict {
-                inner: Arc::downgrade(inner),
+        inner.pin(segment, generation, rows);
+        array
+    }
+}
+
+impl Inner {
+    /// Pins a counted reader of `segment`'s decode to `rows`. Pinning unclaimed rows drops the
+    /// pin at once, which releases the count again; the entries lock must not be held, as the
+    /// pin takes it.
+    fn pin(self: &Arc<Self>, segment: SegmentId, generation: u64, rows: &Range<u64>) {
+        self.liveness.pin(
+            Lifetime::Rows(rows.clone()),
+            Pin {
+                inner: Arc::downgrade(self),
                 segment,
                 generation,
             },
         );
-        array
     }
 }

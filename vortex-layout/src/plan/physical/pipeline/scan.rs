@@ -291,6 +291,8 @@ pub(crate) struct Core {
     pub(crate) values: ValueCache,
     /// Decoded segments shared with every scan of the file while live work covers their rows.
     pub(crate) decoded: DecodedSegments,
+    /// The root rows of the split compiling, which the segments it decodes are kept for.
+    pub(crate) split_rows: Range<u64>,
 }
 
 impl Core {
@@ -311,6 +313,7 @@ impl Core {
             segments: Vec::new(),
             values: ValueCache::default(),
             decoded: DecodedSegments::default(),
+            split_rows: 0..0,
         }
     }
 
@@ -362,6 +365,7 @@ impl Core {
         mask: &Mask,
         slot: usize,
     ) -> VortexResult<Option<PortId>> {
+        self.split_rows = rows.clone();
         let Some(chain) = self.compile(plan, rows, mask)? else {
             return Ok(None);
         };

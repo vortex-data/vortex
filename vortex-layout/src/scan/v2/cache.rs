@@ -11,14 +11,11 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
-use vortex_error::VortexResult;
 use vortex_scan::planning::driver::Liveness;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
 use super::retain::RetainingSegmentSource;
-use super::rows::segment_rows;
-use crate::LayoutRef;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::DecodedSegments;
 use crate::plan::physical::pipeline::ValueCache;
@@ -85,18 +82,16 @@ impl ScanCache {
         self.0.liveness.clone()
     }
 
-    /// The segments the file's scans decoded, indexing `layout`'s segment rows on first use.
-    pub(super) fn decoded(&self, layout: &LayoutRef) -> VortexResult<DecodedSegments> {
+    /// The segments the file's scans decoded.
+    pub(super) fn decoded(&self) -> DecodedSegments {
         if self.0.decode_alone {
-            return Ok(DecodedSegments::default());
+            return DecodedSegments::default();
         }
-        let mut decoded = self.0.decoded.lock();
-        if let Some(decoded) = &*decoded {
-            return Ok(decoded.clone());
-        }
-        let fresh = DecodedSegments::new(self.0.liveness.clone(), segment_rows(layout)?);
-        *decoded = Some(fresh.clone());
-        Ok(fresh)
+        self.0
+            .decoded
+            .lock()
+            .get_or_insert_with(|| DecodedSegments::new(self.0.liveness.clone()))
+            .clone()
     }
 
     /// The lowered root plan an earlier scan kept.

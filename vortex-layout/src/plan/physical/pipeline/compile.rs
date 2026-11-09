@@ -154,6 +154,7 @@ impl Compiler<'_> {
             slice,
             filter,
             self.core.decoded.clone(),
+            self.core.split_rows.clone(),
         ))))
     }
 }

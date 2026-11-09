@@ -67,6 +67,8 @@ pub(crate) struct ScanSource {
     slice: Option<Range<usize>>,
     filter: Option<Mask>,
     decoded: DecodedSegments,
+    /// The root rows of the split reading the segment, which its decode is kept for.
+    reader_rows: Range<u64>,
     /// The segment to read, until it has been asked for.
     unread: Option<SegmentId>,
     /// The whole segment, already decoded by another reader.
@@ -81,6 +83,7 @@ impl ScanSource {
         slice: Option<Range<usize>>,
         filter: Option<Mask>,
         decoded: DecodedSegments,
+        reader_rows: Range<u64>,
     ) -> Self {
         Self {
             unread: Some(plan.segment_id()),
@@ -88,6 +91,7 @@ impl ScanSource {
             slice,
             filter,
             decoded,
+            reader_rows,
             kept: None,
             done: false,
         }
@@ -97,7 +101,7 @@ impl ScanSource {
 impl Source for ScanSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         if let Some(segment) = self.unread.take() {
-            if let Some(array) = self.decoded.get(segment)
+            if let Some(array) = self.decoded.get(segment, &self.reader_rows)
                 && array.len() as u64 == self.plan.row_count()
             {
                 self.kept = Some(array);
@@ -127,7 +131,8 @@ impl Operator for ScanSource {
                     .take_segment()
                     .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
                 let array = decode(&self.plan, bytes, cx.session())?;
-                self.decoded.insert(self.plan.segment_id(), array)
+                self.decoded
+                    .insert(self.plan.segment_id(), array, &self.reader_rows)
             }
         };
         Ok(Step::Final(select(
