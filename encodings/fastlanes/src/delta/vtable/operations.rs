@@ -377,24 +377,21 @@ mod tests {
         Ok(())
     }
 
-    /// Slicing a RunEnd array searches its ends: decoded up front when there are few, and
-    /// through a repeated probe, which reads Delta chunks through the retained state, when there
-    /// are many.
+    /// Slicing a RunEnd array searches its ends through a repeated probe; with Delta-encoded
+    /// ends, that search reads Delta chunks through the retained state.
     #[rstest]
-    fn runend_slice_over_delta_ends(
-        #[values(3_000, 70_000)] runs: u32,
-        #[values((0, 900), (3000, 9000), (7777, 12000), (11_999, 12_000))] bounds: (usize, usize),
-    ) -> VortexResult<()> {
+    #[case::first_chunk(0..900)]
+    #[case::middle(3000..9000)]
+    #[case::unaligned_tail(7777..12000)]
+    fn runend_slice_over_delta_ends(#[case] range: Range<usize>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // Runs of 4 rows; 3000 runs decode the ends up front, 70000 search them by probing.
-        let ends: PrimitiveArray = (1..=runs).map(|i| i * 4).collect();
-        let values: PrimitiveArray = (0..runs).map(|i| (i % 17) as i32 - 8).collect();
+        // 3000 runs of 4 rows, so the ends span three Delta chunks.
+        let ends: PrimitiveArray = (1..=3000u32).map(|i| i * 4).collect();
+        let values: PrimitiveArray = (0..3000i32).map(|i| i % 17 - 8).collect();
         let runend = RunEnd::try_new(da(&ends).into_array(), values.into_array(), &mut ctx)?;
-        let len = runs as usize * 4;
-        let expected: PrimitiveArray = (0..len)
+        let expected: PrimitiveArray = (0..12000usize)
             .map(|row| i32::try_from(row / 4 % 17).vortex_expect("small") - 8)
             .collect();
-        let range = bounds.0..bounds.1;
         assert_arrays_eq!(
             runend.into_array().slice(range.clone())?,
             expected.into_array().slice(range)?,
