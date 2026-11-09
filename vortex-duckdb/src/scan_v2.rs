@@ -46,7 +46,7 @@ use crate::RUNTIME;
 
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
-const CHUNKS_PER_THREAD: usize = 1;
+const CHUNKS_PER_THREAD: usize = 2;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
