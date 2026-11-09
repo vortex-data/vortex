@@ -82,6 +82,10 @@ __device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, 
 
     uint64_t remaining_start = block_end_vec * VALUES_PER_LOOP;
     for (uint64_t idx = remaining_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
-        values[idx] = op(values[idx]);
+        if constexpr (Op::uses_index) {
+            values[idx] = op(values[idx], idx);
+        } else {
+            values[idx] = op(values[idx]);
+        }
     }
 }
