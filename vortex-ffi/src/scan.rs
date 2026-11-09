@@ -33,6 +33,7 @@ use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
@@ -378,9 +379,7 @@ pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
         let on_chunk = move |chunk: VortexResult<ArrayRef>| -> VortexResult<RecordBatch> {
             let chunk: ArrayRef = chunk?;
             let mut ctx: ExecutionCtx = session.create_execution_ctx();
-            let arrow = session
-                .arrow()
-                .execute_arrow(chunk, Some(&target), &mut ctx)?;
+            let arrow = chunk.execute_arrow(Some(&target), &mut ctx)?;
             Ok(RecordBatch::from(arrow.as_struct().clone()))
         };
 

@@ -113,7 +113,6 @@ fn session_with_indexed_layout() -> anyhow::Result<VortexSession> {
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<EditionSession>();
-    vortex_arrow::initialize(&session);
     vortex_sequence::initialize(&session);
     session.register_edition(&INDEXED_TEST_DECLARATION)?;
     session.enable_edition(INDEXED_TEST_EDITION)?;
@@ -129,7 +128,6 @@ fn session_without_reverse_index() -> VortexSession {
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<EditionSession>();
-    vortex_arrow::initialize(&session);
     vortex_sequence::initialize(&session);
     session
 }
