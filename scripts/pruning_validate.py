@@ -34,7 +34,7 @@ cases = [
 ]
 cases += [("tpcds-focus", "tpcds", 1, "4,16,59,65,66,71,72", 30)]
 if not args.local:
-    cases += [("tpch-sf10-focus", "tpch", 10, "6,7", 20), ("polarsignals", "polarsignals", 1, None, 10)]
+    cases = [("polarsignals", "polarsignals", 1, None, 10), ("tpch-sf10-focus", "tpch", 10, "6,7", 20), *cases]
 rng = random.Random(11348)
 orders = {}
 for name, *_ in cases:
@@ -86,6 +86,8 @@ def run(case: tuple[str, str, int | None, str | None, int], label: str, key: str
         "--hide-progress-bar",
         "--display-format",
         "gh-json",
+        "--runner",
+        "paired-pruning-validation",
         "-o",
         str(output),
     ]
@@ -107,7 +109,9 @@ def run(case: tuple[str, str, int | None, str | None, int], label: str, key: str
     with (out / (key + ".log")).open("w") as log:
         result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=600)
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
-    assert result.returncode == 0, key
+    if result.returncode:
+        detail = (out / (key + ".log")).read_text()[-8000:]
+        raise RuntimeError(f"{key} failed ({result.returncode}):\n{detail}")
     rows = [json.loads(line) for line in output.read_text().splitlines()]
     expected = {"tpch": 22, "tpcds": 99, "clickbench": 43, "polarsignals": 11}[suite]
     if queries:
