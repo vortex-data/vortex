@@ -33,10 +33,15 @@ jobs:
     env:
       AWS_REGION: us-east-1
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-measurements/${{ github.run_id }}-${{ github.run_attempt }}
+      # Persistent and read only by the cold sweep; cleanup never removes it.
+      COLD_ROOT: s3://vortex-ci-benchmark-datasets/s3-measurements/cold-v1/
+      COLD_SIZES: 4096,65536,262144,1048576,8388608
       MEASUREMENT_WINDOWS: ${{ inputs.windows || '1' }}
+      # About 102k hot requests and 10k cold requests per window.
       S3_PROBE_ARGS: >-
         --sizes 4096,65536,262144,1048576,8388608 --concurrency 1,4,16,64
-        --requests 64 --rounds 3 --warmup-seconds 20 --timeout-seconds 60
+        --requests 1700 --rounds 3 --warmup-seconds 20 --timeout-seconds 60
+        --cold-source s3://vortex-ci-benchmark-datasets/s3-measurements/cold-v1/ --cold-concurrency 4
     steps:
       - uses: runs-on/action@v2
         with:
@@ -63,21 +68,25 @@ jobs:
           for object in 1 2 3 4; do
             aws s3 cp s3-probe.bin "$REMOTE_ROOT/probe-$object.bin"
           done
+      - name: Upload any missing persistent cold objects
+        run: |
+          aws configure set default.s3.max_concurrent_requests 64
+          python3 benchmarks/s3/create_cold.py --root "$COLD_ROOT" --sizes "$COLD_SIZES" --objects 2000
       - name: Initialize the fixed measurement schedule
         id: schedule
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --initialize -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --initialize -- $S3_PROBE_ARGS
       - name: Collect window 1
         continue-on-error: true
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --run-window 1 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --run-window 1 -- $S3_PROBE_ARGS
       - name: Wait for window 2
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 2 }}
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --wait-window 2 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --wait-window 2 -- $S3_PROBE_ARGS
       - name: Configure credentials for window 2
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 2 }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -90,12 +99,12 @@ jobs:
         continue-on-error: true
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --run-window 2 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --run-window 2 -- $S3_PROBE_ARGS
       - name: Wait for window 3
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 3 }}
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --wait-window 3 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --wait-window 3 -- $S3_PROBE_ARGS
       - name: Configure credentials for window 3
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 3 }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -108,12 +117,12 @@ jobs:
         continue-on-error: true
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --run-window 3 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --run-window 3 -- $S3_PROBE_ARGS
       - name: Wait for window 4
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 4 }}
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --wait-window 4 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --wait-window 4 -- $S3_PROBE_ARGS
       - name: Configure credentials for window 4
         if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 4 }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -126,13 +135,13 @@ jobs:
         continue-on-error: true
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --run-window 4 -- $S3_PROBE_ARGS
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --run-window 4 -- $S3_PROBE_ARGS
       - name: Require all requested windows and summarize
         if: ${{ always() && steps.schedule.outcome == 'success' }}
         run: >-
           python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
-          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --summarize -- $S3_PROBE_ARGS
-      - name: Preserve raw requests, manifests, schedule and median/p90 tables
+          --count "$MEASUREMENT_WINDOWS" --seed 20261028 --window-timeout-seconds 3600 --summarize -- $S3_PROBE_ARGS
+      - name: Preserve raw requests, manifests, schedule and latency tables
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
