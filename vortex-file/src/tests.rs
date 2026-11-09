@@ -3324,6 +3324,16 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
 
     // Bare comparisons: falsified directly by min/max stats.
     assert!(file.can_prune(&gt(col("age"), lit(30)))?);
+    assert!(file.can_prune_bound(&gt(col("age"), lit(30)).bind(file.dtype())?)?);
+    assert!(!file.can_prune_bound(&gt(col("age"), lit(20)).bind(file.dtype())?)?);
+    let other_dtype = DType::struct_(
+        [("age", DType::Primitive(I32, Nullability::NonNullable))],
+        Nullability::NonNullable,
+    );
+    assert!(
+        file.can_prune_bound(&gt(col("age"), lit(30)).bind(&other_dtype)?)
+            .is_err()
+    );
     assert!(file.can_prune(&lt(col("price"), lit(100)))?);
 
     // Composite predicates whose falsifications are boolean trees.

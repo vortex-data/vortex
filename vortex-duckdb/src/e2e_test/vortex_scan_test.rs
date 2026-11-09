@@ -1403,6 +1403,8 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
 
 #[rstest]
 #[case::filtered_count("SELECT count(*) FROM ? WHERE b < 100")]
+#[case::empty_count("SELECT count(*) FROM ? WHERE b > 5000")]
+#[case::constant_projection("SELECT 1::BIGINT FROM ? WHERE b = 42")]
 #[case::filtered_max("SELECT max(a) FROM ? WHERE b BETWEEN 300 AND 310")]
 #[case::filtered_projection("SELECT a FROM ? WHERE b = 42 ORDER BY a")]
 #[case::expression("SELECT a + b FROM ? WHERE a >= 50000 ORDER BY 1")]

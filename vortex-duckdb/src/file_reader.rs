@@ -21,6 +21,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
@@ -126,6 +127,7 @@ pub struct OpenFileReader {
 
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
+    file: VortexFile,
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
@@ -146,6 +148,7 @@ impl OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
                 scan_file,
+                file,
                 v2: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
@@ -164,10 +167,13 @@ impl OpenFileReader {
         &self.scan_state().reader
     }
 
-    fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
+    fn can_skip(&self, filter: &Filter, layout_pruning: bool) -> VortexResult<bool> {
         let Some(filter) = &filter.filter else {
             return Ok(false);
         };
+        if !layout_pruning {
+            return self.scan_state().file.can_prune_bound(filter);
+        }
         let row_count = self.reader().row_count();
         let row_range = 0..row_count;
         let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
@@ -212,7 +218,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter)? {
+    if file.can_skip(&global.filter, global.layout_pruning)? {
         // DuckDB releases a skipped file under the global lock. Here only the
         // file-local lock is held, so drop the scan state now.
         file.scan_state = None;

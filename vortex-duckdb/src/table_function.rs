@@ -36,6 +36,7 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::analysis::referenced_field_paths;
 use vortex::expr::col;
 use vortex::expr::proto::ExprSerializeProtoExt;
 #[cfg(unix)]
@@ -187,6 +188,8 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    /// Whether initialization probes the legacy layout pruning path.
+    pub layout_pruning: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -353,6 +356,10 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
     );
 
     let projection = optimize_and_bind(projection, &bind_data.dtype)?;
+    let scan_v2 = crate::scan_v2();
+    // For projections without input fields, the layout probe starts zone reads before V2
+    // planning. Keep that overlap for count-only and constant-projection scans.
+    let layout_pruning = !scan_v2 || referenced_field_paths(&projection)?.iter().next().is_none();
     Ok(GlobalState {
         projection,
         filter,
@@ -361,7 +368,8 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
-        scan_v2: crate::scan_v2(),
+        scan_v2,
+        layout_pruning,
     })
 }
 
