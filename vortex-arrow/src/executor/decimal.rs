@@ -273,6 +273,7 @@ mod tests {
     use arrow_array::StructArray as ArrowStructArray;
     use arrow_buffer::i256;
     use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -293,7 +294,7 @@ mod tests {
     use vortex_error::vortex_panic;
     use vortex_session::VortexSession;
 
-    use crate::ArrowArrayExecutor;
+    use crate::ExecuteArrowExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -347,9 +348,10 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = decimal_vortex
-            .into_array()
-            .execute_arrow(Some(&DataType::Decimal128(19, 2)), &mut ctx)?;
+        let arrow = decimal_vortex.into_array().execute_arrow(
+            Some(&Field::new("", DataType::Decimal128(19, 2), false)),
+            &mut ctx,
+        )?;
         assert_arrow_eq(
             &arrow,
             Decimal128Array::from(vec![1, 2, 3, 4, 5]).with_precision_and_scale(19, 2)?,
@@ -386,7 +388,8 @@ mod tests {
         decimal.append_value(12);
         let decimal = decimal.finish();
 
-        let actual = decimal.execute_arrow(Some(&data_type), &mut ctx)?;
+        let field = Field::new("", data_type.clone(), false);
+        let actual = decimal.execute_arrow(Some(&field), &mut ctx)?;
         let expected: arrow_array::ArrayRef = match data_type {
             DataType::Decimal32(precision, scale) => Arc::new(
                 Decimal32Array::from(vec![10, 11, 12])
@@ -439,8 +442,9 @@ mod tests {
             .execute::<DecimalArray>(&mut ctx)?
             .into_array();
 
-        let actual = array.execute_arrow(Some(&data_type), &mut ctx)?;
-        let expected = canonical.execute_arrow(Some(&data_type), &mut ctx)?;
+        let field = Field::new("", data_type.clone(), nullable);
+        let actual = array.execute_arrow(Some(&field), &mut ctx)?;
+        let expected = canonical.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(actual.data_type(), &data_type);
         assert_eq!(&actual, &expected);
 
@@ -475,7 +479,8 @@ mod tests {
         );
 
         let sliced = widen(values, 18)?.slice(1..4)?;
-        let arrow = sliced.execute_arrow(Some(&DataType::Decimal128(18, 2)), &mut ctx)?;
+        let field = Field::new("", DataType::Decimal128(18, 2), true);
+        let arrow = sliced.execute_arrow(Some(&field), &mut ctx)?;
         assert_arrow_eq(
             &arrow,
             Decimal128Array::from(vec![None, Some(30), Some(40)])
@@ -522,8 +527,8 @@ mod tests {
         let values =
             DecimalArray::new(buffer![1i128, i128::MAX], DecimalDType::new(9, 2), validity);
 
-        let arrow =
-            widen(values, 18)?.execute_arrow(Some(&DataType::Decimal64(18, 2)), &mut ctx)?;
+        let field = Field::new("", DataType::Decimal64(18, 2), true);
+        let arrow = widen(values, 18)?.execute_arrow(Some(&field), &mut ctx)?;
         assert_arrow_eq(
             &arrow,
             Decimal64Array::from(expected).with_precision_and_scale(18, 2)?,
@@ -540,10 +545,11 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = DecimalArray::new(buffer![i128::MAX, 0], DecimalDType::new(9, 2), validity);
+        let field = Field::new("", DataType::Decimal64(9, 2), values.dtype().is_nullable());
 
         let err = values
             .into_array()
-            .execute_arrow(Some(&DataType::Decimal64(9, 2)), &mut ctx)
+            .execute_arrow(Some(&field), &mut ctx)
             .expect_err("a valid value outside the target width must fail");
         assert!(
             err.to_string()

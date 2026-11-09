@@ -55,6 +55,7 @@ use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
 use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
 use vortex_python_abi::VORTEX_BUFFER_HOST;
@@ -234,22 +235,17 @@ impl ArrowExport {
             let chunks = chunked_array
                 .iter_chunks()
                 .map(|chunk| {
-                    session().arrow().execute_arrow(
-                        chunk.clone(),
-                        Some(&arrow_field),
-                        &mut session().create_execution_ctx(),
-                    )
+                    chunk
+                        .clone()
+                        .execute_arrow(Some(&arrow_field), &mut session().create_execution_ctx())
                 })
                 .collect::<VortexResult<Vec<ArrowArrayRef>>>()?;
 
             return Ok(Self::Chunked(chunks, arrow_field));
         }
 
-        let arrow_array = session().arrow().execute_arrow(
-            array,
-            target_field.as_ref(),
-            &mut session().create_execution_ctx(),
-        )?;
+        let arrow_array =
+            array.execute_arrow(target_field.as_ref(), &mut session().create_execution_ctx())?;
         Ok(Self::Single(arrow_array))
     }
 

@@ -90,6 +90,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
+    use crate::ExecuteArrowExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -284,9 +285,7 @@ mod tests {
 
     fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
         let field = Field::new("", dt.clone(), true);
-        SESSION
-            .arrow()
-            .execute_arrow(array, Some(&field), &mut SESSION.create_execution_ctx())
+        array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())
     }
 
     #[test]

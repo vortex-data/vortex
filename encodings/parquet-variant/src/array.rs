@@ -38,7 +38,7 @@ use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -449,9 +449,6 @@ pub trait ParquetVariantArrayExt:
         options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowVariantArray> {
-        let session = ctx.session().clone();
-        let arrow = session.arrow();
-        let exporter = arrow.exporter(options);
         let metadata = self.metadata();
         let len = metadata.len();
         let nulls = to_arrow_null_buffer(self.parquet_variant_validity(), len, ctx)?;
@@ -459,7 +456,9 @@ pub trait ParquetVariantArrayExt:
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
 
-        let metadata_arrow = exporter.execute_arrow(metadata.clone(), None, ctx)?;
+        let metadata_arrow = metadata
+            .clone()
+            .execute_arrow_with_options(None, options, ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -468,7 +467,9 @@ pub trait ParquetVariantArrayExt:
         arrays.push(metadata_arrow);
 
         if let Some(value) = self.value() {
-            let value_arrow = exporter.execute_arrow(value.clone(), None, ctx)?;
+            let value_arrow = value
+                .clone()
+                .execute_arrow_with_options(None, options, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
                 value_arrow.data_type().clone(),
@@ -478,7 +479,9 @@ pub trait ParquetVariantArrayExt:
         }
 
         if let Some(typed_value) = self.typed_value() {
-            let tv_arrow = exporter.execute_arrow(typed_value.clone(), None, ctx)?;
+            let tv_arrow = typed_value
+                .clone()
+                .execute_arrow_with_options(None, options, ctx)?;
             fields.push(Arc::new(Field::new(
                 "typed_value",
                 tv_arrow.data_type().clone(),
