@@ -3,11 +3,20 @@
 
 //! Looking codes up in dictionary values.
 
+use std::collections::hash_map::Entry;
+
+use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use super::UNBOUNDED;
 use super::join_inlet;
@@ -90,22 +99,65 @@ impl Operator for TakeSource {
         };
         Ok(match cx.inlet(CODES).take() {
             Some(codes) => {
-                // A sparse string projection can gather encoded values without decoding the
-                // whole dictionary. Keep sharing decoded values for small or dense takes.
-                let values = if (values.dtype().is_utf8() || values.dtype().is_binary())
+                // Decode each referenced entry once, keeping repeated row codes as a
+                // dictionary. Small or dense takes still share the whole decoded dictionary.
+                if (values.dtype().is_utf8() || values.dtype().is_binary())
                     && values.len() >= 1024
-                    && codes.len().saturating_mul(16) < values.len()
+                    && codes.len().saturating_mul(4) < values.len()
                     && let Some(shared) = values.as_opt::<Shared>()
                 {
-                    shared.current_array_ref().clone()
+                    Step::Final(compact_take(codes, shared.current_array_ref(), cx.exec())?)
                 } else {
-                    values
-                };
-                Step::Final(DictArray::try_new(codes, values)?.into_array())
+                    Step::Final(DictArray::try_new(codes, values)?.into_array())
+                }
             }
             None => Step::End,
         })
     }
+}
+
+fn compact_take(
+    codes: ArrayRef,
+    values: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    vortex_ensure!(
+        codes.dtype().is_int(),
+        "expected type: int but instead got {}",
+        codes.dtype()
+    );
+    let codes = codes.execute::<PrimitiveArray>(ctx)?;
+    let validity = codes.validity()?;
+    let valid = validity.execute_mask(codes.len(), ctx)?;
+    let values_len = values.len();
+    let mut mapping = FxHashMap::with_capacity_and_hasher(codes.len(), Default::default());
+    let mut selected = Vec::<u64>::with_capacity(codes.len());
+    let mut remapped = Vec::with_capacity(codes.len());
+    match_each_integer_ptype!(codes.ptype(), |P| {
+        for (&code, is_valid) in codes.as_slice::<P>().iter().zip(valid.iter()) {
+            if !is_valid {
+                remapped.push(0u64);
+                continue;
+            }
+            let index = usize::try_from(code)?;
+            vortex_ensure!(index < values_len, "Dictionary code out of bounds");
+            let code = match mapping.entry(index) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => {
+                    let code = u64::try_from(selected.len())?;
+                    selected.push(u64::try_from(index)?);
+                    *entry.insert(code)
+                }
+            };
+            remapped.push(code);
+        }
+    });
+    let values = values
+        .take(Buffer::from(selected).into_array())?
+        .execute::<Canonical>(ctx)?
+        .into_array();
+    let codes = PrimitiveArray::new(Buffer::from(remapped), validity).into_array();
+    Ok(DictArray::try_new(codes, values)?.into_array())
 }
 
 /// `array` as a [`SharedArray`](crate::arrays::shared::SharedArray), so however many dictionaries use it, it is canonicalized once.
