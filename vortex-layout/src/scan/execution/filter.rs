@@ -283,16 +283,6 @@ impl Planner for FilterPlanner {
                 rows,
                 &selected.mask,
             )?;
-            // A segment another reader decoded and kept needs no read.
-            let decoded = &self.scan.decoded;
-            let predicates: Vec<_> = predicates
-                .into_iter()
-                .filter(|&segment| !decoded.contains(segment))
-                .collect();
-            let projection: Vec<_> = projection
-                .into_iter()
-                .filter(|&segment| !decoded.contains(segment))
-                .collect();
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
             let locations = &self.scan.locations;

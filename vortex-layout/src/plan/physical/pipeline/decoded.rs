@@ -101,13 +101,6 @@ impl DecodedSegments {
         Some(array)
     }
 
-    /// Whether a decode of `segment` is kept.
-    pub(crate) fn contains(&self, segment: SegmentId) -> bool {
-        self.0
-            .as_ref()
-            .is_some_and(|inner| inner.entries.lock().decodes.contains_key(&segment))
-    }
-
     /// Keeps `array`, the decode of `segment` by a reader of `rows`, while live work claims those
     /// rows, and returns the decode readers should use: an earlier reader's when two race.
     pub(crate) fn insert(
