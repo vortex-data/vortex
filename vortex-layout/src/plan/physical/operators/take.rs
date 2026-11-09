@@ -3,6 +3,8 @@
 
 //! Looking codes up in dictionary values.
 
+use std::ops::Range;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
@@ -28,8 +30,9 @@ pub(crate) struct TakeSource {
     plan: TakePlan,
     /// The values, once their inlet has ended.
     values: Option<ArrayRef>,
-    /// Where values joined from the inlet are kept for the split's later scans.
-    cache: Option<ValueCache>,
+    /// Where values joined from the inlet are kept for the split's later scans, with the file
+    /// rows the take covers when they are known.
+    cache: Option<(ValueCache, Option<Range<u64>>)>,
 }
 
 const CODES: usize = 0;
@@ -38,7 +41,11 @@ const VALUES: usize = 1;
 impl TakeSource {
     /// A take over `values`, or over what its values inlet produces when `None`, keeping those
     /// in `cache`.
-    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>, cache: Option<ValueCache>) -> Self {
+    pub(crate) fn new(
+        plan: TakePlan,
+        values: Option<ArrayRef>,
+        cache: Option<(ValueCache, Option<Range<u64>>)>,
+    ) -> Self {
         Self {
             plan,
             values,
@@ -78,7 +85,7 @@ impl Operator for TakeSource {
                 let values_plan = self.plan.values()?;
                 let values = shared(join_inlet(cx, VALUES, values_plan.dtype())?);
                 let values = match &self.cache {
-                    Some(cache) => cache.insert(&values_plan, values),
+                    Some((cache, rows)) => cache.insert(&values_plan, values, rows.clone()),
                     None => values,
                 };
                 self.values = Some(values.clone());

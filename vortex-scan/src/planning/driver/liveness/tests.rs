@@ -5,9 +5,12 @@ use std::collections::VecDeque;
 
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
+use vortex_io::request::IoIntent;
+use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
+use vortex_io::request::IoTarget;
 
 use super::*;
 use crate::planning::driver::Progress;
@@ -258,36 +261,53 @@ fn a_scan_claim_keeps_values_after_the_work_finishes() -> VortexResult<()> {
     Ok(())
 }
 
-/// Reports remaining rows outside the scope it was admitted with.
-struct Widening;
+/// Publishes one fetch and waits for it, reporting remaining rows that reach past the scope it
+/// was admitted with.
+struct Widening {
+    published: bool,
+}
 
 impl IoConsumer for Widening {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {
-        unreachable!("publishes no IO")
-    }
+    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
 }
 
 impl Planner for Widening {
     fn state(&self) -> State {
-        State::NeedsCompute
+        if self.published {
+            State::Waiting
+        } else {
+            State::NeedsCompute
+        }
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        Ok(PlannerOutput::Continue)
+        self.published = true;
+        Ok(PlannerOutput::NeedsIO(vec![IoRequest {
+            intent: IoIntent::Fetch,
+            request: IoRequestId(0),
+            target: IoTarget::range(0, 4),
+        }]))
     }
 
     fn remaining_rows(&self) -> Option<Range<u64>> {
-        Some(0..16)
+        Some(4..16)
     }
 }
 
 #[test]
-fn remaining_rows_outside_the_claim_are_rejected() {
+fn remaining_rows_are_clamped_to_the_claim() -> VortexResult<()> {
+    let liveness = Liveness::new();
     let mut run = Run::new().with_step_limit(100);
-    run.admit_with_liveness(Box::new(Widening), scope(0..8), io(), Liveness::new());
-    let error = run.advance().err().vortex_expect("widening must fail");
-    assert!(
-        error.to_string().contains("outside its claim"),
-        "unexpected error: {error}"
+    run.admit_with_liveness(
+        Box::new(Widening { published: false }),
+        scope(0..8),
+        io(),
+        liveness.clone(),
     );
+    // The planner narrows, then parks on its fetch, which the source never answers.
+    assert!(matches!(run.advance()?, Progress::Waiting));
+    assert!(!liveness.is_claimed(&(0..4)));
+    assert!(liveness.is_claimed(&(4..8)));
+    assert!(!liveness.is_claimed(&(8..16)));
+    Ok(())
 }

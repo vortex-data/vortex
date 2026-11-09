@@ -11,6 +11,7 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_scan::planning::driver::Liveness;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -32,13 +33,16 @@ use crate::segments::SegmentSource;
 /// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
 /// the file's scans that share a stored segment read it once.
 ///
+/// The cache also holds the file's [`Liveness`], which every scan of the file reports its live
+/// work to. Dictionary values are kept while that work still claims a row they cover, and
+/// dropped once none does.
+///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
-/// when any of them changes. Cached plans and values live as long as the cache, one set per
+/// when any of them changes. Cached plans live as long as the cache, one set per
 /// distinct projection.
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
-#[derive(Default)]
 struct Inner {
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
@@ -51,6 +55,23 @@ struct Inner {
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
+    /// The rows of the file live work of its scans still claims.
+    liveness: Liveness,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        let liveness = Liveness::new();
+        Self {
+            root: Mutex::default(),
+            projections: Mutex::default(),
+            ranges: Mutex::default(),
+            filters: Mutex::default(),
+            values: ValueCache::with_liveness(liveness.clone()),
+            retained: Arc::default(),
+            liveness,
+        }
+    }
 }
 
 impl ScanCache {
@@ -61,6 +82,11 @@ impl ScanCache {
             retained: Arc::new(RetainedSegments::new(bytes)),
             ..Inner::default()
         }))
+    }
+
+    /// The liveness every scan of the file reports its live work to.
+    pub fn liveness(&self) -> Liveness {
+        self.0.liveness.clone()
     }
 
     /// The lowered root plan an earlier scan kept.

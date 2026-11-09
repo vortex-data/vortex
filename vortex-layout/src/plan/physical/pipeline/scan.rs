@@ -288,6 +288,9 @@ pub(crate) struct Core {
     pub(crate) segments: Vec<SegmentId>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
+    /// The file row of the compiling plan's row zero, or `None` when the plan compiles over a
+    /// domain other than the file's rows, such as dictionary values or a zone table.
+    pub(crate) domain: Option<u64>,
 }
 
 impl Core {
@@ -307,6 +310,7 @@ impl Core {
             dirty_flags: Vec::new(),
             segments: Vec::new(),
             values: ValueCache::default(),
+            domain: Some(0),
         }
     }
 

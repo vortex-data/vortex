@@ -38,6 +38,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::Liveness;
 use vortex_session::registry::ReadContext;
 
 use super::port::SourceEnd;
@@ -662,6 +663,58 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
 /// whole. Later scans sharing its value cache reuse the values and read only the codes; a scan
 /// with a cache of its own reads them again.
+/// Each dictionary's values are kept while live work claims a row of the dictionary, and
+/// dropped once none does. Values recorded while no work claims their rows are kept as long as
+/// the cache, as a scan driven without liveness needs.
+#[test]
+fn dictionary_values_live_while_their_rows_are_claimed() -> VortexResult<()> {
+    let mut store = Store::default();
+    let half = usize::try_from(ROWS / 2)?;
+    let mut dictionary = || -> VortexResult<LayoutRef> {
+        let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+        let codes = PrimitiveArray::from_iter((0..half).map(|v| (v % 3) as u8)).into_array();
+        Ok(DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout())
+    };
+    let chunks = vec![dictionary()?, dictionary()?];
+    let layout = ChunkedLayout::new(
+        ROWS,
+        chunks[0].dtype().clone(),
+        OwnedLayoutChildren::layout_children(chunks),
+    )
+    .into_layout();
+    let plan = layout.new_plan()?;
+    let liveness = Liveness::new();
+    let cache = ValueCache::with_liveness(liveness.clone());
+    let scan = |cache: &ValueCache| -> VortexResult<usize> {
+        let mask = Mask::new_true(usize::try_from(ROWS)?);
+        let run = run_with_values(
+            &store,
+            &plan,
+            0..ROWS,
+            mask,
+            cache.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        Ok(reads(&run.events))
+    };
+
+    let first = liveness.claim(0..ROWS / 2);
+    let second = liveness.claim(ROWS / 2..ROWS);
+    assert_eq!(scan(&cache)?, 4, "both codes and both values");
+    assert_eq!(scan(&cache)?, 2, "the codes alone");
+
+    drop(first);
+    assert_eq!(scan(&cache)?, 3, "the first dictionary's values again");
+
+    drop(second);
+    assert_eq!(
+        scan(&cache)?,
+        3,
+        "the second dictionary's values again; the first's, recorded unclaimed, are kept"
+    );
+    Ok(())
+}
+
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]

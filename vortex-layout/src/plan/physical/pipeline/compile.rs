@@ -115,6 +115,42 @@ impl Compiler<'_> {
         }
     }
 
+    /// Compiles `plan` like [`compile`](Self::compile), for a plan whose row zero is row `start`
+    /// of the compiling plan's domain.
+    pub fn compile_at(
+        &mut self,
+        start: u64,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Option<Chain>> {
+        let domain = self.core.domain;
+        self.core.domain = domain.map(|domain| domain + start);
+        let chain = self.compile(plan, rows, mask);
+        self.core.domain = domain;
+        chain
+    }
+
+    /// Compiles `plan` like [`compile`](Self::compile), for a plan whose rows are not rows of
+    /// the compiling plan's domain, such as dictionary values or a zone table.
+    pub fn compile_detached(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Option<Chain>> {
+        let domain = self.core.domain.take();
+        let chain = self.compile(plan, rows, mask);
+        self.core.domain = domain;
+        chain
+    }
+
+    /// The file rows of the first `len` rows of the compiling plan's domain, when they are
+    /// known.
+    pub(crate) fn file_rows(&self, len: u64) -> Option<Range<u64>> {
+        self.core.domain.map(|start| start..start + len)
+    }
+
     /// The global row index of the scanned plan's row zero.
     pub fn row_offset(&self) -> u64 {
         self.core.row_offset

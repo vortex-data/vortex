@@ -352,7 +352,8 @@ impl PlanVTable for Zoned {
         }
         let zones = plan.zones_plan()?;
         let count = usize::try_from(zones.row_count())?;
-        let Some(chain) = compiler.compile(&zones, 0..zones.row_count(), &Mask::new_true(count))?
+        let Some(chain) =
+            compiler.compile_detached(&zones, 0..zones.row_count(), &Mask::new_true(count))?
         else {
             vortex_bail!("Zoned pruning plan has an empty zone table");
         };
