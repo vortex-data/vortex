@@ -17,7 +17,8 @@
 //! session before deserializing or executing arrays that may contain these encodings.
 //!
 //! ```rust
-//! let session = vortex_array::array_session();
+//! use vortex_session::VortexSession;
+//! let session = VortexSession::empty();
 //! vortex_fastlanes::initialize(&session);
 //! ```
 //!
@@ -70,6 +71,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(FoRPlugin);
     session.arrays().register(RLE);
     bitpacking::initialize(session);
+    delta::initialize(session);
     for_::initialize(session);
     rle::initialize(session);
 
@@ -179,7 +181,7 @@ mod test {
     use super::*;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });

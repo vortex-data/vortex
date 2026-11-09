@@ -88,9 +88,51 @@ impl<A: IndexedSource, B: IndexedSource> IndexedSource for LaneZip<A, B> {
     }
 }
 
+/// A source that yields the same value for every lane.
+///
+/// Use it to drive a constant operand through a [`LaneZip`]; the read is loop-invariant, so the
+/// compiler hoists it out of the lane loop.
+#[derive(Clone, Copy)]
+pub struct Repeat<T> {
+    value: T,
+    len: usize,
+}
+
+impl<T: Copy> Repeat<T> {
+    /// Build a source of `len` lanes that all read `value`.
+    pub fn new(value: T, len: usize) -> Self {
+        Self { value, len }
+    }
+}
+
+impl<T: Copy> IndexedSource for Repeat<T> {
+    type Item = T;
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+    #[inline]
+    unsafe fn get_unchecked(&self, _i: usize) -> T {
+        self.value
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::IndexedSource;
     use super::LaneZip;
+    use super::Repeat;
+
+    #[test]
+    fn repeat_reads_the_same_value() {
+        let repeat = Repeat::new(7_u32, 3);
+        assert_eq!(repeat.len(), 3);
+        // SAFETY: both indices are below the length.
+        assert_eq!(
+            unsafe { (repeat.get_unchecked(0), repeat.get_unchecked(2)) },
+            (7, 7)
+        );
+    }
 
     #[test]
     #[should_panic(expected = "LaneZip operands must have the same length")]

@@ -7,7 +7,8 @@ and date columns.
 
 The queries in this directory (`q1.sql` ... `q22.sql`) are the standard TPC-H queries.
 Data is generated deterministically by [`tpchgen`](../../src/tpch/tpchgen.rs); the benchmark
-harness lives in [`src/tpch`](../../src/tpch).
+harness lives in [`src/tpch`](../../src/tpch). The SQL logic tests in `vortex-sqllogictest`
+generate their scale factor 0.1 fixtures through the same `data-gen` binary.
 
 ## CI variants
 

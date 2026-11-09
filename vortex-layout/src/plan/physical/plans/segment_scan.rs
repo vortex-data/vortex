@@ -12,14 +12,12 @@ use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use crate::plan::physical::Plan;
-use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
 use crate::plan::physical::PlanParts;
+use crate::plan::physical::PlanSlots;
 use crate::plan::physical::PlanVTable;
-use crate::plan::physical::check_child_count;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -50,7 +48,7 @@ impl SegmentScanPlan {
             vtable: SegmentScan,
             dtype,
             row_count,
-            children: PlanChildren::default(),
+            slots: PlanSlots::default(),
             data: SegmentScanData {
                 segment_id,
                 array_ctx,
@@ -90,12 +88,12 @@ impl PlanVTable for SegmentScan {
         None
     }
 
-    fn with_children(
+    fn with_slots(
         _plan: &Plan<Self>,
-        children: &PlanChildren,
+        slots: &PlanSlots,
         _data: &mut Self::PlanData,
     ) -> VortexResult<()> {
-        check_child_count("SegmentScan", children, 0)?;
+        slots.check_len("SegmentScan", 0)?;
         Ok(())
     }
 
@@ -107,15 +105,5 @@ impl PlanVTable for SegmentScan {
     ) -> VortexResult<Option<Chain>> {
         // A scan keeps the selected rows itself, as every plan produces only those.
         compiler.scan(plan, rows, Some(mask.clone()))
-    }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        visit(plan.segment_id(), at.root(&rows));
-        Ok(())
     }
 }

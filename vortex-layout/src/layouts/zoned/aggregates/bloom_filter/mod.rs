@@ -426,7 +426,7 @@ pub(in crate::layouts::zoned::aggregates::bloom_filter) mod test_utils {
     use super::*;
 
     pub fn setup() -> VortexResult<ExecutionCtx> {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         let options = BloomOptions::default();
         let metadata = BloomFilter
             .serialize(&options)?

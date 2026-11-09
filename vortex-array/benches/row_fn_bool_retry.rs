@@ -14,17 +14,19 @@ use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_array::scalar_fn::unstable::row::RowFn;
 use vortex_array::scalar_fn::unstable::row::RowVisitor;
 use vortex_array::scalar_fn::unstable::row::execute_rows;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -35,7 +37,11 @@ use vortex_session::registry::CachedId;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 const SIZES: &[usize] = &[16_384];
 const BATCHES_PER_ITER: usize = 8;
@@ -123,6 +129,9 @@ fn deferred_bool<const ROWS: usize>(bencher: Bencher, &(shape, scenario): &(Inpu
         ),
         InputShape::ConstantLhs => (ConstantArray::new(512_i64, ROWS).into_array(), column),
     };
+    mark_optimized(&lhs, &SESSION).vortex_expect("optimize the benchmark input");
+    mark_optimized(&rhs, &SESSION).vortex_expect("optimize the benchmark input");
+
     let args = VecExecutionArgs::new(vec![lhs, rhs], ROWS);
     let function = Predicate;
     drop(

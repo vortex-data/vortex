@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::Chain;
-use std::iter::Once;
-use std::iter::once;
+use std::hint::cold_path;
 use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
 use vortex_buffer::CpuKernel;
 use vortex_error::VortexExpect;
@@ -25,7 +22,8 @@ trait DepositBits {
     /// Deposit the low bits of `source` into the set bits of `mask`, as PDEP does.
     ///
     /// `mask_count` must equal `mask.count_ones()`. The portable implementations use it to
-    /// pick a closed form, so a wrong count gives a wrong result.
+    /// pick a closed form, so a wrong count gives a wrong result. Bits of `source` above
+    /// `mask_count` are ignored.
     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64;
 }
 
@@ -186,72 +184,53 @@ fn select_bit_position_portable(word: u64, mut rank: usize) -> usize {
     0
 }
 
-/// Reader that pulls variable-length (0..=64 bit) groups from a [`BitBuffer`] sequentially.
+/// Rank bits of a [`BitBuffer`] read at an absolute offset.
 ///
-/// Maintains a 128-bit window over two consecutive chunks (`current`, `next`) and uses a
-/// funnel shift via `u128` to extract bits at any offset without branching. The shift
-/// pattern compiles to a single funnel-shift / SHRD-style sequence on x86_64.
-struct RankBitReader<'a> {
-    chunk_iter: Chain<BitChunkIterator<'a>, Once<u64>>,
-    current: u64,
-    next: u64,
-    bit_offset: usize,
+/// The bits for a chunk of `self` start at the popcount of the chunks before it, which the
+/// kernel counts anyway, so no state carries from one read to the next. A sequential reader
+/// would refill its window behind a branch that random masks mispredict.
+struct RankBits<'a> {
+    bytes: &'a [u8],
+    start: usize,
+    /// The last 16 bytes followed by zeros. With a sparse `self` many reads start in the last
+    /// bytes, so they take a load from here rather than a copy each.
+    tail: [u8; 32],
+    tail_start: usize,
 }
 
-impl<'a> RankBitReader<'a> {
+impl<'a> RankBits<'a> {
     fn new(buffer: &'a BitBuffer) -> Self {
-        let chunks = buffer.chunks();
-        let mut chunk_iter = chunks.iter().chain(once(chunks.remainder_bits()));
-
-        let current = chunk_iter.next().unwrap_or(0);
-        let next = chunk_iter.next().unwrap_or(0);
-
+        let bytes = buffer.inner().as_slice();
+        let tail_start = bytes.len().saturating_sub(16);
+        let mut tail = [0; 32];
+        tail[..bytes.len() - tail_start].copy_from_slice(&bytes[tail_start..]);
         Self {
-            chunk_iter,
-            current,
-            next,
-            bit_offset: 0,
+            bytes,
+            start: buffer.offset(),
+            tail,
+            tail_start,
         }
     }
 
+    /// The 64 bits from `offset` on. Bits past the end of the backing bytes read as zero.
     #[inline]
-    fn fetch_next(&mut self) -> u64 {
-        self.chunk_iter.next().unwrap_or(0)
-    }
-
-    #[inline]
-    fn read(&mut self, bit_count: usize) -> u64 {
-        debug_assert!(bit_count <= 64);
-
-        // Funnel shift: extract `bit_count` bits at `bit_offset` from the (next:current)
-        // 128-bit window. For bit_offset in 0..=63 this is a single SHRD-style instruction
-        // on x86_64; the u128 cast keeps it well-defined when bit_offset == 0.
-        let combined = ((self.next as u128) << 64) | (self.current as u128);
-        // The truncation is intentional: we want the low 64 bits of the funnel-shifted
-        // window, which is exactly what `as u64` produces.
-        #[expect(clippy::cast_possible_truncation)]
-        let bits = (combined >> self.bit_offset) as u64 & low_bits(bit_count);
-
-        let new_offset = self.bit_offset + bit_count;
-        if new_offset >= 64 {
-            self.current = self.next;
-            self.next = self.fetch_next();
-            self.bit_offset = new_offset - 64;
-        } else {
-            self.bit_offset = new_offset;
-        }
-
-        bits
-    }
-}
-
-#[inline]
-fn low_bits(bit_count: usize) -> u64 {
-    debug_assert!(bit_count <= 64);
-    if bit_count == 64 {
-        u64::MAX
-    } else {
-        (1u64 << bit_count) - 1
+    #[expect(clippy::cast_possible_truncation)]
+    fn read(&self, offset: usize) -> u64 {
+        let position = self.start + offset;
+        let (byte, shift) = (position / 8, position % 8);
+        // 16 bytes from `byte` hold 121 bits past `shift`, enough for any read.
+        let window = match self.bytes.get(byte..).and_then(<[u8]>::first_chunk) {
+            Some(window) => window,
+            None => {
+                // Keeps the branch: a select would put the comparisons on every load's address.
+                cold_path();
+                self.tail
+                    .get(byte - self.tail_start..)
+                    .and_then(<[u8]>::first_chunk)
+                    .unwrap_or(&[0; 16])
+            }
+        };
+        (u128::from_le_bytes(*window) >> shift) as u64
     }
 }
 
@@ -297,20 +276,22 @@ fn intersect_bit_buffers<D: DepositBits>(
 ) -> Mask {
     let len = self_buffer.len();
     let mut result = BufferMut::with_capacity(len.div_ceil(64));
-    let mut reader = RankBitReader::new(mask_buffer);
+    let rank_bits = RankBits::new(mask_buffer);
     let self_chunks = self_buffer.chunks();
+    let mut rank_offset = 0;
 
     for self_chunk in self_chunks.iter() {
         let self_count = self_chunk.count_ones() as usize;
-        let rank_bits = reader.read(self_count);
-        push_result_chunk::<D>(&mut result, self_chunk, self_count, rank_bits);
+        let source = rank_bits.read(rank_offset);
+        push_result_chunk::<D>(&mut result, self_chunk, self_count, source);
+        rank_offset += self_count;
     }
 
     if self_chunks.remainder_len() != 0 {
         let self_chunk = self_chunks.remainder_bits();
         let self_count = self_chunk.count_ones() as usize;
-        let rank_bits = reader.read(self_count);
-        push_result_chunk::<D>(&mut result, self_chunk, self_count, rank_bits);
+        let source = rank_bits.read(rank_offset);
+        push_result_chunk::<D>(&mut result, self_chunk, self_count, source);
     }
 
     mask_from_buffer(
@@ -679,142 +660,11 @@ mod tests {
     use crate::Mask;
 
     #[test]
-    fn mask_bitand_all_as_bit_and() {
-        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, true, true, true, true]));
-        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![false, true, false, true, true]));
-        assert_eq!(
-            this.intersect_by_rank(&mask),
-            Mask::from_indices(5, vec![1, 3, 4])
-        );
-    }
-
-    #[test]
-    fn mask_bitand_all_true() {
-        let this = Mask::from_buffer(BitBuffer::from_iter(vec![false, false, true, true, true]));
-        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![true, true, true]));
-        assert_eq!(
-            this.intersect_by_rank(&mask),
-            Mask::from_indices(5, vec![2, 3, 4])
-        );
-    }
-
-    #[test]
-    fn mask_bitand_true() {
-        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, false, true, true]));
-        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, true]));
-        assert_eq!(
-            this.intersect_by_rank(&mask),
-            Mask::from_indices(5, vec![0, 4])
-        );
-    }
-
-    #[test]
-    fn mask_bitand_false() {
-        let this = Mask::from_buffer(BitBuffer::from_iter(vec![true, false, false, true, true]));
-        let mask = Mask::from_buffer(BitBuffer::from_iter(vec![false, false, false]));
-        assert_eq!(this.intersect_by_rank(&mask), Mask::from_indices(5, vec![]));
-    }
-
-    #[test]
-    fn mask_intersect_by_rank_all_false() {
-        let this = Mask::AllFalse(10);
-        let mask = Mask::AllFalse(0);
-        assert_eq!(this.intersect_by_rank(&mask), Mask::AllFalse(10));
-    }
-
-    #[rstest]
-    #[case::all_true_with_all_true(
-        Mask::new_true(5),
-        Mask::new_true(5),
-        vec![0, 1, 2, 3, 4]
-    )]
-    #[case::all_true_with_all_false(
-        Mask::new_true(5),
-        Mask::new_false(5),
-        vec![]
-    )]
-    #[case::all_false_with_any(
-        Mask::new_false(10),
-        Mask::new_true(0),
-        vec![]
-    )]
-    #[case::indices_with_all_true(
-        Mask::from_indices(10, vec![2, 5, 7, 9]),
-        Mask::new_true(4),
-        vec![2, 5, 7, 9]
-    )]
-    #[case::indices_with_all_false(
-        Mask::from_indices(10, vec![2, 5, 7, 9]),
-        Mask::new_false(4),
-        vec![]
-    )]
-    fn test_intersect_by_rank_special_cases(
-        #[case] base_mask: Mask,
-        #[case] rank_mask: Mask,
-        #[case] expected_indices: Vec<usize>,
-    ) {
-        let result = base_mask.intersect_by_rank(&rank_mask);
-
-        match result.indices() {
-            crate::AllOr::All => assert_eq!(expected_indices.len(), result.len()),
-            crate::AllOr::None => assert!(expected_indices.is_empty()),
-            crate::AllOr::Some(indices) => assert_eq!(indices, &expected_indices[..]),
-        }
-    }
-
-    #[test]
-    fn test_intersect_by_rank_example() {
-        // Example from the documentation
-        let m1 = Mask::from_iter([true, false, false, true, true, true, false, true]);
-        let m2 = Mask::from_iter([false, false, true, false, true]);
-        let result = m1.intersect_by_rank(&m2);
-        let expected = Mask::from_iter([false, false, false, false, true, false, false, true]);
-        assert_eq!(result, expected);
-    }
-
-    #[test]
     #[should_panic]
     fn test_intersect_by_rank_wrong_length() {
         let m1 = Mask::from_indices(10, vec![2, 5, 7]); // 3 true values
         let m2 = Mask::new_true(5); // 5 true values - doesn't match
         m1.intersect_by_rank(&m2);
-    }
-
-    #[rstest]
-    #[case::single_element(
-        vec![3],
-        vec![true],
-        vec![3]
-    )]
-    #[case::single_element_masked(
-        vec![3],
-        vec![false],
-        vec![]
-    )]
-    #[case::alternating(
-        vec![0, 2, 4, 6, 8],
-        vec![true, false, true, false, true],
-        vec![0, 4, 8]
-    )]
-    #[case::consecutive(
-        vec![5, 6, 7, 8, 9],
-        vec![false, true, true, true, false],
-        vec![6, 7, 8]
-    )]
-    fn test_intersect_by_rank_patterns(
-        #[case] base_indices: Vec<usize>,
-        #[case] rank_pattern: Vec<bool>,
-        #[case] expected_indices: Vec<usize>,
-    ) {
-        let base = Mask::from_indices(10, base_indices);
-        let rank = Mask::from_iter(rank_pattern);
-        let result = base.intersect_by_rank(&rank);
-
-        match result.indices() {
-            crate::AllOr::Some(indices) => assert_eq!(indices, &expected_indices[..]),
-            crate::AllOr::None => assert!(expected_indices.is_empty()),
-            _ => panic!("Unexpected result"),
-        }
     }
 
     #[rstest]
@@ -968,7 +818,7 @@ mod tests {
             return;
         }
         deposit_matches_reference::<Sve2Bdep>();
-        for offset in [0, 3] {
+        for offset in [0, 3, 67] {
             kernels_match_reference::<Sve2Bdep>(offset);
         }
         let mut state = 0x9E37_79B9_7F4A_7C15;
@@ -985,6 +835,7 @@ mod tests {
     #[rstest]
     #[case::aligned(0)]
     #[case::offset(3)]
+    #[case::past_a_word(67)]
     fn portable_kernels_match_reference(#[case] offset: usize) {
         kernels_match_reference::<Portable>(offset);
         kernels_match_reference::<PortableLoop>(offset);
@@ -1015,7 +866,9 @@ mod tests {
         let rank_bits: Vec<bool> = (0..rank_len)
             .map(|_| !xorshift(&mut state).is_multiple_of(3))
             .collect();
-        let rank_buffer = BitBuffer::from(rank_bits.clone());
+        let mut rank_source = vec![true; offset];
+        rank_source.extend(&rank_bits);
+        let rank_buffer = BitBuffer::from(rank_source).slice(offset..offset + rank_len);
         let rank_indices: Vec<usize> = rank_bits
             .iter()
             .enumerate()

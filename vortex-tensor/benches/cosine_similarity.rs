@@ -12,6 +12,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
@@ -25,11 +27,22 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_array::test_harness::mark_decoded;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 use vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity;
 use vortex_tensor::vector::Vector;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
@@ -37,6 +50,7 @@ use vortex_tensor::vector::Vector;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -81,15 +95,14 @@ fn constant_vector(width: usize) -> ArrayRef {
 }
 
 fn bench_cosine(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
-    let session = vortex_array::array_session();
     bencher
         .with_inputs(|| {
-            (
-                CosineSimilarity::try_new(lhs.clone(), rhs.clone())
-                    .unwrap()
-                    .into_array(),
-                session.create_execution_ctx(),
-            )
+            let array = CosineSimilarity::try_new(lhs.clone(), rhs.clone())
+                .unwrap()
+                .into_array();
+            mark_optimized(&array, &SESSION).unwrap();
+
+            (array, SESSION.create_execution_ctx())
         })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
@@ -114,11 +127,16 @@ fn extension_constant_vector(width: usize) -> ArrayRef {
         .map(|i| Scalar::primitive(((i % 97) as f64) - 48.0, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    ExtensionArray::new(
+    let array = ExtensionArray::new(
         ext_dtype,
         ConstantArray::new(fsl_scalar, ELEMENTS / width).into_array(),
     )
-    .into_array()
+    .into_array();
+
+    // The optimizer folds this shape into a constant extension array, but a file can hold it.
+    mark_decoded(&array);
+
+    array
 }
 
 /// The rhs is the same broadcast query represented as extension-wrapped constant storage.

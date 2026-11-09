@@ -43,7 +43,7 @@ impl ArrayRef {
 
     fn normalize_with_error(&self, allowed: &HashSet<Id>) -> VortexResult<()> {
         if !self.is_allowed_encoding(allowed) {
-            vortex_bail!(AssertionFailed: "normalize forbids encoding ({})", self.encoding_id())
+            vortex_bail!("normalize forbids encoding ({})", self.encoding_id())
         }
 
         for child in self.children() {
@@ -99,12 +99,16 @@ impl ArrayRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::NormalizeOptions;
     use super::Operation;
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array::VTable;
@@ -118,6 +122,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn normalize_with_execution_keeps_parent_when_children_are_unchanged() -> VortexResult<()> {
         let field = PrimitiveArray::from_iter(0i32..4).into_array();
@@ -129,7 +135,7 @@ mod tests {
         )?
         .into_array();
         let allowed = HashSet::from_iter([array.encoding_id(), field.encoding_id()]);
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let normalized = array.clone().normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -174,7 +180,7 @@ mod tests {
         )?
         .into_array();
         let allowed = HashSet::from_iter([array.encoding_id(), unchanged.encoding_id()]);
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let normalized = array.clone().normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -193,9 +199,13 @@ mod tests {
             &original_children[1],
             &normalized_children[1]
         ));
+        assert!(normalized_children[1].is::<Primitive>());
         assert_arrays_eq!(
-            normalized_children[1],
-            PrimitiveArray::from_iter(12i32..16),
+            normalized,
+            StructArray::try_from_iter([
+                ("lhs", PrimitiveArray::from_iter(0i32..4).into_array()),
+                ("rhs", PrimitiveArray::from_iter(12i32..16).into_array()),
+            ])?,
             &mut ctx
         );
 
@@ -213,7 +223,7 @@ mod tests {
         assert_eq!(sliced.encoding_id(), Slice.id());
 
         let allowed = HashSet::from_iter([Dict.id(), Primitive.id()]);
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let normalized = sliced.normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -225,8 +235,7 @@ mod tests {
         assert_eq!(normalized.len(), 3);
 
         // Verify the data: codes [1,0,1] -> values [20, 10, 20]
-        #[expect(deprecated)]
-        let normalized_canonical = normalized.to_canonical()?;
+        let normalized_canonical = normalized.execute::<Canonical>(&mut ctx)?;
         assert_arrays_eq!(
             normalized_canonical,
             PrimitiveArray::from_iter(vec![20i32, 10, 20]),

@@ -147,12 +147,13 @@ mod tests {
     use num_traits::AsPrimitive;
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
-    use vortex::dtype::PType;
     use vortex::encodings::runend::RunEnd;
     use vortex::error::VortexResult;
 
@@ -169,6 +170,7 @@ mod tests {
             Buffer::<u32>::empty().into_array(),
             buffer![0u32].into_array(),
             Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
 
@@ -193,38 +195,36 @@ mod tests {
         Ok(())
     }
 
+    /// The file reader gives a `list<struct>` column chunked struct fields. The list exports all
+    /// its elements in one call, so the chunked field must serve a range that crosses its chunk
+    /// boundary.
     #[test]
-    fn test_export_u64_list() -> VortexResult<()> {
-        let list = ListArray::try_new(
-            buffer![1u64, 2, 3, 4, 5].into_array(),
-            buffer![0u8, 1, 2, 3, 4, 5].into_array(),
-            Validity::AllValid,
-        )?
-        .into_array();
-        assert_eq!(
-            list.dtype(),
-            &DType::List(
-                Arc::new(DType::Primitive(PType::U64, false.into())),
-                true.into()
-            )
-        );
-
-        let list_type = LogicalType::list_type(LogicalType::uint64())?;
-        let mut chunk = DataChunk::new([list_type]);
-
+    fn test_export_list_of_structs_with_chunked_field() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
+        let chunk0 = buffer![1i32, 2].into_array();
+        let chunk1 = buffer![3i32, 4, 5].into_array();
+        let dtype = chunk0.dtype().clone();
+        let field = ChunkedArray::try_new(vec![chunk0, chunk1], dtype)?.into_array();
+        let elements = StructArray::from_fields(&[("v", field)])?.into_array();
+
+        // [{1}], [{2}, {3}], [{4}], [{5}]: the second list crosses the chunk boundary.
+        let offsets = buffer![0u32, 1, 3, 4, 5].into_array();
+        let list =
+            ListArray::try_new(elements, offsets, Validity::AllValid, &mut ctx)?.into_array();
+        let mut chunk = DataChunk::new([LogicalType::try_from(list.dtype())?]);
+
         new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
             0,
-            5,
+            4,
             chunk.get_vector_mut(0),
             &mut ctx,
         )?;
-        chunk.set_len(5);
+        chunk.set_len(4);
 
         assert_eq!(
             String::try_from(&*chunk)?,
             r#"Chunk - [1 Columns]
-- FLAT UBIGINT[]: 5 = [ [1], [2], [3], [4], [5]]
+- FLAT STRUCT(v INTEGER)[]: 4 = [ [{'v': 1}], [{'v': 2}, {'v': 3}], [{'v': 4}], [{'v': 5}]]
 "#
         );
         Ok(())
@@ -235,7 +235,13 @@ mod tests {
         // [1], [2, 8], [3], [4], [5]
         let elements = buffer![1u64, 2, 8, 3, 4, 5].into_array();
         let offsets = buffer![0u8, 1, 3, 4, 5, 6].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+        let list = ListArray::try_new(
+            elements,
+            offsets,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let u64_type = LogicalType::uint64();
         let list_type = LogicalType::list_type(u64_type)?;
@@ -292,7 +298,13 @@ mod tests {
         let elements_buffer = buffer![100f32, 100f32, 200f32, 200f32, 200f32].into_array();
         let elements = RunEnd::encode(elements_buffer, &mut ctx)?.into_array();
         let offsets = buffer![0u32, 2, 5].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+        let list = ListArray::try_new(
+            elements,
+            offsets,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::float32())?;
         let mut chunk = DataChunk::new([list_type]);
@@ -327,6 +339,7 @@ mod tests {
             .into_array(),
             buffer![0u8, 1, 2, 3, 4].into_array(),
             Validity::from_iter([true, true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
 

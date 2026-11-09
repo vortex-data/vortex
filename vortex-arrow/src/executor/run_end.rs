@@ -16,15 +16,15 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::RunEnd;
+use vortex_array::arrays::RunEndArray;
+use vortex_array::arrays::runend::RunEndArrayExt;
+use vortex_array::arrays::runend::RunEndArraySlotsExt;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_runend::RunEnd;
-use vortex_runend::RunEndArray;
-use vortex_runend::RunEndArrayExt;
-use vortex_runend::RunEndArraySlotsExt;
 
 use crate::ArrowExporter;
 use crate::executor::execute_arrow_naive;
@@ -218,11 +218,7 @@ mod tests {
     use crate::executor::run_end::ConstantArray;
     use crate::executor::run_end::RunEnd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        vortex_runend::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn ree_type(ends: DataType, values_dtype: DataType) -> DataType {
         DataType::RunEndEncoded(
@@ -324,6 +320,11 @@ mod tests {
             .downcast_ref::<Int64Array>()
             .ok_or_else(|| vortex_err!("expected Int64 values"))?;
         assert_eq!(arrow_values.values().as_ptr(), values_ptr);
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2, 4]),
+            &Int64Array::from(vec![7, 8]),
+        )?;
+        assert_eq!(ree_arrow, &expected);
         Ok(())
     }
 

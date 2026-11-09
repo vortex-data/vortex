@@ -195,7 +195,11 @@ mod tests {
         };
         let refined = scheme.refine(&allowed);
         assert_eq!(refined.id(), scheme.id());
-        let expected: &dyn Scheme = if expect_v2 { &DECIMAL_V2 } else { &DECIMAL_V1 };
-        assert_eq!(refined.produced_encodings(), expected.produced_encodings());
+        let expected = if expect_v2 {
+            vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
+        } else {
+            vec![decimal_byte_parts_v1_id()]
+        };
+        assert_eq!(refined.produced_encodings(), expected);
     }
 }

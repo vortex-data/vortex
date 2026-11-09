@@ -57,14 +57,14 @@ logical_plan
 12)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 13)------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_ticket_number, ss_coupon_amt, ss_net_profit]
 14)------------------------Projection: date_dim.d_date_sk
-15)--------------------------Filter: date_dim.d_dow = Int64(1) AND (date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001))
-16)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow = Int64(1), date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001)]
+15)--------------------------Filter: date_dim.d_dow = Int32(1) AND (date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001))
+16)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dow], partial_filters=[date_dim.d_dow = Int32(1), date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
 17)--------------------Projection: store.s_store_sk, store.s_city
-18)----------------------Filter: store.s_number_employees >= Int64(200) AND store.s_number_employees <= Int64(295)
-19)------------------------TableScan: store projection=[s_store_sk, s_number_employees, s_city], partial_filters=[store.s_number_employees >= Int64(200), store.s_number_employees <= Int64(295)]
+18)----------------------Filter: store.s_number_employees >= Int32(200) AND store.s_number_employees <= Int32(295)
+19)------------------------TableScan: store projection=[s_store_sk, s_number_employees, s_city], partial_filters=[store.s_number_employees >= Int32(200), store.s_number_employees <= Int32(295)]
 20)----------------Projection: household_demographics.hd_demo_sk
-21)------------------Filter: household_demographics.hd_dep_count = Int64(6) OR household_demographics.hd_vehicle_count > Int32(2)
-22)--------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(6) OR household_demographics.hd_vehicle_count > Int32(2)]
+21)------------------Filter: household_demographics.hd_dep_count = Int32(6) OR household_demographics.hd_vehicle_count > Int32(2)
+22)--------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(6) OR household_demographics.hd_vehicle_count > Int32(2)]
 23)------TableScan: customer projection=[c_customer_sk, c_first_name, c_last_name]
 physical_plan
 01)SortPreservingMergeExec: [c_last_name@0 ASC, c_first_name@1 ASC, substr(ms.s_city,Int64(1),Int64(30))@2 ASC, profit@5 ASC, ss_ticket_number@3 ASC NULLS LAST], fetch=100

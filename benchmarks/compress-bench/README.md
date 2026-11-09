@@ -17,11 +17,83 @@ data. This is the workload behind the `Compression` PR comment.
 See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--formats`,
 `--datasets`, `--ops compress,decompress`).
 
+## CPU parallelism
+
+Vortex and Parquet get the same CPU budget, and each uses it the way its own default reader and
+writer would. The binary runs one multi-threaded Tokio runtime,
+sized by `--threads` (default: one worker per available core), and every timed Vortex and
+Parquet operation runs as a task on it, so neither format uses threads outside that pool and the
+main thread does none of the timed work. `--threads 1` compares single-worker decoders;
+the default compares them at full width.
+
+CI runs the timed benchmark on a fixed budget of 16 cores: `scripts/compress-split.py --cpus 16`
+(the default) pins the process to 16 CPUs through `scripts/bench-taskset.sh` and passes
+`--threads 16`, so the result does not depend on how many cores the benchmark machine has.
+Pass `--cpus 0` to use every benchmark CPU instead.
+
+Vortex schedules its own compression and scan work as tasks on the runtime. Parquet runs on
+the same runtime the way DataFusion's Parquet sink and scan do with their default options:
+
+- **Compress** follows DataFusion's parallel `ParquetSink`. Input is split into row groups at
+  the writer's default `max_row_group_row_count` (1,048,576 rows), the same boundaries
+  `ArrowWriter` produces. Every leaf column of the open row group is encoded by its own task,
+  fed through a channel of at most 2 arrays (`maximum_buffered_record_batches_per_stream`). When
+  a row group is full, a separate task closes its column writers while the next row group
+  starts, and at most 1 finished row group waits to be appended to the file
+  (`maximum_parallel_row_group_writers`). Encoded bytes leave the writer's buffer every ~1 MB,
+  as DataFusion streams them to the object store, and are joined into one buffer at the end.
+- **Decompress** follows DataFusion's file scan. The file's bytes are split into one range per
+  runtime worker (`target_partitions`), unless the file is under 1 MiB
+  (`repartition_file_min_size`), and each row group belongs to the range holding its first page.
+  Each range is one task that decodes its row groups in order, in batches of 8,192 rows
+  (`batch_size`, also the Vortex writer's row block size), reading strings and binaries as
+  `Utf8View` / `BinaryView` (`schema_force_view_types`), the types the Vortex reader produces.
+  Spark plans a single file the same way: byte-range splits, each row group read by the split
+  holding its midpoint, one sequential reader per split.
+
+The written file has the same row groups, encodings and compression as a sequential
+`ArrowWriter` with the same settings. Arrow IPC is a serialization baseline and stays
+single-threaded.
+
 ## Running locally
 
 ```bash
 cargo run -p compress-bench --profile release_debug
+# single-worker comparison
+cargo run -p compress-bench --profile release_debug -- --threads 1
 ```
+
+## Sparse-wide baseline
+
+The default CPU suite includes five synthetic sparse-wide datasets. They require no downloads
+and use the same preparation, format selection, size reporting, and encode/decode timing as the
+other compression workloads. Run just these datasets with:
+
+```bash
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --threads 1 --ingest-jsonl /tmp/sparse-wide-baseline.jsonl
+# Vortex compression only:
+cargo run -p compress-bench --profile release_debug -- \
+  --datasets '^sparse-wide-' --formats vortex --ops compress --threads 1
+```
+
+Each dataset has 100,000 rows, 100 mutually exclusive groups, three fields per group, and seed 42.
+Each row has exactly one present group. Fields hold random integers in `[0, 1_000_000)`, or lists
+of three such integers:
+
+- `sparse-wide-flat-runs`: nullable integer fields with clustered group presence.
+- `sparse-wide-nested-runs`: the integer fields under four nullable struct levels.
+- `sparse-wide-lists-runs`: the same nesting with list fields.
+- `sparse-wide-lists-shuffled`: list groups scattered across rows, with the same per-group values.
+- `sparse-wide-nested-child-nulls`: nested integers with genuine nulls in 10% of present values.
+
+Each workload writes one wide file containing every group and all rows. Follow-up compression
+changes can be measured against the same dataset across commits. Source Parquet files use Zstd
+level 3 and are generated and cached during data preparation, outside the timed operations.
+The normal suite loads these files separately for each selected format; its usual reader batch
+sizes and writer settings apply. This includes measuring both compression and decompression by
+default, with the existing size metrics in the tables and ingestion JSONL. Vortex and Arrow IPC
+count complete files; the current Parquet metric counts bytes before the footer.
 
 ## GPU decompression
 

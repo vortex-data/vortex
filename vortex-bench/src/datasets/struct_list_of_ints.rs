@@ -83,7 +83,7 @@ impl Dataset for StructListOfInts {
         &self.name
     }
 
-    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         let names: FieldNames = (0..self.num_columns)
             .map(|col_idx| col_idx.to_string())
             .collect();
@@ -111,6 +111,7 @@ impl Dataset for StructListOfInts {
                             elements.into_array(),
                             offsets.into_array(),
                             Validity::AllValid,
+                            ctx,
                         )?
                         .into_array())
                     })

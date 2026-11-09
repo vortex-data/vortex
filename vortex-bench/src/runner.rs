@@ -513,7 +513,12 @@ mod tests {
 
     #[test]
     fn ci_rejects_unknown_benchmark_runner() {
-        assert!(validate_benchmark_runner_id("unknown", true).is_err());
+        assert_eq!(
+            validate_benchmark_runner_id("unknown", true)
+                .unwrap_err()
+                .to_string(),
+            "benchmark runner must not be unknown in CI; pass --runner"
+        );
     }
 
     #[test]

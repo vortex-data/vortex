@@ -12,15 +12,13 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_panic;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
@@ -112,42 +110,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         _ => ChunkedArray::from_iter(output).into_array(),
     };
 
-    assert_eq!(
-        expected_array.len(),
-        output_array.len(),
-        "Length was not preserved expected {} actual {}.",
-        expected_array.len(),
-        output_array.len()
-    );
-    assert_eq!(
-        expected_array.dtype(),
-        output_array.dtype(),
-        "DTypes aren't preserved expected {}, actual {}.",
-        expected_array.dtype(),
-        output_array.dtype()
-    );
-
-    let bool_result = expected_array
-        .binary(output_array.clone(), Operator::Eq)
-        .vortex_expect("compare operation should succeed in fuzz test")
-        .execute::<BoolArray>(&mut ctx)
-        .vortex_expect("execute bool");
-    let true_count = bool_result.to_bit_buffer().true_count();
-    if true_count != expected_array.len()
-        && (bool_result
-            .into_array()
-            .all_valid(&mut ctx)
-            .vortex_expect("all_valid")
-            || expected_array
-                .all_valid(&mut ctx)
-                .vortex_expect("all_valid"))
-    {
-        vortex_panic!(
-            "Failed to match original array {}with{}",
-            expected_array.display_tree(),
-            output_array.display_tree()
-        );
-    }
+    assert_arrays_eq!(output_array, expected_array, &mut ctx);
 
     Corpus::Keep
 });

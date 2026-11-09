@@ -155,14 +155,21 @@ TEST_CASE("Array with validity", "[array]") {
     for (size_t i = 0; i < valid.size(); ++i) {
         REQUIRE(vx_array_element_is_invalid(session, array, i, &error) == !valid[i]);
         require_no_error(error);
+        if (valid[i]) {
+            REQUIRE(array_get_u8(session, array, i) == 7);
+        }
     }
-    REQUIRE(vx_array_invalid_count(array, &error) == 2);
+    REQUIRE(vx_array_invalid_count(session, array, &error) == 2);
     require_no_error(error);
 
     validity = {};
     vx_array_get_validity(array, &validity, &error);
     require_no_error(error);
     REQUIRE(validity.type == VX_VALIDITY_ARRAY);
+    REQUIRE(vx_array_len(validity.array) == valid.size());
+    for (size_t i = 0; i < valid.size(); ++i) {
+        REQUIRE(vx_array_get_bool(validity.array, i) == valid[i]);
+    }
     vx_array_free(validity.array);
 }
 
@@ -178,6 +185,7 @@ TEST_CASE("Struct array creation", "[array]") {
     CHECK(builder != nullptr);
 
     vx_struct_column_builder_add_field(builder, vx_view_from_cstr("age"), field_array, &error);
+    require_no_error(error);
     vx_array_free(field_array);
 
     SECTION("Struct array builder free") {
@@ -186,6 +194,22 @@ TEST_CASE("Struct array creation", "[array]") {
 
     SECTION("Struct array builder finalize") {
         const vx_array *struct_array = vx_struct_column_builder_finalize(builder, &error);
+        require_no_error(error);
+        REQUIRE(struct_array != nullptr);
+        REQUIRE(vx_array_has_dtype(struct_array, DTYPE_STRUCT));
+        REQUIRE_FALSE(vx_array_is_nullable(struct_array));
+        REQUIRE(vx_array_len(struct_array) == 5);
+        const vx_dtype *dtype = vx_array_dtype(struct_array);
+        const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
+        REQUIRE(vx_struct_fields_nfields(fields) == 1);
+        REQUIRE(to_string_view(vx_struct_fields_field_name(fields, 0)) == "age");
+        vx_struct_fields_free(fields);
+        vx_dtype_free(dtype);
+        const vx_array *age = vx_array_get_field(struct_array, 0, &error);
+        require_no_error(error);
+        REQUIRE(vx_array_has_dtype(age, DTYPE_NULL));
+        REQUIRE(vx_array_len(age) == 5);
+        vx_array_free(age);
         vx_array_free(struct_array);
     }
 }

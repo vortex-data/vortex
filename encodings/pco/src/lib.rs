@@ -9,13 +9,13 @@
 //!
 //! Pco supports integer and floating-point primitive dtypes handled by the upstream `pco` crate.
 //! It is normally selected through the BtrBlocks compressor when the `pco` feature is enabled.
-//! To deserialize arrays manually, register the encoding in the array session:
+//! To deserialize arrays manually, register the encoding with the session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
+//! use vortex_session::VortexSession;
 //!
-//! let session = vortex_array::array_session();
-//! session.arrays().register(vortex_pco::Pco);
+//! let session = VortexSession::empty();
+//! vortex_pco::initialize(&session);
 //! ```
 
 mod array;
@@ -25,6 +25,14 @@ mod rules;
 mod slice;
 
 pub use array::*;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+/// Register the Pco encoding and its parent-reduce rules with the session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(Pco);
+    rules::register_parent_rules(session);
+}
 
 #[derive(Clone, prost::Message)]
 /// Metadata for one Pco page.
@@ -33,7 +41,7 @@ pub struct PcoPageInfo {
     // count of values.
     /// Number of valid primitive values stored in this page.
     #[prost(uint32, tag = "1")]
-    pub n_values: u32,
+    pub(crate) n_values: u32,
 }
 
 // We're calling this Info instead of Metadata because ChunkMeta refers to a specific
@@ -43,7 +51,7 @@ pub struct PcoPageInfo {
 pub struct PcoChunkInfo {
     /// Pages contained in this chunk.
     #[prost(message, repeated, tag = "1")]
-    pub pages: Vec<PcoPageInfo>,
+    pub(crate) pages: Vec<PcoPageInfo>,
 }
 
 #[derive(Clone, prost::Message)]
@@ -53,10 +61,10 @@ pub struct PcoMetadata {
     // no issue duplicating it here per PcoArray
     /// Pco file header bytes.
     #[prost(bytes, tag = "1")]
-    pub header: Vec<u8>,
+    pub(crate) header: Vec<u8>,
     /// Metadata for each compressed chunk.
     #[prost(message, repeated, tag = "2")]
-    pub chunks: Vec<PcoChunkInfo>,
+    pub(crate) chunks: Vec<PcoChunkInfo>,
 }
 
 #[cfg(test)]

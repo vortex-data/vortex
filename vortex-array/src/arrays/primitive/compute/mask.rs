@@ -29,13 +29,17 @@ impl MaskReduce for Primitive {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]))]
@@ -46,9 +50,6 @@ mod test {
     #[case(PrimitiveArray::from_iter([0.1f32, 0.2, 0.3, 0.4, 0.5]))]
     #[case(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(2.2), Some(3.3), None]))]
     fn test_mask_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_mask_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

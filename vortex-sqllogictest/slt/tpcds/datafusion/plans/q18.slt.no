@@ -75,15 +75,15 @@ logical_plan
 19)----------------------------------Filter: customer_demographics.cd_gender = Utf8View("F") AND customer_demographics.cd_education_status = Utf8View("Unknown")
 20)------------------------------------TableScan: customer_demographics projection=[cd_demo_sk, cd_gender, cd_education_status, cd_dep_count], partial_filters=[customer_demographics.cd_gender = Utf8View("F"), customer_demographics.cd_education_status = Utf8View("Unknown")]
 21)--------------------------Projection: customer.c_customer_sk, customer.c_current_cdemo_sk, customer.c_current_addr_sk, customer.c_birth_year
-22)----------------------------Filter: customer.c_birth_month IN ([Int64(1), Int64(6), Int64(8), Int64(9), Int64(12), Int64(2)])
-23)------------------------------TableScan: customer projection=[c_customer_sk, c_current_cdemo_sk, c_current_addr_sk, c_birth_month, c_birth_year], partial_filters=[customer.c_birth_month IN ([Int64(1), Int64(6), Int64(8), Int64(9), Int64(12), Int64(2)])]
+22)----------------------------Filter: customer.c_birth_month IN ([Int32(1), Int32(6), Int32(8), Int32(9), Int32(12), Int32(2)])
+23)------------------------------TableScan: customer projection=[c_customer_sk, c_current_cdemo_sk, c_current_addr_sk, c_birth_month, c_birth_year], partial_filters=[customer.c_birth_month IN ([Int32(1), Int32(6), Int32(8), Int32(9), Int32(12), Int32(2)])]
 24)----------------------SubqueryAlias: cd2
 25)------------------------TableScan: customer_demographics projection=[cd_demo_sk]
 26)------------------Filter: customer_address.ca_state IN ([Utf8View("MS"), Utf8View("IN"), Utf8View("ND"), Utf8View("OK"), Utf8View("NM"), Utf8View("VA"), Utf8View("MS")])
 27)--------------------TableScan: customer_address projection=[ca_address_sk, ca_county, ca_state, ca_country], partial_filters=[customer_address.ca_state IN ([Utf8View("MS"), Utf8View("IN"), Utf8View("ND"), Utf8View("OK"), Utf8View("NM"), Utf8View("VA"), Utf8View("MS")])]
 28)--------------Projection: date_dim.d_date_sk
-29)----------------Filter: date_dim.d_year = Int64(1998)
-30)------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(1998)]
+29)----------------Filter: date_dim.d_year = Int32(1998)
+30)------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(1998)]
 31)----------TableScan: item projection=[i_item_sk, i_item_id]
 physical_plan
 01)SortPreservingMergeExec: [ca_country@1 ASC, ca_state@2 ASC, ca_county@3 ASC, i_item_id@0 ASC], fetch=100
@@ -99,13 +99,15 @@ physical_plan
 11)--------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 1998
 12)--------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(ca_address_sk@0, c_current_addr_sk@8)], projection=[cs_sold_date_sk@4, cs_item_sk@5, cs_quantity@6, cs_list_price@7, cs_sales_price@8, cs_coupon_amt@9, cs_net_profit@10, cd_dep_count@11, c_birth_year@13, ca_county@1, ca_state@2, ca_country@3]
 13)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk, ca_county, ca_state, ca_country], file_type=vortex, predicate: ca_state@8 IN (SET) ([MS, IN, ND, OK, NM, VA, MS])
-14)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_current_cdemo_sk@8, cd_demo_sk@0)], projection=[cs_sold_date_sk@0, cs_item_sk@1, cs_quantity@2, cs_list_price@3, cs_sales_price@4, cs_coupon_amt@5, cs_net_profit@6, cd_dep_count@7, c_current_addr_sk@9, c_birth_year@10]
-15)------------------------CoalescePartitionsExec
+14)----------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(c_current_cdemo_sk@8, cd_demo_sk@0)], projection=[cs_sold_date_sk@0, cs_item_sk@1, cs_quantity@2, cs_list_price@3, cs_sales_price@4, cs_coupon_amt@5, cs_net_profit@6, cd_dep_count@7, c_current_addr_sk@9, c_birth_year@10]
+15)------------------------RepartitionExec: partitioning=Hash([c_current_cdemo_sk@8], 4), input_partitions=4
 16)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(c_customer_sk@0, cs_bill_customer_sk@1)], projection=[cs_sold_date_sk@4, cs_item_sk@6, cs_quantity@7, cs_list_price@8, cs_sales_price@9, cs_coupon_amt@10, cs_net_profit@11, cd_dep_count@12, c_current_cdemo_sk@1, c_current_addr_sk@2, c_birth_year@3]
 17)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_current_cdemo_sk, c_current_addr_sk, c_birth_year], file_type=vortex, predicate: c_birth_month@12 IN (SET) ([1, 6, 8, 9, 12, 2])
-18)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(cd_demo_sk@0, cs_bill_cdemo_sk@2)], projection=[cs_sold_date_sk@2, cs_bill_customer_sk@3, cs_item_sk@5, cs_quantity@6, cs_list_price@7, cs_sales_price@8, cs_coupon_amt@9, cs_net_profit@10, cd_dep_count@1]
-19)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk, cd_dep_count], file_type=vortex, predicate: cd_gender@1 = F AND cd_education_status@3 = Unknown
-20)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_bill_cdemo_sk, cs_item_sk, cs_quantity, cs_list_price, cs_sales_price, cs_coupon_amt, cs_net_profit], file_type=vortex
-21)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-22)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex
-23)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
+18)----------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(cd_demo_sk@0, cs_bill_cdemo_sk@2)], projection=[cs_sold_date_sk@2, cs_bill_customer_sk@3, cs_item_sk@5, cs_quantity@6, cs_list_price@7, cs_sales_price@8, cs_coupon_amt@9, cs_net_profit@10, cd_dep_count@1]
+19)------------------------------RepartitionExec: partitioning=Hash([cd_demo_sk@0], 4), input_partitions=4
+20)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>]]}, projection=[cd_demo_sk, cd_dep_count], file_type=vortex, predicate: cd_gender@1 = F AND cd_education_status@3 = Unknown
+21)------------------------------RepartitionExec: partitioning=Hash([cs_bill_cdemo_sk@2], 4), input_partitions=4
+22)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_bill_cdemo_sk, cs_item_sk, cs_quantity, cs_list_price, cs_sales_price, cs_coupon_amt, cs_net_profit], file_type=vortex
+23)------------------------RepartitionExec: partitioning=Hash([cd_demo_sk@0], 4), input_partitions=4
+24)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>]]}, projection=[cd_demo_sk], file_type=vortex
+25)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex

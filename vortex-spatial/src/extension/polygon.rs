@@ -47,6 +47,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -100,7 +101,8 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
     DType::List(Arc::new(ring), nullability)
 }
 
-/// Validate `dtype` is `List<List<coordinate-struct>>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`polygon_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
         vortex_bail!("polygon storage must be a List of rings, was {dtype}");
@@ -108,7 +110,15 @@ pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        polygon_storage_dtype(dimension, dtype.nullability()),
+        "polygon storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
@@ -158,17 +168,24 @@ pub(crate) fn build_polygon_storage(
         ),
     ])?
     .into_array();
-    let rings = ListArray::try_new(
-        coordinates,
-        PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: the offsets start at zero and are pushed as the running coordinate and ring counts,
+    // so they are sorted and end at the length of their elements.
+    let rings = unsafe {
+        ListArray::new_unchecked(
+            coordinates,
+            PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
-    let storage = ListArray::try_new(
-        rings,
-        PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: as above, for the polygon offsets into the rings.
+    let storage = unsafe {
+        ListArray::new_unchecked(
+            rings,
+            PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
     Ok(storage)
 }
@@ -317,7 +334,7 @@ impl ArrowImportVTable for Polygon {
                 vortex_ensure!(
                     polygon_meta.coord_type() == CoordType::Separated,
                     "geoarrow.polygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     polygon_meta.dimension().into(),

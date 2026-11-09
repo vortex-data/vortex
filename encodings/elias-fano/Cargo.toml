@@ -1,0 +1,35 @@
+[package]
+name = "vortex-elias-fano"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex Elias-Fano and unary integer encodings"
+edition = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+num-traits = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "unary"
+harness = false
+
+[lints]
+workspace = true

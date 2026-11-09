@@ -107,8 +107,10 @@ uvx ruff check <changed-python-files>
 uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
 ```
 
-Use `uvx` for both Ruff and ty, matching CI. The command above covers both binding packages and the
-CMake and script tests. For a narrower check, pass the affected directory, such as
+Use `uvx` for both Ruff and ty, matching CI. CI pins ty as `TY_VERSION` in
+`.github/workflows/ci.yml` and `.github/workflows/cuda.yaml`. To match CI, run
+`uvx ty@<TY_VERSION> check ...`, and update both workflows when you change the version. The
+command above covers both binding packages and the CMake and script tests. For a narrower check, pass the affected directory, such as
 `uvx ty check vortex-python` or `uvx ty check vortex-ffi/cmake/tests`. Checking the whole binding
 package covers callers affected by stub or annotation changes.
 
@@ -191,13 +193,23 @@ These CI checks are the ones most often missed when adding files rather than edi
   per-element loops; back such changes with the benchmarks it names.
 - Only write comments that explain non-obvious logic or important context. Do not comment
   self-explanatory code.
+- Use `vortex_ensure_eq!(left, right)` instead of `vortex_ensure!(left == right)` whenever
+  possible so equality failures report both values.
 
 ## Tests
 
 - Strongly consider `rstest` cases when parameterizing repetitive test logic.
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
-- Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions.
+- Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
+  result under test on the left: the macro already executes it recursively. Do not explicitly
+  canonicalize solely for this assertion; retain execution needed for physical representation,
+  resource, or error assertions.
+- Preserve conformance suite entry points and input cases when auditing tests. For batch kernel
+  coverage, execute lazy results before comparing logical values, nulls, lengths, and expected
+  dtypes. Scalar probing alone may bypass the batch kernel.
+- Derive expected errors from the input contract or a reference result; do not silently skip
+  failed operations. Invalid-input fixtures should reach the specific guard they claim to test.
 - Keep tests concise and focused on behavior, edge cases, and regressions.
 - If a bug fix is requested, add or identify a regression test when practical. Leave execution
   to the user; when tests are run, a test that passes before and after the fix does not prove it.
@@ -215,7 +227,7 @@ These CI checks are the ones most often missed when adding files rather than edi
   default to Snappy.
   - parquet-rs: `Compression::ZSTD(ZstdLevel::try_new(3)?)`
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
-  - tpchgen-cli: `--parquet-compression='ZSTD(3)'`
+  - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
   `--codec`, are exempt.
 
@@ -243,8 +255,28 @@ ambiguous, ask the user instead of inventing a prefix.
 
 ## Commits
 
-All commits must be signed off by the committers in this form:
+Vortex uses the [Developer Certificate of Origin (DCO)](CONTRIBUTING.md#developer-certificate-of-origin-dco),
+and the DCO check rejects pull requests with any commit that lacks a valid sign-off.
+
+Use the name and email of the user as the commit author. Get them from the Git configuration
+(`git config user.name` and `git config user.email`) or from the identity that the user gives.
+
+All commits must be signed off by the same user in this form:
 
 ```text
-Signed-off-by: <COMMITTER> <COMMITTER_EMAIL>
+Signed-off-by: <AUTHOR_NAME> <AUTHOR_EMAIL>
 ```
+
+Use `git commit --signoff` to add this line.
+
+- The sign-off must name the human who is submitting the change and certifying the DCO: the
+  user you are working for. An agent cannot certify the DCO, so never sign off as Claude, Codex,
+  or any other agent or bot, and never use an agent address such as `noreply@anthropic.com`.
+- Pseudonyms and fake email addresses are not allowed. If no real identity is available, ask the
+  user instead of inventing one.
+- The DCO check requires the sign-off to match the commit author. If the Git configuration names
+  an agent (as some sandboxes do), set the author to the user, for example with
+  `git commit -s --author="<AUTHOR_NAME> <AUTHOR_EMAIL>"`, rather than signing off as the agent.
+- Check that every commit on the branch is signed off before pushing;
+  `git rebase --signoff <base>` adds missing sign-offs to commits on a branch you created.
+- Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.

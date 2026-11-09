@@ -34,8 +34,12 @@ pub fn builder_from_info(info: &Map<Info>) -> InfoArrayBuilder {
         (Number::Count(1), Type::String) => InfoArrayBuilder::String(Default::default()),
         (_, Type::Integer) => InfoArrayBuilder::ListInteger(Default::default()),
         (_, Type::Float) => InfoArrayBuilder::ListFloat(Default::default()),
-        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
-        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
+        (_, Type::Flag) => {
+            vortex_panic!("Flag INFO fields with a count are not supported")
+        }
+        (_, Type::Character) => {
+            vortex_panic!("Character INFO fields are not supported")
+        }
         (_, Type::String) => InfoArrayBuilder::ListString(Default::default()),
     }
 }
@@ -55,8 +59,12 @@ pub fn data_type_from_info(info: &Map<Info>) -> DataType {
         (Number::Count(1), Type::String) => Utf8,
         (_, Type::Integer) => list(Int32),
         (_, Type::Float) => list(Float32),
-        (_, Type::Flag) => vortex_panic!("Flag INFO fields with a count are not supported"),
-        (_, Type::Character) => vortex_panic!("Character INFO fields are not supported"),
+        (_, Type::Flag) => {
+            vortex_panic!("Flag INFO fields with a count are not supported")
+        }
+        (_, Type::Character) => {
+            vortex_panic!("Character INFO fields are not supported")
+        }
         (_, Type::String) => list(Utf8),
     }
 }

@@ -32,6 +32,7 @@ mod tests {
     use std::any::Any;
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use futures::future::BoxFuture;
     use rstest::rstest;
@@ -39,13 +40,13 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_session::VortexSession;
 
     use crate::ArrayEq;
     use crate::ArrayRef;
     use crate::EqMode;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::buffer::BufferHandle;
@@ -53,6 +54,8 @@ mod tests {
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::scalar_fn::fns::mask::MaskReduce;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     // Any access beyond buffer metadata would invalidate the metadata-only reduction.
     #[derive(Debug, PartialEq, Eq, Hash)]
@@ -119,9 +122,6 @@ mod tests {
     #[case(BoolArray::from_iter([false, false]))]
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     fn test_mask_bool_conformance(#[case] array: BoolArray) {
-        test_mask_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

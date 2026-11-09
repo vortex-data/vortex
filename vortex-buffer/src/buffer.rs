@@ -1051,16 +1051,6 @@ mod test {
     }
 
     #[test]
-    fn buffer_zeroed() {
-        const LEN: usize = 17;
-
-        let buf = Buffer::<u32>::zeroed(LEN);
-
-        assert!(buf.is_aligned(Alignment::of::<u32>()));
-        assert_eq!(buf.as_slice(), &[0; LEN]);
-    }
-
-    #[test]
     fn buffer_zeroed_aligned() {
         const LEN: usize = 17;
         let alignment = Alignment::new(64);

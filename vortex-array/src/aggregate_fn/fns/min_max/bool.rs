@@ -53,6 +53,5 @@ pub(super) fn accumulate_bool(
             min: Scalar::bool(min, NonNullable),
             max: Scalar::bool(max, NonNullable),
         }),
-    );
-    Ok(())
+    )
 }

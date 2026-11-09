@@ -89,6 +89,8 @@ fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray as _;
     use vortex::array::assert_arrays_eq;
@@ -98,12 +100,14 @@ mod test {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
 
     use crate::arrays::range_to_sequence::range_len;
     use crate::arrays::range_to_sequence::range_ptype;
     use crate::arrays::range_to_sequence::sequence_array_from_range;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Python's `range` is empty in three shapes, and `range_len` reports the first as `Some(0)`
     /// and the other two as `None`. All three must convert to an empty array.
@@ -119,8 +123,9 @@ mod test {
         #[case] step: isize,
     ) -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-        let arr = sequence_array_from_range::<i64>(start, stop, step, dtype)?;
+        let arr = sequence_array_from_range::<i64>(start, stop, step, dtype.clone())?;
         assert_eq!(arr.len(), 0);
+        assert_eq!(arr.dtype(), &dtype);
         Ok(())
     }
 
@@ -142,7 +147,7 @@ mod test {
 
     #[test]
     fn descending_range_above_zero_converts() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ptype = range_ptype(5, 1, -1);
         let dtype = DType::Primitive(ptype, Nullability::NonNullable);
         let arr = match_each_integer_ptype!(ptype, |T| {
@@ -168,7 +173,7 @@ mod test {
 
     #[test]
     fn test_sequence_array_from_len() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::U16, Nullability::NonNullable);
         let arr = sequence_array_from_range::<u16>(0, 10, 1, dtype).unwrap();
         assert_arrays_eq!(

@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
@@ -11,6 +12,7 @@ use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::FL_CHUNK_SIZE;
 
@@ -22,9 +24,9 @@ pub struct FoRSlots {
     /// The encoded array with each chunk's reference subtracted.
     #[slot(0)]
     pub encoded: ArrayRef,
-    /// One reference per [`FL_CHUNK_SIZE`]-element chunk.
+    /// One reference per [`FL_CHUNK_SIZE`]-element chunk, unless the array has a global reference.
     #[slot(1)]
-    pub references: ArrayRef,
+    pub blocked_references: Option<ArrayRef>,
 }
 
 /// Frame of Reference (FoR) encoded array.
@@ -32,22 +34,51 @@ pub struct FoRSlots {
 /// This encoding stores values as offsets from a reference value, which can significantly reduce
 /// storage requirements when values are clustered around a specific point.
 ///
-/// Every [`FL_CHUNK_SIZE`]-element chunk has its own reference: element `i` decodes as
-/// `encoded[i] + references[(offset + i) / FL_CHUNK_SIZE]` with wrapping arithmetic, where
-/// `offset` is the position of the first element within the first chunk. Arrays with a single
-/// reference store a constant `references` child.
+/// An array has either one global reference, or a reference per [`FL_CHUNK_SIZE`]-element chunk.
+/// With a global reference, element `i` decodes as `encoded[i] + global_reference`. With blocked
+/// references, it decodes as `encoded[i] + blocked_references[(offset + i) / FL_CHUNK_SIZE]`,
+/// where `offset` is the position of the first element within the first chunk. Both use wrapping
+/// arithmetic.
+///
+/// Each reference must be less than or equal to all valid values that decode against it. Thus,
+/// each encoded value is the exact unsigned distance from its reference to the decoded value.
 #[derive(Clone, Debug)]
 pub struct FoRData {
     pub(super) offset: u16,
+    pub(super) global_reference: Option<Scalar>,
+}
+
+/// The references of a FoR array.
+#[derive(Clone, Copy, Debug)]
+pub enum FoRReferences<'a> {
+    /// One reference for every element.
+    Global(&'a Scalar),
+    /// One reference per [`FL_CHUNK_SIZE`]-element chunk.
+    Blocked(&'a ArrayRef),
+}
+
+impl FoRReferences<'_> {
+    /// Returns `true` if every element shares one reference.
+    #[inline]
+    pub fn is_global(&self) -> bool {
+        matches!(self, Self::Global(_))
+    }
 }
 
 pub trait FoRArrayExt: FoRArraySlotsExt {
-    /// The reference shared by every chunk, if the references are constant.
-    fn constant_reference(&self) -> Option<Scalar> {
-        self.references().as_constant()
+    /// The array's references.
+    fn references(&self) -> FoRReferences<'_> {
+        match (&self.global_reference, self.blocked_references()) {
+            (Some(reference), None) => FoRReferences::Global(reference),
+            (None, Some(references)) => FoRReferences::Blocked(references),
+            _ => {
+                vortex_panic!("FoR array must have either a global or blocked references")
+            }
+        }
     }
 
-    /// The position of the first element within the first chunk of `references`.
+    /// The position of the first element within the first chunk of the blocked references. Always
+    /// 0 with a global reference.
     fn offset(&self) -> u16 {
         self.offset
     }
@@ -60,19 +91,83 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
 
 impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
 
+/// The owned references of a FoR array.
+pub(crate) enum FoROwnedReferences {
+    /// One reference for every element.
+    Global(Scalar),
+    /// One reference per [`FL_CHUNK_SIZE`]-element chunk.
+    Blocked(ArrayRef),
+}
+
+impl From<FoRReferences<'_>> for FoROwnedReferences {
+    fn from(references: FoRReferences<'_>) -> Self {
+        match references {
+            FoRReferences::Global(reference) => Self::Global(reference.clone()),
+            FoRReferences::Blocked(references) => Self::Blocked(references.clone()),
+        }
+    }
+}
+
+/// The owned children, references and offset of a FoR array.
+pub(crate) struct FoRParts {
+    pub(crate) encoded: ArrayRef,
+    pub(crate) references: FoROwnedReferences,
+    pub(crate) offset: u16,
+}
+
+pub(crate) trait FoRArrayOwnedExt {
+    /// Take the children of the array without a clone when this handle is the unique owner.
+    fn into_parts(self) -> FoRParts;
+}
+
+impl FoRArrayOwnedExt for Array<crate::FoR> {
+    fn into_parts(self) -> FoRParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let slots = FoRSlots::from_slots(parts.slots);
+                let references = match (parts.data.global_reference, slots.blocked_references) {
+                    (Some(reference), None) => FoROwnedReferences::Global(reference),
+                    (None, Some(references)) => FoROwnedReferences::Blocked(references),
+                    _ => vortex_panic!("FoR array must have either a global or blocked references"),
+                };
+                FoRParts {
+                    encoded: slots.encoded,
+                    references,
+                    offset: parts.data.offset,
+                }
+            }
+            Err(array) => FoRParts {
+                encoded: array.encoded().clone(),
+                references: array.references().into(),
+                offset: array.offset(),
+            },
+        }
+    }
+}
+
 impl Display for FoRData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "offset: {}", self.offset)
+        match &self.global_reference {
+            Some(reference) => write!(f, "global_reference: {reference}, offset: {}", self.offset),
+            None => write!(f, "offset: {}", self.offset),
+        }
     }
 }
 
 impl FoRData {
-    pub(crate) fn try_new(offset: u16) -> VortexResult<Self> {
+    pub(crate) fn try_new(offset: u16, global_reference: Option<Scalar>) -> VortexResult<Self> {
         vortex_ensure!(
             usize::from(offset) < FL_CHUNK_SIZE,
             "FoR offset must be less than {FL_CHUNK_SIZE}, got {offset}"
         );
-        Ok(Self { offset })
+        vortex_ensure!(
+            offset == 0 || global_reference.is_none(),
+            "FoR with a global reference must have offset 0, got {offset}"
+        );
+        Ok(Self {
+            offset,
+            global_reference,
+        })
     }
 }
 

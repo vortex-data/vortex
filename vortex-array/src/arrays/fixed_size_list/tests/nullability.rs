@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -17,6 +18,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_nullable_fsl_with_nulls() {
@@ -33,7 +36,7 @@ fn test_nullable_fsl_with_nulls() {
 
     // First list is valid: [1, 2].
     let first = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -49,26 +52,26 @@ fn test_nullable_fsl_with_nulls() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         1i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         2i32.into()
     );
 
     // Second list is null.
     let second = fsl
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [5, 6].
     let third = fsl
-        .execute_scalar(2, &mut array_session().create_execution_ctx())
+        .execute_scalar(2, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -84,20 +87,20 @@ fn test_nullable_fsl_with_nulls() {
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         5i32.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         6i32.into()
     );
 
     // Fourth list is null.
     let fourth = fsl
-        .execute_scalar(3, &mut array_session().create_execution_ctx())
+        .execute_scalar(3, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(fourth.is_null());
 }
@@ -123,7 +126,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
     // First list: [Some(1), None, Some(3)].
     let first = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -137,7 +140,7 @@ fn test_nullable_elements_non_nullable_lists() {
 
     // Second list: [Some(4), Some(5), None].
     let second = fsl
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!second.is_null());
     assert_eq!(
@@ -165,7 +168,7 @@ fn test_nullable_elements_and_nullable_lists() {
 
     // First list is valid: [Some(10), None].
     let first = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!first.is_null());
     assert_eq!(
@@ -181,26 +184,26 @@ fn test_nullable_elements_and_nullable_lists() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         Some(10u16).into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         None::<u16>.into()
     );
 
     // Second list is null (but elements would be [Some(20), Some(30)]).
     let second = fsl
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(second.is_null());
 
     // Third list is valid: [None, None].
     let third = fsl
-        .execute_scalar(2, &mut array_session().create_execution_ctx())
+        .execute_scalar(2, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!third.is_null());
     assert_eq!(
@@ -216,13 +219,13 @@ fn test_nullable_elements_and_nullable_lists() {
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         None::<u16>.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         None::<u16>.into()
     );
@@ -243,7 +246,7 @@ fn test_alternating_nulls() {
     // Check alternating pattern.
     for i in 0..len {
         let scalar = fsl
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, &mut SESSION.create_execution_ctx())
             .unwrap();
         if i % 2 == 0 {
             assert!(!scalar.is_null());
@@ -275,7 +278,7 @@ fn test_validity_types() {
         let fsl = FixedSizeListArray::new(elements.clone(), list_size, Validity::AllInvalid, len);
         for i in 0..len {
             assert!(
-                fsl.execute_scalar(i, &mut array_session().create_execution_ctx())
+                fsl.execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap()
                     .is_null()
             );
@@ -293,22 +296,22 @@ fn test_validity_types() {
         );
 
         assert!(
-            !fsl.execute_scalar(0, &mut array_session().create_execution_ctx())
+            !fsl.execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
-            !fsl.execute_scalar(1, &mut array_session().create_execution_ctx())
+            !fsl.execute_scalar(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
-            fsl.execute_scalar(2, &mut array_session().create_execution_ctx())
+            fsl.execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
-            !fsl.execute_scalar(3, &mut array_session().create_execution_ctx())
+            !fsl.execute_scalar(3, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
@@ -338,31 +341,47 @@ fn test_mixed_nullability_patterns() {
 
     // List 0: valid with [Some(1), None].
     let list0 = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!list0.is_null());
 
     // List 1: null.
     let list1 = fsl
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(list1.is_null());
 
     // List 2: valid with [Some(5), Some(6)].
     let list2 = fsl
-        .execute_scalar(2, &mut array_session().create_execution_ctx())
+        .execute_scalar(2, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!list2.is_null());
 
     // List 3: valid with [Some(7), None].
     let list3 = fsl
-        .execute_scalar(3, &mut array_session().create_execution_ctx())
+        .execute_scalar(3, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!list3.is_null());
 
     // List 4: valid with [None, Some(10)].
     let list4 = fsl
-        .execute_scalar(4, &mut array_session().create_execution_ctx())
+        .execute_scalar(4, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(!list4.is_null());
+    let element_dtype = Arc::new(DType::Primitive(PType::I16, Nullability::Nullable));
+    for (actual, expected) in [
+        (list0, [Some(1i16), None]),
+        (list2, [Some(5i16), Some(6)]),
+        (list3, [Some(7i16), None]),
+        (list4, [None, Some(10i16)]),
+    ] {
+        assert_eq!(
+            actual,
+            Scalar::fixed_size_list(
+                Arc::clone(&element_dtype),
+                expected.into_iter().map(Scalar::from).collect(),
+                Nullability::Nullable
+            )
+        );
+    }
 }

@@ -271,7 +271,8 @@ physical_plan [
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "count_star() DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

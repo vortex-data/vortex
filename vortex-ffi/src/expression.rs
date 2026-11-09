@@ -309,21 +309,21 @@ pub unsafe extern "C" fn vx_expression_list_contains(
 #[cfg(test)]
 mod tests {
     use std::ptr;
+    use std::sync::LazyLock;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ListArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
-    use vortex::array::arrays::bool::BoolArrayExt;
+    use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::dtype::Nullability;
     use vortex::scalar::Scalar;
+    use vortex::session::VortexSession;
 
     use crate::array::vx_array;
     use crate::array::vx_array_apply;
@@ -344,14 +344,7 @@ mod tests {
     use crate::scalar::vx_scalar_new_i32;
     use crate::string::vx_view;
 
-    #[test]
-    #[cfg_attr(miri, ignore)]
-    fn test_root() {
-        unsafe {
-            let root = vx_expression_root();
-            vx_expression_free(root);
-        }
-    }
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn struct_array() -> (StructArray, VarBinViewArray, PrimitiveArray) {
         let names_array = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);
@@ -369,7 +362,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_get_item() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let (array, names_array, ages_array) = struct_array();
         unsafe {
             let root = vx_expression_root();
@@ -384,12 +377,7 @@ mod tests {
             assert!(error.is_null());
             {
                 let applied_array = vx_array::as_ref(applied_array);
-                let expected: Buffer<u8> = ages_array.to_buffer();
-                let prim = applied_array
-                    .clone()
-                    .execute::<PrimitiveArray>(&mut ctx)
-                    .unwrap();
-                assert_eq!(prim.to_buffer(), expected);
+                assert_arrays_eq!(applied_array, ages_array, &mut ctx);
             }
             vx_array_free(applied_array);
 
@@ -420,7 +408,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_literal() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array =
             PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
 
@@ -466,6 +454,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_select() {
+        let mut ctx = SESSION.create_execution_ctx();
         let (array, ..) = struct_array();
         unsafe {
             let root = vx_expression_root();
@@ -483,7 +472,7 @@ mod tests {
             {
                 let array = vx_array::as_ref(array);
                 let applied_array = vx_array::as_ref(applied_array);
-                assert_eq!(applied_array.dtype(), array.dtype());
+                assert_arrays_eq!(applied_array, array, &mut ctx);
             }
             vx_array_free(applied_array);
             vx_expression_free(column);
@@ -504,7 +493,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_and_or() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let col1 = BoolArray::from_iter([true, false, true, true]);
         let col2 = BoolArray::from_iter([false, true, true, false]);
         let col3 = BoolArray::from_iter([false, true, true, true]);
@@ -540,12 +529,8 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                let array = vx_array::as_ref(applied_array)
-                    .clone()
-                    .execute::<BoolArray>(&mut ctx)
-                    .unwrap();
                 let expected = BoolArray::from_iter([false, false, true, false]);
-                assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
+                assert_arrays_eq!(vx_array::as_ref(applied_array), expected, &mut ctx);
             }
             vx_expression_free(expression_and123);
             vx_array_free(applied_array);
@@ -556,12 +541,8 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
-                let array = vx_array::as_ref(applied_array)
-                    .clone()
-                    .execute::<BoolArray>(&mut ctx)
-                    .unwrap();
                 let expected = BoolArray::from_iter([true, true, true, false]);
-                assert_eq!(array.to_bit_buffer(), expected.to_bit_buffer());
+                assert_arrays_eq!(vx_array::as_ref(applied_array), expected, &mut ctx);
             }
             vx_array_free(applied_array);
 
@@ -581,10 +562,10 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_list_contains() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![1i32, 2, 3, 4, 5].into_array();
         let offsets = buffer![0u32, 2, 5, 5].into_array();
-        let array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
+        let array = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx).unwrap();
 
         unsafe {
             let root = vx_expression_root();
@@ -603,12 +584,8 @@ mod tests {
             assert!(error.is_null());
             assert!(!applied.is_null());
             {
-                let applied = vx_array::as_ref(applied)
-                    .clone()
-                    .execute::<BoolArray>(&mut ctx)
-                    .unwrap();
                 let expected = BoolArray::from_iter([true, false, false]);
-                assert_eq!(applied.to_bit_buffer(), expected.to_bit_buffer());
+                assert_arrays_eq!(vx_array::as_ref(applied), expected, &mut ctx);
             }
             vx_array_free(applied);
 

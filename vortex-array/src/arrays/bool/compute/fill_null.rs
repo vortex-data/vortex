@@ -43,13 +43,15 @@ impl FillNullKernel for Bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
@@ -58,11 +60,13 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case(true, bitbuffer![true, true, false, true])]
     #[case(false, bitbuffer![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: BitBuffer) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bool_array = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),

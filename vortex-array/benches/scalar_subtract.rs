@@ -14,12 +14,14 @@ use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -31,7 +33,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[vortex_bench_support::cpu_features]
 #[divan::bench]
@@ -52,6 +58,7 @@ fn scalar_subtract(bencher: Bencher) {
     let to_subtract = -1i64;
 
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
+    mark_optimized(&chunked, &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&chunked, SESSION.create_execution_ctx()))

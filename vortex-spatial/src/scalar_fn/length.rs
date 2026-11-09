@@ -215,6 +215,8 @@ impl ScalarFnVTable for SpatialLength {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::ArrayRef;
     use vortex_array::Columnar;
     use vortex_array::ExecutionCtx;
@@ -233,11 +235,14 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::SpatialLength;
     use crate::test_harness::linestring_column;
     use crate::test_harness::multilinestring_column;
     use crate::test_harness::point_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn line_constant(
         line: Vec<(f64, f64)>,
@@ -250,8 +255,7 @@ mod tests {
 
     #[test]
     fn measures_each_linestring() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = linestring_column(vec![
             vec![(0.0, 0.0), (3.0, 4.0)],
             vec![(0.0, 0.0), (3.0, 4.0), (3.0, 8.0)],
@@ -268,8 +272,7 @@ mod tests {
 
     #[test]
     fn measures_each_multilinestring() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = multilinestring_column(vec![
             vec![
                 vec![(0.0, 0.0), (3.0, 4.0)],
@@ -288,8 +291,7 @@ mod tests {
 
     #[test]
     fn propagates_nullable_multilinestring_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = MaskedArray::try_new(
             multilinestring_column(vec![
                 vec![vec![(0.0, 0.0), (3.0, 4.0)]],
@@ -297,6 +299,7 @@ mod tests {
                 vec![vec![(0.0, 0.0), (0.0, 5.0)]],
             ])?,
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         )?
         .into_array();
 
@@ -313,8 +316,7 @@ mod tests {
 
     #[test]
     fn constant_is_computed_once_and_remains_constant() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = line_constant(vec![(0.0, 0.0), (3.0, 4.0), (3.0, 8.0)], 3, &mut ctx)?;
 
         let result = SpatialLength::try_new(lines)?
@@ -330,8 +332,7 @@ mod tests {
 
     #[test]
     fn null_constant_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = linestring_column(vec![vec![]])?.dtype().as_nullable();
         let lines = ConstantArray::new(Scalar::null(dtype), 2).into_array();
 
@@ -350,8 +351,7 @@ mod tests {
 
     #[test]
     fn propagates_nullable_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = MaskedArray::try_new(
             linestring_column(vec![
                 vec![(0.0, 0.0), (3.0, 4.0)],
@@ -359,6 +359,7 @@ mod tests {
                 vec![(0.0, 0.0), (0.0, 4.0)],
             ])?,
             Validity::from_iter([true, false, true]),
+            &mut ctx,
         )?
         .into_array();
 
@@ -374,14 +375,14 @@ mod tests {
 
     #[test]
     fn propagates_all_null_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lines = MaskedArray::try_new(
             linestring_column(vec![
                 vec![(0.0, 0.0), (3.0, 4.0)],
                 vec![(0.0, 0.0), (0.0, 4.0)],
             ])?,
             Validity::from_iter([false, false]),
+            &mut ctx,
         )?
         .into_array();
         let expected =

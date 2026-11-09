@@ -129,45 +129,20 @@ logical_opt [
                         "name": "COMPARISON_JOIN",
                         "children": [
                             {
-                                "name": "PROJECTION",
-                                "children": [
-                                    {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
-                                        "extra_info": {
-                                            "Filters": "(1995-09-01 <= $.l_shipdate < 1995-10-01)",
-                                            "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "120114"
-                                        }
-                                    }
-                                ],
+                                "name": "READ_VORTEX",
+                                "children": [],
                                 "extra_info": {
-                                    "Expressions": [
-                                        "l_partkey",
-                                        "l_extendedprice",
-                                        "l_discount"
-                                    ],
+                                    "Filters": "(1995-09-01 <= $.l_shipdate < 1995-10-01)",
+                                    "Function": "Vortex Scan",
                                     "Estimated Cardinality": "120114"
                                 }
                             },
                             {
-                                "name": "PROJECTION",
-                                "children": [
-                                    {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
-                                        "extra_info": {
-                                            "Filters": "",
-                                            "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "20000"
-                                        }
-                                    }
-                                ],
+                                "name": "READ_VORTEX",
+                                "children": [],
                                 "extra_info": {
-                                    "Expressions": [
-                                        "p_partkey",
-                                        "p_type"
-                                    ],
+                                    "Filters": "",
+                                    "Function": "Vortex Scan",
                                     "Estimated Cardinality": "20000"
                                 }
                             }
@@ -255,7 +230,8 @@ physical_plan [
                     "Aggregates": [
                         "sum(#0)",
                         "sum(#1)"
-                    ]
+                    ],
+                    "Estimated Cardinality": "1"
                 }
             }
         ],

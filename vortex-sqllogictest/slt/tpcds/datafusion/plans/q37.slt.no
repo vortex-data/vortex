@@ -36,8 +36,8 @@ logical_plan
 07)------------Projection: item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price, inventory.inv_date_sk
 08)--------------Inner Join: item.i_item_sk = inventory.inv_item_sk
 09)----------------Projection: item.i_item_sk, item.i_item_id, item.i_item_desc, item.i_current_price
-10)------------------Filter: item.i_current_price >= Decimal128(68.00,7,2) AND item.i_current_price <= Decimal128(98.00,7,2) AND item.i_manufact_id IN ([Int64(677), Int64(940), Int64(694), Int64(808)])
-11)--------------------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc, i_current_price, i_manufact_id], partial_filters=[item.i_current_price >= Decimal128(68.00,7,2), item.i_current_price <= Decimal128(98.00,7,2), item.i_manufact_id IN ([Int64(677), Int64(940), Int64(694), Int64(808)])]
+10)------------------Filter: item.i_current_price >= Decimal128(68.00,7,2) AND item.i_current_price <= Decimal128(98.00,7,2) AND item.i_manufact_id IN ([Int32(677), Int32(940), Int32(694), Int32(808)])
+11)--------------------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc, i_current_price, i_manufact_id], partial_filters=[item.i_current_price >= Decimal128(68.00,7,2), item.i_current_price <= Decimal128(98.00,7,2), item.i_manufact_id IN ([Int32(677), Int32(940), Int32(694), Int32(808)])]
 12)----------------Projection: inventory.inv_date_sk, inventory.inv_item_sk
 13)------------------Filter: inventory.inv_quantity_on_hand >= Int32(100) AND inventory.inv_quantity_on_hand <= Int32(500)
 14)--------------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_quantity_on_hand], partial_filters=[inventory.inv_quantity_on_hand >= Int32(100), inventory.inv_quantity_on_hand <= Int32(500)]

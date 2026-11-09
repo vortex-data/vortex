@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Splits and combines individual timestamp counts.
+//!
+//! [`TimestampParts`] preserves the full storage range of a timestamp. Array compression can
+//! narrow the days component when the values fit.
+
 use num_traits::AsPrimitive;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
+use vortex_error::vortex_err;
 
 pub const SECONDS_PER_DAY: i64 = 86_400; // 24 * 60 * 60
 
-/// Parts of a Unix timestamp (time since 1970-01-01 00:00:00 UTC).
+/// Components of a Unix timestamp relative to 1970-01-01 00:00:00 UTC.
 ///
-/// Broken down into:
-///  * Days since epoch (max range is "jiff"'s range)
-///  * Seconds within day (0-86399)
-///  * Subseconds (range depends on `TimeUnit`)
+/// [`split`] divides toward zero, so seconds and subseconds are signed remainders, including for
+/// timestamps before the epoch.
 pub struct TimestampParts {
-    pub days: i32,
+    /// Days since the Unix epoch.
+    ///
+    /// Uses `i64` because splitting an `i64` timestamp in seconds or milliseconds can exceed the
+    /// `i32` days range.
+    pub days: i64,
+    /// Seconds within the day. [`split`] produces values from -86,399 to 86,399, which fit `i32`.
     pub seconds: i32,
+    /// Subseconds within the second, in the units of the original timestamp.
+    ///
+    /// [`split`] produces a magnitude less than the number of units per second. Even at nanosecond
+    /// precision, this is less than 1,000,000,000, so `i32` suffices.
     pub subseconds: i32,
 }
 
@@ -25,12 +37,12 @@ pub struct TimestampParts {
 ///
 /// # Arguments
 ///
-/// * `timestamp` - Number of time units since the Unix epoch
-/// * `time_unit` - Precision of the timestamp (ns, μs, ms, or s)
+/// * `timestamp` - Number of time units since the Unix epoch.
+/// * `time_unit` - Precision of the timestamp (ns, μs, ms, or s).
 ///
 /// # Errors
 ///
-/// Returns an error if `time_unit` is days, which cannot be split.
+/// Returns an error if `time_unit` is days.
 pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts> {
     Ok(match time_unit {
         TimeUnit::Nanoseconds => split_with_divisor::<1_000_000_000>(timestamp),
@@ -41,7 +53,7 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
     })
 }
 
-/// Split a Unix timestamp into parts using a constant DIVISOR.
+/// Splits a Unix timestamp into parts using a constant divisor.
 #[inline]
 pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> TimestampParts {
     let days = timestamp / (SECONDS_PER_DAY * DIVISOR);
@@ -49,7 +61,7 @@ pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> Timestam
     let seconds = total_seconds - days * SECONDS_PER_DAY;
     let subseconds = timestamp - total_seconds * DIVISOR;
     TimestampParts {
-        days: days.as_(),
+        days,
         seconds: seconds.as_(),
         subseconds: subseconds.as_(),
     }
@@ -57,26 +69,31 @@ pub(crate) fn split_with_divisor<const DIVISOR: i64>(timestamp: i64) -> Timestam
 
 /// Combines timestamp parts back into a Unix timestamp.
 ///
-/// # Arguments
-///
-/// * `parts` - Component parts of the timestamp (days, seconds, subseconds)
-/// * `time_unit` - Precision of the timestamp (ns, μs, ms, or s)
-///
 /// # Errors
 ///
-/// Returns an error if `time_unit` is days, which cannot be combined.
-pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
-    let divisor = match time_unit {
+/// Returns an error if `time_unit` is days, or if the parts overflow an `i64` count. Parts that
+/// [`split`] produces never overflow.
+pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> VortexResult<i64> {
+    let divisor: i64 = match time_unit {
         TimeUnit::Nanoseconds => 1_000_000_000,
         TimeUnit::Microseconds => 1_000_000,
         TimeUnit::Milliseconds => 1_000,
         TimeUnit::Seconds => 1,
-        TimeUnit::Days => vortex_panic!("Cannot handle day-level data"),
+        TimeUnit::Days => vortex_bail!("Cannot handle day-level data"),
     };
 
-    ts_parts.days as i64 * SECONDS_PER_DAY * divisor
-        + ts_parts.seconds as i64 * divisor
-        + ts_parts.subseconds as i64
+    // `seconds * divisor` cannot overflow: |seconds| <= 2^31 and divisor <= 1e9.
+    ts_parts
+        .days
+        .checked_mul(SECONDS_PER_DAY * divisor)
+        .and_then(|ts| ts.checked_add(i64::from(ts_parts.seconds) * divisor))
+        .and_then(|ts| ts.checked_add(i64::from(ts_parts.subseconds)))
+        .ok_or_else(|| {
+            vortex_err!(
+                "DateTimeParts days {} overflow a {time_unit} timestamp",
+                ts_parts.days
+            )
+        })
 }
 
 #[cfg(test)]
@@ -105,13 +122,13 @@ mod tests {
         ] {
             let parts = split(ts, unit)?;
 
-            let days: i32 = (ts / ticks_per_day).as_();
+            let days = ts / ticks_per_day;
             let seconds: i32 = ((ts % ticks_per_day) / divisor).as_();
             let subseconds: i32 = ((ts % ticks_per_day) % divisor).as_();
             assert_eq!(parts.days, days);
             assert_eq!(parts.seconds, seconds);
             assert_eq!(parts.subseconds, subseconds);
-            assert_eq!(combine(parts, unit), ts);
+            assert_eq!(combine(parts, unit)?, ts);
         }
         Ok(())
     }
@@ -157,82 +174,115 @@ mod tests {
     }
 
     #[test]
-    fn test_split_epoch() {
-        let ts = 0;
-        for unit in [
-            TimeUnit::Seconds,
-            TimeUnit::Milliseconds,
-            TimeUnit::Microseconds,
-            TimeUnit::Nanoseconds,
-        ] {
-            let parts = split(ts, unit).unwrap();
-            assert_eq!(parts.days, 0);
-            assert_eq!(parts.seconds, 0);
-            assert_eq!(parts.subseconds, 0);
-        }
-    }
-
-    #[test]
     fn test_split_days_error() {
         assert!(split(1, TimeUnit::Days).is_err());
     }
 
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds, 1)]
+    #[case::milliseconds(TimeUnit::Milliseconds, 1_000)]
+    #[case::microseconds(TimeUnit::Microseconds, 1_000_000)]
+    #[case::nanoseconds(TimeUnit::Nanoseconds, 1_000_000_000)]
+    fn test_split_storage_extremes(
+        #[case] unit: TimeUnit,
+        #[case] ticks_per_second: i64,
+    ) -> VortexResult<()> {
+        for ts in [i64::MAX, i64::MIN] {
+            let parts = split(ts, unit)?;
+            assert!(i64::from(parts.seconds).abs() < SECONDS_PER_DAY);
+            assert!(i64::from(parts.subseconds).abs() < ticks_per_second);
+            assert_eq!(combine(parts, unit)?, ts);
+        }
+
+        Ok(())
+    }
+
     #[test]
-    fn test_combine_seconds() {
+    fn test_combine_seconds() -> VortexResult<()> {
         // 1970-01-02 01:02:03 UTC
         let parts = TimestampParts {
             days: 1,
             seconds: 3723, // 1*3600 + 2*60 + 3
             subseconds: 0,
         };
-        let ts = combine(parts, TimeUnit::Seconds);
+        let ts = combine(parts, TimeUnit::Seconds)?;
         assert_eq!(ts, SECONDS_PER_DAY + 3723);
+
+        Ok(())
     }
 
     #[test]
-    fn test_combine_milliseconds() {
+    fn test_combine_milliseconds() -> VortexResult<()> {
         // 1970-01-02 01:02:03.456 UTC
         let parts = TimestampParts {
             days: 1,
             seconds: 3723,
             subseconds: 456,
         };
-        let ts = combine(parts, TimeUnit::Milliseconds);
+        let ts = combine(parts, TimeUnit::Milliseconds)?;
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1000 + 456);
+
+        Ok(())
     }
 
     #[test]
-    fn test_combine_microseconds() {
+    fn test_combine_microseconds() -> VortexResult<()> {
         // 1970-01-02 01:02:03.456789 UTC
         let parts = TimestampParts {
             days: 1,
             seconds: 3723,
             subseconds: 456789,
         };
-        let ts = combine(parts, TimeUnit::Microseconds);
+        let ts = combine(parts, TimeUnit::Microseconds)?;
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000 + 456789);
+
+        Ok(())
     }
 
     #[test]
-    fn test_combine_nanoseconds() {
+    fn test_combine_nanoseconds() -> VortexResult<()> {
         // 1970-01-02 01:02:03.456789123 UTC
         let parts = TimestampParts {
             days: 1,
             seconds: 3723,
             subseconds: 456789123,
         };
-        let ts = combine(parts, TimeUnit::Nanoseconds);
+        let ts = combine(parts, TimeUnit::Nanoseconds)?;
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000_000 + 456789123);
+
+        Ok(())
     }
 
     #[test]
-    #[should_panic(expected = "Cannot handle day-level data")]
-    fn test_combine_days_error() {
+    fn test_combine_days_error() -> VortexResult<()> {
         let parts = TimestampParts {
             days: 1,
             seconds: 0,
             subseconds: 0,
         };
-        combine(parts, TimeUnit::Days);
+        let error = combine(parts, TimeUnit::Days).unwrap_err();
+        assert!(error.to_string().contains("Cannot handle day-level data"));
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds, 1)]
+    #[case::milliseconds(TimeUnit::Milliseconds, 1_000)]
+    fn test_combine_overflow(
+        #[case] unit: TimeUnit,
+        #[case] ticks_per_second: i64,
+        #[values(false, true)] negative: bool,
+    ) -> VortexResult<()> {
+        let days = i64::MAX / (SECONDS_PER_DAY * ticks_per_second) + 1;
+        let parts = TimestampParts {
+            days: if negative { -days } else { days },
+            seconds: 0,
+            subseconds: 0,
+        };
+        let error = combine(parts, unit).unwrap_err();
+        assert!(error.to_string().contains("overflow"));
+
+        Ok(())
     }
 }

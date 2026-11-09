@@ -98,15 +98,15 @@ mod tests {
             .unwrap()
             .export(1, 66, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
-        chunk.set_len(65);
+        chunk.set_len(66);
 
         assert_eq!(
             String::try_from(&*chunk).unwrap(),
             format!(
                 r#"Chunk - [1 Columns]
-- FLAT BOOLEAN: 65 = [ {}]
+- FLAT BOOLEAN: 66 = [ {}]
 "#,
-                iter::repeat_n("true", 65).collect::<Vec<&str>>().join(", ")
+                iter::repeat_n("true", 66).collect::<Vec<&str>>().join(", ")
             )
         );
     }

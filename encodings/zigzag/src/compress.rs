@@ -97,7 +97,7 @@ mod test {
     use crate::ZigZag;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -111,7 +111,6 @@ mod test {
         let mut ctx = SESSION.create_execution_ctx();
         let compressed = zigzag_encode(input.as_view()).unwrap().into_array();
         assert!(compressed.is::<ZigZag>());
-        let decompressed = compressed.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(decompressed, input, &mut ctx);
+        assert_arrays_eq!(compressed, input, &mut ctx);
     }
 }

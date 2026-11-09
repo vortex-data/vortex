@@ -26,7 +26,9 @@ use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -205,6 +207,7 @@ fn imports_from_binary() -> VortexResult<()> {
 /// Import wraps the binary-family Arrow array's WKB values unchanged.
 #[test]
 fn imports_from_large_binary() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let (wkb_bytes, _) = wkb_extension_array()?;
     let arrow: ArrowArrayRef = Arc::new(LargeBinaryArray::from_iter_values([
         wkb_bytes.as_slice(),
@@ -214,13 +217,24 @@ fn imports_from_large_binary() -> VortexResult<()> {
 
     let imported = SESSION.arrow().from_arrow_array(arrow, &field)?;
     assert_imported_wkb_dtype(imported.dtype(), Some("EPSG:4326"), false);
-    assert_eq!(imported.len(), 2);
+    let expected = ExtensionArray::try_new(
+        ExtDType::<WellKnownBinary>::try_new(
+            SpatialMetadata {
+                crs: Some("EPSG:4326".to_string()),
+            },
+            DType::Binary(Nullability::NonNullable),
+        )?
+        .erased(),
+        VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 2)).into_array(),
+    )?;
+    assert_arrays_eq!(imported, expected, &mut ctx);
     Ok(())
 }
 
 /// Import wraps the binary-family Arrow array's WKB values unchanged.
 #[test]
 fn imports_from_binary_view() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let (wkb_bytes, _) = wkb_extension_array()?;
     let arrow: ArrowArrayRef = Arc::new(BinaryViewArray::from_iter_values([
         wkb_bytes.as_slice(),
@@ -232,7 +246,15 @@ fn imports_from_binary_view() -> VortexResult<()> {
 
     let imported = SESSION.arrow().from_arrow_array(arrow, &field)?;
     assert_imported_wkb_dtype(imported.dtype(), None, false);
-    assert_eq!(imported.len(), 4);
+    let expected = ExtensionArray::try_new(
+        ExtDType::<WellKnownBinary>::try_new(
+            SpatialMetadata { crs: None },
+            DType::Binary(Nullability::NonNullable),
+        )?
+        .erased(),
+        VarBinViewArray::from_iter_bin(std::iter::repeat_n(wkb_bytes.as_slice(), 4)).into_array(),
+    )?;
+    assert_arrays_eq!(imported, expected, &mut ctx);
     Ok(())
 }
 

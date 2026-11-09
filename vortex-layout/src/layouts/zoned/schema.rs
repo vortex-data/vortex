@@ -11,6 +11,11 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
+use vortex_array::expr::cast;
+use vortex_array::expr::get_item;
+use vortex_array::expr::pack;
+use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -182,6 +187,51 @@ pub(crate) fn aggregate_state_dtype(
     })
 }
 
+/// Converts a legacy stats table of `table_dtype`, holding `stats` of a `column_dtype` column, to
+/// the aggregate stats-table schema.
+///
+/// Returns the aggregate functions the converted table holds, in field order, and the expression
+/// over the legacy table producing it. A stat with no aggregate function, absent from the table,
+/// or stored with a dtype other than its aggregate's state, is left out: pruning only loses it.
+/// Truncation flags are dropped, as the legacy reader ignores them: a truncated max or min still
+/// bounds its zone.
+pub(crate) fn legacy_stats_to_aggregates(
+    column_dtype: &DType,
+    table_dtype: &DType,
+    stats: &[Stat],
+) -> (Arc<[AggregateFnRef]>, Expression) {
+    let fields = table_dtype.as_struct_fields_opt();
+    let mut aggregate_fns = Vec::with_capacity(stats.len());
+    let mut elements = Vec::with_capacity(stats.len());
+    for stat in stats {
+        let Some(aggregate_fn) = stat.aggregate_fn() else {
+            continue;
+        };
+        let Some(stored) = fields.and_then(|fields| fields.field(stat.name())) else {
+            continue;
+        };
+        let Some(state) = aggregate_state_dtype(column_dtype, &aggregate_fn) else {
+            continue;
+        };
+        let state = state.as_nullable();
+        if !stored.eq_ignore_nullability(&state) {
+            continue;
+        }
+        let value = get_item(stat.name(), root());
+        let value = if stored == state {
+            value
+        } else {
+            cast(value, state)
+        };
+        elements.push((aggregate_fn.to_string(), value));
+        aggregate_fns.push(aggregate_fn);
+    }
+    (
+        aggregate_fns.into(),
+        pack(elements, Nullability::NonNullable),
+    )
+}
+
 pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
     // SAFETY: 64 is non-zero.
     unsafe { std::num::NonZeroUsize::new_unchecked(64) }
@@ -189,6 +239,8 @@ pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::max::Max;
@@ -202,16 +254,17 @@ mod tests {
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn unknown_aggregate_errors_without_allow_unknown() {
-        let session = vortex_array::array_session();
         let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
-        assert!(try_aggregate_fns_from_specs(&specs, &session).is_err());
+        assert!(try_aggregate_fns_from_specs(&specs, &SESSION).is_err());
     }
 
     #[test]
     fn unknown_aggregate_is_none_with_allow_unknown() -> VortexResult<()> {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.allow_unknown();
         let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
         assert!(try_aggregate_fns_from_specs(&specs, &session)?.is_none());

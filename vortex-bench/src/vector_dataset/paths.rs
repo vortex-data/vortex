@@ -107,9 +107,11 @@ mod tests {
         let files = train_files(VectorDataset::CohereLarge10m, TrainLayout::Partitioned, 10);
         assert_eq!(files.len(), 10);
         for (i, path) in files.iter().enumerate() {
-            assert!(
-                path.to_string_lossy()
-                    .ends_with(&format!("{i:02}-of-10.parquet"))
+            assert_eq!(
+                path,
+                &data_dir().join(format!(
+                    "vector-search/cohere-large-10m/partitioned/train/{i:02}-of-10.parquet"
+                ))
             );
         }
     }

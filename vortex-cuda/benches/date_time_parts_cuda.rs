@@ -18,6 +18,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -30,6 +31,7 @@ use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -37,6 +39,9 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArray {
     let days: Vec<i16> = (0..len).map(|i| (i / 1000) as i16).collect();
@@ -58,6 +63,7 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
 
         let (time_unit, unit_str) = (TimeUnit::Milliseconds, "ms");
         let dtp_array = make_datetimeparts_array(len, time_unit);
+        mark_optimized(dtp_array.as_array(), &vortex_cuda::cuda_session()).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new(format!("cuda/datetimeparts/{unit_str}"), len_str),

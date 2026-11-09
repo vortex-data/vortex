@@ -9,7 +9,8 @@ concurrency:
 on:
   push:
     branches: [develop]
-  pull_request: { }
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch: { }
 
 permissions:
@@ -23,13 +24,14 @@ env:
 jobs:
   rust-test-musl:
     name: "Rust tests (linux-musl)"
+    if: github.event.pull_request.draft != true
     timeout-minutes: 90
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-large/image=ubuntu26-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
           || 'ubuntu-latest' }}
     container:
-      image: ghcr.io/rust-lang/rust:1-alpine3.21
+      image: ghcr.io/rust-lang/rust:1-alpine3.24
       credentials:
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}

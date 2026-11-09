@@ -196,6 +196,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Filters": "($.AdvEngineID != 0i16)",
                                                                             "Function": "Vortex Scan",
+                                                                            "SELECT projections": "AdvEngineID: cast($.AdvEngineID as i8?)",
                                                                             "Estimated Cardinality": "200000"
                                                                         }
                                                                     }
@@ -207,7 +208,7 @@ logical_opt [
                                                             }
                                                         ],
                                                         "extra_info": {
-                                                            "Expressions": "__internal_compress_integral_utinyint(#0, 0)",
+                                                            "Expressions": "#0",
                                                             "Estimated Cardinality": "200000"
                                                         }
                                                     }
@@ -215,16 +216,16 @@ logical_opt [
                                                 "extra_info": {
                                                     "Groups": "AdvEngineID",
                                                     "Expressions": "count_star()",
-                                                    "Estimated Cardinality": "126424"
+                                                    "Estimated Cardinality": "53"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "__internal_decompress_integral_smallint(#0, 0)",
+                                                "CAST(#0 AS SMALLINT)",
                                                 "#1"
                                             ],
-                                            "Estimated Cardinality": "126424"
+                                            "Estimated Cardinality": "53"
                                         }
                                     }
                                 ],
@@ -233,29 +234,31 @@ logical_opt [
                                         "AdvEngineID",
                                         "count_star()"
                                     ],
-                                    "Estimated Cardinality": "126424"
+                                    "Estimated Cardinality": "53"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_compress_integral_utinyint(#0, 0)",
+                                "CAST(#0 AS TINYINT)",
                                 "#1"
                             ],
-                            "Estimated Cardinality": "126424"
+                            "Estimated Cardinality": "53"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "count_star()",
+                    "Estimated Cardinality": "53"
                 }
             }
         ],
         "extra_info": {
             "Expressions": [
-                "__internal_decompress_integral_smallint(#0, 0)",
+                "CAST(#0 AS SMALLINT)",
                 "#1"
-            ]
+            ],
+            "Estimated Cardinality": "53"
         }
     }
 ]
@@ -279,21 +282,13 @@ physical_plan [
                                                 "name": "PROJECTION",
                                                 "children": [
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Function": "Vortex Scan",
-                                                                    "Filters": "($.AdvEngineID != 0i16)",
-                                                                    "Projections": "AdvEngineID",
-                                                                    "Estimated Cardinality": "200000"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Projections": "__internal_compress_integral_utinyint(#0, 0)",
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": "($.AdvEngineID != 0i16)",
+                                                            "SELECT projections": "AdvEngineID: cast($.AdvEngineID as i8?)",
+                                                            "Projections": "AdvEngineID",
                                                             "Estimated Cardinality": "200000"
                                                         }
                                                     }
@@ -306,39 +301,41 @@ physical_plan [
                                         ],
                                         "extra_info": {
                                             "Groups": "#0",
-                                            "Aggregates": "count_star()"
+                                            "Aggregates": "count_star()",
+                                            "Estimated Cardinality": "53"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Projections": [
-                                        "__internal_decompress_integral_smallint(#0, 0)",
+                                        "CAST(#0 AS SMALLINT)",
                                         "#1"
                                     ],
-                                    "Estimated Cardinality": "126424"
+                                    "Estimated Cardinality": "53"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Projections": [
-                                "__internal_compress_integral_utinyint(#0, 0)",
+                                "CAST(#0 AS TINYINT)",
                                 "#1"
                             ],
-                            "Estimated Cardinality": "126424"
+                            "Estimated Cardinality": "53"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star() DESC"
+                    "Order By": "count_star() DESC",
+                    "Estimated Cardinality": "53"
                 }
             }
         ],
         "extra_info": {
             "Projections": [
-                "__internal_decompress_integral_smallint(#0, 0)",
+                "CAST(#0 AS SMALLINT)",
                 "#1"
             ],
-            "Estimated Cardinality": "0"
+            "Estimated Cardinality": "53"
         }
     }
 ]

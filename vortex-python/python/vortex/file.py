@@ -14,6 +14,7 @@ from ._lib.dtype import DType
 from ._lib.expr import Expr
 from ._lib.file import Footer, SegmentCache
 from ._lib.iter import ArrayIterator
+from .arrays import array
 from .dataset import VortexDataset
 from .io import ReadAt, ReadBytesAt
 from .scan import RepeatedScan
@@ -41,6 +42,7 @@ def open(
     without_segment_cache: bool = False,
     segment_cache: SegmentCache | None = None,
     cache_key: str | None = None,
+    memory_map: bool = False,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
@@ -64,6 +66,12 @@ def open(
     cache_key : :class:`str` | None
         Identifies this file's contents within ``segment_cache``. Files opened with the same key
         share cached segments, so the key must change whenever the file does.
+    memory_map : :class:`bool`
+        If true, map a local file into memory and read segments as slices of the map. Reads then
+        need no IO threads, IO requests or copies, and the page cache takes the place of the
+        segment cache, so this cannot be combined with ``store``, ``segment_cache`` or
+        ``cache_key``. The file must not change while it is open: a truncated file can crash the
+        process with ``SIGBUS``. With ``footer`` set, the open reads nothing.
 
     Examples
     --------
@@ -84,12 +92,13 @@ def open(
             without_segment_cache=without_segment_cache,
             segment_cache=segment_cache,
             cache_key=cache_key,
+            memory_map=memory_map,
         )
     )
 
 
 def open_readable(
-    reader: ReadBytesAt | ReadAt | IO[bytes],
+    reader: ReadBytesAt | ReadAt | IO[bytes] | pa.NativeFile,
     *,
     footer: Footer | None = None,
     concurrency: int | None = None,
@@ -105,19 +114,20 @@ def open_readable(
 
     Parameters
     ----------
-    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | binary file object
-        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, or a
-        binary file object with ``seek`` and ``readinto`` (or ``read``), such as
-        ``open(path, "rb")``, :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep
-        it open for as long as the returned file, or anything scanned from it, is in use.
+    reader : :class:`vortex.io.ReadBytesAt` | :class:`vortex.io.ReadAt` | pyarrow file | binary file object
+        An object implementing :class:`vortex.io.ReadBytesAt` or :class:`vortex.io.ReadAt`, a
+        pyarrow file such as one from :meth:`pyarrow.fs.FileSystem.open_input_file`, or a binary
+        file object with ``seek`` and ``readinto`` (or ``read``), such as ``open(path, "rb")``,
+        :class:`io.BytesIO` or an fsspec file. Vortex does not close it; keep it open for as long
+        as the returned file, or anything scanned from it, is in use.
     footer : :class:`vortex.file.Footer` | None
         The :attr:`VortexFile.footer` of an earlier open of the same file. Opening then does no IO,
         which saves the footer read when a file is opened again and again. Vortex checks only that
         the footer fits within the size of ``reader``, so the file must not have changed since.
     concurrency : :class:`int` | None
-        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt` or
-        :class:`vortex.io.ReadAt`, 192 by default. Not accepted for a file object, whose reads are
-        serialized because each one has to ``seek`` first.
+        The most reads to have in flight at once through a :class:`vortex.io.ReadBytesAt`, a
+        :class:`vortex.io.ReadAt` or a pyarrow file, 192 by default. Not accepted for a binary file
+        object, whose reads are serialized because each one has to ``seek`` first.
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
     segment_cache : :class:`vortex.SegmentCache` | None
@@ -143,6 +153,8 @@ def open_readable(
     ...     vxf = vx.open_readable(f, footer=footer)
     """
 
+    if isinstance(reader, pa.NativeFile):
+        reader = _NativeFileReader(reader)
     return VortexFile(
         _file.open_readable(
             reader,
@@ -153,6 +165,20 @@ def open_readable(
             cache_key=cache_key,
         )
     )
+
+
+@final
+class _NativeFileReader:
+    """A :class:`vortex.io.ReadBytesAt` over a pyarrow file, whose ``read_at`` takes ``(nbytes, offset)``."""
+
+    def __init__(self, file: pa.NativeFile) -> None:
+        self._file = file
+
+    def size(self) -> int:
+        return self._file.size()
+
+    def read_at(self, offset: int, length: int) -> bytes:
+        return self._file.read_at(length, offset)  # ty: ignore[too-many-positional-arguments]
 
 
 @final
@@ -339,9 +365,11 @@ class VortexFile:
         import polars as pl
         from polars.io.plugins import register_io_source
 
-        from vortex.polars_ import polars_to_vortex
+        from vortex.polars_ import decompose_predicate
 
         schema = self.dtype.to_arrow_schema()
+        # Type-checks translated predicates against the file's dtype before scanning.
+        scope = array(schema.empty_table())
 
         def _io_source(
             with_columns: list[str] | None,
@@ -349,14 +377,32 @@ class VortexFile:
             n_rows: int | None,
             _batch_size: int | None,
         ) -> Iterator[pl.DataFrame]:
-            vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
+            # Push the convertible AND-conjuncts of the predicate into the Vortex scan and
+            # evaluate the residual conjuncts with Polars per batch. Polars will not
+            # re-apply a predicate it handed to the source, so both parts must be applied.
+            vx_predicate: Expr | None = None
+            pl_predicate: pl.Expr | None = None
+            if predicate is not None:
+                vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
 
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
+            # A row limit only commutes with the residual filter if there is none.
+            limit = n_rows if pl_predicate is None else None
 
+            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=limit)
+
+            remaining = n_rows
             try:
                 for batch in reader:
+                    df = pl.DataFrame(batch)
+                    if pl_predicate is not None:
+                        df = df.filter(pl_predicate)
+                        if remaining is not None:
+                            df = df.head(remaining)
+                            remaining -= df.height
                     # TODO(ngates): set sortedness on DataFrame based on stats?
-                    yield pl.DataFrame(batch)
+                    yield df
+                    if remaining == 0:
+                        break
             except pa.ArrowException as e:
                 # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
                 # re-raises them unchanged. Raise a ComputeError on both.

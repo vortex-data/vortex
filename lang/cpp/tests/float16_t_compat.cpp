@@ -20,13 +20,15 @@ TEST_CASE("float16_t to_float (compatibility)", "[float]") {
     REQUIRE(float(float16_t {0x3C00}) == 1.0F);
     REQUIRE(float(float16_t {0xC000}) == -2.0F);
     REQUIRE(float(float16_t {0}) == 0.0F);
-    REQUIRE(float(float16_t {0x8000}) == -0.0F);
+    REQUIRE(float(float16_t {0x8000}) == 0.0F);
+    REQUIRE_FALSE(std::signbit(float(float16_t {0})));
+    REQUIRE(std::signbit(float(float16_t {0x8000})));
     REQUIRE(float(float16_t {0x7C00}) == std::numeric_limits<float>::infinity());
     REQUIRE(float(float16_t {0xFC00}) == -std::numeric_limits<float>::infinity());
     REQUIRE(std::fpclassify(float(float16_t {0x7E01})) == FP_NAN);
     // Denormalized float16_t always gets to normal floats on conversion to float
-    REQUIRE(std::fpclassify(float(float16_t {0x0001})) == FP_NORMAL);
-    REQUIRE(std::fpclassify(float(float16_t {0x83FF})) == FP_NORMAL);
+    REQUIRE(float(float16_t {0x0001}) == 0x1p-24f);
+    REQUIRE(float(float16_t {0x83FF}) == -1023 * 0x1p-24f);
 }
 
 TEST_CASE("F16 scalar (compatibility)", "[scalar]") {

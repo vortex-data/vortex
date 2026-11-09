@@ -5,9 +5,6 @@
 
 use std::sync::Arc;
 
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -27,6 +24,9 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use super::ArrowArray;
 use super::SyncEvent;
@@ -168,7 +168,7 @@ where
     let scan_input = init_list_view_rebuild_scan::<S>(&sizes, &mut status, list_len, ctx)?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, scan_len, ctx)?,
-    )));
+    )?));
 
     validate_list_view_rebuild_offsets::<S>(&sizes, &output_offsets, &mut status, list_len, ctx)?;
     check_list_view_rebuild_status(&status, ctx)?;
@@ -193,7 +193,7 @@ where
     )?;
     check_list_view_rebuild_status(&status, ctx)?;
 
-    let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)))
+    let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)?))
         .slice(0..output_values_bytes);
     Ok((output_offsets, values))
 }
@@ -542,12 +542,14 @@ where
         .map_err(|err| vortex_err!("Failed to copy list-view offsets status to host: {err}"))?[0];
     match status {
         0 => Ok(DeviceListViewOffsets::Contiguous(BufferHandle::new_device(
-            Arc::new(CudaDeviceBuffer::new(output)),
+            Arc::new(CudaDeviceBuffer::new(output)?),
         ))),
         1 => Ok(DeviceListViewOffsets::RequiresRebuild),
         2 => vortex_bail!(
             "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
         ),
-        status => vortex_bail!("unexpected list-view offsets kernel status {status}"),
+        status => {
+            vortex_bail!("unexpected list-view offsets kernel status {status}")
+        }
     }
 }

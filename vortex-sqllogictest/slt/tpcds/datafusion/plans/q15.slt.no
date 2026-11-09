@@ -44,8 +44,8 @@ logical_plan
 10)----------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk]
 11)------------TableScan: customer_address projection=[ca_address_sk, ca_state, ca_zip]
 12)--------Projection: date_dim.d_date_sk
-13)----------Filter: date_dim.d_qoy = Int64(2) AND date_dim.d_year = Int64(2001)
-14)------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(2), date_dim.d_year = Int64(2001)]
+13)----------Filter: date_dim.d_qoy = Int32(2) AND date_dim.d_year = Int32(2001)
+14)------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(2), date_dim.d_year = Int32(2001)]
 physical_plan
 01)SortPreservingMergeExec: [ca_zip@0 ASC], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[ca_zip@0 ASC], preserve_partitioning=[true]

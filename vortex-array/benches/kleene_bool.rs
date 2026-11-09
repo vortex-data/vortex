@@ -17,23 +17,26 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
-        .with::<ArraySession>()
         .with::<KernelSession>()
+        .with::<MemorySession>()
 });
 
 const LEN: usize = 65_536;
@@ -60,11 +63,6 @@ fn or_bool_nonnull_arrays(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn and_bool_nullable_arrays(bencher: Bencher) {
-    and_bool_nullable_arrays_aligned(bencher);
-}
-
-#[divan::bench]
 fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
@@ -72,11 +70,6 @@ fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
         bool_nullable(3, 5, 0),
         Operator::And,
     );
-}
-
-#[divan::bench]
-fn or_bool_nullable_arrays(bencher: Bencher) {
-    or_bool_nullable_arrays_aligned(bencher);
 }
 
 #[divan::bench]
@@ -111,7 +104,7 @@ fn or_bool_nullable_arrays_shifted(bencher: Bencher) {
 
 #[divan::bench]
 fn and_true_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
@@ -121,7 +114,7 @@ fn and_true_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn or_false_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
@@ -131,7 +124,7 @@ fn or_false_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn and_false_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
@@ -141,17 +134,12 @@ fn and_false_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn or_true_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
         Operator::Or,
     );
-}
-
-#[divan::bench]
-fn and_null_constant(bencher: Bencher) {
-    and_null_constant_aligned(bencher);
 }
 
 #[divan::bench]
@@ -162,11 +150,6 @@ fn and_null_constant_aligned(bencher: Bencher) {
         null_bool_constant(),
         Operator::And,
     );
-}
-
-#[divan::bench]
-fn or_null_constant(bencher: Bencher) {
-    or_null_constant_aligned(bencher);
 }
 
 #[divan::bench]
@@ -200,9 +183,27 @@ fn or_null_constant_shifted(bencher: Bencher) {
 }
 
 fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
 
     bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+        lhs.clone()
+            .binary(rhs.clone(), operator)
+            .unwrap()
+            .execute::<Columnar>(&mut ctx)
+            .unwrap()
+    });
+}
+
+fn bench_kleene_constant_fold(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    mark_optimized(&lhs, &SESSION).unwrap();
+    mark_optimized(&rhs, &SESSION).unwrap();
+
+    let mut ctx = SESSION.create_execution_ctx();
+
+    bencher.bench_local(|| {
         lhs.clone()
             .binary(rhs.clone(), operator)
             .unwrap()
@@ -225,7 +226,11 @@ fn bool_nullable(true_every: usize, null_every: usize, offset: usize) -> ArrayRe
     if offset == 0 {
         array
     } else {
-        array.slice(offset..offset + LEN).unwrap()
+        array
+            .slice(offset..offset + LEN)
+            .unwrap()
+            .optimize_ctx(&SESSION)
+            .unwrap()
     }
 }
 

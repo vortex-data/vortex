@@ -3,9 +3,8 @@
 
 //! CUDA support for Vortex arrays.
 
-use cudarc::driver::CudaContext;
-use cudarc::driver::sys;
 use tracing::info;
+use vortex_cuda_driver::CudaContext;
 
 pub mod arrow;
 mod canonical;
@@ -67,6 +66,7 @@ pub use pooled_read_at::PooledByteBufferReadAt;
 pub use pooled_read_at::PooledFileReadAt;
 pub use pooled_read_at::PooledFileReadAtOptions;
 pub use pooled_read_at::PooledObjectStoreReadAt;
+pub use pooled_read_at::release_file_mappings;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use session::DictionaryExport;
@@ -79,7 +79,6 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::Filter;
 use vortex::array::arrays::List;
 use vortex::array::arrays::Masked;
-use vortex::array::arrays::Shared;
 use vortex::array::arrays::Slice;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::datetime_parts::DateTimeParts;
@@ -93,6 +92,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdBuffers;
+use vortex::layout::arrays::shared::Shared;
 #[cfg(test)]
 use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
@@ -102,15 +102,8 @@ use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
 /// Checks if a CUDA driver and at least one CUDA device are available.
-///
-/// cudarc loads `libcuda` lazily and panics if the driver library is absent, so we first probe
-/// for it with cudarc's own `is_culib_present`. Creating the context then fails gracefully with
-/// `Err`, rather than panicking, when the driver is present but no usable device is.
 pub fn cuda_available() -> bool {
-    // SAFETY: `is_culib_present` only tries to dlopen the driver library to test for its
-    // presence; it upholds no further invariants.
-    let driver_present = unsafe { sys::is_culib_present() };
-    driver_present && CudaContext::new(0).is_ok()
+    CudaContext::device_count().is_ok_and(|count| count > 0)
 }
 
 /// Registers CUDA kernels.
@@ -140,16 +133,23 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(Slice.id(), &SliceExecutor);
 }
 
-/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with all array session
-/// variables plus a default [`CudaSession`], for use in CUDA tests and benchmarks.
+/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with a default
+/// [`CudaSession`] for CUDA tests and benchmarks. Array session variables are initialized
+/// with their defaults on first use.
 ///
-/// Each call returns an independent session with its own CUDA context and stream pool, matching
-/// the per-test isolation that lazily-initialized sessions previously provided.
+/// The session registers the default file encodings, so the optimizer has their parent-reduce
+/// rules.
+///
+/// Each call returns an independent session with its own kernel registry and stream pool.
+/// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
+/// context-level state must use [`CudaContext::new_non_primary`] with [`CudaSession::with_context`].
 ///
 /// # Panics
 ///
 /// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
 #[cfg(any(test, feature = "_test-harness"))]
 pub fn cuda_session() -> vortex::session::VortexSession {
-    vortex::array::array_session().with::<CudaSession>()
+    let session = vortex::session::VortexSession::empty().with::<CudaSession>();
+    vortex::file::register_default_encodings(&session);
+    session
 }

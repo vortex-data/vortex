@@ -163,16 +163,18 @@ impl ScalarFnVTable for Pack {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_session::VortexSession;
 
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -183,6 +185,8 @@ mod tests {
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
@@ -192,8 +196,8 @@ mod tests {
         .into_array()
     }
 
-    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
-        let mut ctx = array_session().create_execution_ctx();
+    fn field_array(array: &ArrayRef, field_path: &[&str]) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -213,13 +217,12 @@ mod tests {
                 .clone();
             array = next;
         }
-        let result = array.execute::<PrimitiveArray>(&mut ctx)?;
-        Ok(result)
+        Ok(array)
     }
 
     #[test]
     pub fn test_empty_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: Default::default(),
@@ -241,7 +244,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -260,17 +263,17 @@ mod tests {
         assert!(matches!(actual_array.validity(), Ok(Validity::NonNullable)));
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
+            field_array(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.clone().into_array(), &["two"]).unwrap(),
+            field_array(&actual_array.clone().into_array(), &["two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["three"]).unwrap(),
+            field_array(&actual_array.into_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2]),
             &mut ctx
         );
@@ -278,7 +281,7 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -306,22 +309,22 @@ mod tests {
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
+            field_array(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.clone().into_array(), &["two", "two_one"]).unwrap(),
+            field_array(&actual_array.clone().into_array(), &["two", "two_one"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.clone().into_array(), &["two", "two_two"]).unwrap(),
+            field_array(&actual_array.clone().into_array(), &["two", "two_two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["three"]).unwrap(),
+            field_array(&actual_array.into_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2]),
             &mut ctx
         );
@@ -329,7 +332,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -346,6 +349,18 @@ mod tests {
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert!(matches!(actual_array.validity(), Ok(Validity::AllValid)));
+        let expected = StructArray::try_new(
+            ["one", "two", "three"].into(),
+            vec![
+                buffer![0i32, 1, 2].into_array(),
+                buffer![4i32, 5, 6].into_array(),
+                buffer![0i32, 1, 2].into_array(),
+            ],
+            3,
+            Validity::AllValid,
+        )
+        .unwrap();
+        assert_arrays_eq!(actual_array, expected, &mut ctx);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use vortex_error::vortex_err;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::i256;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -70,14 +71,19 @@ pub(crate) fn multiply_constant(
                 .as_decimal()
                 .decimal_value()
                 .ok_or_else(|| vortex_err!("Expected non-null decimal scalar for sum"))?;
-            let len_decimal = DecimalValue::from(len as i128);
-            match val.checked_mul(&len_decimal) {
-                Some(product) => {
-                    let ret_decimal = *return_dtype
-                        .as_decimal_opt()
-                        .ok_or_else(|| vortex_err!("Expected decimal return dtype"))?;
-                    Scalar::decimal(product, ret_decimal, Nullability::Nullable)
-                }
+            let ret_decimal = *return_dtype
+                .as_decimal_opt()
+                .ok_or_else(|| vortex_err!("Expected decimal return dtype"))?;
+
+            // Multiply in i256, the widest storage type, because the operands can be narrower
+            // than the return type. Then check the product against the return precision.
+            let val = DecimalValue::I256(val.as_i256());
+            let len_decimal = DecimalValue::I256(i256::from_i128(len as i128));
+            match val
+                .checked_mul(&len_decimal)
+                .and_then(|product| product.normalize(ret_decimal))
+            {
+                Some(product) => Scalar::decimal(product, ret_decimal, Nullability::Nullable),
                 None => Scalar::null(return_dtype.as_nullable()),
             }
         }
@@ -89,12 +95,14 @@ pub(crate) fn multiply_constant(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::sum::sum;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -106,10 +114,12 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn sum_constant_unsigned() -> VortexResult<()> {
         let array = ConstantArray::new(5u64, 10).into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, 50u64.into());
         Ok(())
     }
@@ -117,7 +127,7 @@ mod tests {
     #[test]
     fn sum_constant_signed() -> VortexResult<()> {
         let array = ConstantArray::new(-5i64, 10).into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, (-50i64).into());
         Ok(())
     }
@@ -126,7 +136,7 @@ mod tests {
     fn sum_constant_nullable_value() -> VortexResult<()> {
         let array = ConstantArray::new(Scalar::null(DType::Primitive(PType::U32, Nullable)), 10)
             .into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, Scalar::primitive(0u64, Nullable));
         Ok(())
     }
@@ -134,7 +144,7 @@ mod tests {
     #[test]
     fn sum_constant_bool_false() -> VortexResult<()> {
         let array = ConstantArray::new(false, 10).into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, 0u64.into());
         Ok(())
     }
@@ -142,7 +152,7 @@ mod tests {
     #[test]
     fn sum_constant_bool_true() -> VortexResult<()> {
         let array = ConstantArray::new(true, 10).into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, 10u64.into());
         Ok(())
     }
@@ -150,7 +160,7 @@ mod tests {
     #[test]
     fn sum_constant_bool_null() -> VortexResult<()> {
         let array = ConstantArray::new(Scalar::null(DType::Bool(Nullable)), 10).into_array();
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, Scalar::primitive(0u64, Nullable));
         Ok(())
     }
@@ -168,7 +178,7 @@ mod tests {
         )
         .into_array();
 
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
 
         assert_eq!(
             result.as_decimal().decimal_value(),
@@ -184,7 +194,7 @@ mod tests {
         let array = ConstantArray::new(Scalar::null(DType::Decimal(decimal_dtype, Nullable)), 10)
             .into_array();
 
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(
             result,
             Scalar::decimal(
@@ -209,11 +219,54 @@ mod tests {
         )
         .into_array();
 
-        let result = sum(&array, &mut array_session().create_execution_ctx())?;
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(
             result.as_decimal().decimal_value(),
             Some(DecimalValue::I256(i256::from_i128(99_999_999_900)))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn sum_constant_decimal_i128_value_overflows_i128() -> VortexResult<()> {
+        let value: i128 = 112_285_607_173_948_541_047_296_740_235_646_205_996;
+        let array = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(value),
+                DecimalDType::new(39, 39),
+                Nullability::NonNullable,
+            ),
+            2,
+        )
+        .into_array();
+
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I256(
+                i256::from_i128(value) + i256::from_i128(value)
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sum_constant_decimal_exceeds_return_precision() -> VortexResult<()> {
+        let max_value = i256::from_i128(10).checked_pow(76).unwrap() - i256::from_i128(1);
+        let array = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I256(max_value),
+                DecimalDType::new(76, 0),
+                Nullability::NonNullable,
+            ),
+            2,
+        )
+        .into_array();
+
+        let result = sum(&array, &mut SESSION.create_execution_ctx())?;
+
+        assert!(result.is_null());
         Ok(())
     }
 }

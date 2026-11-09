@@ -6,13 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaEvent;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchArgs;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -30,6 +23,7 @@ use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -39,6 +33,13 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaEvent;
+use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchArgs;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::ValidAsZeroBits;
 
 use crate::CudaSession;
 use crate::DictionaryExport;
@@ -146,7 +147,7 @@ impl CudaExecutionCtx {
     /// Perform an external kernel launch, with events created and logged via the configured
     /// [`LaunchStrategy`].
     ///
-    /// We use CUB and NVCOMP routines, and those don't match the normal `cudarc` entrypoints, so
+    /// We use CUB and NVCOMP routines, and those don't match the normal launch entrypoints, so
     /// to inject the configured launch strategy we need to bracket it ourselves.
     pub fn launch_external<F: FnMut() -> VortexResult<()>>(
         &self,
@@ -283,8 +284,13 @@ impl CudaExecutionCtx {
 
     /// Ensures a buffer is resident on the device, copying from host if necessary.
     ///
-    /// If the buffer is already on the device it is returned as-is. Otherwise
-    /// copies from host to device.
+    /// If the buffer is already on the device it is returned as-is. Otherwise copies from host
+    /// to device, preserving the source alignment with a metadata-only update.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transfer fails or the device allocation cannot satisfy the source
+    /// alignment. No additional copy is performed to realign the buffer.
     pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
             return Ok(handle);
@@ -293,14 +299,19 @@ impl CudaExecutionCtx {
             .as_host_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?
             .clone();
-        self.stream.copy_to_device(host_buffer)?.await
+        let alignment = host_buffer.alignment();
+        self.stream
+            .copy_to_device(host_buffer)?
+            .await?
+            .ensure_aligned(alignment)
     }
 
     /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
     ///
     /// Safe to call from within an async executor (no nested `block_on`).
     /// The copy is enqueued on the stream and completes before any subsequent
-    /// work on the same stream.
+    /// work on the same stream. Preserves the source alignment without an additional copy,
+    /// returning an error if the device allocation cannot satisfy it.
     pub fn ensure_on_device_sync(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
             return Ok(handle);
@@ -309,13 +320,15 @@ impl CudaExecutionCtx {
             .as_host_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?
             .clone();
-        self.stream.copy_to_device_sync(host_buffer.as_ref())
+        self.stream
+            .copy_to_device_sync(host_buffer.as_ref())?
+            .ensure_aligned(host_buffer.alignment())
     }
 
     /// Returns a reference to the underlying [`VortexCudaStream`].
     ///
     /// Through [`Deref`][std::ops::Deref], this also provides access to the
-    /// inner [`Arc<CudaStream>`] and all of cudarc's stream methods.
+    /// inner [`Arc<CudaStream>`] and all of its stream methods.
     pub fn stream(&self) -> &VortexCudaStream {
         &self.stream
     }
@@ -363,8 +376,10 @@ impl CudaExecutionCtx {
 ///
 /// - **Page-locked memory** (allocated via `cuMemAllocHost` / `cudaMallocHost`):
 ///   the GPU's DMA engine holds a stable physical address for the allocation and
-///   can transfer directly without CPU involvement. The call returns immediately
-///   and the copy proceeds in parallel with subsequent CPU work.
+///   can transfer directly without CPU involvement. Pooled pinned buffers return
+///   immediately and the copy proceeds in parallel with subsequent CPU work, as
+///   the pool keeps each buffer until its copy completes. Copies of borrowed
+///   page-locked slices wait for the copy instead, as the borrow may end next.
 ///
 /// - **Pageable memory** (ordinary `malloc` / Rust allocator): CUDA must first
 ///   stage the data through an internal page-locked bounce buffer, performing a
@@ -435,14 +450,16 @@ pub trait CudaArrayExt {
 impl CudaArrayExt for ArrayRef {
     #[expect(clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == Struct.id() {
-            let len = self.len();
+        let array = self.optimize_ctx(&ctx.ctx)?;
+
+        if array.encoding_id() == Struct.id() {
+            let len = array.len();
             let StructDataParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
+            } = array.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {
@@ -461,7 +478,7 @@ impl CudaArrayExt for ArrayRef {
         // is encoded, so the canonical early-return below would skip them with
         // the storage still compressed. Recurse into the storage so compressed
         // storage decodes on the GPU.
-        if let Some(ext) = self.as_opt::<Extension>() {
+        if let Some(ext) = array.as_opt::<Extension>() {
             let storage = ext.storage_array().clone().execute_cuda(ctx).await?;
             return Ok(Canonical::Extension(ExtensionArray::new(
                 ext.ext_dtype().clone(),
@@ -469,20 +486,20 @@ impl CudaArrayExt for ArrayRef {
             )));
         }
 
-        if self.is_canonical() || self.is_empty() {
-            trace!(encoding = ?self.encoding_id(), "skipping canonical");
-            return self.execute(&mut ctx.ctx);
+        if array.is_canonical() || array.is_empty() {
+            trace!(encoding = ?array.encoding_id(), "skipping canonical");
+            return array.execute(&mut ctx.ctx);
         }
 
         // Try all GPU execution strategies: fused dynamic dispatch, partial
         // fusion with subtree fallbacks, and single-kernel fallback.
         // If none succeed, fall back to CPU execution only when all buffers
         // remain host-resident.
-        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+        let gpu_error = match hybrid_dispatch::try_gpu_dispatch(&array, ctx).await {
             Ok(canonical) => return Ok(canonical),
             Err(e) => {
                 debug!(
-                    encoding = %self.encoding_id(),
+                    encoding = %array.encoding_id(),
                     error = %e,
                     "No GPU execution path available, falling back to CPU"
                 );
@@ -490,13 +507,99 @@ impl CudaArrayExt for ArrayRef {
             }
         };
 
-        if !self.is_host() {
+        if !array.is_host() {
             vortex_bail!(
                 "GPU execution for encoding {} failed ({gpu_error}); CPU fallback with device-resident buffers is not supported",
-                self.encoding_id()
+                array.encoding_id()
             );
         }
 
-        self.execute(&mut ctx.ctx)
+        array.execute(&mut ctx.ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+    use std::sync::Arc;
+
+    use rstest::rstest;
+    use vortex::array::Canonical;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::DecimalArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::match_each_decimal_value_type;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::Alignment;
+    use vortex::buffer::Buffer;
+    use vortex::dtype::DecimalDType;
+    use vortex::dtype::DecimalType;
+    use vortex::error::VortexResult;
+
+    use crate::CanonicalCudaExt;
+    use crate::CudaSession;
+    use crate::cuda_session;
+
+    #[rstest]
+    #[case::i8(DecimalType::I8, 2)]
+    #[case::i16(DecimalType::I16, 4)]
+    #[case::i32(DecimalType::I32, 9)]
+    #[case::i64(DecimalType::I64, 18)]
+    #[case::i128(DecimalType::I128, 38)]
+    #[case::i256(DecimalType::I256, 76)]
+    #[crate::test]
+    async fn ensure_on_device_preserves_decimal_alignment(
+        #[case] values_type: DecimalType,
+        #[case] precision: u8,
+        #[values(false, true)] sync: bool,
+        #[values(0..4, 1..3, 0..0)] range: Range<usize>,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&cuda_session())?;
+        let expected = match_each_decimal_value_type!(values_type, |D| {
+            let alignment = if range.start == 0 {
+                Alignment::DEFAULT_ALIGNMENT
+            } else {
+                Alignment::of::<D>()
+            };
+            DecimalArray::new(
+                Buffer::from_iter([D::default(); 4])
+                    .aligned(alignment)
+                    .slice(range),
+                DecimalDType::new(precision, 0),
+                Validity::NonNullable,
+            )
+        });
+        let parts = expected.clone().into_data_parts();
+        let alignment = parts.values.alignment();
+        let values = if sync {
+            ctx.ensure_on_device_sync(parts.values)?
+        } else {
+            ctx.ensure_on_device(parts.values).await?
+        };
+        assert!(values.is_on_device());
+        assert_eq!(values.alignment(), alignment);
+
+        let allocation = Arc::clone(values.as_device_opt().expect("uploaded to CUDA"));
+        let values = if sync {
+            ctx.ensure_on_device_sync(values)?
+        } else {
+            ctx.ensure_on_device(values).await?
+        };
+        assert!(Arc::ptr_eq(
+            &allocation,
+            values.as_device_opt().expect("still on CUDA"),
+        ));
+
+        let actual = Canonical::Decimal(DecimalArray::try_new_handle(
+            values,
+            parts.values_type,
+            parts.decimal_dtype,
+            parts.validity,
+        )?)
+        .into_host(ctx.execution_ctx())
+        .await?
+        .into_array();
+        assert_arrays_eq!(actual, expected.into_array(), ctx.execution_ctx());
+        Ok(())
     }
 }

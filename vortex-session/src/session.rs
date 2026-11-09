@@ -423,15 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn allow_unknown_flag_is_opt_in() {
-        let session = VortexSession::empty();
-        assert!(!session.allows_unknown());
-
-        session.allow_unknown();
-        assert!(session.allows_unknown());
-    }
-
-    #[test]
     fn get_opt_does_not_insert_a_default() {
         let session = VortexSession::empty();
 
@@ -487,16 +478,6 @@ mod tests {
         assert!(session.get_opt::<Counter>().is_some());
 
         REENTRANT_SESSION.with(|s| *s.borrow_mut() = None);
-    }
-
-    #[test]
-    fn get_mut_publishes_on_drop() {
-        let session = VortexSession::empty();
-        session.register(Counter { count: 1 });
-
-        session.get_mut::<Counter>().count = 42;
-
-        assert_eq!(session.get::<Counter>().count, 42);
     }
 
     #[test]

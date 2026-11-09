@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
 use arrow_buffer::ArrowNativeType;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -21,7 +23,6 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::arrays::ChunkedArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -254,16 +255,22 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         match canonical {
             Canonical::List(groups) => self.accumulate_grouped_array(groups.into(), ctx),
             Canonical::FixedSizeList(groups) => self.accumulate_grouped_array(groups.into(), ctx),
-            _ => vortex_panic!("We checked the DType above, so this should never happen"),
+            _ => {
+                vortex_panic!("We checked the DType above, so this should never happen")
+            }
         }
     }
 
     fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let mut states = std::mem::take(&mut self.partials);
-        if states.len() == 1 {
-            return Ok(states.pop().vortex_expect("checked one partial"));
+        if self.partials.len() == 1 {
+            return Ok(self.partials.pop().vortex_expect("checked one partial"));
         }
-        Ok(ChunkedArray::try_new(states, self.dtypes.partial_dtype.clone())?.into_array())
+        // Pass the `Vec` itself so that this shares the `try_new` instance of other callers.
+        Ok(ChunkedArray::try_new(
+            mem::take(&mut self.partials),
+            self.dtypes.partial_dtype.clone(),
+        )?
+        .into_array())
     }
 
     fn finish(&mut self) -> VortexResult<ArrayRef> {
@@ -289,12 +296,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
-        let session = ctx.session().clone();
-
         for _ in 0..max_iterations() {
             // Try a registered grouped kernel for the current element encoding.
-            if let Some(kernel) = session
-                .aggregate_fns()
+            if let Some(kernel) = ctx
+                .aggregate_kernels()
                 .find_grouped_encoding_kernel(elements.encoding_id(), self.aggregate_fn.id())
             {
                 // SAFETY: we assume that elements execution is safe
@@ -307,8 +312,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             // Try a grouped kernel for the current aggregate regardless of element encoding.
-            if let Some(kernel) = session
-                .aggregate_fns()
+            if let Some(kernel) = ctx
+                .aggregate_kernels()
                 .find_grouped_kernel(self.aggregate_fn.id())
             {
                 // SAFETY: we preserve the grouped shape and validity while replacing the
@@ -411,19 +416,26 @@ fn fixed_size_list_group_ranges(groups: &FixedSizeListArray) -> GroupRanges {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::Chunked;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn accumulator() -> VortexResult<GroupedAccumulator<Count>> {
         GroupedAccumulator::try_new(
@@ -459,6 +471,12 @@ mod tests {
 
         assert!(flushed.is::<Chunked>());
         assert_eq!(flushed.len(), 4);
+        assert_arrays_eq!(
+            &flushed,
+            &state([1, 2, 3, 4]),
+            &mut SESSION.create_execution_ctx()
+        );
+        assert!(accumulator.flush()?.is_empty());
         Ok(())
     }
 
@@ -470,6 +488,7 @@ mod tests {
 
         assert!(flushed.is::<Chunked>());
         assert!(flushed.is_empty());
+        assert_eq!(flushed.dtype(), &DType::Primitive(PType::U64, NonNullable));
         Ok(())
     }
 }

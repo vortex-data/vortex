@@ -12,23 +12,25 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-/// Benchmark with many codes (65K) relative to 1024 values.
-/// This tests performance when the values dictionary is small but many codes reference it.
+/// Benchmark with many codes (65K) relative to a small values dictionary.
 #[divan::bench(args = [
     1024,    // Small dictionary
     2048,    // Medium dictionary
@@ -42,14 +44,15 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     // Create values array with the specified number of unique values
     let values = PrimitiveArray::from_iter(0..num_values).into_array();
 
-    // Create codes that randomly reference the values
+    // Create codes that randomly reference all values except the last one
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let codes = PrimitiveArray::from_iter(
-        (0..num_codes).map(|_| rng.random_range(0..num_values as usize) as u32),
+        (0..num_codes).map(|_| rng.random_range(0..num_values as usize - 1) as u32),
     )
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -83,6 +86,7 @@ fn bench_many_nulls(bencher: Bencher, fraction_valid: f64) {
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
@@ -117,6 +121,7 @@ fn bench_sparse_coverage(bencher: Bencher, fraction_coverage: f64) {
     .into_array();
 
     let array = DictArray::try_new(codes, values).unwrap();
+    mark_optimized(array.as_array(), &SESSION).unwrap();
 
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))

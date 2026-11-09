@@ -3,7 +3,8 @@
 
 //! Check that frozen edition records under `vortex/editions` never change.
 //!
-//! A draft record carries no read-forever guarantee and is not mechanically locked by this check.
+//! A draft record carries no read-forever guarantee and is not mechanically locked by this check:
+//! its members can change and the record can be deleted.
 //! Once `min_library_version` is backfilled, the record captures the frozen edition's complete
 //! membership and may never change again. Whether a record was frozen is read from the base
 //! revision, so a change cannot unfreeze an edition and edit it in the same diff.
@@ -39,6 +40,18 @@ pub const RECORD_DIR: &str = "vortex/editions";
 
 /// A record carries this key once the edition's freeze has been documented.
 const FROZEN_MARKER: &str = "min_library_version";
+
+/// A record of an edition that never freezes carries `immutable = false`.
+const IMMUTABLE: &str = "immutable";
+
+pub(super) fn record_is_frozen(record: &Table) -> bool {
+    record.contains_key(FROZEN_MARKER)
+}
+
+/// An edition that never freezes has no place in its family's chronology.
+fn record_never_freezes(record: &Table) -> bool {
+    record.get(IMMUTABLE).and_then(|value| value.as_bool()) == Some(false)
+}
 
 const REMEDY: &str = "\
 A frozen edition is immutable. To add component IDs, declare a NEW edition in
@@ -113,6 +126,17 @@ fn newest_recorded(
         if !name.ends_with(".toml") || name == FAMILY_FILE {
             return TreeWalkResult::Ok;
         }
+
+        let record = repo.find_blob(entry.id()).ok().and_then(|blob| {
+            std::str::from_utf8(blob.content())
+                .ok()?
+                .parse::<Table>()
+                .ok()
+        });
+        if record.as_ref().is_some_and(record_never_freezes) {
+            return TreeWalkResult::Ok;
+        }
+
         match parse_name(name) {
             Ok((family, chronology)) => {
                 let slot = newest.entry(family.to_string()).or_insert(chronology);
@@ -168,17 +192,25 @@ fn check_addition(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("{path} has no file name"))?;
-    let (family, chronology) = parse_name(name)?;
 
-    if let Some(previous) = newest.get(family)
-        && chronology <= *previous
-    {
-        errors.push(format!(
-            "adds {name}, which is not newer than the {family} edition already recorded \
-             ({family}{}.{:02}.{}). Editions may only be added going forward.",
-            previous.0, previous.1, previous.2,
-        ));
-    }
+    let family = if record_never_freezes(record) {
+        record
+            .get("family")
+            .and_then(|family| family.as_str())
+            .ok_or_else(|| anyhow!("adds {name}, which has no `family` field"))?
+    } else {
+        let (family, chronology) = parse_name(name)?;
+        if let Some(previous) = newest.get(family)
+            && chronology <= *previous
+        {
+            errors.push(format!(
+                "adds {name}, which is not newer than the {family} edition already recorded \
+                 ({family}{}.{:02}.{}). Editions may only be added going forward.",
+                previous.0, previous.1, previous.2,
+            ));
+        }
+        family
+    };
 
     // A record's family decides which chronology it extends, so the directory it sits in has
     // to agree with the family its name declares.
@@ -270,7 +302,7 @@ pub fn check_editions(base: &str) -> anyhow::Result<()> {
         let Some(before) = read_record(&repo, &base_commit, &old)? else {
             continue;
         };
-        if !before.contains_key(FROZEN_MARKER) {
+        if !record_is_frozen(&before) {
             continue;
         }
 

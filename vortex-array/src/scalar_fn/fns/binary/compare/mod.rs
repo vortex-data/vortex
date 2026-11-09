@@ -4,22 +4,22 @@
 //! Native comparison kernels.
 //!
 //! [`execute_compare`] dispatches on the logical [`DType`] of its operands and evaluates every
-//! comparison directly over Vortex canonical arrays — bit buffers for booleans, lane kernels from
+//! comparison directly over Vortex canonical arrays: bit buffers for booleans, lane kernels from
 //! `vortex-compute` for primitives and decimals, binary views for strings/bytes, and a row-wise
 //! comparator for nested types. There is no Arrow fallback.
 //!
 //! Floating point values compare with Vortex's total ordering (`NaN` is the largest value,
 //! `-0.0 < +0.0`, and equality is bitwise), matching [`Scalar`] comparison semantics.
+//!
+//! Binary scalar functions can execute through encoding-specific kernels before reaching the native
+//! dispatcher. [`CompareExecuteAdaptor`] connects these execution paths to [`CompareKernel`], which
+//! lets an encoding compare values without first converting them to canonical arrays.
 
 use std::cmp::Ordering;
 
-use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferAllocatorRef;
-use vortex_buffer::BufferMut;
-use vortex_compute::lane_kernels::IndexedSourceExt;
-use vortex_compute::lane_kernels::LaneZip;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -47,10 +47,11 @@ use crate::validity::Validity;
 mod boolean;
 mod bytes;
 mod decimal;
+
 mod nested;
+pub(crate) use nested::build_comparator as build_row_comparator;
+
 mod primitive;
-#[cfg(test)]
-mod tests;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -58,6 +59,10 @@ mod tests;
 /// without first decompressing. The adaptor normalizes operand order so `array` is always
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
+    /// Compares `lhs` with `rhs`, or returns `None` to use the default comparison path.
+    ///
+    /// Operand dtypes must match, ignoring nullability. [`CompareExecuteAdaptor`] checks this before
+    /// dispatch; direct callers must satisfy the same requirement.
     fn compare(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
@@ -72,7 +77,10 @@ pub trait CompareKernel: VTable {
 /// this adaptor extracts the comparison operator and other operand, normalizes operand order
 /// (swapping the operator if the encoded array is on the RHS), and delegates to the kernel.
 #[derive(Default, Debug)]
-pub struct CompareExecuteAdaptor<V>(pub V);
+pub struct CompareExecuteAdaptor<V>(
+    /// The encoding whose comparison kernel handles the normalized operands.
+    pub V,
+);
 
 impl<V> ExecuteParentKernel<V> for CompareExecuteAdaptor<V>
 where
@@ -104,6 +112,8 @@ where
             1 => (cmp_op.swap(), scalar_fn_array.get_child(0)),
             _ => return Ok(None),
         };
+
+        validate_comparison_dtypes(array.dtype(), other.dtype())?;
 
         let len = array.len();
         let nullable = array.dtype().is_nullable() || other.dtype().is_nullable();
@@ -137,6 +147,8 @@ pub(crate) fn execute_compare(
     op: CompareOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
     if lhs.len() != rhs.len() {
@@ -169,7 +181,9 @@ pub(crate) fn execute_compare(
     compare_arrays(lhs, rhs, op, ctx)
 }
 
-/// Dispatch a comparison to the native kernel for the operands' logical dtype.
+/// Dispatches operands with matching logical dtypes to their native comparison kernel.
+///
+/// Extension operands are unwrapped before dispatch to the storage kernel.
 fn compare_arrays(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -178,32 +192,14 @@ fn compare_arrays(
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
 
-    // Extension arrays compare through their storage. When both sides are extensions they must
-    // agree on the full extension dtype (a timestamp in milliseconds must not compare its raw
-    // storage against one in seconds); a lone extension side may compare against its raw storage.
-    if lhs.dtype().is_extension() || rhs.dtype().is_extension() {
-        if lhs.dtype().is_extension()
-            && rhs.dtype().is_extension()
-            && !lhs.dtype().eq_ignore_nullability(rhs.dtype())
-        {
-            vortex_bail!(
-                "Cannot compare extension dtypes {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            );
-        }
+    if lhs.dtype().is_extension() {
         let lhs = extension_storage(lhs, ctx)?;
         let rhs = extension_storage(rhs, ctx)?;
+
         return compare_arrays(&lhs, &rhs, op, ctx);
     }
 
-    if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
-        vortex_bail!(
-            "Cannot compare different DTypes {} and {}",
-            lhs.dtype(),
-            rhs.dtype()
-        );
-    }
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
 
     match lhs.dtype() {
         // Every value of the null dtype is null, so every comparison result is null.
@@ -225,12 +221,11 @@ fn compare_arrays(
     }
 }
 
-/// Replace an extension array (or extension constant) with its storage. Non-extension arrays are
-/// returned unchanged.
+/// Returns the storage of an extension array or constant.
+///
+/// Extension constants retain their constant encoding. Other extension arrays execute to their
+/// canonical representation so that the caller can access their storage.
 fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    if !array.dtype().is_extension() {
-        return Ok(array.clone());
-    }
     if let Some(constant) = array.as_opt::<Constant>() {
         return Ok(ConstantArray::new(
             constant.scalar().as_extension().to_storage_scalar(),
@@ -238,27 +233,34 @@ fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<A
         )
         .into_array());
     }
+
     let ext = array.clone().execute::<ExtensionArray>(ctx)?;
+
     Ok(ext.storage_array().clone())
 }
 
+/// Compares scalars with matching dtypes, ignoring nullability.
+///
+/// Returns null if either operand is null, and an error if the operand dtypes differ.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+
     if lhs.is_null() | rhs.is_null() {
         return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));
     }
 
     let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-    // We use `partial_cmp` to ensure we do not lose a type mismatch error.
+    // Some values, such as variants, have no scalar ordering even when their dtypes match.
     let ordering = lhs.partial_cmp(rhs).ok_or_else(|| {
         vortex_err!(
-            "Cannot compare scalars with incompatible types: {} and {}",
+            "Scalar comparison requires comparable values, got {} and {}",
             lhs.dtype(),
             rhs.dtype()
         )
     })?;
 
-    let b = match operator {
+    let result = match operator {
         CompareOperator::Eq => ordering.is_eq(),
         CompareOperator::NotEq => ordering.is_ne(),
         CompareOperator::Gt => ordering.is_gt(),
@@ -267,7 +269,17 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
         CompareOperator::Lte => ordering.is_le(),
     };
 
-    Ok(Scalar::bool(b, nullability))
+    Ok(Scalar::bool(result, nullability))
+}
+
+/// Checks the shared dtype requirement before comparison fast paths or encoding kernels run.
+pub(super) fn validate_comparison_dtypes(lhs: &DType, rhs: &DType) -> VortexResult<()> {
+    vortex_ensure!(
+        lhs.eq_ignore_nullability(rhs),
+        "Comparison requires equal dtypes ignoring nullability, got {lhs} and {rhs}"
+    );
+
+    Ok(())
 }
 
 /// Returns the predicate `Ordering -> bool` for a comparison operator.
@@ -283,39 +295,6 @@ pub(super) fn ordering_predicate(op: CompareOperator) -> fn(Ordering) -> bool {
     }
 }
 
-/// Freeze `len` bits packed into `words` (LSB-first, 64 lanes per word) into a [`BitBuffer`].
-pub(super) fn bit_buffer_from_words(words: BufferMut<u64>, len: usize) -> BitBuffer {
-    debug_assert!(words.len() * 64 >= len);
-    let mut bytes = words.into_byte_buffer();
-    bytes.truncate(len.div_ceil(8));
-    BitBuffer::new(bytes.freeze(), len)
-}
-
-/// Bit-pack the predicate `f(lhs[i], rhs[i])` over two equal-length slices into a [`BitBuffer`].
-pub(super) fn collect_zip_bits<T: Copy>(
-    lhs: &[T],
-    rhs: &[T],
-    f: impl Fn(T, T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    let len = lhs.len();
-    let mut words = BufferMut::<u64>::zeroed_in(len.div_ceil(64), allocator.clone());
-    LaneZip::new(lhs, rhs).map_bits_into(words.as_mut_slice(), |(a, b)| f(a, b));
-    bit_buffer_from_words(words, len)
-}
-
-/// Bit-pack the predicate `f(values[i])` over a slice into a [`BitBuffer`].
-pub(super) fn collect_bits<T: Copy>(
-    values: &[T],
-    f: impl Fn(T) -> bool,
-    allocator: &BufferAllocatorRef,
-) -> BitBuffer {
-    let len = values.len();
-    let mut words = BufferMut::<u64>::zeroed_in(len.div_ceil(64), allocator.clone());
-    values.map_bits_into(words.as_mut_slice(), f);
-    bit_buffer_from_words(words, len)
-}
-
 /// Combine operand validities into the validity of a comparison result with the given result
 /// nullability.
 pub(super) fn compare_validity(
@@ -325,3 +304,6 @@ pub(super) fn compare_validity(
 ) -> VortexResult<Validity> {
     Ok(lhs.and(rhs)?.union_nullability(nullability))
 }
+
+#[cfg(test)]
+mod tests;

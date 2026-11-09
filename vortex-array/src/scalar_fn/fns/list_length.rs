@@ -78,7 +78,9 @@ impl ScalarFnVTable for ListLength {
             DType::List(_, nullable) | DType::FixedSizeList(_, _, nullable) => {
                 Ok(DType::Primitive(PType::U64, *nullable))
             }
-            other => vortex_bail!("list_length() requires List or FixedSizeList, got {other}"),
+            other => {
+                vortex_bail!("list_length() requires List or FixedSizeList, got {other}")
+            }
         }
     }
 
@@ -92,7 +94,7 @@ impl ScalarFnVTable for ListLength {
         let nullability = input.dtype().nullability();
 
         if let Some(scalar) = input.as_constant() {
-            let len_scalar = scalar_list_length(&scalar, nullability)?;
+            let len_scalar = scalar_list_length(scalar, nullability)?;
             return Ok(ConstantArray::new(len_scalar, args.row_count()).into_array());
         }
 
@@ -184,15 +186,16 @@ impl Matcher for AnyList {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::FixedSizeListArray;
@@ -208,6 +211,8 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn create_list_elements() -> ArrayRef {
         PrimitiveArray::from_option_iter::<i32, _>([
@@ -226,10 +231,12 @@ mod tests {
     #[case(buffer![0u32, 2, 5, 5, 7].into_array())]
     #[case(buffer![0u64, 2, 5, 5, 7].into_array())]
     fn test_list_length(#[case] offsets: ArrayRef) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = create_list_elements();
-        let list = ListArray::try_new(elements, offsets, Validity::NonNullable)?.into_array();
+        let list =
+            ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)?.into_array();
         let result = list.apply(&list_length(root()))?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
     }
@@ -238,17 +245,18 @@ mod tests {
     #[case(buffer![0u32, 2, 5, 5, 7].into_array())]
     #[case(buffer![0u64, 2, 5, 5, 7].into_array())]
     fn test_nullable_list_length(#[case] offsets: ArrayRef) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = create_list_elements();
         let list = ListArray::try_new(
             elements,
             offsets,
             Validity::Array(BoolArray::from_iter([true, false, true, false]).into_array()),
+            &mut ctx,
         )?
         .into_array();
         let result = list.apply(&list_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
-        let result = result.execute::<PrimitiveArray>(&mut ctx)?;
+        let mut ctx = SESSION.create_execution_ctx();
 
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), None, Some(0), None]);
 
@@ -266,42 +274,50 @@ mod tests {
         let array = ConstantArray::new(null_scalar, 2).into_array();
         let result = array.apply(&list_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<u64>, None]),
+            &mut ctx
+        );
         Ok(())
     }
 
     #[test]
     fn test_listview_length() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = create_list_elements();
         let lv = ListViewArray::new(
             elements,
             buffer![5u32, 0, 4, 1].into_array(),
             buffer![2u32, 3, 0, 2].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .into_array();
         let result = lv.apply(&list_length(root()))?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_listview_length_nullable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = create_list_elements();
         let lv = ListViewArray::new(
             elements,
             buffer![5u32, 0, 4, 1].into_array(),
             buffer![2u32, 3, 0, 2].into_array(),
             Validity::Array(BoolArray::from_iter([true, false, true, false]).into_array()),
+            &mut ctx,
         )
         .into_array();
         let result = lv.apply(&list_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
-        let result = result.execute::<PrimitiveArray>(&mut ctx)?;
+        let mut ctx = SESSION.create_execution_ctx();
 
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), None, Some(0), None]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -310,17 +326,19 @@ mod tests {
 
     #[test]
     fn test_list_length_take() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = create_list_elements();
         let list = ListArray::try_new(
             elements,
             buffer![0u32, 2, 5, 5, 7].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         let taken = list.take(buffer![3u64, 0, 2].into_array())?;
 
         let result = taken.apply(&list_length(root()))?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 0]), &mut ctx);
         Ok(())
     }
@@ -336,7 +354,7 @@ mod tests {
         let fsl = create_fixed_size_list(Validity::NonNullable);
         let result = fsl.apply(&list_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 2, 2]), &mut ctx);
         Ok(())
     }
@@ -348,8 +366,7 @@ mod tests {
         ));
         let result = fsl.apply(&list_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
-        let result = result.execute::<PrimitiveArray>(&mut ctx)?;
+        let mut ctx = SESSION.create_execution_ctx();
 
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), None, Some(2), None]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -369,7 +386,7 @@ mod tests {
 
         let lengths = fsl.apply(&list_length(cast(root(), failing_cast_dtype)))?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = lengths.execute::<ArrayRef>(&mut ctx);
 
         assert!(result.is_err());

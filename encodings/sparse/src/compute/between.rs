@@ -81,7 +81,7 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
@@ -96,11 +96,13 @@ mod tests {
         #[case] lower_strict: StrictComparison,
         #[case] upper_strict: StrictComparison,
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             buffer![10i32, 20, 30].into_array(),
             8,
             Scalar::from(1i32),
+            &mut ctx,
         )
         .unwrap()
         .into_array();
@@ -113,23 +115,15 @@ mod tests {
         let lower = ConstantArray::new(Scalar::from(lo), len).into_array();
         let upper = ConstantArray::new(Scalar::from(hi), len).into_array();
 
-        let mut ctx = SESSION.create_execution_ctx();
-
         // Kernel path: between pushes through the Sparse encoding.
         let kernel = array
             .clone()
             .between(lower.clone(), upper.clone(), options.clone())
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
             .unwrap();
 
         // Baseline: canonicalize the input first so between runs on a PrimitiveArray.
         let canonical_input = array.execute::<Canonical>(&mut ctx).unwrap().into_array();
-        let baseline = canonical_input
-            .between(lower, upper, options)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap();
+        let baseline = canonical_input.between(lower, upper, options).unwrap();
 
         assert_arrays_eq!(kernel, baseline, &mut ctx);
     }

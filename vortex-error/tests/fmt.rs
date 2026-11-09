@@ -17,7 +17,7 @@ fn test_basic_display() {
         let display = err.to_string();
 
         assert!(
-            display.contains("Other error: this is bad"),
+            display.contains("this is bad"),
             "should contain error message"
         );
         assert!(
@@ -45,8 +45,7 @@ fn test_from_arrow_with_backtrace() {
         let display = vx_error.to_string();
 
         assert!(
-            display
-                .contains("Arrow error: Not yet implemented: This feature isn't implemented yet"),
+            display.contains("Not yet implemented: This feature isn't implemented yet"),
             "should contain arrow error message"
         );
         assert!(
@@ -71,9 +70,7 @@ fn test_from_arrow_no_backtrace() {
             let display = vx_error.to_string();
 
             assert!(
-                display.contains(
-                    "Arrow error: Not yet implemented: This feature isn't implemented yet"
-                ),
+                display.contains("Not yet implemented: This feature isn't implemented yet"),
                 "should contain arrow error message"
             );
             assert!(

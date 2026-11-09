@@ -58,7 +58,7 @@ pub fn bitpack_encode(
     if bit_width >= array.ptype().bit_width() as u8 {
         // Nothing we can do
         vortex_bail!(
-            InvalidArgument: "Cannot pack - specified bit width {bit_width} >= {}",
+            "Cannot pack - specified bit width {bit_width} >= {}",
             array.ptype().bit_width()
         )
     }
@@ -279,13 +279,18 @@ where
     if indices.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(Patches::new(
-            data.len(),
-            0,
-            indices.into_array(),
-            PrimitiveArray::new(values, patch_validity).into_array(),
-            Some(chunk_offsets.into_array()),
-        )?))
+        // SAFETY: the indices are collected in increasing order from positions in `data`, with
+        // one patch value each.
+        Ok(Some(unsafe {
+            Patches::new_unchecked(
+                data.len(),
+                0,
+                indices.into_array(),
+                PrimitiveArray::new(values, patch_validity).into_array(),
+                Some(chunk_offsets.into_array()),
+                Some(0),
+            )
+        }))
     }
 }
 
@@ -429,7 +434,6 @@ mod test {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -439,7 +443,7 @@ mod test {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -488,8 +492,12 @@ mod test {
         assert!(array.ptype().is_signed_int());
 
         let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8, &mut ctx)
-            .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("cannot bitpack array containing negative integers"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -502,7 +510,6 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        let into_ca = chunked.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
             chunked.dtype().nullability(),
             10 * 100,
@@ -511,17 +518,7 @@ mod test {
         chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into, &mut ctx);
-
-        let mut primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
-            chunked.dtype().nullability(),
-            10 * 100,
-            vortex_buffer::BufferAllocatorRef::static_ref(),
-        );
-        chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
-        let ca_into = primitive_builder.finish();
-
-        assert_arrays_eq!(into_ca, ca_into, &mut ctx);
+        assert_arrays_eq!(chunked, ca_into, &mut ctx);
 
         Ok(())
     }
@@ -547,8 +544,7 @@ mod test {
             .chunk_offsets()
             .as_ref()
             .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .clone();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): no patches -> points to patch index 2
@@ -583,8 +579,7 @@ mod test {
             .chunk_offsets()
             .as_ref()
             .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .clone();
 
         assert_arrays_eq!(
             chunk_offsets,
@@ -615,8 +610,7 @@ mod test {
             .chunk_offsets()
             .as_ref()
             .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .clone();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
         // chunk 1 (1024-2047): patch at 1500 -> starts at patch index 2
@@ -652,8 +646,7 @@ mod test {
             .chunk_offsets()
             .as_ref()
             .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .clone();
 
         // Single chunk starting at patch index 0.
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]), &mut ctx);

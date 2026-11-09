@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -11,6 +10,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::ArrayVTable;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -19,22 +19,32 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::OperationsVTable;
+use crate::array::ProbeState;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::null::compute::rules::PARENT_RULES;
+use crate::arrays::Dict;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::NullBuilder;
 use crate::dtype::DType;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
-use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
 pub(crate) mod compute;
+mod plugin;
 
 /// A [`Null`]-encoded Vortex array.
 pub type NullArray = Array<Null>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(Dict.id(), Null, TakeExecuteAdaptor(Null));
+    compute::rules::register_parent_rules(session);
+}
 
 impl VTable for Null {
     type TypedArrayData = EmptyArrayData;
@@ -82,45 +92,6 @@ impl VTable for Null {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(
-            metadata.is_empty(),
-            "NullArray expects empty metadata, got {} bytes",
-            metadata.len()
-        );
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            EmptyArrayData,
-            ArraySlots::new(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
@@ -150,7 +121,8 @@ impl VTable for Null {
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::NullArray;
-/// use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+/// use vortex_array::{IntoArray, VortexSessionExecute};
+/// use vortex_session::VortexSession;
 ///
 /// // Create a null array with 5 elements
 /// let array = NullArray::new(5);
@@ -160,7 +132,7 @@ impl VTable for Null {
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let scalar = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert!(scalar.is_null());
 /// # Ok(())
@@ -186,12 +158,20 @@ impl Array<Null> {
 impl OperationsVTable<Null> for Null {
     type ProbeState = ();
 
-    fn scalar_at(
-        _array: ArrayView<'_, Null>,
+    fn probe_scalar(
+        _state: &mut ProbeState<'_, Null>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, Null>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 

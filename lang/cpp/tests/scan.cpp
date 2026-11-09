@@ -63,16 +63,26 @@ void verify_age_field(const Session &session,
     }
 }
 
-void verify_sample_array(const Session &session, const Array &array) {
-    REQUIRE(array.size() == SAMPLE_ROWS);
+void verify_sample_array(const Session &session,
+                         const Array &array,
+                         size_t first = 0,
+                         size_t rows = SAMPLE_ROWS) {
+    REQUIRE(array.size() == rows);
     REQUIRE(array.has_dtype(DataTypeVariant::Struct));
-    verify_age_field(session, array.field(0));
+    Array age = array.field(0);
+    REQUIRE(age.is_primitive(U8));
+    auto ages = age.values<uint8_t>(session);
+    for (size_t i = 0; i < rows; ++i) {
+        REQUIRE_FALSE(ages.is_null(i));
+        REQUIRE(ages.values()[i] == (first + i) % SAMPLE_ROWS);
+    }
 
     Array height = array.field(1);
     REQUIRE(height.is_primitive(U16));
     auto view = height.values<uint16_t>(session);
-    for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
-        REQUIRE(view.values()[i] == (i + 1) % 200);
+    for (size_t i = 0; i < rows; ++i) {
+        REQUIRE_FALSE(view.is_null(i));
+        REQUIRE(view.values()[i] == ((first + i) % SAMPLE_ROWS + 1) % 200);
     }
 
     REQUIRE_THROWS_AS(array.field(2), VortexException);
@@ -115,6 +125,7 @@ TEST_CASE("Range-for over partitions and batches", "[scan]") {
     for (Partition &partition : scan.partitions()) {
         ++partitions;
         for (Array &batch : partition.batches()) {
+            verify_sample_array(session, batch, rows, batch.size());
             rows += batch.size();
         }
     }
@@ -149,6 +160,15 @@ TEST_CASE("Multiple paths", "[scan]") {
     const std::vector<std::string> paths = {first.string(), second.string()};
     DataSource ds = DataSource::open(session, paths);
     REQUIRE(ds.row_count().value_or(0) >= SAMPLE_ROWS);
+    auto scan = ds.scan();
+    size_t rows = 0;
+    for (auto &partition : scan.partitions()) {
+        for (auto &batch : partition.batches()) {
+            verify_sample_array(session, batch, rows, batch.size());
+            rows += batch.size();
+        }
+    }
+    REQUIRE(rows == 2 * SAMPLE_ROWS);
 }
 
 TEST_CASE("Multithreaded scan", "[scan]") {
@@ -213,6 +233,7 @@ TEST_CASE("Project none fields", "[projection]") {
     auto array = partition->next();
     REQUIRE(array.has_value());
     REQUIRE(array->dtype().fields().empty());
+    REQUIRE(array->size() == SAMPLE_ROWS);
 }
 
 TEST_CASE("Project multiple fields", "[projection]") {
@@ -225,7 +246,7 @@ TEST_CASE("Project multiple fields", "[projection]") {
     REQUIRE(partition.has_value());
     auto array = partition->next();
     REQUIRE(array.has_value());
-    verify_age_field(session, array->field("age"));
+    verify_sample_array(session, *array);
 }
 
 TEST_CASE("Filter age", "[filter]") {
@@ -279,6 +300,7 @@ TEST_CASE("Filter with operators", "[filter]") {
         auto array = partition->next();
         REQUIRE(array.has_value());
         REQUIRE(array->size() == 5);
+        verify_age_field(session, array->field("age"), 90, 5);
     }
 }
 
@@ -342,7 +364,6 @@ TEST_CASE("Selection", "[scan]") {
     REQUIRE(array.has_value());
     REQUIRE(array->size() == 97);
 
-    ages = array->field(0).values<uint8_t>(session);
-    REQUIRE(ages.values()[0] == 3);
+    verify_age_field(session, array->field(0), 3, 97);
 }
 } // namespace

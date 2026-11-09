@@ -59,6 +59,8 @@ impl CudaExecute for MaskedExecutor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::MaskedArray;
@@ -66,15 +68,18 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[crate::test]
     async fn test_cuda_masked_applies_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -82,17 +87,21 @@ mod tests {
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, true].into_iter()).into_array(),
         );
-        let masked = MaskedArray::try_new(child, validity)?;
+        let masked = MaskedArray::try_new(child, validity, cuda_ctx.execution_ctx())?;
 
         let gpu_result = MaskedExecutor
             .execute(masked.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
-        assert_arrays_eq!(masked, gpu_result, &mut ctx);
+        assert_arrays_eq!(
+            gpu_result,
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]),
+            &mut ctx
+        );
 
         Ok(())
     }

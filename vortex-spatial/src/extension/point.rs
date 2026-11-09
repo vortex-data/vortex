@@ -297,6 +297,8 @@ impl ArrowImportVTable for Point {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -307,6 +309,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::Point;
     use crate::extension::SpatialMetadata;
@@ -315,6 +318,8 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
     use crate::test_harness::coordinate_from_scalar;
     use crate::test_harness::point_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
         SpatialMetadata {
@@ -353,8 +358,7 @@ mod tests {
     /// A `Point` column round-trips through scalar execution back to the original coordinates.
     #[test]
     fn point_unpacks_coordinates() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let points = point_column(vec![1.0, -111.7610], vec![2.0, 34.8697])?;
 

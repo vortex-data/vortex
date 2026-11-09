@@ -250,11 +250,6 @@ impl BitBufferMut {
         Self::with_capacity_in(0, allocator)
     }
 
-    #[cfg(test)]
-    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
-        self.buffer.allocator()
-    }
-
     /// Takes the buffer, leaving an empty buffer with the same allocator.
     pub fn take(&mut self) -> Self {
         Self {
@@ -891,9 +886,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             [true, false, true]
         );
-        assert!(taken.allocator().ptr_eq(&allocator));
+        assert!(taken.buffer.allocation.allocator().ptr_eq(&allocator));
         assert!(buffer.is_empty());
-        assert!(buffer.allocator().ptr_eq(&allocator));
+        assert!(buffer.buffer.allocation.allocator().ptr_eq(&allocator));
     }
 
     #[test]

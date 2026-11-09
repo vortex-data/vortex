@@ -174,11 +174,17 @@ pub unsafe extern "C-unwind" fn vx_array_sink_abort(sink: *mut vx_array_sink) {
 mod tests {
 
     use tempfile::NamedTempFile;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::stream::ArrayStreamExt;
     use vortex::array::validity::Validity;
+    use vortex::buffer::ByteBuffer;
     use vortex::buffer::buffer;
     use vortex::dtype::DType;
+    use vortex::file::OpenOptionsSessionExt;
 
     use super::*;
     use crate::array::vx_array;
@@ -190,6 +196,16 @@ mod tests {
     use crate::error::vx_error_free;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+
+    unsafe fn assert_written(session: *const vx_session, path: vx_view, expected: ArrayRef) {
+        let session = vx_session::as_ref(session);
+        let bytes = ByteBuffer::from(std::fs::read(unsafe { path.as_str() }.unwrap()).unwrap());
+        let file = session.open_options().open_buffer(bytes).unwrap();
+        let actual = RUNTIME
+            .block_on(file.scan().unwrap().into_array_stream().unwrap().read_all())
+            .unwrap();
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -218,6 +234,8 @@ mod tests {
             // Close the sink
             vx_array_sink_close(sink, &raw mut error);
             assert!(error.is_null());
+
+            assert_written(session, path, buffer![1i32, 2, 3].into_array());
 
             // Cleanup
             vx_array_free(vx_array_ptr);
@@ -259,6 +277,11 @@ mod tests {
 
             vx_array_sink_close(sink, &raw mut error);
             assert!(error.is_null());
+            assert_written(
+                session,
+                path,
+                buffer![0u64, 1, 2, 3, 4, 5, 6, 7, 8].into_array(),
+            );
 
             vx_dtype_free(vx_dtype_ptr);
             vx_session_free(session);

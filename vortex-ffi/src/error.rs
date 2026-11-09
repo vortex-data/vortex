@@ -7,7 +7,6 @@ use std::panic::catch_unwind;
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::error::VortexError;
 use vortex::error::VortexResult;
 
 use crate::box_wrapper;
@@ -17,42 +16,12 @@ use crate::string::vx_view;
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum vx_error_code {
-    /// All other errors
+    /// An error returned by Vortex
     VX_ERROR_CODE_OTHER = 0,
-    /// Index out of bounds
-    VX_ERROR_CODE_OUT_OF_BOUNDS = 1,
-    /// Compute kernel execute error
-    VX_ERROR_CODE_COMPUTE = 2,
-    /// An invalid argument was provided.
-    VX_ERROR_CODE_INVALID_ARGUMENT = 3,
-    /// Serialization/deserialization error
-    VX_ERROR_CODE_SERIALIZATION = 4,
-    /// Unimplemented function
-    VX_ERROR_CODE_NOT_IMPLEMENTED = 5,
-    /// Type mismatch
-    VX_ERROR_CODE_MISMATCHED_TYPES = 6,
-    /// Assertion failed
-    VX_ERROR_CODE_ASSERTION_FAILED = 7,
-    /// IO error
-    VX_ERROR_CODE_IO = 8,
+    // 1 to 8, 10 and 11 are retired. They classified Vortex errors, which no longer carry a
+    // classification. Leaving them unused keeps VX_ERROR_CODE_PANIC stable.
     /// Panic inside FFI
     VX_ERROR_CODE_PANIC = 9,
-}
-
-fn error_code(error: &VortexError) -> vx_error_code {
-    match error {
-        VortexError::OutOfBounds(..) => vx_error_code::VX_ERROR_CODE_OUT_OF_BOUNDS,
-        VortexError::Compute(..) => vx_error_code::VX_ERROR_CODE_COMPUTE,
-        VortexError::InvalidArgument(..) => vx_error_code::VX_ERROR_CODE_INVALID_ARGUMENT,
-        VortexError::Serde(..) => vx_error_code::VX_ERROR_CODE_SERIALIZATION,
-        VortexError::NotImplemented(..) => vx_error_code::VX_ERROR_CODE_NOT_IMPLEMENTED,
-        VortexError::MismatchedTypes(..) => vx_error_code::VX_ERROR_CODE_MISMATCHED_TYPES,
-        VortexError::AssertionFailed(..) => vx_error_code::VX_ERROR_CODE_ASSERTION_FAILED,
-        VortexError::Io(..) => vx_error_code::VX_ERROR_CODE_IO,
-        VortexError::Context(_, inner) => error_code(inner),
-        VortexError::Shared(inner) => error_code(inner),
-        _ => vx_error_code::VX_ERROR_CODE_OTHER,
-    }
 }
 
 pub(crate) struct VortexFFIError {
@@ -116,7 +85,7 @@ pub fn try_or_default<T: Default>(
             value
         }
         Ok(Err(err)) => {
-            write_error_with_code(error_out, &err.to_string(), error_code(&err));
+            write_error(error_out, &err.to_string());
             T::default()
         }
         Err(payload) => {
@@ -145,7 +114,7 @@ pub fn try_or<T>(
             value
         }
         Ok(Err(err)) => {
-            write_error_with_code(error_out, &err.to_string(), error_code(&err));
+            write_error(error_out, &err.to_string());
             error_value
         }
         Err(payload) => {
@@ -232,13 +201,16 @@ mod tests {
 
         assert_eq!(
             try_or(&raw mut error, -1, || Err::<i32, _>(vortex_err!(
-                OutOfBounds: 5, 0, 3
+                "index {} out of bounds from {} to {}",
+                5,
+                0,
+                3
             ))),
             -1
         );
         assert_eq!(
             unsafe { vx_error_get_code(error) },
-            vx_error_code::VX_ERROR_CODE_OUT_OF_BOUNDS
+            vx_error_code::VX_ERROR_CODE_OTHER
         );
         unsafe { vx_error_free(error) };
 

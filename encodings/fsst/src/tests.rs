@@ -14,6 +14,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -23,7 +24,7 @@ use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -73,7 +74,11 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1..3).unwrap();
+    let fsst_sliced = fsst_array
+        .slice(1..3)
+        .unwrap()
+        .optimize_ctx(&SESSION)
+        .unwrap();
     assert!(fsst_sliced.is::<FSST>());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
@@ -119,14 +124,23 @@ fn test_fsst_array_ops() {
         &mut ctx
     );
 
-    // test to_canonical
-    let canonical_array = fsst_array
-        .clone()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap()
-        .into_array();
-
-    assert_arrays_eq!(fsst_array, canonical_array, &mut ctx);
+    assert_arrays_eq!(
+        fsst_array,
+        VarBinViewArray::from_iter_str([
+            "The Greeks never said that the limit could not be overstepped",
+            "They said it existed and that whoever dared to exceed it was mercilessly struck down",
+            "Nothing in present history can contradict them",
+        ]),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        fsst_filtered,
+        VarBinViewArray::from_iter_str([
+            "They said it existed and that whoever dared to exceed it was mercilessly struck down",
+            "Nothing in present history can contradict them",
+        ]),
+        &mut ctx
+    );
 }
 
 // TODO(someone): ideally CI would run this in release mode as well since debug builds make the

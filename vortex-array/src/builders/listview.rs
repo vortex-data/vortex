@@ -659,16 +659,17 @@ fn extend_converted_sizes<S: OffsetBuilderPType, A: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -684,6 +685,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_empty() {
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
@@ -696,11 +699,15 @@ mod tests {
 
         let listview = builder.finish();
         assert_eq!(listview.len(), 0);
+        assert_eq!(
+            listview.dtype(),
+            &DType::List(Arc::new(I32.into()), NonNullable)
+        );
     }
 
     #[test]
     fn test_basic_append_and_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
@@ -742,13 +749,13 @@ mod tests {
 
         // Check first list: [1, 2, 3].
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3]),
             &mut ctx
         );
 
         // Check empty list.
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1, &mut ctx).unwrap().len(), 0);
 
         // Check null list.
         assert!(
@@ -761,15 +768,22 @@ mod tests {
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(3).unwrap(),
+            listview.list_elements_at(3, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([4i32, 5]),
             &mut ctx
         );
+        let expected = ListArray::new(
+            buffer![1i32, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 3, 3, 3, 5].into_array(),
+            Validity::from_iter([true, true, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(listview, expected, &mut ctx);
     }
 
     #[test]
     fn test_different_offset_size_types() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test u64 offsets with u32 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u64, u32>::with_capacity_in(
@@ -807,14 +821,14 @@ mod tests {
 
         // Verify first list: [1, 2].
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2]),
             &mut ctx
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(1).unwrap(),
+            listview.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([3i32, 4, 5]),
             &mut ctx
         );
@@ -843,7 +857,7 @@ mod tests {
         // Verify the values: [0], [10], [20], [30], [40].
         for i in 0..5i32 {
             assert_arrays_eq!(
-                listview2.list_elements_at(i as usize).unwrap(),
+                listview2.list_elements_at(i as usize, &mut ctx).unwrap(),
                 PrimitiveArray::from_iter([i * 10]),
                 &mut ctx
             );
@@ -852,7 +866,7 @@ mod tests {
 
     #[test]
     fn test_builder_trait_methods() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
@@ -881,8 +895,8 @@ mod tests {
         assert_eq!(listview.len(), 5);
 
         // First two are empty lists (from append_zeros).
-        assert_eq!(listview.list_elements_at(0).unwrap().len(), 0);
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(0, &mut ctx).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1, &mut ctx).unwrap().len(), 0);
 
         // Next two are nulls.
         assert!(
@@ -902,15 +916,22 @@ mod tests {
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
-            listview.list_elements_at(4).unwrap(),
+            listview.list_elements_at(4, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32, 20]),
             &mut ctx
         );
+        let expected = ListArray::new(
+            buffer![10i32, 20].into_array(),
+            buffer![0u32, 0, 0, 0, 0, 2].into_array(),
+            Validity::from_iter([true, true, false, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(listview, expected, &mut ctx);
     }
 
     #[test]
     fn test_extend_from_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source ListArray.
@@ -962,14 +983,14 @@ mod tests {
         // Check the extended data.
         // First list: [0] (initial data).
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([0i32]),
             &mut ctx
         );
 
         // Second list: [1, 2, 3] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(1).unwrap(),
+            listview.list_elements_at(1, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3]),
             &mut ctx
         );
@@ -985,15 +1006,22 @@ mod tests {
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(3).unwrap(),
+            listview.list_elements_at(3, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([4i32, 5]),
             &mut ctx
         );
+        let expected = ListArray::new(
+            buffer![0i32, 1, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 1, 4, 4, 6].into_array(),
+            Validity::from_iter([true, true, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(listview, expected, &mut ctx);
     }
 
     #[test]
     fn test_append_list_array_grows_builder() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Enough lists to exceed the offsets/sizes capacity of a zero-capacity builder, so
@@ -1029,7 +1057,7 @@ mod tests {
     /// builder would materialize a copy per row.
     #[test]
     fn test_constant_list_append_keeps_one_copy_of_the_value() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
         const ROWS: usize = 10_000;
@@ -1066,7 +1094,7 @@ mod tests {
     /// middle of a list array leaves the elements on either side of it behind.
     #[test]
     fn test_append_listview_array_trims_unreferenced_elements() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Five lists of two elements each, of which we append only the middle three.
@@ -1111,7 +1139,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array_overlapping_listview() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Non-ZCTL source:
@@ -1145,7 +1173,7 @@ mod tests {
         assert!(!listview.is_zero_copy_to_list());
 
         assert_arrays_eq!(
-            listview.list_elements_at(0).unwrap(),
+            listview.list_elements_at(0, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32, 20]),
             &mut ctx
         );
@@ -1157,12 +1185,19 @@ mod tests {
                 .unwrap()
         );
         // List 1 is null, so the builder no longer rewrites its size to zero.
-        assert_eq!(listview.size_at(1), source.size_at(1));
+        assert_eq!(listview.size_at(1, &mut ctx), source.size_at(1, &mut ctx));
         assert_arrays_eq!(
-            listview.list_elements_at(2).unwrap(),
+            listview.list_elements_at(2, &mut ctx).unwrap(),
             PrimitiveArray::from_iter([10i32]),
             &mut ctx
         );
+        let expected = ListArray::new(
+            buffer![10i32, 20, 10].into_array(),
+            buffer![0u32, 2, 2, 3].into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        );
+        assert_arrays_eq!(listview, expected, &mut ctx);
     }
 
     #[test]
@@ -1194,7 +1229,7 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,

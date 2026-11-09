@@ -177,16 +177,16 @@ pub(crate) mod test_allocator {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::BufferAllocatorRef;
-
     use super::MemorySession;
+    use super::test_allocator::tracking_allocator;
 
     #[test]
     fn memory_session_replaces_allocator() {
-        let allocator = BufferAllocatorRef::statically_allocated();
+        let (allocator, tracker) = tracking_allocator();
         let mut session = MemorySession::default();
         session.set_allocator(allocator);
         let buffer = session.allocator().copy_from([1u32, 2, 3]);
         assert_eq!(buffer.as_slice(), [1, 2, 3]);
+        tracker.assert_owns(buffer.as_slice());
     }
 }

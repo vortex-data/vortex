@@ -175,7 +175,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "PageViews"
                 }
             }
         ],
@@ -212,7 +212,7 @@ logical_opt [
                                                         "($.URLHash = 2868770270353813622i64)"
                                                     ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "40000"
+                                                    "Estimated Cardinality": "200000"
                                                 }
                                             }
                                         ],
@@ -221,7 +221,7 @@ logical_opt [
                                                 "WindowClientWidth",
                                                 "WindowClientHeight"
                                             ],
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
@@ -231,7 +231,7 @@ logical_opt [
                                         "WindowClientHeight"
                                     ],
                                     "Expressions": "count_star()",
-                                    "Estimated Cardinality": "39999"
+                                    "Estimated Cardinality": "199306"
                                 }
                             }
                         ],
@@ -241,13 +241,13 @@ logical_opt [
                                 "WindowClientHeight",
                                 "PageViews"
                             ],
-                            "Estimated Cardinality": "39999"
+                            "Estimated Cardinality": "199306"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()",
-                    "Estimated Cardinality": "39999"
+                    "Order By": "PageViews",
+                    "Estimated Cardinality": "199306"
                 }
             }
         ],
@@ -275,16 +275,17 @@ physical_plan [
                                         "extra_info": {
                                             "Function": "Vortex Scan",
                                             "Filters": [
-                                                "CounterID=62",
-                                                "IsRefresh=0",
-                                                "DontCountHits=0",
-                                                "URLHash=2868770270353813622"
+                                                "($.CounterID = 62i32)",
+                                                "(2013-07-01T00:00:00Z <= $.EventDate <= 2013-07-31T00:00:00Z)",
+                                                "($.IsRefresh = 0i16)",
+                                                "($.DontCountHits = 0i16)",
+                                                "($.URLHash = 2868770270353813622i64)"
                                             ],
                                             "Projections": [
                                                 "WindowClientWidth",
                                                 "WindowClientHeight"
                                             ],
-                                            "Estimated Cardinality": "40000"
+                                            "Estimated Cardinality": "200000"
                                         }
                                     }
                                 ],
@@ -293,7 +294,7 @@ physical_plan [
                                         "WindowClientWidth",
                                         "WindowClientHeight"
                                     ],
-                                    "Estimated Cardinality": "40000"
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
@@ -303,15 +304,20 @@ physical_plan [
                                 "#1"
                             ],
                             "Aggregates": "count_star()",
-                            "Estimated Cardinality": "39999"
+                            "Estimated Cardinality": "199306"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star() DESC"
+                    "Order By": "PageViews DESC",
+                    "Estimated Cardinality": "199306"
                 }
             }
         ],
-        "extra_info": {}
+        "extra_info": {
+            "Limit": "10",
+            "Offset": "10000",
+            "Estimated Cardinality": "0"
+        }
     }
 ]

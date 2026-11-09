@@ -86,3 +86,47 @@ impl ColumnExporter for ConstantExporter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::VortexSessionExecute;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::scalar::Scalar;
+
+    use super::*;
+    use crate::SESSION;
+    use crate::cpp;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+
+    #[test]
+    fn test_export_constant_fixed_size_list() -> VortexResult<()> {
+        let scalar = Scalar::fixed_size_list(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            vec![Scalar::from(1i32), Scalar::from(2i32), Scalar::from(3i32)],
+            Nullability::NonNullable,
+        );
+        let mut chunk = DataChunk::new([LogicalType::new_array(
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER,
+            3,
+        )]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter(ConstantArray::new(scalar, 2))?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(2);
+
+        let vector = chunk.get_vector(0);
+        let rows = (0..chunk.len())
+            .map(|i| vector.get_value(i, chunk.len()).map(|v| v.to_string()))
+            .collect::<Option<Vec<_>>>();
+        assert_eq!(rows, Some(vec!["[1, 2, 3]".to_string(); 2]));
+        Ok(())
+    }
+}

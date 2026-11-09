@@ -14,9 +14,12 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::patches::Patches;
+use vortex_array::test_harness::mark_optimized;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -29,7 +32,12 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 /// Sized to keep CodSpeed simulation under 1ms per benchmark.
 const ARRAY_LEN: usize = 4096;
@@ -114,16 +122,21 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
+    let mut ctx = SESSION.create_execution_ctx();
     let indices = (0..len)
         .filter(|_| rng.random_bool(sparsity))
         .map(|x| x as u64)
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(len, 0, indices.into_array(), values, None).unwrap()
+    let patches = Patches::new(len, 0, indices.into_array(), values, None, &mut ctx).unwrap();
+    mark_patches_optimized(&patches);
+
+    patches
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
+    let mut ctx = SESSION.create_execution_ctx();
     let patch_indices = (0..len)
         .filter(|_| rng.random_bool(sparsity))
         .map(|x| x as u64)
@@ -140,16 +153,33 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
         })
         .collect();
 
-    Patches::new(
+    let patches = Patches::new(
         len,
         0,
         Buffer::from(patch_indices).into_array(),
         values,
         Some(Buffer::from(chunk_offsets).into_array()),
+        &mut ctx,
     )
-    .unwrap()
+    .unwrap();
+    mark_patches_optimized(&patches);
+
+    patches
+}
+
+fn mark_patches_optimized(patches: &Patches) {
+    mark_optimized(patches.indices(), &SESSION).unwrap();
+    mark_optimized(patches.values(), &SESSION).unwrap();
+    if let Some(chunk_offsets) = patches.chunk_offsets() {
+        mark_optimized(chunk_offsets, &SESSION).unwrap();
+    }
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {
-    Buffer::from_iter((0..n_indices).map(|_| rng.random_range(0..(array_len as u64)))).into_array()
+    let indices =
+        Buffer::from_iter((0..n_indices).map(|_| rng.random_range(0..(array_len as u64))))
+            .into_array();
+    mark_optimized(&indices, &SESSION).unwrap();
+
+    indices
 }

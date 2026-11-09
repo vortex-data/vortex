@@ -111,7 +111,7 @@ where
             pos += take;
         }
 
-        vector.reuse_dictionary(&self.values, &selection_vec);
+        vector.reuse_dictionary(&self.values, &selection_vec, len);
         Ok(())
     }
 }
@@ -122,6 +122,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::encodings::fastlanes::RLEArray;
     use vortex::encodings::fastlanes::RLEData;
     use vortex::error::VortexResult;
@@ -150,7 +151,8 @@ mod tests {
         )?;
         chunk.set_len(len);
         let vector = chunk.get_vector(0);
-        vector.flatten(len as u64);
+        vector.flatten();
+        assert!((0..len).all(|i| !vector.row_is_null(i as u64)));
         Ok(vector.as_slice_with_len::<i32>(len).to_vec())
     }
 
@@ -167,7 +169,7 @@ mod tests {
     fn test_roundtrip_boundary() -> VortexResult<()> {
         let source: Vec<i32> = (0i32..2048).map(|i| i / 100).collect();
         let rle = encode_rle(source.clone())?;
-        let sliced = rle.into_array().slice(500..1700)?;
+        let sliced = rle.into_array().slice(500..1700)?.optimize_ctx(&*SESSION)?;
         let exported = export_flat(sliced, 1200)?;
         assert_eq!(exported, source[500..1700]);
         Ok(())
@@ -177,7 +179,10 @@ mod tests {
     fn test_roundtrip_slice() -> VortexResult<()> {
         let source: Vec<i32> = (0i32..3072).map(|i| i / 100).collect();
         let rle = encode_rle(source.clone())?;
-        let sliced = rle.into_array().slice(1200..2000)?;
+        let sliced = rle
+            .into_array()
+            .slice(1200..2000)?
+            .optimize_ctx(&*SESSION)?;
         let exported = export_flat(sliced, 800)?;
         assert_eq!(exported, source[1200..2000]);
         Ok(())
@@ -248,7 +253,10 @@ mod tests {
     #[test]
     fn test_chunk_slice() -> VortexResult<()> {
         let rle = two_chunk_rle()?;
-        let sliced = rle.into_array().slice(1500..1510)?;
+        let sliced = rle
+            .into_array()
+            .slice(1500..1510)?
+            .optimize_ctx(&*SESSION)?;
         let chunk_str = chunk_string(sliced, 0, 10)?;
         assert_eq!(
             chunk_str,
@@ -278,7 +286,7 @@ mod tests {
         chunk.set_len(1024);
 
         let vector = chunk.get_vector(0);
-        vector.flatten(1024);
+        vector.flatten();
         let slice = vector.as_slice_with_len::<i32>(1024);
         for (i, expected) in source.iter().enumerate() {
             if let Some(v) = expected {

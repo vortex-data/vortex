@@ -47,8 +47,8 @@ impl BetweenKernel for Decimal {
 
 fn between_unpack<T: NativeDecimalType>(
     arr: ArrayView<'_, Decimal>,
-    lower: Scalar,
-    upper: Scalar,
+    lower: &Scalar,
+    upper: &Scalar,
     nullability: Nullability,
     options: &BetweenOptions,
     ctx: &mut ExecutionCtx,

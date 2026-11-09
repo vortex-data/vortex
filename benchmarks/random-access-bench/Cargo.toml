@@ -17,9 +17,13 @@ publish = false
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 indicatif = { workspace = true }
+itertools = { workspace = true }
 lance-bench = { path = "../lance-bench", optional = true }
+mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 tabled = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }

@@ -11,6 +11,7 @@ use std::process::Command;
 
 use clap::Parser;
 use clap::value_parser;
+use mimalloc::MiMalloc;
 use tracing::info;
 use vortex::error::VortexExpect;
 use vortex_bench::Benchmark;
@@ -50,8 +51,12 @@ struct Args {
     options: Vec<Opt>,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
@@ -91,6 +96,10 @@ async fn main() -> anyhow::Result<()> {
             .any(|f| matches!(f, Format::OnDiskDuckDB))
         {
             generate_duckdb(&base_path, &*benchmark)?;
+        }
+
+        for format in args.formats.iter().copied() {
+            benchmark.prepare_format(format, &base_path).await?;
         }
     }
 

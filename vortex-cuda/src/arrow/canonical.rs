@@ -7,12 +7,9 @@ use std::ptr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use futures::future::BoxFuture;
 use futures::future::join;
+use tracing::error;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -48,6 +45,7 @@ use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_decimal_value_type;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -63,6 +61,10 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
 
 use crate::CudaBufferExt;
@@ -75,6 +77,7 @@ use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
 use crate::arrow::ArrowDeviceArrayWithSchema;
 use crate::arrow::ExportDeviceArray;
+use crate::arrow::PendingArrowChildren;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::arrow_device_export_dictionary_codes_dtype;
@@ -92,8 +95,7 @@ use crate::kernel::decode_onpair_varbin;
 use crate::stream::zero_padding;
 
 const BITMAP_THREADS_PER_BLOCK: u32 = 256;
-// Exercise grid-stride wrapping on small bitmaps in tests.
-const MAX_BITMAP_BLOCKS: u32 = if cfg!(test) { 2 } else { 4096 };
+const MAX_BITMAP_BLOCKS: u32 = 4096;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -178,7 +180,7 @@ fn rebuild_array_for_export_schema(
                 ..
             } = list.into_data_parts();
             let elements = rebuild_array_for_export_schema(elements, ctx)?;
-            return Ok(ListArray::try_new(elements, offsets, validity)?.into_array());
+            return Ok(ListArray::try_new(elements, offsets, validity, ctx)?.into_array());
         }
         Err(array) => array,
     };
@@ -337,7 +339,9 @@ fn export_canonical(
                 }
                 export_varbinview(varbinview, ctx).await
             }
-            c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
+            c => {
+                vortex_bail!("unsupported Arrow Device export for {} array", c.dtype())
+            }
         }
     })
 }
@@ -537,7 +541,7 @@ where
 
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         output_buffer,
-    ))))
+    )?)))
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
@@ -708,9 +712,9 @@ async fn export_binary_buffers(
     )?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, len + 1, ctx)?,
-    )));
+    )?));
     validate_binary_offsets(&output_offsets, len, &mut status, ctx)?;
-    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
+    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)?));
 
     // One status read covers init_scan and offset validation. Both must pass before gather may
     // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
@@ -845,7 +849,7 @@ fn gather_binary_values(
     }
 
     Ok(
-        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)))
+        BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)?))
             .slice(0..total_bytes),
     )
 }
@@ -1184,6 +1188,8 @@ impl ListChildExport {
         elements: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowArray> {
+        let elements = elements.optimize_ctx(ctx.execution_ctx())?;
+
         let (elements_child, _) = match self {
             ListChildExport::PreserveConcreteLayout => export_array(elements, ctx).await?,
             ListChildExport::RebuiltListViewChild if elements.as_opt::<Dict>().is_some() => {
@@ -1290,7 +1296,7 @@ fn fixed_size_list_offsets(
 
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         offsets,
-    ))))
+    )?)))
 }
 
 /// Return Arrow Device `List` offsets as an `i32` device buffer.
@@ -1329,15 +1335,19 @@ async fn export_struct(
 
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
 
-    // We need the children to be held across await points.
-    let mut children = Vec::with_capacity(fields.len());
+    // Release earlier exports if a later child fails or this future is cancelled.
+    let mut pending = PendingArrowChildren {
+        children: Vec::with_capacity(fields.len()),
+        dictionary: None,
+    };
 
     for field in fields.iter() {
         let (arrow_field, _) = export_array(field.clone(), ctx).await?;
-        children.push(arrow_field);
+        pending.children.push(arrow_field);
     }
 
-    let mut private_data = PrivateData::new(vec![validity_buffer], children, ctx)?;
+    let mut private_data =
+        PrivateData::new(vec![validity_buffer], mem::take(&mut pending.children), ctx)?;
     let sync_event: SyncEvent = private_data.sync_event();
 
     // Populate the ArrowArray with the child arrays.
@@ -1405,10 +1415,10 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
             // Queue a non-blocking wait so CudaSlice::Drop frees after export work.
-            let wait_result = private_data.cuda_stream.wait(&private_data.export_event);
-            // Arrow release callbacks cannot return errors, so record wait-enqueue
-            // failures for later CUDA operations to observe on this context.
-            private_data.cuda_stream.context().record_err(wait_result);
+            if let Err(err) = private_data.cuda_stream.wait(&private_data.export_event) {
+                // Arrow release callbacks cannot return errors to their caller.
+                error!(error = ?err, "Failed to enqueue CUDA Arrow release wait");
+            }
             release_children(&mut private_data);
             release_dictionary(&mut private_data);
         }
@@ -1454,6 +1464,9 @@ unsafe fn release_array_ptr(array: *mut ArrowArray) {
 mod tests {
     use std::mem::size_of;
     use std::sync::Arc;
+    use std::sync::LazyLock;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
@@ -1463,7 +1476,6 @@ mod tests {
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DecimalArray;
@@ -1479,7 +1491,9 @@ mod tests {
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::primitive::PrimitiveArrayExt;
     use vortex::array::arrays::varbinview::BinaryView;
+    use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::BitBuffer;
     use vortex::buffer::Buffer;
@@ -1502,6 +1516,7 @@ mod tests {
     use vortex::error::vortex_bail;
     use vortex::error::vortex_err;
     use vortex::extension::datetime::TimeUnit;
+    use vortex::session::VortexSession;
 
     use crate::CudaBufferExt;
     use crate::CudaDeviceBuffer;
@@ -1527,6 +1542,8 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn device_bool(
         bits: BitBuffer,
         validity: Validity,
@@ -1545,8 +1562,9 @@ mod tests {
     }
 
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = array_session()
+        let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        vortex::file::register_default_encodings(&session);
         CudaSession::create_execution_ctx(&session)
     }
 
@@ -1617,16 +1635,30 @@ mod tests {
         Ok(())
     }
 
-    // Export a nullable array and assert its null-buffer metadata.
+    // Read Arrow validity at the exported bit offset, including synthesized bitmaps.
     async fn assert_nullable_export(
         array: ArrayRef,
         expected_n_buffers: i64,
         expected_null_count: i64,
+        expected_validity: &[bool],
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray> {
         let device_array = array.export_device_array(ctx).await?;
         assert_eq!(device_array.array.n_buffers, expected_n_buffers);
         assert_null_buffer(&device_array.array, expected_null_count)?;
+        assert_eq!(
+            usize::try_from(device_array.array.length)?,
+            expected_validity.len()
+        );
+        let offset = usize::try_from(device_array.array.offset)?;
+        let bits = BitBuffer::new(
+            private_data_buffer_bytes(&device_array.array, 0)?,
+            offset + expected_validity.len(),
+        );
+        assert_eq!(
+            bits.slice(offset..offset + expected_validity.len()),
+            BitBuffer::from_iter(expected_validity.iter().copied())
+        );
         Ok(device_array)
     }
 
@@ -1713,7 +1745,7 @@ mod tests {
             Arc::from([first, second]),
             dtype,
             Validity::NonNullable,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .vortex_expect("valid multi-buffer VarBinViewArray")
         .into_array();
@@ -1757,7 +1789,9 @@ mod tests {
             PType::I16 => primitive_on_device(values.iter().map(|&value| value as i16), ctx).await,
             PType::I32 => primitive_on_device(values.iter().map(|&value| value as i32), ctx).await,
             PType::I64 => primitive_on_device(values.iter().copied(), ctx).await,
-            ptype => vortex_bail!("test helper only supports integer PTypes, got {ptype}"),
+            ptype => {
+                vortex_bail!("test helper only supports integer PTypes, got {ptype}")
+            }
         }
     }
 
@@ -1798,7 +1832,7 @@ mod tests {
             .map_err(|err| vortex_err!("Failed to upload unpadded test buffer: {err}"))?;
         Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
             allocation,
-        ))))
+        )?)))
     }
 
     /// Assert cuDF word alignment and zeroed tail padding, returning the logical bytes on the host.
@@ -1860,11 +1894,12 @@ mod tests {
     }
 
     fn assert_exported_decimal_values<T: NativeDecimalType>(
-        value_buffer: &BufferHandle,
+        array: &ArrowArray,
         expected: &[T],
-    ) {
-        let values = Buffer::<T>::from_byte_buffer(value_buffer.to_host_sync());
+    ) -> VortexResult<()> {
+        let values = Buffer::<T>::from_byte_buffer(private_data_buffer_bytes(array, 1)?);
         assert_eq!(values.as_slice(), expected);
+        Ok(())
     }
 
     // Build a nested struct fixture with an out-of-line string-view value.
@@ -1929,7 +1964,10 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
-        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+        let mut exported = array
+            .clone()
+            .export_device_array_with_schema(&mut ctx)
+            .await?;
 
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", expected_data_type, false));
@@ -1940,6 +1978,13 @@ mod tests {
         assert_eq!(exported.array.array.n_children, 0);
         assert!(exported.array.array.release.is_some());
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        let actual = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(private_data_buffer_bytes(&exported.array.array, 1)?),
+            array.dtype().as_ptype(),
+            Validity::NonNullable,
+        );
+        assert_arrays_eq!(actual, array, ctx.execution_ctx());
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2007,6 +2052,13 @@ mod tests {
             &[0, 5, i32::try_from(5 + out_of_line.len())?],
             ["alpha", out_of_line].concat().as_bytes(),
         )?;
+
+        let codes = private_data_buffer_i16_values(&exported.array.array, 1)?;
+        assert_eq!([codes[0], codes[2], codes[3]], [0, 1, 0]);
+        assert_eq!(
+            BitBuffer::new(private_data_buffer_bytes(&exported.array.array, 0)?, 4),
+            BitBuffer::from_iter([true, false, true, true])
+        );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2148,7 +2200,7 @@ mod tests {
             .as_ref()
             .vortex_expect("value buffer should be present");
         assert_eq!(value_buffer.len(), expected_values.len() * size_of::<T>());
-        assert_exported_decimal_values(value_buffer, &expected_values);
+        assert_exported_decimal_values(&exported.array.array, &expected_values)?;
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2331,6 +2383,11 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
+        assert_eq!(
+            private_data_buffer_i32_values(&device_array.array, 1)?,
+            [100, 200, 300]
+        );
+
         unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
@@ -2369,6 +2426,11 @@ mod tests {
                 .ok_or_else(|| vortex_err!("expected exported bool values"))?;
             assert_eq!(values.cuda_device_ptr()?, input_values.cuda_device_ptr()?);
         }
+
+        assert_eq!(
+            BitBuffer::new(private_data_buffer_bytes(&device_array.array, 1)?, len),
+            BitBuffer::from_iter([true, false, true].into_iter().take(len)),
+        );
 
         unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
@@ -2579,6 +2641,7 @@ mod tests {
             PrimitiveArray::from_iter(0i32..5).into_array(),
             PrimitiveArray::from_iter([0i32, 2, 2, 5]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2604,6 +2667,15 @@ mod tests {
         assert_eq!(elements.length, 5);
         assert_eq!(elements.n_buffers, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        assert_eq!(
+            private_data_buffer_i32_values(&exported.array.array, 1)?,
+            [0, 2, 2, 5]
+        );
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            (0..5).collect::<Vec<_>>()
+        );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2634,6 +2706,7 @@ mod tests {
             elements,
             PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let dtype = chunk.dtype().clone();
@@ -2775,7 +2848,7 @@ mod tests {
             Some(&b"echo"[..]),
         ];
         let fsst = fsst_array_from(values, DType::Utf8(Nullability::Nullable), &mut ctx)?;
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(ctx.execution_ctx())?;
         assert!(sliced.as_opt::<FSST>().is_some());
 
         let mut exported = sliced.export_device_array_with_schema(&mut ctx).await?;
@@ -2860,6 +2933,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 2, 2]).into_array(),
             PrimitiveArray::from_iter([2i32, 0, 3]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2871,6 +2945,13 @@ mod tests {
             [0, 2, 2, 5]
         );
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        assert_eq!(exported.array.array.n_children, 1);
+        let elements = unsafe { &**exported.array.array.children };
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            [0, 1, 2, 3, 4]
+        );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2894,6 +2975,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 1]).into_array(),
             PrimitiveArray::from_iter([3i32, 2]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2934,6 +3016,7 @@ mod tests {
             PrimitiveArray::from_iter([0i32, 1]).into_array(),
             PrimitiveArray::from_iter([3i32, 2]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -2994,6 +3077,7 @@ mod tests {
             PrimitiveArray::from_iter([128i32, 0]).into_array(),
             PrimitiveArray::from_iter([128i32, 128]).into_array(),
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -3049,8 +3133,14 @@ mod tests {
         let elements = primitive_i32_on_device(0..5, &mut ctx).await?;
         let offsets = integer_array_on_device(offsets_ptype, &[0, 2, 2], &mut ctx).await?;
         let sizes = integer_array_on_device(sizes_ptype, &[2, 0, 3], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
@@ -3069,6 +3159,13 @@ mod tests {
             [0, 2, 2, 5]
         );
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        assert_eq!(exported.array.array.n_children, 1);
+        let elements = unsafe { &**exported.array.array.children };
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            [0, 1, 2, 3, 4]
+        );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -3137,6 +3234,7 @@ mod tests {
             PrimitiveArray::from_iter(0i32..5).into_array(),
             offsets,
             Validity::NonNullable,
+            ctx.execution_ctx(),
         )?
         .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
@@ -3146,6 +3244,13 @@ mod tests {
         assert_eq!(
             private_data_buffer_i32_values(&exported.array.array, 1)?,
             [0, 2, 2, 5]
+        );
+
+        assert_eq!(exported.array.array.n_children, 1);
+        let elements = unsafe { &**exported.array.array.children };
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            [0, 1, 2, 3, 4]
         );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
@@ -3168,8 +3273,14 @@ mod tests {
         let elements = primitive_i32_on_device([10, 11, 12, 13, 14], &mut ctx).await?;
         let offsets = integer_array_on_device(offsets_ptype, &[3, 0, 2], &mut ctx).await?;
         let sizes = integer_array_on_device(sizes_ptype, &[2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         assert_eq!(exported.array.array.length, 3);
@@ -3199,8 +3310,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
@@ -3247,8 +3364,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
@@ -3284,8 +3407,14 @@ mod tests {
         let elements = DictArray::try_new(codes, values)?.into_array();
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };
@@ -3351,8 +3480,14 @@ mod tests {
         .into_array();
         let offsets = primitive_i32_on_device([0, 1], &mut ctx).await?;
         let sizes = primitive_i32_on_device([3, 2], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };
@@ -3382,8 +3517,14 @@ mod tests {
         .await?;
         let offsets = primitive_i32_on_device([3, 0, 2], &mut ctx).await?;
         let sizes = primitive_i32_on_device([2, 2, 1], &mut ctx).await?;
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(
+            elements,
+            offsets,
+            sizes,
+            Validity::NonNullable,
+            ctx.execution_ctx(),
+        )
+        .into_array();
         let err = match array.export_device_array(&mut ctx).await {
             Ok(mut exported) => {
                 unsafe { release_exported_array(&raw mut exported.array) };
@@ -3440,6 +3581,11 @@ mod tests {
         assert_eq!(elements.n_buffers, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
+        assert_eq!(
+            private_data_buffer_i32_values(elements, 1)?,
+            (0..6).collect::<Vec<_>>()
+        );
+
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
@@ -3479,6 +3625,11 @@ mod tests {
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.offset, 0);
         assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(
+            Buffer::<u32>::from_byte_buffer(private_data_buffer_bytes(&device_array.array, 1)?)
+                .as_slice(),
+            &[3, 4, 5, 6, 7]
+        );
         unsafe { release_exported_array(&raw mut device_array.array) };
 
         let bools = BoolArray::from_iter([true, false, true, true, false, false, true, false])
@@ -3487,6 +3638,10 @@ mod tests {
         let mut device_array = bools.export_device_array(&mut ctx).await?;
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.offset, 1);
+        assert_eq!(
+            BitBuffer::new(private_data_buffer_bytes(&device_array.array, 1)?, 6).slice(1..6),
+            BitBuffer::from_iter([false, true, true, false, false])
+        );
         assert_eq!(device_array.array.n_buffers, 2);
         unsafe { release_exported_array(&raw mut device_array.array) };
 
@@ -3554,10 +3709,15 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::multi_block(10_001, false)]
+    #[case::capped_grid(8 * 256 * 4096 + 1, true)]
     #[crate::test]
-    async fn test_count_arrow_validity_nulls_capped_grid() -> VortexResult<()> {
+    async fn test_count_arrow_validity_nulls_capped_grid(
+        #[case] len: usize,
+        #[case] capped: bool,
+    ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
-        let len = 10_001usize;
         let arrow_offset = 13;
         let bitmap_bits = arrow_offset + len;
         // Dirty prefix and tail bits must not count as valid rows.
@@ -3570,7 +3730,10 @@ mod tests {
                 )),
         );
         let input = upload_unpadded(source.inner(), &ctx)?;
-        assert!(input.len() > (BITMAP_THREADS_PER_BLOCK * MAX_BITMAP_BLOCKS) as usize);
+        assert_eq!(
+            input.len() > (BITMAP_THREADS_PER_BLOCK * MAX_BITMAP_BLOCKS) as usize,
+            capped
+        );
 
         let null_count = count_arrow_validity_nulls(&input, len, arrow_offset, &mut ctx)?;
         let expected_nulls = (0..len).filter(|idx| idx % 3 == 0).count();
@@ -3592,8 +3755,9 @@ mod tests {
     #[case::full_padding_block(7, 3, 509, 7)]
     #[case::above_padding_block(7, 3, 517, 1)]
     #[case::multi_block(13, 5, 20_001, 0)]
-    // The test cap of two blocks forces multiple grid-stride iterations.
-    #[case::capped_grid(13, 5, 100_001, 7)]
+    #[case::large_multi_block(13, 5, 100_001, 7)]
+    // One more word than the production grid can cover in its first iteration.
+    #[case::capped_grid(13, 5, 64 * 256 * 4096 + 1, 7)]
     #[crate::test]
     async fn test_repack_arrow_bitmap_offsets(
         #[case] input_offset: usize,
@@ -3860,15 +4024,20 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
             2,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
+        let values = private_data_buffer_i32_values(&primitive.array, 1)?;
+        assert_eq!([values[0], values[2]], [1, 3]);
+
         unsafe { release_exported_array(&raw mut primitive.array) };
 
         let mut all_null_primitive = assert_nullable_export(
             PrimitiveArray::from_option_iter([None::<i32>, None]).into_array(),
             2,
             2,
+            &[false, false],
             &mut ctx,
         )
         .await?;
@@ -3889,10 +4058,14 @@ mod tests {
                 .slice(1..4)?,
             2,
             1,
+            &[false, true, true],
             &mut ctx,
         )
         .await?;
         assert_eq!(bools.array.offset, 1);
+        let bits = BitBuffer::new(private_data_buffer_bytes(&bools.array, 1)?, 4);
+        assert_eq!(bits.slice(2..4), BitBuffer::from_iter([false, true]));
+
         unsafe { release_exported_array(&raw mut bools.array) };
 
         Ok(())
@@ -3908,6 +4081,7 @@ mod tests {
             BoolArray::from_iter([None; 10]).into_array().slice(7..9)?,
             2,
             2,
+            &[false, false],
             &mut ctx,
         )
         .await?;
@@ -3938,6 +4112,7 @@ mod tests {
             .into_array(),
             2,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
@@ -3947,7 +4122,8 @@ mod tests {
             .as_ref()
             .vortex_expect("value buffer should be present");
         assert_eq!(value_buffer.len(), 3 * size_of::<i64>());
-        assert_exported_decimal_values(value_buffer, &[100i64, 0, 300]);
+        let values = Buffer::<i64>::from_byte_buffer(private_data_buffer_bytes(&decimal.array, 1)?);
+        assert_eq!([values[0], values[2]], [100, 300]);
 
         unsafe { release_exported_array(&raw mut decimal.array) };
 
@@ -3968,9 +4144,13 @@ mod tests {
             .into_array(),
             2,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
+        let values = private_data_buffer_i32_values(&temporal.array, 1)?;
+        assert_eq!([values[0], values[2]], [100, 300]);
+
         unsafe { release_exported_array(&raw mut temporal.array) };
 
         Ok(())
@@ -3991,9 +4171,19 @@ mod tests {
             .into_array(),
             3,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
+        assert_varbin_contents(
+            &varbinview.array,
+            &[
+                Some(b"one"),
+                None,
+                Some(b"this is a longer string for out-of-line storage"),
+            ],
+        )?;
+
         unsafe { release_exported_array(&raw mut varbinview.array) };
 
         Ok(())
@@ -4015,6 +4205,7 @@ mod tests {
             .into_array(),
             1,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
@@ -4046,6 +4237,7 @@ mod tests {
             .into_array(),
             1,
             1,
+            &[true, false, true],
             &mut ctx,
         )
         .await?;
@@ -4109,6 +4301,12 @@ mod tests {
     // Check parent release recursively releases children and is safe to repeat.
     #[crate::test]
     async fn test_release_is_idempotent_and_releases_children() -> VortexResult<()> {
+        static CHILD_RELEASES: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C" fn count_child_release(array: *mut ArrowArray) {
+            CHILD_RELEASES.fetch_add(1, Ordering::SeqCst);
+            unsafe { super::release_array(array) };
+        }
+        CHILD_RELEASES.store(0, Ordering::SeqCst);
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -4145,11 +4343,16 @@ mod tests {
                 .all(|child| unsafe { (**child).release.is_some() })
         );
 
+        for child in children.iter().chain(nested_children) {
+            unsafe { (**child).release = Some(count_child_release) };
+        }
         unsafe { release_exported_array(&raw mut device_array.array) };
+        assert_eq!(CHILD_RELEASES.load(Ordering::SeqCst), 4);
         assert!(device_array.array.release.is_none());
         assert!(device_array.array.private_data.is_null());
 
         unsafe { release_exported_array(&raw mut device_array.array) };
+        assert_eq!(CHILD_RELEASES.load(Ordering::SeqCst), 4);
         assert!(device_array.array.release.is_none());
 
         Ok(())
@@ -4179,6 +4382,29 @@ mod tests {
         assert_eq!(device_array.array.n_children, 2);
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                device_array.array.children,
+                usize::try_from(device_array.array.n_children)?,
+            )
+        };
+        assert_eq!(
+            Buffer::<u32>::from_byte_buffer(private_data_buffer_bytes(
+                unsafe { &*children[0] },
+                1
+            )?)
+            .as_slice(),
+            &[0, 1, 2, 3, 4]
+        );
+        assert_eq!(
+            Buffer::<i64>::from_byte_buffer(private_data_buffer_bytes(
+                unsafe { &*children[1] },
+                1
+            )?)
+            .as_slice(),
+            &[0, 1, 2, 3, 4]
+        );
 
         unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
@@ -4216,6 +4442,39 @@ mod tests {
         assert_eq!(exported.array.array.n_buffers, 1);
         assert_eq!(exported.array.array.n_children, 3);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        let children = unsafe {
+            std::slice::from_raw_parts(
+                exported.array.array.children,
+                usize::try_from(exported.array.array.n_children)?,
+            )
+        };
+        assert_eq!(
+            Buffer::<u32>::from_byte_buffer(private_data_buffer_bytes(
+                unsafe { &*children[0] },
+                1
+            )?)
+            .as_slice(),
+            &[0, 1, 2, 3, 4]
+        );
+        assert_eq!(
+            Buffer::<i64>::from_byte_buffer(private_data_buffer_bytes(
+                unsafe { &*children[1] },
+                1
+            )?)
+            .as_slice(),
+            &[0, 1, 2, 3, 4]
+        );
+        assert_varbin_contents(
+            unsafe { &*children[2] },
+            &[
+                Some(b"one"),
+                Some(b"two"),
+                Some(b"three"),
+                Some(b"four"),
+                Some(b"five"),
+            ],
+        )?;
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -4310,6 +4569,11 @@ mod tests {
             .as_ref()
             .vortex_expect("value buffer should be present");
         assert_eq!(value_buffer.len(), 3 * size_of::<i32>());
+
+        assert_eq!(
+            private_data_buffer_i32_values(decimal_child, 1)?,
+            [100, -200, 300]
+        );
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())

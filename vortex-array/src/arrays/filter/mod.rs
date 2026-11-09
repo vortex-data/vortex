@@ -12,6 +12,9 @@ pub use vtable::FilterArray;
 mod execute;
 pub(crate) use execute::buffer::filter_buffer;
 pub(crate) use execute::buffer::prepare_mask_for_reuse;
+pub use execute::chunked::ChunkDecoder;
+pub use execute::chunked::FILTER_CHUNK_LEN;
+pub use execute::chunked::filter_chunked;
 pub(crate) use execute::filter_validity;
 
 mod kernel;
@@ -21,10 +24,12 @@ pub use kernel::FilterReduce;
 pub use kernel::FilterReduceAdaptor;
 
 mod rules;
+mod slice;
 
 mod vtable;
 pub use vtable::Filter;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }

@@ -13,9 +13,12 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -29,7 +32,12 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 const LIST_LENGTH: usize = 512;
 const N_ELEMENTS_SHORT: usize = 32;
@@ -56,11 +64,12 @@ const MASK_SETUPS: &[MaskSetup] = &[
 ];
 
 fn primitive_list(width: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = LIST_LENGTH * width;
     let elements = PrimitiveArray::from_iter(0..element_count as u32).into_array();
     let offsets =
         Buffer::from_iter((0..=LIST_LENGTH).map(|index| (index * width) as u32)).into_array();
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }
@@ -80,6 +89,8 @@ fn selection_mask(setup: MaskSetup) -> Mask {
 }
 
 fn run(bencher: Bencher, array: ArrayRef, mask: Mask) {
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (array.clone(), mask.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mask, mut ctx)| {

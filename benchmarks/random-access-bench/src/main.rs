@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
+use mimalloc::MiMalloc;
 use random_access_bench::AccessPattern;
 use random_access_bench::OpenMode;
 use random_access_bench::RunConfig;
@@ -98,8 +99,12 @@ struct Args {
     prepare_data: bool,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 

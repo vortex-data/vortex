@@ -125,8 +125,10 @@ std::vector<uint16_t> sample_height() {
 UniqueSchema sample_schema() {
     UniqueSchema schema;
     REQUIRE(ArrowSchemaInitFromType(schema.get(), NANOARROW_TYPE_STRUCT) == NANOARROW_OK);
+    schema->flags &= ~ARROW_FLAG_NULLABLE;
     REQUIRE(ArrowSchemaAllocateChildren(schema.get(), 2) == NANOARROW_OK);
     REQUIRE(ArrowSchemaInitFromType(schema->children[0], NANOARROW_TYPE_UINT8) == NANOARROW_OK);
+    schema->children[0]->flags &= ~ARROW_FLAG_NULLABLE;
     REQUIRE(ArrowSchemaSetName(schema->children[0], "age") == NANOARROW_OK);
     REQUIRE(ArrowSchemaInitFromType(schema->children[1], NANOARROW_TYPE_UINT16) == NANOARROW_OK);
     REQUIRE(ArrowSchemaSetName(schema->children[1], "height") == NANOARROW_OK);
@@ -233,14 +235,6 @@ TEST_CASE("Creating datasources", "[datasource]") {
     vx_data_source_free(ds);
 }
 
-TEST_CASE("Write file", "[sink]") {
-    vx_session *session = vx_session_new();
-    defer {
-        vx_session_free(session);
-    };
-    TempPath path = write_sample(session);
-}
-
 TEST_CASE("Write file and read dtypes", "[datasource]") {
     vx_session *session = vx_session_new();
     defer {
@@ -309,6 +303,7 @@ void verify_age_field(vx_session *session, const vx_array *age_field) {
         vx_dtype_free(dtype);
     };
     REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U8);
+    REQUIRE_FALSE(vx_array_is_nullable(age_field));
     REQUIRE(vx_array_len(age_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
         REQUIRE(array_get_u8(session, age_field, i) == i);
@@ -322,9 +317,10 @@ void verify_height_field(vx_session *session, const vx_array *height_field) {
         vx_dtype_free(dtype);
     };
     REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U16);
+    REQUIRE(vx_array_is_nullable(height_field));
     REQUIRE(vx_array_len(height_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
-        REQUIRE(array_get_u16(session, height_field, i) > 0);
+        REQUIRE(array_get_u16(session, height_field, i) == (i + 1) % 200);
     }
 }
 
@@ -557,13 +553,13 @@ TEST_CASE("Multithreaded scan", "[datasource]") {
                 vx_partition_free(partition);
             };
 
-            estimate = {};
-            vx_partition_row_count(partition, &estimate, &error_tl);
+            vx_estimate partition_estimate = {};
+            vx_partition_row_count(partition, &partition_estimate, &error_tl);
             require_no_error(error_tl, false);
-            if (estimate.type != VX_ESTIMATE_EXACT) {
+            if (partition_estimate.type != VX_ESTIMATE_EXACT) {
                 throw std::runtime_error("estimate type mismatch");
             }
-            if (estimate.estimate != SAMPLE_ROWS) {
+            if (partition_estimate.estimate != SAMPLE_ROWS) {
                 throw std::runtime_error("estimate mismatch");
             }
 
@@ -810,9 +806,10 @@ TEST_CASE("Project UTF-8 literal expression", "[projection]") {
     }
 }
 
-void compare_schemas(const UniqueSchema &left, const UniqueSchema &right) {
+void compare_schemas(const ArrowSchema *left, const ArrowSchema *right) {
     REQUIRE(std::string_view {left->format} == std::string_view {right->format});
     REQUIRE(left->n_children == right->n_children);
+    REQUIRE(left->flags == right->flags);
     for (int64_t i = 0; i < left->n_children; i++) {
         std::string_view name_left = left->children[i]->name;
         std::string_view name_right = right->children[i]->name;
@@ -822,7 +819,8 @@ void compare_schemas(const UniqueSchema &left, const UniqueSchema &right) {
 }
 
 void compare_schema_with_sample(const UniqueSchema &left) {
-    compare_schemas(left, sample_schema());
+    const UniqueSchema expected = sample_schema();
+    compare_schemas(left.get(), expected.get());
 }
 
 void compare_stream_with_sample(UniqueArrayStream &left) {
@@ -833,15 +831,14 @@ void compare_stream_with_sample(UniqueArrayStream &left) {
     UniqueSchema schema_left;
     ArrowErrorCode res = ArrowArrayStreamGetSchema(left.get(), schema_left.get(), &error);
     REQUIRE(res == NANOARROW_OK);
+    compare_schemas(schema_left.get(), schema_right.get());
 
     while (true) {
         UniqueArray chunk_left, chunk_right;
         int next_left = left->get_next(left.get(), chunk_left.get());
         int next_right = right->get_next(right.get(), chunk_right.get());
-        REQUIRE(next_left == next_right);
-        if (next_left != NANOARROW_OK || next_right != NANOARROW_OK) {
-            return;
-        }
+        REQUIRE(next_left == NANOARROW_OK);
+        REQUIRE(next_right == NANOARROW_OK);
 
         bool done_left = chunk_left->release == nullptr;
         bool done_right = chunk_right->release == nullptr;
@@ -864,6 +861,9 @@ void compare_stream_with_sample(UniqueArrayStream &left) {
         REQUIRE(res == NANOARROW_OK);
 
         for (int64_t i = 0; i < chunk_left->length; i++) {
+            REQUIRE_FALSE(ArrowArrayViewIsNull(view_left.get(), i));
+            REQUIRE_FALSE(ArrowArrayViewIsNull(view_left->children[0], i));
+            REQUIRE_FALSE(ArrowArrayViewIsNull(view_left->children[1], i));
             auto name_left = ArrowArrayViewGetIntUnsafe(view_left->children[0], i);
             auto name_right = ArrowArrayViewGetIntUnsafe(view_right->children[0], i);
             REQUIRE(name_left == name_right);

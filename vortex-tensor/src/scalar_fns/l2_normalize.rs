@@ -278,7 +278,31 @@ mod tests {
 
     fn evaluate(input: ArrayRef) -> VortexResult<StructArray> {
         let mut ctx = SESSION.create_execution_ctx();
-        L2Normalize::try_new(input)?.into_array().execute(&mut ctx)
+        let expected_len = input.len();
+        let expected_validity = input.validity()?.execute_mask(expected_len, &mut ctx)?;
+        let normalized_dtype = input.dtype().as_nonnullable();
+        let element_ptype =
+            crate::utils::validate_tensor_float_input(input.dtype())?.element_ptype();
+        let expected_dtype = DType::struct_(
+            [
+                ("normalized", normalized_dtype),
+                (
+                    "norm",
+                    DType::Primitive(element_ptype, Nullability::NonNullable),
+                ),
+            ],
+            input.dtype().nullability(),
+        );
+        let output: StructArray = L2Normalize::try_new(input)?
+            .into_array()
+            .execute(&mut ctx)?;
+        assert_eq!(output.len(), expected_len);
+        assert_eq!(output.dtype(), &expected_dtype);
+        assert_eq!(
+            output.validity()?.execute_mask(expected_len, &mut ctx)?,
+            expected_validity
+        );
+        Ok(output)
     }
 
     fn evaluate_l2_norm<T: NativePType>(input: ArrayRef) -> VortexResult<Vec<T>> {
@@ -364,6 +388,7 @@ mod tests {
 
     #[test]
     fn test_input_nulls_produce_null_struct_rows() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let input = vector_array(
             2,
             &[
@@ -371,14 +396,14 @@ mod tests {
                 1.0, 0.0, // The null row's placeholder values.
             ],
         )?;
-        let input = MaskedArray::try_new(input, Validity::from_iter([true, false]))?.into_array();
+        let input =
+            MaskedArray::try_new(input, Validity::from_iter([true, false]), &mut ctx)?.into_array();
         let output = evaluate(input)?;
-        let mut ctx = SESSION.create_execution_ctx();
 
         assert!(output.is_valid(0, &mut ctx)?);
         assert!(!output.is_valid(1, &mut ctx)?);
-        assert_eq!(normalized_values::<f64>(&output)?, [0.6, 0.8, 0.0, 0.0]);
-        assert_eq!(norms::<f64>(&output)?, [5.0, 0.0]);
+        assert_eq!(&normalized_values::<f64>(&output)?[..2], &[0.6, 0.8]);
+        assert_eq!(norms::<f64>(&output)?[0], 5.0);
 
         Ok(())
     }
@@ -460,8 +485,9 @@ mod tests {
 
     #[test]
     fn test_return_dtype_has_nonnullable_fields() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let input = vector_array(2, &[3.0f64, 4.0])?;
-        let input = MaskedArray::try_new(input, Validity::AllValid)?.into_array();
+        let input = MaskedArray::try_new(input, Validity::AllValid, &mut ctx)?.into_array();
         let output = L2Normalize::try_new(input)?.into_array();
 
         let DType::Struct(fields, Nullability::Nullable) = output.dtype() else {
@@ -510,6 +536,11 @@ mod tests {
         assert_eq!(recovered.dtype(), original.dtype());
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
+        let expected = StructArray::from_fields(&[
+            ("normalized", vector_array(2, &[0.6f64, 0.8])?),
+            ("norm", PrimitiveArray::from_iter([5.0f64]).into_array()),
+        ])?;
+        vortex_array::assert_arrays_eq!(recovered, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }

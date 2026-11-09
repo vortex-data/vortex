@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 #include <vortex/scalar.hpp>
 
 using namespace vortex;
@@ -13,8 +14,10 @@ static_assert(float(1.0f16) == 1.0f);
 TEST_CASE("float16_t to_float", "[float]") {
     REQUIRE(float(1.0f16) == 1.0F);
     REQUIRE(float(-2.0f16) == -2.0F);
-    REQUIRE(float(0.0f) == 0.0F);
-    REQUIRE(float(-0.0f) == -0.0F);
+    REQUIRE(float(0.0f16) == 0.0F);
+    REQUIRE_FALSE(std::signbit(float(0.0f16)));
+    REQUIRE(float(-0.0f16) == 0.0F);
+    REQUIRE(std::signbit(float(-0.0f16)));
 }
 
 #if __STDCPP_FLOAT16_T__ == 1

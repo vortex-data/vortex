@@ -30,29 +30,23 @@ impl<I: Iterator> Iterator for TrustedLenAdapter<I> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.inner.next() {
-            None => {
-                #[cfg(debug_assertions)]
-                {
-                    assert_eq!(
-                        self.len, self.count,
-                        "TrustedLenAdapter: iterator ended early"
-                    );
-                }
-                None
-            }
-            Some(item) => {
-                #[cfg(debug_assertions)]
-                {
-                    self.count += 1;
-                    assert!(
-                        self.count <= self.len,
-                        "TrustedLenAdapter: iterator yielded more items than promised"
-                    );
-                }
-                Some(item)
+        let item = self.inner.next();
+        #[cfg(debug_assertions)]
+        {
+            if item.is_some() {
+                self.count += 1;
+                assert!(
+                    self.count <= self.len,
+                    "TrustedLenAdapter: iterator yielded more items than promised"
+                );
+            } else {
+                assert_eq!(
+                    self.len, self.count,
+                    "TrustedLenAdapter: iterator ended early"
+                );
             }
         }
+        item
     }
 
     #[inline]

@@ -21,19 +21,41 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::MaskedArray;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
+use vortex_arrow::ArrowSession;
+use vortex_edition::EditionSession;
+use vortex_edition::EnabledEditions;
+use vortex_expr::stats::session::StatsSession;
 use vortex_session::VortexSession;
 use vortex_spatial::scalar_fn::convex_hull::SpatialConvexHull;
 use vortex_spatial::test_harness::multipoint_column;
-use vortex_spatial::test_harness::spatial_session;
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<ArrowSession>()
+        .with::<StatsSession>()
+        .with::<EditionSession>()
+        .with::<EnabledEditions>();
+    vortex_spatial::initialize(&session);
+    session
+});
 
 /// Hull cost under CodSpeed's CPU simulation is a few microseconds per row and grows with points
 /// per row, so each case sizes its row count to stay inside the 1 ms per-iteration budget from
@@ -44,6 +66,7 @@ const ROWS: usize = 64;
 const LARGE_HULL_ROWS: usize = 16;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -74,6 +97,8 @@ fn hulls(input: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 }
 
 fn bench_hulls(bencher: Bencher, input: ArrayRef) {
+    mark_optimized(&input, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(input.len()))
@@ -92,9 +117,11 @@ fn sixty_four_points(bencher: Bencher) {
 
 #[divan::bench]
 fn nullable_eight_points(bencher: Bencher) {
+    let mut ctx = SESSION.create_execution_ctx();
     let input = MaskedArray::try_new(
         multipoints(ROWS, 8),
         Validity::from_iter((0..ROWS).map(|row| !row.is_multiple_of(8))),
+        &mut ctx,
     )
     .unwrap()
     .into_array();

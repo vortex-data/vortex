@@ -22,6 +22,26 @@ use crate::scalar_fn::fns::cast::Cast;
 /// the target dtype to unsigned and pushes to its encoded array.
 ///
 /// Returns `Ok(None)` if the rule doesn't apply to this array/dtype combination.
+///
+/// # Nullability
+///
+/// A cast to a non-nullable dtype **must** fail when the array has a null row. A rule cannot
+/// execute, so it handles this in one of two ways:
+///
+/// - It builds a new [`Validity`], as [`Primitive`] does. It **must** return `Ok(None)` when
+///   [`Validity::trivially_cast_nullability`] does, and the encoding implements [`CastKernel`] for
+///   that case.
+/// - It pushes the cast into the children that hold its validity, as FoR does, and the casts of
+///   those children check the nulls. Every null in those children **must** reach a row of the
+///   array. The values of [`Dict`] break this with nulls that no code references.
+///
+/// [`test_cast_conformance`] checks both forms with a partially valid array.
+///
+/// [`Primitive`]: crate::arrays::Primitive
+/// [`Dict`]: crate::arrays::Dict
+/// [`Validity`]: crate::validity::Validity
+/// [`Validity::trivially_cast_nullability`]: crate::validity::Validity::trivially_cast_nullability
+/// [`test_cast_conformance`]: crate::compute::conformance::cast::test_cast_conformance
 pub trait CastReduce: VTable {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>>;
 }

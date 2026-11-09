@@ -10,6 +10,15 @@ mod tests {
     use vortex_error::VortexError;
     use vortex_error::VortexResult;
 
+    /// Asserts the message shown, ignoring a captured backtrace.
+    fn assert_error(error: &VortexError, message: &str) {
+        let shown = error.to_string();
+        assert!(
+            shown == message || shown.starts_with(&format!("{message}\nBacktrace:")),
+            "{shown:?}"
+        );
+    }
+
     fn check_default(left: &Cell<u32>, right: &Cell<u32>) -> VortexResult<()> {
         vortex_error::vortex_ensure_eq!(
             left.replace(left.get() + 1),
@@ -39,12 +48,9 @@ mod tests {
 
         assert_eq!(left.get(), 2);
         assert_eq!(right.get(), 3);
-        let VortexError::AssertionFailed(message, _) = error else {
-            panic!("expected AssertionFailed, got {error}");
-        };
-        assert_eq!(
-            message.as_ref(),
-            "`left.replace(left.get() + 1) == right.replace(right.get() + 1)`\n  left: 1\n right: 2"
+        assert_error(
+            &error,
+            "`left.replace(left.get() + 1) == right.replace(right.get() + 1)`\n  left: 1\n right: 2",
         );
     }
 
@@ -70,31 +76,22 @@ mod tests {
         let error = check(&right).unwrap_err();
 
         assert_eq!(message_calls.get(), 1);
-        let VortexError::Other(message, _) = error else {
-            panic!("expected Other, got {error}");
-        };
-        assert_eq!(
-            message.as_ref(),
-            "field mismatch 0\n  left: left\n right: right"
-        );
+        assert_error(&error, "field mismatch 0\n  left: left\n right: right");
         assert_eq!(left, "left");
         assert_eq!(right, "right");
         Ok(())
     }
 
     #[test]
-    fn explicit_variant_keeps_context_and_values() {
+    fn message_keeps_context_and_values() {
         let check = || -> VortexResult<()> {
-            vortex_error::vortex_ensure_eq!(1, 2, InvalidArgument: "expected {} fields", 2,);
+            vortex_error::vortex_ensure_eq!(1, 2, "expected {} fields", 2,);
             Ok(())
         };
 
         let error = check().unwrap_err();
 
-        let VortexError::InvalidArgument(message, _) = error else {
-            panic!("expected InvalidArgument, got {error}");
-        };
-        assert_eq!(message.as_ref(), "expected 2 fields\n  left: 1\n right: 2");
+        assert_error(&error, "expected 2 fields\n  left: 1\n right: 2");
     }
 
     #[test]
@@ -106,9 +103,6 @@ mod tests {
 
         let error = check().unwrap_err();
 
-        let VortexError::AssertionFailed(message, _) = error else {
-            panic!("expected AssertionFailed, got {error}");
-        };
-        assert_eq!(message.as_ref(), "false");
+        assert_error(&error, "false");
     }
 }

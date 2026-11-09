@@ -41,8 +41,8 @@ logical_plan
 16)------------------TableScan: customer_demographics projection=[cd_demo_sk]
 17)--------------TableScan: household_demographics projection=[hd_demo_sk, hd_income_band_sk]
 18)----------Projection: income_band.ib_income_band_sk
-19)------------Filter: income_band.ib_lower_bound >= Int64(38128) AND income_band.ib_upper_bound <= Int32(88128)
-20)--------------TableScan: income_band projection=[ib_income_band_sk, ib_lower_bound, ib_upper_bound], partial_filters=[income_band.ib_lower_bound >= Int64(38128), income_band.ib_upper_bound <= Int32(88128)]
+19)------------Filter: income_band.ib_lower_bound >= Int32(38128) AND income_band.ib_upper_bound <= Int32(88128)
+20)--------------TableScan: income_band projection=[ib_income_band_sk, ib_lower_bound, ib_upper_bound], partial_filters=[income_band.ib_lower_bound >= Int32(38128), income_band.ib_upper_bound <= Int32(88128)]
 21)------TableScan: store_returns projection=[sr_cdemo_sk]
 physical_plan
 01)SortPreservingMergeExec: [customer_id@0 ASC], fetch=100
@@ -61,7 +61,7 @@ physical_plan
 14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_address.vortex]]}, projection=[ca_address_sk], file_type=vortex, predicate: ca_city@6 = Edgewood
 15)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
 16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_name, c_last_name], file_type=vortex
-17)--------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-18)----------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer_demographics.vortex]]}, projection=[cd_demo_sk], file_type=vortex
-19)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_income_band_sk], file_type=vortex
-20)--------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_cdemo_sk], file_type=vortex
+17)--------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>], [${WORK_DIR}/customer_demographics.vortex:<slt:ignore>]]}, projection=[cd_demo_sk], file_type=vortex
+18)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/household_demographics.vortex]]}, projection=[hd_demo_sk, hd_income_band_sk], file_type=vortex
+19)--------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+20)----------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_cdemo_sk], file_type=vortex

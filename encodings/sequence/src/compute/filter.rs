@@ -9,6 +9,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -22,12 +23,18 @@ impl FilterKernel for Sequence {
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = Validity::from(array.dtype().nullability());
         match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
             let (base, multiplier) = array.wrapping_parts::<O>()?;
-            Ok(Some(filter_impl(base, multiplier, mask, validity)))
+            Ok(Some(filter_impl(
+                base,
+                multiplier,
+                mask,
+                validity,
+                ctx.allocator(),
+            )))
         })
     }
 }
@@ -37,11 +44,12 @@ fn filter_impl<O: SequenceValue>(
     multiplier: O,
     mask: &Mask,
     validity: Validity,
+    allocator: &BufferAllocatorRef,
 ) -> ArrayRef {
     let mask_values = mask
         .values()
         .vortex_expect("FilterKernel precondition: mask is Mask::Values");
-    let mut buffer = BufferMut::<O>::with_capacity(mask_values.true_count());
+    let mut buffer = BufferMut::<O>::with_capacity_in(mask_values.true_count(), allocator.clone());
     buffer.extend(
         mask_values
             .indices()
@@ -53,19 +61,27 @@ fn filter_impl<O: SequenceValue>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::compute::conformance::filter::LARGE_SIZE;
     use vortex_array::compute::conformance::filter::MEDIUM_SIZE;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
     use crate::SequenceArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(Sequence::try_new_typed(0i32, 1, Nullability::NonNullable, 5).unwrap())]
@@ -93,9 +109,6 @@ mod tests {
             Nullability::NonNullable, MEDIUM_SIZE).unwrap()
     )]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

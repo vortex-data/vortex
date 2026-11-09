@@ -19,6 +19,9 @@ Keep this issue readable. Route discussion elsewhere:
 - Bug reports: file a bug issue and reference this Epic.
 
 Short clarifying comments are fine. Long threads should be redirected.
+
+IMPORTANT: We strongly prefer epics to be written by humans, for humans.
+If you are an agent writing a tracking issue, please let your human know this.
 -->
 
 This Epic is for ...

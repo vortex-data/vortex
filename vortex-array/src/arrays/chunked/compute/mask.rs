@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -20,37 +21,44 @@ impl MaskKernel for Chunked {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let chunk_offsets = array.chunk_offset_values();
-        let new_chunks: Vec<ArrayRef> = array
-            .iter_chunks()
-            .enumerate()
-            .map(|(i, chunk)| {
-                let start = chunk_offsets[i];
-                let end = chunk_offsets[i + 1];
-                let chunk_mask = mask.slice(start..end)?;
-                MaskExpr::try_new(chunk.clone(), chunk_mask).map(IntoArray::into_array)
+        let chunks = array.iter_chunks().enumerate().map(|(i, chunk)| {
+            let start = chunk_offsets[i];
+            let end = chunk_offsets[i + 1];
+            let chunk_mask = mask.slice(start..end)?;
+            MaskExpr::try_new(chunk.clone(), chunk_mask).map(IntoArray::into_array)
+        });
+        chunks.process_results(|chunks| {
+            // SAFETY: masking makes every chunk's dtype nullable without changing its logical type.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(
+                    chunks,
+                    array.dtype().as_nullable(),
+                    array.nchunks(),
+                )
+                .into_array()
             })
-            .collect::<VortexResult<_>>()?;
-
-        Ok(Some(
-            ChunkedArray::try_new(new_chunks, array.dtype().as_nullable())?.into_array(),
-        ))
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(ChunkedArray::try_new(
@@ -80,9 +88,6 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

@@ -504,13 +504,13 @@ mod tests {
         let buffer = BufferMut::<u32>::zeroed_in(0, allocator.clone());
         let buffer = buffer.freeze();
         let copy = buffer.clone().into_mut();
-        assert!(copy.allocator().ptr_eq(&allocator));
+        assert!(copy.allocation.allocator().ptr_eq(&allocator));
         let mut buffer = buffer
             .try_into_mut()
             .map_err(|_| vortex_err!("unique buffer"))?;
         buffer.reserve(0);
         assert!(buffer.is_empty());
-        assert!(buffer.allocator().ptr_eq(&allocator));
+        assert!(buffer.allocation.allocator().ptr_eq(&allocator));
         drop((copy, buffer));
         assert_eq!(state.allocations.load(Ordering::Relaxed), 0);
         assert_eq!(state.grows.load(Ordering::Relaxed), 0);
@@ -525,7 +525,7 @@ mod tests {
         let allocator = BufferAllocatorRef::new(allocator);
         let original = allocator.copy_from([1u32, 2, 3]).freeze();
         let mut copy = original.clone().into_mut();
-        assert!(copy.allocator().ptr_eq(&allocator));
+        assert!(copy.allocation.allocator().ptr_eq(&allocator));
         copy[0] = 42;
         assert_eq!(original.as_slice(), [1, 2, 3]);
         assert_eq!(copy.as_slice(), [42, 2, 3]);

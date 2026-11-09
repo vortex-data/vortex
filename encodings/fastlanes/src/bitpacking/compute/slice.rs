@@ -35,14 +35,14 @@ impl SliceKernel for BitPacked {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let BitWidthsView::Global(bit_width) = array.bit_widths() else {
             return Ok(None);
         };
         let patches = array
             .patches()
-            .map(|p| p.slice(range.clone()))
+            .map(|p| p.slice(range.clone(), ctx))
             .transpose()?
             .flatten();
 
@@ -79,33 +79,45 @@ fn slice_bitpacked(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::optimizer::kernels::ArrayKernelsExt;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BitPacked;
     use crate::bitpack_compress::bitpack_encode;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn test_reduce_parent_returns_bitpacked_slice() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None, &mut ctx)?;
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 
         let bitpacked_ref = bitpacked.into_array();
-        let reduced = bitpacked_ref
-            .reduce_parent(&slice_array.into_array(), 0)?
+        let reduced = SESSION
+            .kernels()
+            .reduce_parent(&bitpacked_ref, &slice_array.into_array(), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());
         let reduced_bp = reduced.as_::<BitPacked>();
         assert_eq!(reduced_bp.offset(), 500);
         assert_eq!(reduced.len(), 1000);
+        assert_arrays_eq!(reduced, PrimitiveArray::from_iter(500u32..1500), &mut ctx);
 
         Ok(())
     }

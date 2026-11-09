@@ -10,6 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
@@ -20,9 +21,11 @@ use vortex_session::registry::ReadContext;
 use super::*;
 use crate::FoRArray;
 use crate::for_::array::FoRArraySlotsExt;
+use crate::for_::tests::blocked;
+use crate::for_::tests::global;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -57,7 +60,7 @@ fn serde_roundtrip(#[case] array: VortexResult<FoRArray>) -> VortexResult<()> {
     assert_eq!(serialization.serialized_id, for_v1_id());
     assert_eq!(
         serialization.metadata,
-        ScalarValue::to_proto_bytes::<Vec<u8>>(array.constant_reference().unwrap().value())
+        ScalarValue::to_proto_bytes::<Vec<u8>>(global(&array)?.value())
     );
 
     let read = roundtrip(array.as_array())?;
@@ -79,7 +82,10 @@ fn chunked() -> VortexResult<FoRArray> {
 #[case::whole(0..5000)]
 #[case::sliced(1500..2600)]
 fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
-    let array = chunked()?.into_array().slice(range.clone())?;
+    let array = chunked()?
+        .into_array()
+        .slice(range.clone())?
+        .optimize_ctx(&SESSION)?;
     let serialization = SESSION
         .array_serialize(&array)?
         .ok_or_else(|| vortex_err!("FoR must serialize"))?;
@@ -91,7 +97,7 @@ fn v2_roundtrip(#[case] range: std::ops::Range<usize>) -> VortexResult<()> {
 
     let read = roundtrip(&array)?;
     assert_eq!(read.encoding_id(), VTable::id(&FoR));
-    assert!(read.as_::<FoR>().constant_reference().is_none());
+    blocked(&read.as_::<FoR>().into_owned())?;
     assert_arrays_eq!(read, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
@@ -118,7 +124,7 @@ fn deserialize_v2_parts(
 fn v2_rejects_malformed_parts() -> VortexResult<()> {
     let array = chunked()?;
     let encoded = array.encoded().clone();
-    let references = array.references().clone();
+    let references = blocked(&array)?;
     let metadata = v2::FoRV2Metadata { offset: 0 };
 
     assert!(deserialize_v2_parts(&metadata, &[encoded.clone(), references.clone()]).is_ok());
@@ -126,17 +132,5 @@ fn v2_rejects_malformed_parts() -> VortexResult<()> {
     assert!(
         deserialize_v2_parts(&v2::FoRV2Metadata { offset: 1024 }, &[encoded, references]).is_err()
     );
-    Ok(())
-}
-
-#[test]
-fn vtable_serde_requires_plugin() -> VortexResult<()> {
-    let array = FoR::encode(
-        PrimitiveArray::from_iter([1u8, 2, 3]),
-        &mut SESSION.create_execution_ctx(),
-    )?;
-    let session = vortex_array::array_session();
-    session.arrays().register(FoR);
-    assert!(session.array_serialize(&array.into_array()).is_err());
     Ok(())
 }

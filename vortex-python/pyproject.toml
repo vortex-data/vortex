@@ -85,6 +85,7 @@ dev = [
     "polars>=1.32.0",
     "pyarrow-stubs>=17.16",
     "pytest-benchmark>=5.1.0",
+    "pytest-codspeed>=5.0.3",
     "pytest-xdist>=3.5.0",
     "ray>=2.48",
     # forced transitive bumps

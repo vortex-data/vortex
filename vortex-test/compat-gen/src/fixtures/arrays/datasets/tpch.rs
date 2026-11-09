@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::RecordBatch;
+use arrow_array::RecordBatchReader;
 use tpchgen::generators::LineItemGenerator;
 use tpchgen::generators::OrderGenerator;
-use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
@@ -16,10 +16,10 @@ use crate::fixtures::DatasetFixture;
 const SCALE_FACTOR: f64 = 0.01;
 
 fn collect_batches_as_vortex(
-    iter: impl RecordBatchIterator,
+    iter: impl RecordBatchReader,
     arrow: &ArrowSession,
 ) -> VortexResult<ArrayRef> {
-    let batches: Vec<RecordBatch> = iter.collect();
+    let batches = iter.collect::<Result<Vec<RecordBatch>, _>>()?;
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()

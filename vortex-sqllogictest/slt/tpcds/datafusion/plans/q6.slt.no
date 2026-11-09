@@ -56,8 +56,8 @@ logical_plan
 24)--------------------------Subquery:
 25)----------------------------Aggregate: groupBy=[[date_dim.d_month_seq]], aggr=[[]]
 26)------------------------------Projection: date_dim.d_month_seq
-27)--------------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(1)
-28)----------------------------------TableScan: date_dim projection=[d_month_seq, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(1)]
+27)--------------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(1)
+28)----------------------------------TableScan: date_dim projection=[d_month_seq, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(1)]
 29)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq]
 30)----------------SubqueryAlias: i
 31)------------------TableScan: item projection=[i_item_sk, i_current_price, i_category]

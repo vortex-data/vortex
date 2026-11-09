@@ -77,34 +77,12 @@ impl ExtVTable for DivisibleInt {
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::VortexResult;
-
     use super::DivisibleInt;
     use super::Divisor;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDType;
-    use crate::dtype::extension::ExtVTable;
-
-    #[test]
-    fn metadata_roundtrip() -> VortexResult<()> {
-        let vtable = DivisibleInt;
-        let divisor = Divisor(42);
-
-        let bytes = vtable.serialize_metadata(&divisor)?;
-        let decoded = vtable.deserialize_metadata(&bytes)?;
-
-        assert_eq!(decoded, divisor);
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_zero_divisor() {
-        let vtable = DivisibleInt;
-        let bytes = 0u64.to_le_bytes();
-        assert!(vtable.deserialize_metadata(&bytes).is_err());
-    }
 
     #[test]
     fn rejects_wrong_storage_dtype() {

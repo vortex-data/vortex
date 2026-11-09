@@ -10,14 +10,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
 use crate::ArrayRef;
-use crate::ArraySlots;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -27,9 +25,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::unsupported_buffer_replacement;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -50,11 +48,10 @@ use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 pub(crate) mod canonical;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Constant`]-encoded Vortex array.
@@ -131,50 +128,6 @@ impl VTable for Constant {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
-        // metadata at all.
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        _metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
-
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bytes: &[u8] = buffer.as_ref();
-
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ConstantData::new(scalar),
-            ArraySlots::new(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -264,10 +217,12 @@ impl VTable for Constant {
                 // is a constant storage array, which stays constant-encoded in the builder.
                 // Canonicalizing instead would materialize the storage: see the note in
                 // `constant_canonicalize` about `ExtensionConstantRule`.
+                //
+                // Call the Extension vtable directly: `ArrayRef::append_to_builder` would optimize
+                // the array back into this constant and recurse.
                 let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
-                ExtensionArray::new(ext_dtype.clone(), storage.into_array())
-                    .into_array()
-                    .append_to_builder(builder, ctx)?
+                let extension = ExtensionArray::new(ext_dtype.clone(), storage.into_array());
+                Extension::append_to_builder(extension.as_view(), builder, ctx)?
             }
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?
@@ -414,10 +369,14 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Chunked;
@@ -445,10 +404,28 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
 
-    /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
-    fn assert_append_matches_canonical(array: ConstantArray) -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
+    fn assert_constant_values(
+        array: &ArrayRef,
+        scalar: &Scalar,
+        len: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        assert_eq!(array.dtype(), scalar.dtype());
+        assert_eq!(array.len(), len);
+        for index in 0..len {
+            assert_eq!(&array.execute_scalar(index, ctx)?, scalar);
+        }
+        Ok(())
+    }
+
+    /// Checks append against both the fixture scalar and the canonicalization path.
+    fn assert_append_matches_canonical(array: ConstantArray) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let scalar = array.scalar().clone();
+        let len = array.len();
         let expected = constant_canonicalize(array.as_view(), &mut ctx)?.into_array();
         let mut builder = builder_with_capacity_in(
             array.dtype(),
@@ -460,6 +437,7 @@ mod tests {
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
         assert_arrays_eq!(&result, &expected, &mut ctx);
+        assert_constant_values(&result, &scalar, len, &mut ctx)?;
         Ok(())
     }
 
@@ -582,13 +560,13 @@ mod tests {
     /// across the whole run.
     #[test]
     fn test_list_constant_append_keeps_one_copy_of_the_elements() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![Scalar::from(1i32), Scalar::from(2i32), Scalar::from(3i32)],
             Nullability::NonNullable,
         );
-        let array = ConstantArray::new(scalar, 1_000);
+        let array = ConstantArray::new(scalar.clone(), 1_000);
 
         let mut builder = builder_with_capacity_in(
             array.dtype(),
@@ -599,6 +577,7 @@ mod tests {
             .into_array()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
+        assert_constant_values(&result, &scalar, 1_000, &mut ctx)?;
 
         assert_eq!(
             result.as_::<ListView>().elements().len(),
@@ -612,7 +591,7 @@ mod tests {
     /// share its elements there and takes the canonical path instead.
     #[test]
     fn test_list_constant_append_into_list_builder() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let element_dtype: Arc<DType> =
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let scalar = Scalar::list(
@@ -668,7 +647,7 @@ mod tests {
     /// a value per row per field.
     #[test]
     fn test_struct_constant_append_keeps_fields_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fields = StructFields::new(
             ["x", "y"].into(),
             vec![
@@ -683,7 +662,7 @@ mod tests {
                 Scalar::utf8("hi", Nullability::NonNullable),
             ],
         );
-        let array = ConstantArray::new(scalar, 1_000);
+        let array = ConstantArray::new(scalar.clone(), 1_000);
 
         let mut builder = builder_with_capacity_in(
             array.dtype(),
@@ -694,6 +673,7 @@ mod tests {
             .into_array()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
+        assert_constant_values(&result, &scalar, 1_000, &mut ctx)?;
 
         let struct_array = result.as_::<Struct>();
         for field in 0..2 {
@@ -731,13 +711,13 @@ mod tests {
     /// tile's chunks stay constant-encoded rather than materializing a value per row.
     #[test]
     fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![Scalar::from(7i32), Scalar::from(7i32)],
             Nullability::NonNullable,
         );
-        let array = ConstantArray::new(scalar, 1_000);
+        let array = ConstantArray::new(scalar.clone(), 1_000);
 
         let mut builder = builder_with_capacity_in(
             array.dtype(),
@@ -748,6 +728,7 @@ mod tests {
             .into_array()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
+        assert_constant_values(&result, &scalar, 1_000, &mut ctx)?;
 
         let elements = result.as_::<FixedSizeList>().elements().clone();
         assert!(
@@ -770,9 +751,9 @@ mod tests {
     /// the storage constant-encoded.
     #[test]
     fn test_extension_constant_append_keeps_storage_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
-        let array = ConstantArray::new(scalar, 1_000);
+        let array = ConstantArray::new(scalar.clone(), 1_000);
 
         let mut builder = builder_with_capacity_in(
             array.dtype(),
@@ -783,6 +764,7 @@ mod tests {
             .into_array()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
         let result = builder.finish();
+        assert_constant_values(&result, &scalar, 1_000, &mut ctx)?;
 
         assert!(
             result.as_::<Extension>().storage_array().is::<Constant>(),

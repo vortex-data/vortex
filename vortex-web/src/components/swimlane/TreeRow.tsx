@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import type { CSSProperties } from 'react';
 import type { FlattenedRow } from './types';
+import { Icon } from '../Icon';
 import {
-  ROW_HEIGHT,
-  DTYPE_COLORS,
+  dtypeClass,
   getEncodingStyle,
   getNodeDisplayName,
   hasExpandableChildren,
@@ -20,11 +21,36 @@ interface TreeRowProps {
   isHovered?: boolean;
   isHoveredAncestor?: boolean;
   mode: 'schema' | 'layout';
+  /** The node's data size, for the right column. */
+  size?: string;
+  /** 0 for the one node in the tab order, -1 for the rest. */
+  tabIndex?: number;
   onToggle: () => void;
   onSelect: () => void;
   onHover?: (nodeId: string | null) => void;
 }
 
+/** What the type column says: the dtype in Schema mode, the layout or row range in Layout mode. */
+function typeText(row: FlattenedRow, mode: 'schema' | 'layout'): string {
+  const { node, displayKind } = row;
+  if (displayKind === 'group') return '···';
+  if (mode === 'schema') {
+    if (getDtypeCategory(node.dtype) === 'struct') return 'struct';
+    const d = shortEncoding(node.dtype);
+    return d.length > 24 ? `${d.slice(0, 22)}…` : d;
+  }
+  if (node.childType.kind === 'chunk') return formatRowRange(row.rowRange);
+  const label = getEncodingStyle(node.encoding).label;
+  return node.children.length > 0 && node.childType.kind !== 'field'
+    ? `${label} · ${node.children.length}`
+    : label;
+}
+
+/**
+ * One node of the layout tree: a design system `vx-tree-node` with the tree pattern's roles. The
+ * parent tree (`role="tree"`) owns the keys; a click selects, and a click on the chevron opens or
+ * closes the node.
+ */
 export function TreeRow({
   row,
   isExpanded,
@@ -32,102 +58,75 @@ export function TreeRow({
   isHovered,
   isHoveredAncestor,
   mode,
+  size,
+  tabIndex = -1,
   onToggle,
   onSelect,
   onHover,
 }: TreeRowProps) {
   const { node, depth, displayKind } = row;
+  const depthStyle = { '--vx-depth': depth } as CSSProperties;
 
   if (displayKind === 'hiddenIndicator') {
     const name = node.childType.kind === 'transparent' ? node.childType.name : 'hidden';
     return (
       <div
-        className="flex items-center text-[10px] text-vortex-grey-dark italic"
-        style={{ height: ROW_HEIGHT, paddingLeft: 6 + depth * 10 }}
+        className="vx-tree-node is-hidden"
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={false}
+        aria-disabled="true"
+        tabIndex={tabIndex}
+        data-node-id={node.id}
+        style={depthStyle}
       >
-        <span className="ml-3">{name}</span>
+        <span className="vx-tree-name x-tree-name">
+          <Icon name="chevron_right" className="vx-tree-toggle is-leaf" />
+          <span className="x-tree-label">{name}</span>
+        </span>
       </div>
     );
   }
 
-  const isGroup = displayKind === 'group';
   const expandable = hasExpandableChildren(node);
-  const isLeaf = !expandable;
-  const style = getEncodingStyle(node.encoding);
-  const name = getNodeDisplayName(node);
-
-  let badgeText: string;
-  let badgeColor: string;
-  if (isGroup) {
-    badgeText = '···';
-    badgeColor = style.color;
-  } else if (mode === 'schema') {
-    const dtypeCat = getDtypeCategory(node.dtype);
-    const dtypeStr = shortEncoding(node.dtype);
-    badgeText =
-      dtypeCat === 'struct'
-        ? 'struct'
-        : dtypeStr.length > 20
-          ? dtypeStr.slice(0, 18) + '…'
-          : dtypeStr;
-    badgeColor = DTYPE_COLORS[dtypeCat];
-  } else {
-    const ct = node.childType;
-    if (ct.kind === 'chunk') {
-      badgeText = formatRowRange(row.rowRange);
-    } else {
-      badgeText = style.label;
-      if (node.children.length > 0 && node.childType.kind !== 'field') {
-        badgeText += ` (${node.children.length})`;
-      }
-    }
-    badgeColor = style.color;
-  }
-
-  const opacity = isGroup ? 'opacity-50' : isLeaf ? 'opacity-70' : '';
-  const fontStyle = isGroup ? 'italic' : '';
-  const highlightBg = isSelected
-    ? 'bg-vortex-light-blue/10'
-    : isHovered
-      ? 'bg-vortex-light-blue/15'
-      : isHoveredAncestor
-        ? 'bg-vortex-light-blue/5'
-        : '';
+  const classes = [
+    'vx-tree-node',
+    displayKind === 'group' && 'is-group',
+    node.isArrayNode && 'is-array',
+    isHovered && !isSelected && 'is-hovered',
+    isHoveredAncestor && !isSelected && 'is-hovered-parent',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
+    // The tree (role="tree") takes the keys for all its nodes, as the WAI-ARIA tree pattern does.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: the tree handles the keys.
     <div
+      className={classes}
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-selected={isSelected}
+      {...(expandable ? { 'aria-expanded': isExpanded } : {})}
+      tabIndex={tabIndex}
       data-node-id={node.id}
-      className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] cursor-default ${opacity} ${fontStyle} ${highlightBg}`}
-      title={node.isArrayNode ? 'Array encoding node' : undefined}
-      style={{
-        height: ROW_HEIGHT,
-        paddingLeft: 6 + depth * 10,
-        paddingRight: 8,
-        backgroundColor: node.isArrayNode ? 'var(--array-node-bg)' : undefined,
+      title={node.isArrayNode ? 'Array encoding node' : node.dtype}
+      style={depthStyle}
+      onClick={(e) => {
+        // A click on the chevron opens or closes the node and leaves the selection as it is.
+        if (expandable && (e.target as Element).closest('.vx-tree-toggle')) onToggle();
+        else onSelect();
       }}
-      onClick={onSelect}
       onMouseEnter={() => onHover?.(node.id)}
       onMouseLeave={() => onHover?.(null)}
     >
-      <span
-        className={`text-[8px] w-3 text-vortex-grey-dark ${expandable ? 'cursor-pointer' : ''}`}
-        style={{ opacity: expandable ? 1 : 0 }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (expandable) onToggle();
-        }}
-      >
-        {isExpanded ? '▼' : '▶'}
+      <span className="vx-tree-name x-tree-name">
+        <Icon name="chevron_right" className={`vx-tree-toggle${expandable ? '' : ' is-leaf'}`} />
+        <span className={`vx-tree-dot ${dtypeClass(node.dtype)}`} />
+        <span className="x-tree-label">{getNodeDisplayName(node)}</span>
+        <span className="vx-tree-type">{typeText(row, mode)}</span>
       </span>
-      <span className="flex-1 overflow-hidden text-ellipsis text-vortex-fg-light dark:text-vortex-fg">
-        {name}
-      </span>
-      <span
-        className="text-[9px] px-1.5 py-0.5 rounded max-w-[120px] truncate"
-        style={{ color: badgeColor, backgroundColor: `${badgeColor}15` }}
-      >
-        {badgeText}
-      </span>
+      {size && <span className="vx-tree-size">{size}</span>}
     </div>
   );
 }

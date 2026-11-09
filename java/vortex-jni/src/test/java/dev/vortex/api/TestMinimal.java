@@ -185,6 +185,18 @@ public final class TestMinimal {
     }
 
     @Test
+    public void testScanWithSplitConcurrencyReadsEveryRow() throws Exception {
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        ScanOptions options =
+                ScanOptions.builder().splitConcurrency(1).ordered(true).build();
+        List<Person> people = readAll(ds, options, allocator, TestMinimal::readFullBatch);
+        assertEquals(MINIMAL_DATA, people);
+    }
+
+    @Test
     public void testSelectionIncludesRows() throws Exception {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Session session = Session.create();
@@ -235,24 +247,6 @@ public final class TestMinimal {
         assertTrue(
                 exception.getMessage().contains("must be strictly increasing"),
                 "unexpected message: " + exception.getMessage());
-    }
-
-    @Test
-    public void testSelectionPayloadMustChooseIndicesOrRoaring() {
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> ScanOptions.builder()
-                .selectionMode(ScanOptions.SelectionMode.INCLUDE)
-                .selectionIndices(new long[] {0})
-                .selectionRoaringBitmap(new byte[] {1})
-                .build());
-        assertEquals("row selection must use either indices or roaring bitmap, not both", exception.getMessage());
-    }
-
-    @Test
-    public void testSelectionPayloadRequiresMode() {
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> ScanOptions.builder().selectionIndices(new long[] {0}).build());
-        assertEquals("row selection payload requires a selection mode", exception.getMessage());
     }
 
     private interface BatchReader {

@@ -11,6 +11,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -85,10 +87,12 @@ fn lazy_validity_does_not_evaluate_unrequested_rows(
         1024,
     )?
     .into_array();
-    let expected = array.execute_scalar(0, &mut ctx)?;
+    let expected = Scalar::primitive(42u32, Nullability::Nullable);
     let mut retained = None;
     let mut probe = probe_for(&array, &mut retained, repeated);
-    assert_eq!(probe.execute_scalar(0, &mut ctx)?, expected);
+    let actual = probe.execute_scalar(0, &mut ctx)?;
+    assert_eq!(actual.dtype(), expected.dtype());
+    assert_eq!(actual, expected);
     assert!(probe.execute_scalar(1023, &mut ctx).is_err());
     Ok(())
 }

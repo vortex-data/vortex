@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use clap::value_parser;
 use duckdb_bench::DuckClient;
+use mimalloc::MiMalloc;
 use tokio::runtime::Runtime;
 use vortex::metrics::tracing::set_global_labels;
 use vortex_bench::BenchmarkArg;
@@ -101,11 +102,21 @@ struct Args {
         to keep all work on the same threads"
     )]
     reuse: bool,
+
+    /// Use the V1 Vortex scan. Pass `--scan-v1 false` to use the planner-driven V2 scan.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    scan_v1: bool,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
+
+    vortex_duckdb::set_scan_v2(!args.scan_v1);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
@@ -128,7 +139,10 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("provide a format with --formats");
     }
 
-    // Generate Vortex files from Parquet for any Vortex formats requested
+    // Data is prepared up front by data-gen, so the steps below only resolve existing files and
+    // fail instead of generating anything that is missing.
+    vortex_bench::forbid_data_generation();
+
     if benchmark.data_url().scheme() == "file" {
         // This is ugly, but otherwise some complicated async interaction might result in a deadlock
         let runtime = Runtime::new()?;

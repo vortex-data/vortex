@@ -36,8 +36,8 @@ use vortex_array::expr::bound::lt_eq;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::stats::bound::stat;
 use vortex_error::VortexResult;
+use vortex_expr::stats::bound::stat;
 use vortex_session::VortexSession;
 
 use crate::aggregate_fn::GeometryAabb;

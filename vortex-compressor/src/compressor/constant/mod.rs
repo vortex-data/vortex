@@ -188,7 +188,7 @@ fn compress_constant(source: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
     if mask.all_true() {
         Ok(const_arr)
     } else {
-        Ok(MaskedArray::try_new(const_arr, validity)?.into_array())
+        Ok(MaskedArray::try_new(const_arr, validity, ctx)?.into_array())
     }
 }
 

@@ -35,9 +35,15 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::VTable;
 use crate::layouts::zoned::AggregateStatsAccumulator;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::LegacyStatsAccumulator;
+use crate::layouts::zoned::LegacyStatsLayout;
+use crate::layouts::zoned::Zoned;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::aggregate_partials;
+use crate::layouts::zoned::legacy_stat_values;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -124,6 +130,22 @@ impl LayoutStrategy for ZonedStrategy {
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
+
+        // Readers before `vortex.zoned` only know the legacy `vortex.stats` layout. If the write
+        // does not permit either layout, the column gets no zone map.
+        if !ctx.allows_layout(&Zoned.id()) {
+            if ctx.allows_layout(&LegacyStats.id()) {
+                return self
+                    .write_legacy_stream(ctx, segment_sink, stream, eof, session)
+                    .await;
+            }
+
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -214,6 +236,83 @@ impl LayoutStrategy for ZonedStrategy {
     }
 }
 
+impl ZonedStrategy {
+    /// Writes the data child and a legacy `vortex.stats` zone map, which readers before
+    /// `vortex.zoned` can read.
+    async fn write_legacy_stream(
+        &self,
+        ctx: LayoutWriterContext,
+        segment_sink: SegmentSinkRef,
+        stream: SendableSequentialStream,
+        mut eof: SequencePointer,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutRef> {
+        let stats_accumulator = Arc::new(Mutex::new(LegacyStatsAccumulator::new(stream.dtype())));
+        let stats = stats_accumulator.lock().stats();
+
+        let compute_session = session.clone();
+        let stream_dtype = stream.dtype().clone();
+        let concurrency = self.options.concurrency.get();
+        let stream = stream
+            .map(move |item| {
+                let stats = Arc::clone(&stats);
+                let session = compute_session.clone();
+                session.handle().spawn_cpu(move || {
+                    let (sequence_id, chunk) = item?;
+                    let values =
+                        legacy_stat_values(&chunk, &stats, &mut session.create_execution_ctx())?;
+                    Ok::<_, VortexError>((sequence_id, chunk, values))
+                })
+            })
+            .buffered(concurrency);
+
+        // Add the zone stats in stream order, so that the zone table rows align with the data
+        // child.
+        let stats_accumulator2 = Arc::clone(&stats_accumulator);
+        let stream = SequentialStreamAdapter::new(
+            stream_dtype,
+            stream.map(move |item| {
+                let (sequence_id, chunk, values) = item?;
+                stats_accumulator2.lock().push_values(values)?;
+                Ok((sequence_id, chunk))
+            }),
+        )
+        .sendable();
+
+        // The data child must come before the zone table in the file.
+        let data_eof = eof.split_off();
+        let data_layout = self
+            .child
+            .write_stream(
+                ctx.clone(),
+                Arc::clone(&segment_sink),
+                stream,
+                data_eof,
+                session,
+            )
+            .await?;
+
+        let mut exec_ctx = session.create_execution_ctx();
+        let Some((stats_array, stats)) = stats_accumulator.lock().as_array(&mut exec_ctx)? else {
+            return Ok(data_layout);
+        };
+
+        let stats_stream = stats_array
+            .into_array()
+            .to_array_stream()
+            .sequenced(eof.split_off());
+        let zones_layout = self
+            .stats
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .await?;
+
+        Ok(
+            LegacyStatsLayout::try_new(data_layout, zones_layout, self.options.block_size, stats)?
+                .into_layout(),
+        )
+    }
+}
+
 fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
     let (max, min) = match dtype {
         DType::Utf8(_) | DType::Binary(_) => (
@@ -233,7 +332,8 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
     // Its semantics are also unsettled - null-on-empty was changed in #9113 and reverted in
     // #9324 - so it is not a stat to record in every zone of every file, let alone freeze
-    // into an edition. File-level statistics still record `Stat::Sum` via `PRUNING_STATS`.
+    // into an edition. File-level statistics still record a sum by default (see
+    // `file_stats::default_pruning_aggregate_fns`).
     let mut aggregate_fns = vec![
         max,
         min,
@@ -249,6 +349,8 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
@@ -261,6 +363,7 @@ mod tests {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_buffer::buffer;
@@ -273,12 +376,32 @@ mod tests {
 
     use super::*;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::file_stats::contains_variant;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::schema::aggregate_state_dtype;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::variant(DType::Variant(Nullability::Nullable))]
+    #[case::variant_in_struct(DType::Struct(
+        StructFields::new(["v"].into(), vec![DType::Variant(Nullability::Nullable)]),
+        Nullability::NonNullable,
+    ))]
+    fn zone_maps_hold_no_variant_state(#[case] dtype: DType) {
+        let session = SESSION.clone().with::<LayoutSession>();
+        let accumulator =
+            AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype, &session));
+        for aggregate_fn in accumulator.aggregate_fns().iter() {
+            let state = aggregate_state_dtype(&dtype, aggregate_fn).vortex_expect("kept state");
+            assert!(!contains_variant(&state), "{aggregate_fn} keeps a variant");
+        }
+    }
 
     /// Write three zones of primitives through `ctx`, returning the aggregates the zoned
     /// layout recorded.
@@ -312,7 +435,7 @@ mod tests {
         .sequenced(ptr);
 
         block_on(|handle: Handle| async move {
-            let session = vortex_array::array_session()
+            let session = VortexSession::empty()
                 .with::<LayoutSession>()
                 .with::<RuntimeSession>()
                 .with_handle(handle);
@@ -372,10 +495,8 @@ mod tests {
 
     #[test]
     fn default_aggregates_bound_variable_length_min_max() {
-        let aggregate_fns = default_zoned_aggregate_fns(
-            &DType::Utf8(Nullability::NonNullable),
-            &vortex_array::array_session(),
-        );
+        let aggregate_fns =
+            default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable), &SESSION);
 
         assert_eq!(
             aggregate_fns[0].as_::<BoundedMax>().max_bytes,
@@ -389,8 +510,7 @@ mod tests {
 
     #[test]
     fn default_aggregates_keep_fixed_width_min_max_exact() {
-        let aggregate_fns =
-            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(&PType::I32.into(), &SESSION);
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
@@ -404,7 +524,7 @@ mod tests {
         Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
     ))]
     fn default_aggregates_never_record_sum(#[case] dtype: DType) {
-        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &VortexSession::empty());
 
         assert!(
             aggregate_fns

@@ -32,6 +32,8 @@ pub use erased::*;
 
 mod plugin;
 pub use plugin::*;
+mod haystack;
+pub(crate) use haystack::ArrayHaystack;
 mod probe;
 pub use probe::*;
 
@@ -193,14 +195,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
-
-    /// Attempt to reduce the parent of this array.
-    fn reduce_parent(
-        &self,
-        this: &ArrayRef,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>>;
 
     /// Execute the array by taking a single encoding-specific execution step.
     ///
@@ -468,39 +462,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         Ok(Some(reduced))
     }
 
-    fn reduce_parent(
-        &self,
-        this: &ArrayRef,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let Some(reduced) = V::reduce_parent(view, parent, child_idx)? else {
-            return Ok(None);
-        };
-
-        vortex_ensure_eq!(
-            reduced.len(),
-            parent.len(),
-            "Reduced array length mismatch from {} to {}",
-            parent.encoding_id(),
-            reduced.encoding_id()
-        );
-        vortex_ensure_eq!(
-            reduced.dtype(),
-            parent.dtype(),
-            "Reduced array dtype mismatch from {} to {}",
-            parent.encoding_id(),
-            reduced.encoding_id()
-        );
-
-        Ok(Some(reduced))
-    }
-
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_owned();
+        let stats = this.statistics().share_existing();
         let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
@@ -519,7 +484,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 );
             }
 
-            result.array().statistics().set_iter(stats.into_iter());
+            result.array().statistics().transfer_from(&stats);
         }
 
         Ok(result)

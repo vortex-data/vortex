@@ -33,11 +33,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -47,7 +47,7 @@ mod tests {
     use crate::DeltaArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -217,6 +217,14 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter(0u32..2048).into_array();
         assert_arrays_eq!(delta, expected, &mut SESSION.create_execution_ctx());
+        for index in [0, 1, 10, 1023, 1024, 1025, 2047] {
+            let scalar = delta
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(index as u32);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]
@@ -233,6 +241,14 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter(0u32..2000).into_array();
         assert_arrays_eq!(delta, expected, &mut SESSION.create_execution_ctx());
+        for index in [0, 1, 10, 1023, 1024, 1025, 1999] {
+            let scalar = delta
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
+                .unwrap();
+            let expected = Scalar::from(index as u32);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 
     #[test]

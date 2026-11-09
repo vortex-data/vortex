@@ -97,10 +97,14 @@ fn order_prefix_refines_value_order() {
 /// Inlined values are fully ordered by order prefix, then order tail, then length.
 #[test]
 fn order_words_fully_order_inlined_values() {
-    let values = values(4)
-        .into_iter()
-        .filter(|value| value.len() <= BinaryView::MAX_INLINED_SIZE)
-        .collect::<Vec<_>>();
+    let mut values = values(4);
+    values.extend([
+        b"aaaaa".to_vec(),
+        b"aaaab".to_vec(),
+        b"aaaa\0".to_vec(),
+        b"aaaaaaaabbbb".to_vec(),
+        b"aaaaaaaabbbc".to_vec(),
+    ]);
     for a in &values {
         let a_view = view_of(a);
         for b in &values {

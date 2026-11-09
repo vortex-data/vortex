@@ -4,25 +4,25 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use vortex_buffer::Buffer;
+use rand::RngExt;
+use rand::SeedableRng;
+use rand::prelude::StdRng;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::DictArray;
 use crate::arrays::ListArray;
-use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::dict_test::gen_dict_primitive_chunks;
-use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -32,7 +32,7 @@ use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -44,6 +44,28 @@ fn chunked_array() -> ChunkedArray {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap()
+}
+
+fn dictionary_chunks(chunk_count: usize) -> (ArrayRef, PrimitiveArray) {
+    let mut expected = Vec::new();
+    let chunks = (0..chunk_count)
+        .map(|_| {
+            let mut rng = StdRng::seed_from_u64(0);
+            let values: Vec<u32> = (0..3).map(|_| rng.random()).collect();
+            let codes: Vec<u16> = (0..8)
+                .map(|_| u16::try_from(rng.random_range(0usize..3)).unwrap())
+                .collect();
+            expected.extend(codes.iter().map(|&code| values[usize::from(code)]));
+            DictArray::try_new(
+                PrimitiveArray::from_iter(codes).into_array(),
+                PrimitiveArray::from_iter(values).into_array(),
+            )
+            .unwrap()
+            .into_array()
+        })
+        .collect::<ChunkedArray>()
+        .into_array();
+    (chunks, PrimitiveArray::from_iter(expected))
 }
 
 #[test]
@@ -110,16 +132,10 @@ fn builder_kernel_nested_chunked_of_chunked() {
 fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
     let mut ctx = SESSION.create_execution_ctx();
 
-    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let (array, expected) = dictionary_chunks(3);
     let keep_alive = array.clone();
     let dtype = array.dtype().clone();
     let len = array.len();
-
-    let expected = array
-        .clone()
-        .execute::<Canonical>(&mut ctx)
-        .unwrap()
-        .into_array();
 
     let first = {
         let builder =
@@ -144,14 +160,8 @@ fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
 #[test]
 fn execute_path_repeated_shared_chunked_dict_execution() {
     let mut ctx = SESSION.create_execution_ctx();
-    let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
+    let (array, expected) = dictionary_chunks(3);
     let keep_alive = array.clone();
-
-    let expected_source = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
-    let expected = expected_source
-        .execute::<Canonical>(&mut ctx)
-        .unwrap()
-        .into_array();
 
     let first = array
         .clone()
@@ -170,30 +180,20 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
 #[test]
 fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
     let mut ctx = SESSION.create_execution_ctx();
-    let inner_1 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 2);
-    let inner_2 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
-    let outer = ChunkedArray::try_new(
-        vec![inner_1.clone(), inner_2.clone()],
-        inner_1.dtype().clone(),
-    )
-    .unwrap()
-    .into_array();
+    let (inner_1, expected_1) = dictionary_chunks(2);
+    let (inner_2, expected_2) = dictionary_chunks(3);
+    let outer = ChunkedArray::try_new(vec![inner_1.clone(), inner_2], inner_1.dtype().clone())
+        .unwrap()
+        .into_array();
     let keep_alive = outer.clone();
 
-    let expected = {
-        let mut builder = builder_with_capacity_in(
-            outer.dtype(),
-            outer.len(),
-            vortex_buffer::BufferAllocatorRef::static_ref(),
-        );
-        inner_1
-            .append_to_builder(builder.as_mut(), &mut ctx)
-            .unwrap();
-        inner_2
-            .append_to_builder(builder.as_mut(), &mut ctx)
-            .unwrap();
-        builder.finish()
-    };
+    let expected = PrimitiveArray::from_iter(
+        expected_1
+            .as_slice::<u32>()
+            .iter()
+            .chain(expected_2.as_slice::<u32>())
+            .copied(),
+    );
 
     let first = outer
         .clone()
@@ -217,9 +217,10 @@ fn with_slot_rewrites_chunk_and_offsets() {
     let replacement = buffer![1u64, 2, 3].into_array();
     // SAFETY: the replacement chunk has the same logical values as the original chunk; only the
     // physical child handle changes.
-    let array = unsafe { array.with_slot(1, replacement) }.unwrap();
+    let array = unsafe { array.with_slot(1, replacement.clone()) }.unwrap();
     let array = array.as_::<Chunked>();
 
+    assert!(ArrayRef::ptr_eq(array.chunk(0), &replacement));
     assert_eq!(array.nchunks(), 3);
     assert_eq!(array.chunk_offset_values(), [0, 3, 6, 9]);
     assert_arrays_eq!(
@@ -249,123 +250,6 @@ fn with_slot_rejects_len_mismatch() {
 }
 
 #[test]
-fn slice_middle() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(2..5).unwrap(),
-        PrimitiveArray::from_iter([3u64, 4, 5]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_begin() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(1..3).unwrap(),
-        PrimitiveArray::from_iter([2u64, 3]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_aligned() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(3..6).unwrap(),
-        PrimitiveArray::from_iter([4u64, 5, 6]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_many_aligned() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(0..6).unwrap(),
-        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_end() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(7..8).unwrap(),
-        PrimitiveArray::from_iter([8u64]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_exactly_end() {
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        chunked_array().slice(6..9).unwrap(),
-        PrimitiveArray::from_iter([7u64, 8, 9]),
-        &mut ctx
-    );
-}
-
-#[test]
-fn slice_empty() {
-    let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
-    let sliced = chunked.slice(0..0).unwrap();
-
-    assert!(sliced.is_empty());
-}
-
-#[test]
-fn scalar_at_empty_children_both_sides() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = ChunkedArray::try_new(
-        vec![
-            Buffer::<u64>::empty().into_array(),
-            Buffer::<u64>::empty().into_array(),
-            buffer![1u64, 2].into_array(),
-            Buffer::<u64>::empty().into_array(),
-            Buffer::<u64>::empty().into_array(),
-        ],
-        DType::Primitive(PType::U64, Nullability::NonNullable),
-    )
-    .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]), &mut ctx);
-}
-
-#[test]
-fn scalar_at_empty_children_trailing() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = ChunkedArray::try_new(
-        vec![
-            buffer![1u64, 2].into_array(),
-            Buffer::<u64>::empty().into_array(),
-            Buffer::<u64>::empty().into_array(),
-            buffer![3u64, 4].into_array(),
-        ],
-        DType::Primitive(PType::U64, Nullability::NonNullable),
-    )
-    .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
-}
-
-#[test]
-fn scalar_at_empty_children_leading() {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = ChunkedArray::try_new(
-        vec![
-            Buffer::<u64>::empty().into_array(),
-            Buffer::<u64>::empty().into_array(),
-            buffer![1u64, 2].into_array(),
-            buffer![3u64, 4].into_array(),
-        ],
-        DType::Primitive(PType::U64, Nullability::NonNullable),
-    )
-    .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
-}
-
-#[test]
 pub fn pack_nested_structs() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let struct_array = StructArray::try_new(
@@ -383,16 +267,7 @@ pub fn pack_nested_structs() -> VortexResult<()> {
         dtype,
     )?
     .into_array();
-    let canonical_struct = chunked.execute::<StructArray>(&mut ctx)?;
-    let canonical_varbin = canonical_struct
-        .unmasked_field(0)
-        .clone()
-        .execute::<VarBinViewArray>(&mut ctx)?;
-    let original_varbin = struct_array
-        .unmasked_field(0)
-        .clone()
-        .execute::<VarBinViewArray>(&mut ctx)?;
-    assert_arrays_eq!(original_varbin, canonical_varbin, &mut ctx);
+    assert_arrays_eq!(chunked, struct_array, &mut ctx);
     Ok(())
 }
 
@@ -403,6 +278,7 @@ pub fn pack_nested_lists() {
         buffer![1, 2, 3, 4].into_array(),
         buffer![0, 3].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .unwrap();
 
@@ -410,30 +286,24 @@ pub fn pack_nested_lists() {
         buffer![5, 6].into_array(),
         buffer![0, 2].into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .unwrap();
 
     let chunked_list = ChunkedArray::try_new(
-        vec![l1.clone().into_array(), l2.clone().into_array()],
+        vec![l1.into_array(), l2.into_array()],
         DType::List(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             Nullability::NonNullable,
         ),
     );
 
-    let canon_values = chunked_list
-        .unwrap()
-        .as_array()
-        .clone()
-        .execute::<ListViewArray>(&mut ctx)
-        .unwrap();
-
-    assert_eq!(
-        l1.execute_scalar(0, &mut ctx).unwrap(),
-        canon_values.execute_scalar(0, &mut ctx).unwrap()
-    );
-    assert_eq!(
-        l2.execute_scalar(0, &mut ctx).unwrap(),
-        canon_values.execute_scalar(1, &mut ctx).unwrap()
-    );
+    let expected = ListArray::try_new(
+        buffer![1, 2, 3, 5, 6].into_array(),
+        buffer![0, 3, 5].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_arrays_eq!(chunked_list.unwrap(), expected, &mut ctx);
 }

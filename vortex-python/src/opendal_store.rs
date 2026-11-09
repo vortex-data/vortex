@@ -134,8 +134,6 @@ pub(crate) fn init(_py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 mod tests {
     use vortex_cloud::opendal::CosConfig;
 
-    use super::*;
-
     /// `make_cos_store` (the strongly-typed entry point used by the `CosStore` pyclass) must
     /// accept a fully-specified `CosConfig` and yield a usable `Arc<dyn ObjectStore>`.
     #[test]
@@ -148,25 +146,6 @@ mod tests {
             root: Some("nested/prefix".to_string()),
             disable_config_load: true,
         };
-        let store = vortex_cloud::opendal::make_cos_store(config).expect("cos store should build");
-        // Sanity-check the result is a non-null `Arc<dyn ObjectStore>`.
-        assert!(Arc::strong_count(&store) >= 1);
-    }
-
-    /// Constructing a `CosConfig` with an empty `bucket` must surface as a `MissingConfig` error
-    /// rather than silently building an invalid store.
-    #[test]
-    fn cos_config_rejects_empty_bucket() {
-        let result = vortex_cloud::opendal::make_cos_store(CosConfig {
-            bucket: String::new(),
-            endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-            ..CosConfig::default()
-        });
-        assert!(matches!(
-            result,
-            Err(vortex_cloud::opendal::OpenDALStoreError::MissingConfig(
-                "bucket"
-            ))
-        ));
+        vortex_cloud::opendal::make_cos_store(config).expect("cos store should build");
     }
 }

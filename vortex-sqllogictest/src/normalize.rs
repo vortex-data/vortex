@@ -27,8 +27,28 @@ pub const WORK_DIR_TOKEN: &str = "${WORK_DIR}";
 /// Replaces every occurrence of `work_dir` in `cell` with [`WORK_DIR_TOKEN`].
 /// Also handles object-store paths, which omit the leading `/`.
 pub fn normalize_work_dir(cell: &str, work_dir: &str) -> String {
+    // Windows hands us backslashes but duckdb provides forward slashes
+    let (cell, work_dir) = if cfg!(windows) {
+        (cell.replace('\\', "/"), work_dir.replace('\\', "/"))
+    } else {
+        (cell.to_owned(), work_dir.to_owned())
+    };
+    // This is a hack that is only useful when testing on a non-Windows box,
+    // i.e. cross-compiling for windows-arm64 from a Debian VM on MacOS. Yes,
+    // my tastes are very singular. In this case, the drive letter is "unix"
+    // without ":" and datafusion adds the drive before it when making the path
+    // absolute, i.e. C:/unix ... which is incorrect.
+    let cell = if cfg!(windows)
+        && !env!("CARGO_MANIFEST_DIR").contains(':')
+        && let Ok(cwd) = std::env::current_dir()
+        && let Some(drive) = cwd.to_string_lossy().get(..2).filter(|d| d.ends_with(':'))
+    {
+        cell.replace(&format!("{drive}{work_dir}"), WORK_DIR_TOKEN)
+    } else {
+        cell
+    };
     // Replace absolute paths first so their leading slash does not survive.
-    let normalized = cell.replace(work_dir, WORK_DIR_TOKEN);
+    let normalized = cell.replace(&work_dir, WORK_DIR_TOKEN);
     if let Some(object_store_path) = work_dir.strip_prefix('/')
         && !object_store_path.is_empty()
     {

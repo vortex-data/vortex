@@ -3,6 +3,8 @@
 
 //! Differential tests of sequence construction and its kernels against an exact `i128` model.
 
+use std::sync::LazyLock;
+
 use num_traits::Bounded;
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
@@ -28,8 +30,15 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::Sequence;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 // Keep the `i128` oracle independent of the production code's 64-bit arithmetic.
 fn widen(value: PValue) -> Option<i128> {
@@ -123,9 +132,7 @@ fn constant(value: i128, ptype: PType, len: usize) -> VortexResult<ArrayRef> {
 
 #[test]
 fn sequence_kernels_match_exact_model() -> VortexResult<()> {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    let mut ctx = session.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let mut built = 0;
     for base in VALUES {

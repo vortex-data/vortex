@@ -16,6 +16,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::VarBinViewArray;
@@ -28,6 +29,7 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex_array::test_harness::mark_optimized;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -36,6 +38,9 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const BINARY_BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 const VALUE_BYTES: usize = 16;
@@ -96,6 +101,8 @@ fn benchmark_arrow_binary_export(c: &mut Criterion) {
                             .with_launch_strategy(Arc::new(timed));
                     let array = block_on(out_of_line_binary(len, &mut cuda_ctx))
                         .vortex_expect("failed to create binary fixture");
+                    mark_optimized(&array, &vortex_cuda::cuda_session())
+                        .vortex_expect("optimize the benchmark input");
 
                     for _ in 0..iters {
                         let mut exported =

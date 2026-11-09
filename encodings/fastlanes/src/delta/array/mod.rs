@@ -46,7 +46,7 @@ pub struct DeltaSlots {
 /// use vortex_session::VortexSession;
 /// use vortex_fastlanes::Delta;
 ///
-/// let session = vortex_array::array_session();
+/// let session = VortexSession::empty();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
 /// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
@@ -61,7 +61,7 @@ pub struct DeltaSlots {
 /// use vortex_session::VortexSession;
 /// use vortex_fastlanes::Delta;
 ///
-/// let session = vortex_array::array_session();
+/// let session = VortexSession::empty();
 /// let primitive = PrimitiveArray::from_iter([-3_i32, -2, -1, 0, 1, 2]);
 /// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```

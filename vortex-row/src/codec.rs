@@ -273,7 +273,9 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
         DType::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
         }
-        DType::Union(..) => vortex_bail!("row encoding does not support Union arrays"),
+        DType::Union(..) => {
+            vortex_bail!("row encoding does not support Union arrays")
+        }
         dtype => vortex_bail!("row encoding does not support dtype: {dtype:?}"),
     }
 }
@@ -580,7 +582,7 @@ fn add_size_map(
 /// so keys from differently compressed chunks stay memcmp-comparable. Both the size plan
 /// ([`row_width_for_dtype`]) and the encoder derive their width from here.
 fn decimal_key_type(dt: &DecimalDType) -> DecimalType {
-    DecimalType::smallest_decimal_value_type(dt)
+    dt.canonical_values_type()
 }
 
 fn add_size_varbinview(

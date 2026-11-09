@@ -164,7 +164,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count_star()"
+                    "Order By": "c"
                 }
             }
         ],
@@ -181,35 +181,45 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "PROJECTION",
+                                "name": "AGGREGATE",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": "",
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "1000000"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Filters": "",
-                                            "Function": "Vortex Scan",
+                                            "Expressions": "ClientIP",
                                             "Estimated Cardinality": "1000000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": "ClientIP",
-                                    "Estimated Cardinality": "1000000"
+                                    "Groups": "ClientIP",
+                                    "Expressions": "count_star()",
+                                    "Estimated Cardinality": "632120"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": [
-                                "ClientIP",
+                            "Expressions": [
+                                "#0",
                                 "(ClientIP - 1)",
                                 "(ClientIP - 2)",
-                                "(ClientIP - 3)"
+                                "(ClientIP - 3)",
+                                "#1"
                             ],
-                            "Expressions": "count_star()",
                             "Estimated Cardinality": "632120"
                         }
                     }
@@ -237,47 +247,53 @@ physical_plan [
         "name": "TOP_N",
         "children": [
             {
-                "name": "HASH_GROUP_BY",
+                "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "HASH_GROUP_BY",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "PROJECTION",
+                                "children": [
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Projections": "ClientIP",
+                                            "Estimated Cardinality": "1000000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Function": "Vortex Scan",
                                     "Projections": "ClientIP",
                                     "Estimated Cardinality": "1000000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "ClientIP",
-                                "(ClientIP - 1)",
-                                "(ClientIP - 2)",
-                                "(ClientIP - 3)"
-                            ],
-                            "Estimated Cardinality": "1000000"
+                            "Groups": "#0",
+                            "Aggregates": "count_star()",
+                            "Estimated Cardinality": "632120"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Groups": [
+                    "Projections": [
                         "#0",
-                        "#1",
-                        "#2",
-                        "#3"
+                        "(ClientIP - 1)",
+                        "(ClientIP - 2)",
+                        "(ClientIP - 3)",
+                        "#1"
                     ],
-                    "Aggregates": "count_star()",
                     "Estimated Cardinality": "632120"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count_star() DESC"
+            "Order By": "c DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

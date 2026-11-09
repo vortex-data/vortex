@@ -14,6 +14,7 @@ use crate::ALPRD;
 use crate::ALPRDArrayExt;
 use crate::ALPRDArraySlotsExt;
 use crate::alp_rd::array::LP_PATCH_SLOTS;
+use crate::alp_rd::code_not_in_dictionary;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     type ProbeState = ();
@@ -64,7 +65,10 @@ fn read_valid(
                 .as_primitive()
                 .as_::<u16>()
                 .vortex_expect("left_code must be non-null");
-            array.left_parts_dictionary()[left_code as usize]
+            let dictionary = array.left_parts_dictionary();
+            *dictionary
+                .get(usize::from(left_code))
+                .ok_or_else(|| code_not_in_dictionary(left_code, dictionary.len()))?
         }
     };
 
@@ -95,20 +99,29 @@ mod test {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ALPRD;
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
     use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -122,7 +135,8 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
-        assert_arrays_eq!(encoded, array, &mut ctx);
+        let sliced = encoded.slice(1..3).unwrap();
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter([b, outlier]), &mut ctx);
     }
 
     #[rstest]
@@ -138,6 +152,12 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
+        for (index, value) in [a, b, outlier].into_iter().enumerate() {
+            let expected: Scalar = value.into();
+            let actual = encoded.execute_scalar(index, &mut ctx).unwrap();
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
@@ -154,5 +174,77 @@ mod test {
             PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]),
             &mut ctx
         );
+        for (index, value) in [a, b, outlier].into_iter().enumerate() {
+            let expected = Scalar::primitive(value, Nullability::Nullable);
+            let actual = encoded.execute_scalar(index, &mut ctx).unwrap();
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_eq!(actual, expected);
+        }
+    }
+
+    /// Left-parts codes are untrusted, and both decode paths index (or mask into) the
+    /// dictionary with each code, so a code outside the dictionary must be rejected by the
+    /// first operation that decodes it, rather than panicking or decoding garbage (#10756).
+    #[test]
+    fn test_out_of_dictionary_code_rejected_on_first_use() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let corrupt = ALPRD::try_new(
+            DType::Primitive(PType::F32, Nullability::NonNullable),
+            buffer![7u16].into_array(),
+            buffer![0u16, 1],
+            buffer![0u32].into_array(),
+            16,
+            None,
+        )?;
+
+        assert!(
+            corrupt
+                .clone()
+                .into_array()
+                .execute::<PrimitiveArray>(&mut ctx)
+                .is_err()
+        );
+        assert!(corrupt.execute_scalar(0, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::unpatched(false)]
+    #[case::patched(true)]
+    fn test_out_of_dictionary_code_in_null_slot_decodes(#[case] patched: bool) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let left_parts = PrimitiveArray::new(
+            buffer![1u16, 7, 0],
+            Validity::from_iter([true, false, true]),
+        );
+        let patches = patched
+            .then(|| {
+                Patches::new(
+                    3,
+                    0,
+                    buffer![2u32].into_array(),
+                    buffer![30u16].into_array(),
+                    None,
+                    &mut ctx,
+                )
+            })
+            .transpose()?;
+        let array = ALPRD::try_new(
+            DType::Primitive(PType::F32, Nullability::Nullable),
+            left_parts.into_array(),
+            buffer![10u16, 20],
+            buffer![0u32, 0, 0].into_array(),
+            16,
+            patches,
+        )?;
+
+        let last_left: u32 = if patched { 30 } else { 10 };
+        let expected = PrimitiveArray::from_option_iter([
+            Some(f32::from_bits(20 << 16)),
+            None,
+            Some(f32::from_bits(last_left << 16)),
+        ]);
+        assert_arrays_eq!(array, expected, &mut ctx);
+        Ok(())
     }
 }

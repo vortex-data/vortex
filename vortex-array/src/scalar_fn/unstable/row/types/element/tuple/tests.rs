@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::ElementTuple;
 use super::element_tuple::batch_const;
@@ -15,7 +18,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
@@ -25,9 +28,13 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
+use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 static DECODE_CALLS: AtomicUsize = AtomicUsize::new(0);
 static CONSTANT_DECODE_LEN: AtomicUsize = AtomicUsize::new(0);
@@ -104,6 +111,32 @@ i64_test_element!(
 );
 i64_test_element!(DenseFallible, false);
 
+#[rstest]
+#[case::canonical(PrimitiveArray::from_iter([1_i64, 2, 3]).into_array(), vec![1, 2, 3])]
+#[case::encoded(ConstantArray::new(7_i64, 3).into_array(), vec![7, 7, 7])]
+fn test_borrowed_primitive_decode_retains_storage(
+    #[case] array: ArrayRef,
+    #[case] expected: Vec<i64>,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let column = <i64 as InputElement>::decode_ref(&array, &mut ctx)?;
+    drop(array);
+
+    assert_eq!(column.as_slice(), expected);
+    Ok(())
+}
+
+#[test]
+fn test_default_borrowed_decode_retains_storage() -> VortexResult<()> {
+    let array = BoolArray::from_iter([true, false, true]).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let column = <bool as InputElement>::decode_ref(&array, &mut ctx)?;
+    drop(array);
+
+    assert_eq!(column.iter().collect::<Vec<_>>(), [true, false, true]);
+    Ok(())
+}
+
 #[test]
 fn test_view_lens_match_checks_each_view() {
     let first: &[i64] = &[1, 2];
@@ -118,7 +151,7 @@ fn test_null_tolerant_decline_precedes_decoding() -> VortexResult<()> {
     let first = PrimitiveArray::from_iter([1_i64, 2]).into_array();
     let second = PrimitiveArray::from_iter([3_i64, 4]).into_array();
     let args = VecExecutionArgs::new(vec![first, second], 2);
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let columns = <(DecodeProbe, DenseFallible)>::decode_null_tolerant(&args, &mut ctx)?;
 
@@ -132,7 +165,7 @@ fn test_batch_constant_uses_constant_decoder() -> VortexResult<()> {
     DECODE_CALLS.store(0, Ordering::Relaxed);
     CONSTANT_DECODE_LEN.store(0, Ordering::Relaxed);
     let args = VecExecutionArgs::new(vec![ConstantArray::new(7_i64, 3).into_array()], 3);
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let columns = <(DecodeProbe,)>::decode(&args, &mut ctx)?;
 
@@ -144,16 +177,20 @@ fn test_batch_constant_uses_constant_decoder() -> VortexResult<()> {
 
 #[test]
 fn test_batch_const_unwraps_filtered_masked_constant() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let child = ConstantArray::new(7_i64, 3).into_array();
-    let masked =
-        MaskedArray::try_new(child, Validity::from_iter([true, false, true]))?.into_array();
-    let filtered = masked.filter(Mask::from_iter([true, true, false]))?;
+    let masked = MaskedArray::try_new(child, Validity::from_iter([true, false, true]), &mut ctx)?
+        .into_array();
+    let filtered = masked
+        .filter(Mask::from_iter([true, true, false]))?
+        .optimize_ctx(&SESSION)?;
 
     let Some(const_array) = batch_const(&filtered) else {
         vortex_bail!("filtered masked constant must remain batch-constant");
     };
 
     assert!(const_array.is::<Constant>());
+    assert_eq!(const_array.as_::<Constant>().scalar(), &Scalar::from(7_i64));
     Ok(())
 }
 
@@ -162,12 +199,20 @@ fn test_batch_const_preserves_filtered_extension() -> VortexResult<()> {
     let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
     let extension =
         ExtensionArray::new(ext_dtype, ConstantArray::new(7_i64, 3).into_array()).into_array();
-    let filtered = extension.filter(Mask::from_iter([true, false, true]))?;
+    let filtered = extension
+        .filter(Mask::from_iter([true, false, true]))?
+        .optimize_ctx(&SESSION)?;
 
     let Some(const_array) = batch_const(&filtered) else {
         vortex_bail!("filtered extension storage must remain batch-constant");
     };
 
     assert_eq!(const_array.dtype(), extension.dtype());
+    let mut ctx = SESSION.create_execution_ctx();
+    let scalar = const_array.execute_scalar(0, &mut ctx)?;
+    assert_eq!(
+        scalar.as_extension().to_storage_scalar(),
+        Scalar::from(7_i64)
+    );
     Ok(())
 }

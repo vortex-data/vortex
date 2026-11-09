@@ -18,13 +18,21 @@ prost = { workspace = true }
 smallvec = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-compute = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
+
+[[bench]]
+name = "sequence_probe"
+path = "benches/probe.rs"
+harness = false
 
 [lints]
 workspace = true

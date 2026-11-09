@@ -260,6 +260,9 @@ physical_plan [
                 }
             }
         ],
-        "extra_info": {}
+        "extra_info": {
+            "Limit": "10",
+            "Estimated Cardinality": "0"
+        }
     }
 ]

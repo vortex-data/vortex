@@ -255,6 +255,8 @@ mod tests {
         let DataType::FixedSizeList(elem, size) = field.data_type() else {
             panic!("expected FixedSizeList, got {:?}", field.data_type());
         };
+        assert_eq!(field.name(), "embedding");
+        assert!(!field.is_nullable());
         assert_eq!(*size, DIM as i32);
         assert_eq!(elem.data_type(), &DataType::Float32);
         assert!(!elem.is_nullable());
@@ -264,7 +266,15 @@ mod tests {
     #[test]
     fn from_arrow_field_recovers_vector_dtype() -> VortexResult<()> {
         let session = session_with_vector();
-        let arrow_field = session.to_arrow_field("embedding", &vector_dtype(true))?;
+        let arrow_field = Field::new(
+            "embedding",
+            DataType::FixedSizeList(
+                Arc::new(Field::new("item", DataType::Float32, false)),
+                DIM as i32,
+            ),
+            true,
+        )
+        .with_metadata(vector_extension_metadata());
         let dtype = session.from_arrow_field(&arrow_field)?;
         assert_eq!(dtype, vector_dtype(true));
         Ok(())
@@ -326,6 +336,10 @@ mod tests {
 
         assert!(matches!(arrow.data_type(), DataType::FixedSizeList(_, n) if *n == DIM as i32));
 
+        assert_eq!(
+            arrow.as_ref(),
+            arrow_fsl_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], DIM as i32).as_ref()
+        );
         let imported = session.from_arrow_array(arrow, &field)?;
         assert_eq!(imported.dtype(), original.dtype());
         vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
@@ -354,6 +368,13 @@ mod tests {
             "expected raw FSL dtype, got {}",
             imported.dtype()
         );
+        let expected = FixedSizeListArray::try_new(
+            buffer![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0].into_array(),
+            DIM,
+            Validity::NonNullable,
+            2,
+        )?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -425,6 +446,10 @@ mod tests {
         let arrow = session.execute_arrow(original.clone(), None, &mut ctx)?;
 
         let field = session.to_arrow_field("v", original.dtype())?;
+        assert_eq!(
+            arrow.as_ref(),
+            arrow_fsl_f32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], DIM as i32).as_ref()
+        );
         let imported = session.from_arrow_array(arrow, &field)?;
         assert_eq!(imported.dtype(), original.dtype());
         vortex_array::assert_arrays_eq!(imported, original, &mut ctx);

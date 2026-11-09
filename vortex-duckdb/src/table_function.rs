@@ -4,15 +4,18 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+#[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
+use prost::Message;
 use static_assertions::assert_impl_all;
 use tracing::debug;
 use vortex::aggregate_fn::DynAccumulator;
@@ -22,23 +25,32 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::col;
+use vortex::expr::proto::ExprSerializeProtoExt;
+#[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
+use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::SESSION;
 use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
+use crate::convert::try_from_table_filter;
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::AggregateExpression;
 use crate::duckdb::AggregatePushdownInputRef;
@@ -51,10 +63,12 @@ use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
 use crate::exporter::ArrayExporter;
+use crate::file_reader::FileScanState;
 use crate::projection::DuckdbField;
 use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::ProjectionInput;
+use crate::projection::is_optional_table_filter;
 
 // Duckdb has two state machines for an extension. The outer one is the table
 // function state machine which calls the file reader state machine.
@@ -89,6 +103,20 @@ pub(crate) struct BindState {
 }
 assert_impl_all!(BindState: Send, Clone);
 
+impl BindState {
+    pub fn empty() -> Self {
+        Self {
+            dtype: DType::Struct(StructFields::empty(), Nullability::NonNullable),
+            first_file_row_count: 0,
+            filters: vec![],
+            columns: vec![],
+            has_non_optional_filter: AtomicBool::new(false),
+            aggregates: vec![],
+            no_footer_caches: true,
+        }
+    }
+}
+
 impl Clone for BindState {
     fn clone(&self) -> Self {
         Self {
@@ -121,6 +149,23 @@ impl fmt::Debug for BindState {
     }
 }
 
+const COUNT_STAR_KIND: &str = "count_star";
+#[derive(Clone, PartialEq, prost::Message)]
+struct SerializedBindState {
+    #[prost(bool, tag = "1")]
+    has_non_optional_filter: bool,
+    #[prost(message, repeated, tag = "2")]
+    filters: Vec<expr_pb::Expr>,
+    #[prost(uint64, repeated, tag = "3")]
+    aggregate_projection_ids: Vec<u64>,
+    #[prost(string, repeated, tag = "4")]
+    aggregate_kinds: Vec<String>,
+    #[prost(uint64, repeated, tag = "5")]
+    projection_columns: Vec<u64>,
+    #[prost(message, repeated, tag = "6")]
+    projection_exprs: Vec<expr_pb::Expr>,
+}
+
 impl<'a> TableInitInput<'a> {
     pub(crate) fn bind_data(&self) -> &BindState {
         unsafe { &*self.input.bind_data.cast::<BindState>() }
@@ -140,6 +185,8 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    /// Whether the scan runs on the planner-driven V2 executor.
+    pub scan_v2: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -156,7 +203,13 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+/// A unit of scan work that one thread takes at a time.
+pub enum Split {
+    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
+    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
+    V2,
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -165,6 +218,15 @@ pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
 pub struct LocalState {
     pub exporter: Option<ArrayExporter>,
     pub split: Option<Split>,
+    /// The scan state of the file that this thread scans.
+    pub(crate) file: Option<Arc<FileScanState>>,
+    /// Scan states that this thread no longer uses. They are dropped outside
+    /// DuckDB's global multi-file lock; see `OpenFileReader`.
+    pub(crate) retired_files: Vec<Arc<FileScanState>>,
+    /// The planning run on which this thread runs the chunks of V2 scans.
+    pub(crate) run: Run,
+    /// Chunks of a V2 batch that this thread has yet to export, in reverse order.
+    pub(crate) pending: Vec<ArrayRef>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -299,6 +361,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        scan_v2: crate::scan_v2(),
     })
 }
 
@@ -335,19 +398,21 @@ fn build_partials(
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
-    unsafe {
-        use custom_labels::sys;
+    #[cfg(unix)]
+    {
+        unsafe {
+            use custom_labels::sys;
+            if sys::current().is_null() {
+                let ls = sys::new(0);
+                sys::replace(ls);
+            };
+        }
 
-        if sys::current().is_null() {
-            let ls = sys::new(0);
-            sys::replace(ls);
-        };
-    }
+        let global_labels = get_global_labels();
 
-    let global_labels = get_global_labels();
-
-    for (key, value) in global_labels {
-        CURRENT_LABELSET.set(key, value);
+        for (key, value) in global_labels {
+            CURRENT_LABELSET.set(key, value);
+        }
     }
 
     let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)
@@ -363,6 +428,10 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         exporter: None,
         partials,
         split: None,
+        file: None,
+        retired_files: Vec::new(),
+        run: Run::new(),
+        pending: Vec::new(),
         finished: false,
     }
 }
@@ -387,7 +456,9 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
         Ok(match primitive.ptype() {
             PType::I64 => primitive.typed_value::<i64>().map(i128::from),
             PType::U64 => primitive.typed_value::<u64>().map(i128::from),
-            other => vortex_bail!("expected {expected:?} output type, got {other}"),
+            other => {
+                vortex_bail!("expected {expected:?} output type, got {other}")
+            }
         })
     };
     match expected.as_type_id() {
@@ -416,35 +487,15 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     };
 
-    // Duckdb calls pushdown_complex_filter during planning phase.
-    // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
-    // COMPARISON_JOIN (HASH_JOIN) optimization:
-    // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
-    // Deliminator::Optimize.
-    //
-    // This leads to a massive regression on tpch sf=10 q17 and other
-    // benchmarks.
-    //
-    // This bug is reported to Duckdb
-    // https://github.com/duckdb/duckdb/issues/22669
-    //
-    // As a hack, report equality filters as not pushed.
-    // We can also report only the first filter as not pushed, but this
-    // has a negative performance impact.
-    let report_pushed = !expr
-        .as_opt::<Binary>()
-        .map(|op| *op == Operator::Eq)
-        .unwrap_or(false);
-
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
     bind_data
         .has_non_optional_filter
         .store(true, Ordering::Relaxed);
 
-    debug!(%expr, report_pushed, "pushed down expression");
+    debug!(%expr, "pushed down expression");
     bind_data.filters.push(expr);
-    Ok(report_pushed)
+    Ok(true)
 }
 
 pub fn pushdown_projection_expression(
@@ -558,8 +609,38 @@ pub fn pushdown_projection_aggregates(
     if !has_non_count_star {
         return Ok(false);
     }
+    // TryReplaceAggregate clears table filters, so Vortex evaluates them
+    let Some((filters, has_non_optional_filter)) = aggregate_table_filters(bind_data, input) else {
+        return Ok(false);
+    };
+    if has_non_optional_filter {
+        bind_data
+            .has_non_optional_filter
+            .store(true, Ordering::Relaxed);
+    }
+    bind_data.filters.extend(filters);
     bind_data.aggregates = aggregates;
     Ok(true)
+}
+
+// None if a filter is on a column absent from the files or doesn't convert
+fn aggregate_table_filters(
+    bind_data: &BindState,
+    input: &AggregatePushdownInputRef,
+) -> Option<(Vec<Expression>, bool)> {
+    let mut filters = Vec::new();
+    let mut has_non_optional_filter = false;
+    for (scan_index, filter) in input.table_filters() {
+        let column_id: usize = input.column_id(scan_index).as_();
+        let field = bind_data.columns.get(column_id)?;
+        let column = col(field.name.as_str());
+        let expr = try_from_table_filter(filter, &column, &bind_data.dtype)
+            .ok()
+            .flatten()?;
+        has_non_optional_filter |= !is_optional_table_filter(filter);
+        filters.push(expr);
+    }
+    Some((filters, has_non_optional_filter))
 }
 
 fn try_push_projection_aggregate(
@@ -660,4 +741,86 @@ pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
     if !projections.is_empty() {
         map.push("SELECT projections", &projections);
     }
+}
+
+pub fn serialize(bind_data: &BindState) -> VortexResult<Vec<u8>> {
+    let mut state = SerializedBindState {
+        has_non_optional_filter: bind_data.has_non_optional_filter.load(Ordering::Relaxed),
+        ..Default::default()
+    };
+    for expr in &bind_data.filters {
+        state.filters.push(expr.serialize_proto()?);
+    }
+    for aggregate in &bind_data.aggregates {
+        let (projection_id, kind) = match aggregate {
+            ColumnAggregate::Real {
+                projection_id,
+                aggregate,
+            } => (*projection_id, aggregate.to_string()),
+            ColumnAggregate::CountStar => (COUNT_STAR_PROJ_IDX, COUNT_STAR_KIND.to_string()),
+        };
+        state.aggregate_projection_ids.push(projection_id);
+        state.aggregate_kinds.push(kind);
+    }
+    for (column, field) in bind_data.columns.iter().enumerate() {
+        if let Some(expr) = &field.projection_expr {
+            state.projection_columns.push(column.as_());
+            state.projection_exprs.push(expr.serialize_proto()?);
+        }
+    }
+    Ok(state.encode_to_vec())
+}
+
+pub fn deserialize(
+    bind_data: &mut BindState,
+    bytes: &[u8],
+    types: &[&LogicalTypeRef],
+) -> VortexResult<()> {
+    let state = SerializedBindState::decode(bytes)
+        .map_err(|e| vortex_err!("failed to decode bind state: {e}"))?;
+    vortex_ensure!(
+        state.aggregate_projection_ids.len() == state.aggregate_kinds.len()
+            && state.projection_columns.len() == state.projection_exprs.len(),
+        "bind state length mismatch"
+    );
+
+    bind_data
+        .has_non_optional_filter
+        .store(state.has_non_optional_filter, Ordering::Relaxed);
+    bind_data.filters = state
+        .filters
+        .iter()
+        .map(|expr| Expression::from_proto(expr, &SESSION))
+        .collect::<VortexResult<Vec<_>>>()?;
+    bind_data.aggregates = state
+        .aggregate_projection_ids
+        .iter()
+        .zip(&state.aggregate_kinds)
+        .map(|(projection_id, kind)| {
+            Ok(if kind == COUNT_STAR_KIND {
+                ColumnAggregate::CountStar
+            } else {
+                ColumnAggregate::Real {
+                    projection_id: *projection_id,
+                    aggregate: kind.parse()?,
+                }
+            })
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    for (column, expr) in state.projection_columns.iter().zip(&state.projection_exprs) {
+        let column: usize = column.as_();
+        let expr = Expression::from_proto(expr, &SESSION)?;
+        let dtype = expr.return_dtype(&bind_data.dtype)?;
+        let (Some(field), Some(logical_type)) = (
+            bind_data.columns.get_mut(column),
+            types.get(column).copied(),
+        ) else {
+            vortex_bail!("pushed projection {column} is out of range");
+        };
+        field.logical_type = logical_type.to_owned();
+        field.dtype = dtype;
+        field.projection_expr = Some(expr);
+    }
+    Ok(())
 }

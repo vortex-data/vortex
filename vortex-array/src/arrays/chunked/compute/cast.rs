@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -15,28 +16,27 @@ use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Chunked {
     fn cast(array: ArrayView<'_, Chunked>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        let mut cast_chunks = Vec::new();
-        for chunk in array.iter_chunks() {
-            cast_chunks.push(chunk.cast(dtype.clone())?);
-        }
-
-        // SAFETY: casting all chunks retains all chunks have same DType
-        unsafe {
-            Ok(Some(
-                ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array(),
-            ))
-        }
+        let chunks = array.iter_chunks().map(|chunk| chunk.cast(dtype.clone()));
+        chunks.process_results(|chunks| {
+            // SAFETY: every chunk is cast to the requested dtype.
+            Some(unsafe {
+                ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), array.nchunks())
+                    .into_array()
+            })
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -46,9 +46,11 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_cast_chunked() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr0 = buffer![0u32, 1].into_array();
         let arr1 = buffer![2u32, 3].into_array();
 
@@ -97,6 +99,6 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable)
     ).unwrap().into_array())]
     fn test_cast_chunked_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 }

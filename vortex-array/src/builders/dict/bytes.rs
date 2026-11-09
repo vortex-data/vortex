@@ -7,6 +7,7 @@ use std::mem;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
@@ -19,10 +20,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
-use vortex_utils::aliases::hash_map::RandomState;
 
 use super::DictConstraints;
 use super::DictEncoder;
@@ -48,7 +47,7 @@ pub struct BytesDictBuilder<Code> {
     views: BufferMut<BinaryView>,
     values: ByteBufferMut,
     values_nulls: BitBufferMut,
-    hasher: RandomState,
+    hasher: FxBuildHasher,
     dtype: DType,
     max_dict_bytes: usize,
     max_dict_len: usize,
@@ -99,7 +98,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
             null_code: OnceCell::new(),
             values: BufferMut::empty_aligned_in(Alignment::of::<u8>(), allocator.clone()),
             values_nulls: BitBufferMut::empty_in(allocator.clone()),
-            hasher: DefaultHashBuilder::default(),
+            hasher: FxBuildHasher,
             dtype,
             max_dict_bytes: constraints.max_bytes.min(u32::MAX as usize),
             max_dict_len: constraints.max_len,
@@ -387,7 +386,7 @@ mod test {
     use crate::dtype::Nullability;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn encode_varbin() -> VortexResult<()> {

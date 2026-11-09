@@ -29,6 +29,7 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayDeserialization;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::VortexSessionExecute;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
 use vortex::array::session::ArraySessionExt;
@@ -358,7 +359,9 @@ fn _debug_array_metadata_dtype(array: Bound<'_, PyAny>) -> PyResult<String> {
 fn _debug_array_metadata_display_values(array: Bound<'_, PyAny>) -> PyResult<String> {
     let metadata = extract_array_metadata(&array)?;
     let array = deserialize_metadata_tree(&metadata, &METADATA_SESSION).map_err(to_py_err)?;
-    Ok(array.display_values().to_string())
+    Ok(array
+        .display_values(&METADATA_SESSION.create_execution_ctx())
+        .to_string())
 }
 
 /// Export a PyVortex array as Arrow C Device schema and array PyCapsules.

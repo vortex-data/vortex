@@ -15,3 +15,7 @@ pub(crate) mod compute;
 mod vtable;
 
 pub use vtable::Constant;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    compute::rules::register_parent_rules(session);
+}

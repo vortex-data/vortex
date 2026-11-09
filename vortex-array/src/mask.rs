@@ -61,13 +61,15 @@ impl NullAsFalse {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
@@ -75,8 +77,10 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn ctx() -> ExecutionCtx {
-        array_session().create_execution_ctx()
+        SESSION.create_execution_ctx()
     }
 
     #[test]

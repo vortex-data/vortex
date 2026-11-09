@@ -38,13 +38,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_session::VortexSession;
 
     use crate::ZigZagArray;
     use crate::zigzag_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -57,6 +58,8 @@ mod tests {
         let casted = zigzag
             .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             casted.dtype(),
@@ -87,6 +90,8 @@ mod tests {
         let casted = zigzag
             .into_array()
             .cast(DType::Primitive(PType::I16, Nullability::NonNullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             casted.encoding_id().as_ref(),
@@ -107,6 +112,8 @@ mod tests {
         let casted64 = zigzag16
             .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap()
+            .optimize_ctx(&SESSION)
             .unwrap();
         assert_eq!(
             casted64.encoding_id().as_ref(),

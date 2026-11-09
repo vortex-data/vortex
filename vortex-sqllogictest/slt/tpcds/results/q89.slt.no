@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTTIRR
+SELECT * from
+  (SELECT i_category, i_class, i_brand, s_store_name, s_company_name, d_moy, sum(ss_sales_price) sum_sales, avg(sum(ss_sales_price)) OVER (PARTITION BY i_category, i_brand, s_store_name, s_company_name) avg_monthly_sales
+   FROM item, store_sales, date_dim, store
+   WHERE ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND ss_store_sk = s_store_sk
+     AND d_year = 1999
+     AND ((i_category IN ('Books','Electronics','Sports')
+           AND i_class IN ('computers','stereo','football') )
+          OR (i_category IN ('Men','Jewelry','Women')
+              AND i_class IN ('shirts','birdal','dresses')))
+   GROUP BY i_category, i_class, i_brand, s_store_name, s_company_name, d_moy) tmp1
+WHERE CASE
+          WHEN (avg_monthly_sales <> 0) THEN (abs(sum_sales - avg_monthly_sales) / avg_monthly_sales)
+          ELSE NULL
+      END > 0.1
+ORDER BY sum_sales - avg_monthly_sales,
+         s_store_name, 1, 2, 3, 5, 6, 7, 8
+LIMIT 100;
+----
+Women dresses amalgamalg #1 ought Unknown 3 412.38 1248.403333
+Men shirts importoimporto #1 ought Unknown 5 352.43 1157.811666
+Men shirts importoimporto #1 ought Unknown 6 393.84 1157.811666
+Women dresses amalgamalg #1 able Unknown 7 382.54 1145.325833
+Women dresses amalgamalg #1 ought Unknown 7 489.26 1248.403333
+Men shirts importoimporto #1 ought Unknown 4 445.02 1157.811666
+Women dresses amalgamalg #1 able Unknown 6 444.75 1145.325833
+Men shirts importoimporto #1 able Unknown 2 576.07 1256.874166
+Men shirts importoimporto #1 able Unknown 6 581.87 1256.874166
+Men shirts importoimporto #1 able Unknown 3 628.09 1256.874166
+Men shirts importoimporto #1 ought Unknown 3 536.87 1157.811666
+Women dresses amalgamalg #1 able Unknown 3 526.59 1145.325833
+Women dresses amalgamalg #1 ought Unknown 2 652.12 1248.403333
+Women dresses amalgamalg #1 able Unknown 2 553.22 1145.325833
+Men shirts importoimporto #1 able Unknown 7 671.47 1256.874166
+Women dresses amalgamalg #1 able Unknown 4 576.21 1145.325833
+Men shirts importoimporto #1 able Unknown 4 732.08 1256.874166
+Women dresses amalgamalg #1 ought Unknown 5 772.9 1248.403333
+Women dresses amalgamalg #1 able Unknown 5 672.42 1145.325833
+Men shirts importoimporto #1 ought Unknown 1 686.89 1157.811666
+Women dresses amalgamalg #1 ought Unknown 4 802.55 1248.403333
+Women dresses amalgamalg #1 ought Unknown 1 811.41 1248.403333
+Women dresses amalgamalg #2 ought Unknown 5 124.9 527.47
+Men shirts importoimporto #1 able Unknown 1 869.35 1256.874166
+Women dresses amalgamalg #2 ought Unknown 4 172.46 527.47
+Women dresses amalgamalg #2 able Unknown 6 184.81 526.763333
+Men shirts importoimporto #2 ought Unknown 3 135.22 468.084166
+Men shirts importoimporto #2 able Unknown 6 90.72 403.280833
+Men shirts importoimporto #1 ought Unknown 2 851.36 1157.811666
+Women dresses amalgamalg #2 ought Unknown 6 225.05 527.47
+Women dresses amalgamalg #2 able Unknown 7 244.93 526.763333
+Women dresses amalgamalg #1 ought Unknown 6 968.48 1248.403333
+Men shirts importoimporto #1 able Unknown 5 978.5 1256.874166
+Men shirts importoimporto #2 able Unknown 2 144.76 403.280833
+Men shirts importoimporto #2 ought Unknown 1 215.17 468.084166
+Men shirts importoimporto #2 ought Unknown 6 220.2 468.084166
+Women dresses amalgamalg #1 able Unknown 1 910.99 1145.325833
+Men shirts importoimporto #2 ought Unknown 2 235.11 468.084166
+Women dresses amalgamalg #2 able Unknown 4 294.59 526.763333
+Women dresses amalgamalg #2 able Unknown 2 312.81 526.763333
+Women dresses amalgamalg #2 ought Unknown 7 318.39 527.47
+Men shirts importoimporto #2 ought Unknown 5 268.51 468.084166
+Electronics stereo exportiamalgamalg #14 able Unknown 7 34.06 215.049
+Books computers exportimaxi #3 able Unknown 2 4.03 180.890833
+Women dresses amalgamalg #2 ought Unknown 3 356.51 527.47
+Men shirts importoimporto #1 ought Unknown 7 988.45 1157.811666
+Books computers exportimaxi #3 able Unknown 6 22.3 180.890833
+Men shirts importoimporto #2 able Unknown 5 249.65 403.280833
+Books computers exportimaxi #3 ought Unknown 2 21.07 174.689
+Books computers exportimaxi #3 able Unknown 4 27.45 180.890833
+Electronics stereo exportiamalgamalg #14 ought Unknown 10 67.06 219.837777
+Jewelry birdal amalgcorp #8 ought Unknown 4 11.14 159.18
+Men shirts importoimporto #2 ought Unknown 8 324.19 468.084166
+Women dresses amalgamalg #2 ought Unknown 2 390.23 527.47
+Books computers exportimaxi #3 able Unknown 3 47.95 180.890833
+Books computers exportimaxi #3 ought Unknown 3 44.03 174.689
+Women dresses amalgamalg #2 able Unknown 5 402.98 526.763333
+Jewelry birdal amalgcorp #8 able Unknown 7 18.58 141.374545
+Men shirts importoimporto #2 able Unknown 9 281.9 403.280833
+Jewelry birdal amalgcorp #8 able Unknown 3 21.06 141.374545
+Electronics stereo exportiamalgamalg #14 able Unknown 5 97.09 215.049
+Sports football corpnameless #8 ought Unknown 5 4.29 119.63
+Sports football corpnameless #5 ought Unknown 5 12.57 126.2
+Electronics stereo exportiamalgamalg #6 ought Unknown 6 1.64 112.57
+Books computers exportimaxi #3 ought Unknown 10 66.95 174.689
+Men shirts importoimporto #2 able Unknown 1 298.2 403.280833
+Electronics stereo exportiamalgamalg #6 ought Unknown 8 8.4 112.57
+Books computers exportimaxi #5 able Unknown 5 17.95 121.991111
+Electronics stereo exportiamalgamalg #12 ought Unknown 6 5.6 106.24
+Jewelry birdal amalgcorp #8 ought Unknown 6 61.02 159.18
+Books computers exportimaxi #3 able Unknown 7 82.97 180.890833
+Jewelry birdal amalgcorp #1 able Unknown 3 15.65 113.019
+Books computers exportimaxi #2 able Unknown 7 18.6 115.326
+Electronics stereo exportiamalgamalg #12 able Unknown 9 16.27 112.581111
+Electronics stereo exportiamalgamalg #16 able Unknown 2 23.63 119.695
+Electronics stereo exportiamalgamalg #14 able Unknown 10 119.61 215.049
+Electronics stereo exportiamalgamalg #6 able Unknown 3 5.48 100.812727
+Sports football corpnameless #8 ought Unknown 1 25.45 119.63
+Electronics stereo exportiamalgamalg #6 ought Unknown 1 18.78 112.57
+Jewelry birdal amalgcorp #8 ought Unknown 8 65.51 159.18
+Electronics stereo exportiamalgamalg #6 able Unknown 10 7.45 100.812727
+Sports football corpnameless #8 ought Unknown 8 26.88 119.63
+Electronics stereo exportiamalgamalg #12 ought Unknown 11 15.74 106.24
+Sports football corpnameless #2 able Unknown 3 31.26 120.224444
+Electronics stereo exportiamalgamalg #14 ought Unknown 11 132.46 219.837777
+Books computers exportimaxi #11 ought Unknown 2 1.03 87.645555
+Electronics stereo exportiamalgamalg #12 able Unknown 2 26.36 112.581111
+Sports football corpnameless #2 able Unknown 1 36.06 120.224444
+Books computers exportimaxi #3 able Unknown 5 97.78 180.890833
+Jewelry birdal amalgcorp #8 ought Unknown 2 76.4 159.18
+Jewelry birdal amalgcorp #1 able Unknown 8 31.5 113.019
+Jewelry birdal amalgcorp #8 able Unknown 9 60.03 141.374545
+Sports football corpnameless #5 able Unknown 7 33.27 114.573636
+Men shirts importoimporto #2 ought Unknown 4 387.22 468.084166
+Electronics stereo exportiamalgamalg #12 ought Unknown 7 25.81 106.24
+Books computers exportimaxi #2 ought Unknown 8 6.43 86.802857
+Women dresses amalgamalg #2 ought Unknown 1 447.21 527.47
+Jewelry birdal amalgcorp #5 ought Unknown 8 5.69 85.45625
+Books computers exportimaxi #11 ought Unknown 1 8.12 87.645555
+Sports football corpnameless #2 ought Unknown 12 22.24 101.12

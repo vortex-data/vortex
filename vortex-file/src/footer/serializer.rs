@@ -12,6 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_layout::LayoutContext;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -19,7 +20,9 @@ use crate::EOF_SIZE;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::MAX_POSTSCRIPT_SIZE;
+use crate::POSTSCRIPT_LEN_BYTES;
 use crate::VERSION;
+use crate::VERSION_BYTES;
 use crate::footer::SegmentSpec;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
@@ -33,16 +36,18 @@ pub struct FooterSerializer {
     exclude_dtype: bool,
     offset: u64,
     layout_ctx: LayoutContext,
+    session: VortexSession,
 }
 
 impl FooterSerializer {
-    pub(super) fn new(footer: Footer) -> Self {
+    pub(super) fn new(footer: Footer, session: VortexSession) -> Self {
         Self {
             footer,
             metadata: HashMap::default(),
             exclude_dtype: false,
             offset: 0,
             layout_ctx: LayoutContext::default(),
+            session,
         }
     }
 
@@ -141,13 +146,16 @@ impl FooterSerializer {
 
         let (buffer, layout_segment) = write_flatbuffer(
             &mut self.offset,
-            &self.footer.layout().flatbuffer_writer(&layout_ctx),
+            &self
+                .footer
+                .layout()
+                .flatbuffer_writer(&layout_ctx, &self.session),
         )?;
         buffers.push(buffer);
 
         let statistics_segment = match self.footer.statistics() {
             None => None,
-            Some(stats) if stats.stats_sets().is_empty() => None,
+            Some(stats) if stats.is_empty() => None,
             Some(stats) => {
                 let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, stats)?;
                 buffers.push(buffer);
@@ -188,9 +196,10 @@ impl FooterSerializer {
 
         // And finally, the EOF 8-byte footer.
         let mut eof = [0u8; EOF_SIZE];
-        eof[0..2].copy_from_slice(&VERSION.to_le_bytes());
-        eof[2..4].copy_from_slice(&postscript_len.to_le_bytes());
-        eof[4..8].copy_from_slice(&MAGIC_BYTES);
+        eof[..VERSION_BYTES].copy_from_slice(&VERSION.to_le_bytes());
+        eof[VERSION_BYTES..VERSION_BYTES + POSTSCRIPT_LEN_BYTES]
+            .copy_from_slice(&postscript_len.to_le_bytes());
+        eof[VERSION_BYTES + POSTSCRIPT_LEN_BYTES..].copy_from_slice(&MAGIC_BYTES);
         buffers.push(ByteBuffer::copy_from(eof));
 
         let approx_byte_size =

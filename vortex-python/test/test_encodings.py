@@ -42,4 +42,7 @@ def test_chunked() -> None:
     )
 
     assert isinstance(chunked_array, vortex.ChunkedArray)
-    assert len(chunked_array.chunks())
+    chunks = chunked_array.chunks()
+    assert len(chunks) == 2
+    assert chunks[0].to_arrow_array() == pa.array([1.0, 2.0, 3.0])
+    assert chunks[1].to_arrow_array() == pa.array([4.0, 5.0, 6.0])

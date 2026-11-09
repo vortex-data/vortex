@@ -27,7 +27,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up JDK 17
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
         with:
           java-version: "17"
           distribution: "temurin"
@@ -49,7 +49,12 @@ jobs:
           mkdir -p docs/_static/vortex-jni
           mkdir -p docs/_static/vortex-spark
           cp -r java/vortex-jni/build/docs/javadoc/* docs/_static/vortex-jni/
-          cp -r java/vortex-spark/build/vortex-spark_2.13/docs/javadoc/* docs/_static/vortex-spark/
+          cp -r java/vortex-spark/v4.0/build/vortex-spark-4.0_2.13/docs/javadoc/* docs/_static/vortex-spark/
+          # JDK 17's javadoc stylesheet imports a font file that JDK 17 never
+          # generates, so every page requested a missing file. The pages fall
+          # back to the system fonts named in the stylesheet either way.
+          sed -i "/@import url('resources\/fonts\/dejavu.css');/d" \
+            docs/_static/vortex-jni/stylesheet.css docs/_static/vortex-spark/stylesheet.css
       - name: Build Python and Rust docs
         run: uv run --all-packages make -C docs html
       - name: Upload HTML

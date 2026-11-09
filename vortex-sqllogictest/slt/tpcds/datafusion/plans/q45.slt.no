@@ -64,13 +64,13 @@ logical_plan
 16)----------------------------TableScan: customer projection=[c_customer_sk, c_current_addr_sk]
 17)------------------------TableScan: customer_address projection=[ca_address_sk, ca_city, ca_zip]
 18)--------------------Projection: date_dim.d_date_sk
-19)----------------------Filter: date_dim.d_qoy = Int64(2) AND date_dim.d_year = Int64(2001)
-20)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(2), date_dim.d_year = Int64(2001)]
+19)----------------------Filter: date_dim.d_qoy = Int32(2) AND date_dim.d_year = Int32(2001)
+20)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(2), date_dim.d_year = Int32(2001)]
 21)----------------TableScan: item projection=[i_item_sk, i_item_id]
 22)------------SubqueryAlias: __correlated_sq_1
 23)--------------Projection: item.i_item_id
-24)----------------Filter: item.i_item_sk IN ([Int64(2), Int64(3), Int64(5), Int64(7), Int64(11), Int64(13), Int64(17), Int64(19), Int64(23), Int64(29)])
-25)------------------TableScan: item projection=[i_item_sk, i_item_id], partial_filters=[item.i_item_sk IN ([Int64(2), Int64(3), Int64(5), Int64(7), Int64(11), Int64(13), Int64(17), Int64(19), Int64(23), Int64(29)])]
+24)----------------Filter: item.i_item_sk IN ([Int32(2), Int32(3), Int32(5), Int32(7), Int32(11), Int32(13), Int32(17), Int32(19), Int32(23), Int32(29)])
+25)------------------TableScan: item projection=[i_item_sk, i_item_id], partial_filters=[item.i_item_sk IN ([Int32(2), Int32(3), Int32(5), Int32(7), Int32(11), Int32(13), Int32(17), Int32(19), Int32(23), Int32(29)])]
 physical_plan
 01)SortPreservingMergeExec: [ca_zip@0 ASC NULLS LAST, ca_city@1 ASC NULLS LAST], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[ca_zip@0 ASC NULLS LAST, ca_city@1 ASC NULLS LAST], preserve_partitioning=[true]

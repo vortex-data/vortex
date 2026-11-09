@@ -22,6 +22,23 @@ public final class ExpressionTest {
     }
 
     @Test
+    public void timestampLiteralsRejectInvalidMetadata() {
+        assertThrows(
+                RuntimeException.class,
+                () -> Expression.literalTimestamp(0L, Expression.TimeUnit.SECONDS, "Not/A/Timezone"));
+        assertThrows(
+                RuntimeException.class,
+                () -> Expression.nullLiteralTimestamp(Expression.TimeUnit.SECONDS, "Not/A/Timezone"));
+        assertThrows(RuntimeException.class, () -> Expression.nullLiteralTimestamp(Expression.TimeUnit.DAYS, null));
+    }
+
+    @Test
+    public void timestampLiteralsAcceptStorageExtremes() {
+        assertNotNull(Expression.literalTimestamp(Long.MAX_VALUE, Expression.TimeUnit.SECONDS, null));
+        assertNotNull(Expression.literalTimestamp(0L, Expression.TimeUnit.SECONDS, "UTC"));
+    }
+
+    @Test
     public void rowIdxBuildsAndComposes() {
         assertNotNull(Expression.rowIdx());
         // Mirrors `gt(row_idx(), lit(...))` on the Rust side: the row-index expression
@@ -45,6 +62,15 @@ public final class ExpressionTest {
                 new String[] {"x", "y", "z"},
                 new Expression[] {Expression.column("a"), Expression.literal(5L), Expression.rowIdx()},
                 true));
+    }
+
+    @Test
+    public void literalListComposesWithListContains() {
+        Expression set = Expression.literalList(
+                Expression.nullLiteral(Expression.DType.I64), false, Expression.literal(1L), Expression.literal(2L));
+        assertNotNull(Expression.listContains(set, Expression.column("id")));
+        assertNotNull(Expression.in(Expression.column("id"), set));
+        assertNotNull(Expression.notIn(Expression.column("id"), set));
     }
 
     @Test

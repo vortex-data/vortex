@@ -17,7 +17,6 @@ use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -31,7 +30,6 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::legacy_session;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
@@ -112,19 +110,21 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
     }
 
     #[inline]
-    #[allow(clippy::disallowed_methods)]
-    fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
+    fn lane_range(
+        &self,
+        chunk: usize,
+        lane: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Range<usize>> {
         assert!(chunk * 1024 <= self.len() + self.offset());
         assert!(lane < self.n_lanes());
 
-        let start = self.lane_offsets().execute_scalar(
-            chunk * self.n_lanes() + lane,
-            &mut legacy_session().create_execution_ctx(),
-        )?;
-        let stop = self.lane_offsets().execute_scalar(
-            chunk * self.n_lanes() + lane + 1,
-            &mut legacy_session().create_execution_ctx(),
-        )?;
+        let start = self
+            .lane_offsets()
+            .execute_scalar(chunk * self.n_lanes() + lane, ctx)?;
+        let stop = self
+            .lane_offsets()
+            .execute_scalar(chunk * self.n_lanes() + lane + 1, ctx)?;
 
         let start = start
             .as_primitive()
@@ -418,10 +418,20 @@ mod tests {
 
         let slot_vec = vec![Some(required.clone()), Some(optional.clone())];
         let view = OptionalPatchedSlotsView::from_slots(&slot_vec);
+        assert!(ArrayRef::ptr_eq(view.required, &required));
+        assert!(ArrayRef::ptr_eq(
+            view.maybe.expect("optional slot"),
+            &optional
+        ));
         assert_eq!(view.required.len(), 3);
         assert_eq!(view.maybe.expect("optional slot").len(), 3);
 
         let cloned = OptionalPatchedSlots::from_slots(slot_vec.into());
+        assert!(ArrayRef::ptr_eq(&cloned.required, &required));
+        assert!(ArrayRef::ptr_eq(
+            cloned.maybe.as_ref().expect("optional clone"),
+            &optional
+        ));
         assert_eq!(cloned.required.len(), required.len());
         assert_eq!(cloned.maybe.expect("optional clone").len(), optional.len());
 
@@ -434,11 +444,16 @@ mod tests {
             ]
             .into(),
         );
+        assert!(ArrayRef::ptr_eq(&rebuilt.inner, &required));
+        assert!(ArrayRef::ptr_eq(&rebuilt.lane_offsets, &optional));
+        assert!(ArrayRef::ptr_eq(&rebuilt.patch_indices, &required));
+        assert!(ArrayRef::ptr_eq(&rebuilt.patch_values, &optional));
         assert_eq!(rebuilt.inner.len(), required.len());
         assert_eq!(rebuilt.patch_values.len(), optional.len());
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn variadic_slots_round_trip() {
         let offsets = PrimitiveArray::new(buffer![0u64, 3, 5], Validity::NonNullable).into_array();
         let chunk0 = PrimitiveArray::new(buffer![1u8, 2, 3], Validity::NonNullable).into_array();
@@ -451,9 +466,20 @@ mod tests {
         assert_eq!(VariadicSlots::slot_name(0), "offsets");
         assert_eq!(VariadicSlots::slot_name(3), "chunks[1]");
 
-        let slot_vec = vec![Some(offsets.clone()), None, Some(chunk0), Some(chunk1)];
+        let slot_vec = vec![
+            Some(offsets.clone()),
+            None,
+            Some(chunk0.clone()),
+            Some(chunk1.clone()),
+        ];
 
         let view = VariadicSlotsView::from_slots(&slot_vec);
+        assert!(ArrayRef::ptr_eq(view.offsets, &offsets));
+        assert!(ArrayRef::ptr_eq(&view.chunks[0], &chunk0));
+        assert!(ArrayRef::ptr_eq(
+            view.chunks.get(1).expect("second chunk"),
+            &chunk1
+        ));
         assert_eq!(view.offsets.len(), 3);
         assert!(view.maybe_validity.is_none());
         assert_eq!(view.chunks.len(), 2);
@@ -467,14 +493,27 @@ mod tests {
 
         let owned = view.to_owned();
         assert_eq!(owned.chunks.len(), 2);
+        assert!(ArrayRef::ptr_eq(&owned.offsets, &offsets));
+        assert!(owned.maybe_validity.is_none());
+        assert!(ArrayRef::ptr_eq(&owned.chunks[0], &chunk0));
+        assert!(ArrayRef::ptr_eq(&owned.chunks[1], &chunk1));
 
         let owned = VariadicSlots::from_slots(slot_vec.into());
         assert_eq!(owned.offsets.len(), offsets.len());
         assert!(owned.maybe_validity.is_none());
         assert_eq!(owned.chunks.len(), 2);
 
+        assert!(ArrayRef::ptr_eq(&owned.offsets, &offsets));
+        assert!(ArrayRef::ptr_eq(&owned.chunks[0], &chunk0));
+        assert!(ArrayRef::ptr_eq(&owned.chunks[1], &chunk1));
         let slots = owned.into_slots();
         assert_eq!(slots.len(), 4);
+        for (index, expected) in [(0, &offsets), (2, &chunk0), (3, &chunk1)] {
+            assert!(ArrayRef::ptr_eq(
+                slots[index].as_ref().expect("present slot"),
+                expected
+            ));
+        }
         assert!(slots[1].is_none());
         assert_eq!(
             slots[VariadicSlots::CHUNKS_OFFSET]
@@ -567,6 +606,12 @@ mod tests {
         ];
 
         let view = ShuffledVariadicSlotsView::from_slots(&slot_vec);
+        assert!(ArrayRef::ptr_eq(view.offsets, &offsets));
+        assert!(ArrayRef::ptr_eq(
+            view.maybe_validity.expect("validity"),
+            &validity
+        ));
+        assert!(ArrayRef::ptr_eq(&view.chunks[0], &chunk));
         assert_eq!(view.offsets.len(), offsets.len());
         assert_eq!(view.maybe_validity.map(|v| v.len()), Some(validity.len()));
         assert_eq!(view.chunks.len(), 1);
@@ -575,6 +620,12 @@ mod tests {
         // `into_slots` must emit annotation order, not the shuffled declaration order.
         let round_tripped = ShuffledVariadicSlots::from_slots(slot_vec.into()).into_slots();
         assert_eq!(round_tripped.len(), 3);
+        for (index, expected) in [&offsets, &validity, &chunk].into_iter().enumerate() {
+            assert!(ArrayRef::ptr_eq(
+                round_tripped[index].as_ref().expect("present slot"),
+                expected
+            ));
+        }
         assert_eq!(
             round_tripped[ShuffledVariadicSlots::OFFSETS]
                 .as_ref()

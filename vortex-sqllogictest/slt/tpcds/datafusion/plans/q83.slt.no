@@ -83,7 +83,7 @@ logical_plan
 06)----------Inner Join: sr_items.item_id = cr_items.item_id
 07)------------SubqueryAlias: sr_items
 08)--------------Projection: item.i_item_id AS item_id, sum(store_returns.sr_return_quantity) AS sr_item_qty
-09)----------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(store_returns.sr_return_quantity)]]
+09)----------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(CAST(store_returns.sr_return_quantity AS Int64))]]
 10)------------------Projection: store_returns.sr_return_quantity, item.i_item_id
 11)--------------------LeftSemi Join: date_dim.d_date = __correlated_sq_2.d_date
 12)----------------------Projection: store_returns.sr_return_quantity, item.i_item_id, date_dim.d_date
@@ -103,7 +103,7 @@ logical_plan
 26)----------------------------------TableScan: date_dim projection=[d_date, d_week_seq], partial_filters=[date_dim.d_date = Date32("2000-06-30") OR date_dim.d_date = Date32("2000-09-27") OR date_dim.d_date = Date32("2000-11-17")]
 27)------------SubqueryAlias: cr_items
 28)--------------Projection: item.i_item_id AS item_id, sum(catalog_returns.cr_return_quantity) AS cr_item_qty
-29)----------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(catalog_returns.cr_return_quantity)]]
+29)----------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(CAST(catalog_returns.cr_return_quantity AS Int64))]]
 30)------------------Projection: catalog_returns.cr_return_quantity, item.i_item_id
 31)--------------------LeftSemi Join: date_dim.d_date = __correlated_sq_4.d_date
 32)----------------------Projection: catalog_returns.cr_return_quantity, item.i_item_id, date_dim.d_date
@@ -123,7 +123,7 @@ logical_plan
 46)----------------------------------TableScan: date_dim projection=[d_date, d_week_seq], partial_filters=[date_dim.d_date = Date32("2000-06-30") OR date_dim.d_date = Date32("2000-09-27") OR date_dim.d_date = Date32("2000-11-17")]
 47)--------SubqueryAlias: wr_items
 48)----------Projection: item.i_item_id AS item_id, sum(web_returns.wr_return_quantity) AS wr_item_qty
-49)------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(web_returns.wr_return_quantity)]]
+49)------------Aggregate: groupBy=[[item.i_item_id]], aggr=[[sum(CAST(web_returns.wr_return_quantity AS Int64))]]
 50)--------------Projection: web_returns.wr_return_quantity, item.i_item_id
 51)----------------LeftSemi Join: date_dim.d_date = __correlated_sq_6.d_date
 52)------------------Projection: web_returns.wr_return_quantity, item.i_item_id, date_dim.d_date
@@ -194,10 +194,11 @@ physical_plan
 50)--------------------------CoalescePartitionsExec
 51)----------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(i_item_sk@0, sr_item_sk@1)], projection=[sr_returned_date_sk@2, sr_return_quantity@4, i_item_id@1]
 52)------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id], file_type=vortex
-53)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_return_quantity], file_type=vortex
-54)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-55)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
-56)----------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_week_seq@0, d_week_seq@1)], projection=[d_date@0]
-57)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_week_seq], file_type=vortex, predicate: d_date@2 = 2000-06-30 OR d_date@2 = 2000-09-27 OR d_date@2 = 2000-11-17
-58)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-59)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex
+53)------------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+54)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_return_quantity], file_type=vortex
+55)--------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+56)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk, d_date], file_type=vortex
+57)----------------------HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(d_week_seq@0, d_week_seq@1)], projection=[d_date@0]
+58)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_week_seq], file_type=vortex, predicate: d_date@2 = 2000-06-30 OR d_date@2 = 2000-09-27 OR d_date@2 = 2000-11-17
+59)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+60)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date, d_week_seq], file_type=vortex

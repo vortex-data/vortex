@@ -269,7 +269,10 @@ async fn verify_batch(
     for (field_index, (gpu_field, host_field)) in gpu_fields.zip(host_fields).enumerate() {
         let decoded = gpu_field.clone().execute_cuda(cuda_ctx).await?;
         cuda_ctx.synchronize_stream()?;
-        let decoded = decoded.into_host().await?.into_array();
+        let decoded = decoded
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         verify_field(host_field, decoded, host_ctx, batch_index, field_index)?;
     }
 

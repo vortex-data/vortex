@@ -62,10 +62,16 @@ Minimum Vortex Rust crate version: `0.85.0`.
 
 ## Draft editions
 
-Draft editions have no recorded minimum version of their origin project's code, and each new format
-or revision requires a new draft edition. Vortex-maintained draft formats are expected to remain
-compatible unless a defect blocks promotion into `core`, while independent plugin projects state
-their own policy.
+Draft editions have no recorded minimum version of their origin project's code. Until a draft
+freezes, its members can change or be removed. Except for `UNSTABLE`, Vortex-maintained draft
+formats are expected to remain compatible unless a defect blocks promotion into `core`, while
+independent plugin projects state their own policy.
+
+### `unstable`
+
+`UNSTABLE` is a draft edition that never freezes. It holds formats whose contracts are still
+changing, so its members and their wire contracts can change under the same IDs. Plugins can add
+members through ordinary edition inclusions.
 
 ### `preview2026.08.0`
 
@@ -113,22 +119,30 @@ For example, `core2026.08.0` declares `min`, `max`, `bounded_min`, `bounded_max`
 statistics, however, do store sums, in a fixed legacy field governed by the enclosing format's
 contract.
 
+Aggregate serialization support alone does not permit an aggregate in persisted zone maps. Its ID
+must belong to a selected edition, including `UNSTABLE` for experimental formats. The `all_*`
+aggregates are in-memory pruning predicates and do not need entries. Legacy file statistics also
+do not need entries.
+
 ## Format testing and promotion
 
-A format intended for `core` starts in a dedicated edition family. Its first edition is a draft,
-with no recorded `min_library_version` and no frozen compatibility guarantee. Even at this draft
-stage, the format is expected to be complete. If testing reveals a defect whose correction changes
-what readers must understand, the correction needs a new wire ID and a later edition.
+A format with a changing contract belongs in `UNSTABLE`. Its inclusion can be added, changed, or
+removed without a new edition or wire ID. Applications writing these formats need readers with
+matching implementations.
 
-After initial testing, the format can enter a new `preview` edition for broader opt-in use, then a
-later `core` edition for default use. Promotion changes which editions permit the format while
-preserving its contract and wire ID. The current `preview` edition is empty, so its first component
-must go into a new edition.
+Once the contract is settled, move its inclusion from `UNSTABLE` to another edition. A format
+intended for `core` enters `preview` for broader opt-in use, then a later `core` edition for default
+use. Optional modules use their own families. The format can keep its ID, but earlier experimental
+files acquire no compatibility guarantee.
+
+A frozen contract cannot change. A reader-visible correction to a frozen format requires a new wire
+ID and a later edition.
 
 ## Freezing an edition
 
-A stable edition can freeze when its origin publishes the code that first supports all its members.
-For `core`, this is a Vortex Rust crate release. Independent plugins use their own versions.
+A draft edition other than `UNSTABLE` can freeze when its origin publishes the code that first
+supports all its members. For `core`, this is a Vortex Rust crate release. Independent plugins use
+their own versions.
 
 Until the release version is known, the declaration uses `min_library_version: None`. Once it is
 known, the field records the first release that supports all members, usually while the next release
@@ -144,10 +158,10 @@ Default declarations live in `vortex-edition/src/declarations/`. Optional module
 with their implementation code. The exported TOML records are under `vortex/editions/`, grouped by
 family.
 
-1. For a new component, declare its own family and draft edition. For a revision, add a later
-   edition to the family that owns the earlier ID.
-2. To promote a tested format, add it to new `preview` and `core` editions without changing its ID
-   or contract.
+1. Register a changing format in `UNSTABLE`. Third-party plugins use ordinary edition inclusions.
+2. Once its contract is settled, move its inclusion from `UNSTABLE` to a draft edition. Formats
+   intended for `core` pass through `preview`; optional modules use their own families. Revisions
+   to frozen members require a new ID and a later edition.
 3. When an edition freezes, record the first release of its origin that supports every permitted
    component, including inherited members.
 4. Regenerate the records:
@@ -158,4 +172,5 @@ family.
 
 CI's `check-editions` command rejects changes to frozen records, including renames, unfreezing, and
 deletion, so changes to permitted wire formats require a later edition. The command also rejects a
-new edition that does not follow its family's chronology.
+new edition that does not follow its family's chronology. Draft records, including `UNSTABLE`, can
+change or be deleted.
