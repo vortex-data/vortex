@@ -89,14 +89,14 @@ impl FileScan {
         let io = scan.io();
         let rows = scan.rows().clone();
         let mut root = Run::new();
-        // EXPERIMENT: no liveness for DuckDB scans, so its chunks carry no claims.
-        root.admit(
+        root.admit_with_liveness(
             compose(&scan, splits, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
             },
             io.session(),
+            scan.liveness(),
         );
         let mut queue = VecDeque::new();
         loop {

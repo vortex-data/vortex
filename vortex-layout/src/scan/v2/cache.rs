@@ -67,9 +67,7 @@ impl Default for Inner {
             projections: Mutex::default(),
             ranges: Mutex::default(),
             filters: Mutex::default(),
-            // EXPERIMENT: keep every value for the life of the cache, to tell the wiring's cost
-            // from early eviction's.
-            values: ValueCache::default(),
+            values: ValueCache::with_liveness(liveness.clone()),
             retained: Arc::default(),
             liveness,
         }
