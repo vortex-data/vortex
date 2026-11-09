@@ -38,8 +38,8 @@ const ONE_MEG: u64 = 1 << 20;
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
     /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
-    /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
-    /// dictionary encoding.
+    /// `IntDictScheme` is automatically excluded when compressing dictionary codes to prevent
+    /// recursive dictionary encoding.
     BtrBlocks(BtrBlocksCompressorBuilder),
     /// An opaque compressor used as-is for both data and stats compression.
     Opaque(Arc<dyn CompressorPlugin>),
@@ -161,62 +161,68 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        let compressor = self.compressor;
-
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk.
-        // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
-        // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
-        // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .clone()
-                    .exclude_schemes([IntDictScheme.id()])
-                    .build(),
+        // The dict codes compressor excludes IntDictScheme because DictStrategy (step 3) already
+        // dictionary-encoded the column. Allowing IntDictScheme there would redundantly
+        // dictionary-encode the integer codes produced by that earlier step. Chunks that
+        // DictStrategy rejects go through the fallback, which keeps every scheme so integer
+        // dictionaries can still be chosen, e.g. for a decimal's most significant part.
+        let (codes_compressor, full_compressor): (
+            Arc<dyn CompressorPlugin>,
+            Arc<dyn CompressorPlugin>,
+        ) = match self.compressor {
+            CompressorConfig::BtrBlocks(builder) => (
+                Arc::new(
+                    builder
+                        .clone()
+                        .exclude_schemes([IntDictScheme.id()])
+                        .build(),
+                ),
+                Arc::new(builder.build()),
             ),
-            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+            CompressorConfig::Opaque(compressor) => (Arc::clone(&compressor), compressor),
         };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = RepartitionStrategy::new(
-            compressing,
-            RepartitionWriterOptions {
-                // Write stream partitions roughly become segments. Because Vortex never reads less
-                // than one segment, the size of segments and, therefore, partitions, must be small
-                // enough to both (1) allow fine-grained random access reads and (2) allow
-                // sufficient read concurrency for the desired throughput. One megabyte is small
-                // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
-                // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
-                block_len_multiple: self.row_block_size,
-                block_size_target: self.data_block_target_bytes,
-                canonicalize: true,
-            },
+        let coalescing_options = RepartitionWriterOptions {
+            // Write stream partitions roughly become segments. Because Vortex never reads less
+            // than one segment, the size of segments and, therefore, partitions, must be small
+            // enough to both (1) allow fine-grained random access reads and (2) allow
+            // sufficient read concurrency for the desired throughput. One megabyte is small
+            // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
+            // High-Performance Analytics", VLDB Vol 16, Iss 11).
+            block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
+            block_len_multiple: self.row_block_size,
+            block_size_target: self.data_block_target_bytes,
+            canonicalize: true,
+        };
+        let codes_coalescing = RepartitionStrategy::new(
+            CompressingStrategy::new(buffered.clone(), codes_compressor),
+            coalescing_options.clone(),
+        );
+        let fallback_coalescing = RepartitionStrategy::new(
+            CompressingStrategy::new(buffered, Arc::clone(&full_compressor)),
+            coalescing_options,
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
-            CompressorConfig::Opaque(compressor) => compressor,
-        };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
+        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&full_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
             probe_compressor
         } else {
-            Arc::clone(&stats_compressor)
+            full_compressor
         };
         let dict = DictStrategy::new(
-            coalescing.clone(),
+            codes_coalescing,
             compress_then_flat.clone(),
-            coalescing,
+            fallback_coalescing,
             DictLayoutOptions {
                 probe_len: self.row_block_size,
                 ..Default::default()
