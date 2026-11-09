@@ -76,7 +76,7 @@
 //! │                            │  and array/layout/compression/encryption specs
 //! ├────────────────────────────┤
 //! │         Postscript         │  locators for the footer and user-metadata segments;
-//! │                            │  at most 65528 bytes
+//! │                            │  at most 65527 bytes
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │  u16 version, u16 postscript length,
 //! │                            │  4 magic bytes 'VTXF'
@@ -143,12 +143,31 @@ mod forever_constant {
     /// The extension for Vortex files
     pub const VORTEX_FILE_EXTENSION: &str = "vortex";
 
-    /// The maximum length of a Vortex postscript in bytes
+    /// The maximum length of a Vortex postscript in bytes.
+    ///
+    /// The file ends with the postscript followed by the 8-byte EOF footer. Their combined
+    /// length must fit in a `u16`, so the postscript is limited to `u16::MAX - EOF_SIZE` bytes.
+    /// The footer flatbuffer precedes this tail and is outside this limit.
+    ///
+    /// ```text
+    /// +----------------+-------------+--------------------+----------------+
+    /// | Postscript (P) | Version (2) | Postscript len (2) | Magic VTXF (4) |
+    /// +----------------+-------------+--------------------+----------------+
+    ///                  |<------------ EOF_SIZE = 8 ---------------------->|
+    /// |<-------------------- P + 8 <= u16::MAX (65535) ------------------->|
+    ///
+    /// Version and postscript length are little-endian u16 fields.
+    /// The postscript length field stores P, excluding the EOF footer.
+    /// ```
     pub const MAX_POSTSCRIPT_SIZE: u16 = u16::MAX - 8;
     /// The magic bytes for a Vortex file
     pub const MAGIC_BYTES: [u8; 4] = *b"VTXF";
+    /// The size of the version field in bytes
+    pub const VERSION_BYTES: usize = 2;
+    /// The size of the postscript length field in bytes
+    pub const POSTSCRIPT_LEN_BYTES: usize = 2;
     /// The size of the EOF marker in bytes
-    pub const EOF_SIZE: usize = 8;
+    pub const EOF_SIZE: usize = VERSION_BYTES + POSTSCRIPT_LEN_BYTES + MAGIC_BYTES.len();
 
     #[cfg(test)]
     mod test {
@@ -159,6 +178,8 @@ mod forever_constant {
             assert_eq!(V1_FOOTER_FBS_SIZE, 32);
             assert_eq!(MAX_POSTSCRIPT_SIZE, 65527);
             assert_eq!(MAGIC_BYTES, *b"VTXF");
+            assert_eq!(VERSION_BYTES, 2);
+            assert_eq!(POSTSCRIPT_LEN_BYTES, 2);
             assert_eq!(EOF_SIZE, 8);
         }
     }
