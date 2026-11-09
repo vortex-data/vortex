@@ -3,7 +3,8 @@
     "common_encoding_tree_throughput": 8,
     "pipeline": 0,
     "single_encoding_throughput": 28,
-    "take_union": 4
+    "take_union": 4,
+    "write_compression": 6
   },
   "vortex-alp": {
     "alp_compress": 36

@@ -117,3 +117,8 @@ test = false
 [[bench]]
 name = "pipeline"
 harness = false
+
+[[bench]]
+name = "write_compression"
+harness = false
+test = false
