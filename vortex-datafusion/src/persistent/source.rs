@@ -3,6 +3,7 @@
 
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
@@ -36,6 +37,7 @@ use object_store::path::Path;
 use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::ScanScheduler;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -208,6 +210,8 @@ pub struct VortexSource {
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// The scheduler of the V2 file scans. The source only lives as long as one scan.
+    scan_scheduler: Arc<OnceLock<ScanScheduler>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -248,6 +252,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
             scan_caches: Arc::new(DashMap::default()),
+            scan_scheduler: Arc::default(),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             dynamic_filters: Arc::new(DashMap::default()),
@@ -376,6 +381,7 @@ impl VortexSource {
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
             scan_caches: Arc::clone(&self.scan_caches),
+            scan_scheduler: Arc::clone(&self.scan_scheduler),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             dynamic_filters: Arc::clone(&self.dynamic_filters),

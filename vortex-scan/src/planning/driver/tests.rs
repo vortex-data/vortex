@@ -503,7 +503,7 @@ fn drain(run: &mut Run) -> VortexResult<Vec<String>> {
         events.push(match run.advance()? {
             Progress::Batch(batch) => format!("batch {:?} {:?}", batch.root, batch.scope.rows),
             Progress::RootDone(root) => format!("done {root:?}"),
-            Progress::Spawn(scope, _) => format!("spawn {:?}", scope.rows),
+            Progress::Spawn(_, scope, _) => format!("spawn {:?}", scope.rows),
             Progress::Waiting => {
                 events.push("waiting".to_string());
                 return Ok(events);
@@ -810,5 +810,138 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
         .filter(|event| event.as_str() == "compute later")
         .count();
     assert!(later_visits > 0 && later_visits <= IO_POLL_INTERVAL);
+    Ok(())
+}
+
+/// A root that emits one batch for each of `rows`, one row each.
+fn batches_root(name: &'static str, log: &Log, rows: Range<u64>) -> Box<dyn Planner> {
+    let mut steps: Vec<_> = rows
+        .map(|row| one_batch_morsel(scope(row..row + 1), 1))
+        .collect();
+    steps.push(PlannerStep::Done);
+    ScriptedPlanner::boxed(name, steps, log)
+}
+
+#[test]
+fn runnable_roots_follow_their_positions() -> VortexResult<()> {
+    let log = Log::default();
+    let mut run = Run::new().with_step_limit(1_000);
+    run.admit_at(ready_root("late", &log, 0..1), scope(0..1), source(), 100);
+    run.admit_at(ready_root("early", &log, 0..1), scope(0..1), source(), 10);
+    run.admit_at(ready_root("same", &log, 0..1), scope(0..1), source(), 10);
+    assert_eq!(run.lowest_position(), Some(10));
+
+    assert_eq!(
+        drain(&mut run)?,
+        vec![
+            "batch RootId(1) 0..1",
+            "done RootId(1)",
+            "batch RootId(2) 0..1",
+            "done RootId(2)",
+            "batch RootId(0) 0..1",
+            "done RootId(0)",
+            "idle",
+        ]
+    );
+    assert_eq!(run.lowest_position(), None);
+    Ok(())
+}
+
+/// With a full budget, a root past the lowest position does not run, even when it is ready and
+/// the lowest root waits for a read.
+#[test]
+fn a_full_budget_runs_only_the_lowest_position() -> VortexResult<()> {
+    let log = Log::default();
+    let io = source();
+    // The read of the first root fills the budget.
+    let budget = MemoryBudget::new(4);
+    let mut run = Run::new()
+        .with_step_limit(1_000)
+        .with_memory_budget(Arc::clone(&budget));
+    run.admit_at(
+        reading_root("first", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&io) as Arc<dyn IoSource>,
+        0,
+    );
+    run.admit_at(batches_root("ahead", &log, 0..2), scope(0..2), source(), 10);
+
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+    assert!(run.is_throttled());
+    assert_eq!(budget.used(), 4);
+
+    run.complete(io.wait()?)?;
+    assert_eq!(
+        drain(&mut run)?,
+        vec![
+            "batch RootId(0) 0..2",
+            "done RootId(0)",
+            "batch RootId(1) 0..1",
+            "batch RootId(1) 1..2",
+            "done RootId(1)",
+            "idle",
+        ]
+    );
+    assert_eq!(budget.used(), 0);
+    Ok(())
+}
+
+/// Work that a full budget held back runs once the caller drops the batches it holds.
+#[test]
+fn held_back_work_runs_after_a_release() -> VortexResult<()> {
+    let log = Log::default();
+    let io = source();
+    let batch_bytes = array_of(1).nbytes();
+    // The read of the first root and one batch fit. A second batch does not.
+    let budget = MemoryBudget::new(4 + batch_bytes);
+    let mut run = Run::new()
+        .with_step_limit(1_000)
+        .with_memory_budget(Arc::clone(&budget));
+    run.admit_at(
+        reading_root("first", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&io) as Arc<dyn IoSource>,
+        0,
+    );
+    run.admit_at(batches_root("ahead", &log, 0..2), scope(0..2), source(), 10);
+
+    let Progress::Batch(held) = run.advance()? else {
+        vortex_bail!("the root that runs ahead emits a batch");
+    };
+    assert_eq!((held.root, held.scope.rows.clone()), (RootId(1), 0..1));
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+    assert!(run.is_throttled());
+
+    drop(held);
+    assert!(!run.is_throttled());
+    assert_eq!(
+        drain(&mut run)?,
+        vec!["batch RootId(1) 1..2", "done RootId(1)", "waiting"]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_run_without_a_budget_runs_ahead_of_a_waiting_root() -> VortexResult<()> {
+    let log = Log::default();
+    let io = source();
+    let mut run = Run::new().with_step_limit(1_000);
+    run.admit_at(
+        reading_root("first", &log, 0..2),
+        scope(0..2),
+        Arc::clone(&io) as Arc<dyn IoSource>,
+        0,
+    );
+    run.admit_at(batches_root("ahead", &log, 0..2), scope(0..2), source(), 10);
+
+    assert_eq!(
+        drain(&mut run)?,
+        vec![
+            "batch RootId(1) 0..1",
+            "batch RootId(1) 1..2",
+            "done RootId(1)",
+            "waiting",
+        ]
+    );
     Ok(())
 }

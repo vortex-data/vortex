@@ -4,6 +4,7 @@
 use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
@@ -56,17 +57,15 @@ use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::v2::ChunkPlanner;
-use vortex::layout::scan::v2::PrunePlanner;
+use vortex::layout::scan::v2::MemoryBudget;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
+use vortex::layout::scan::v2::ScanScheduler;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
-use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -82,7 +81,6 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
-use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
 use crate::v2::dynamic_filters::convert_dynamic_filter;
 
@@ -125,6 +123,9 @@ pub(crate) struct VortexOpener {
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, pruned zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    /// The scheduler that runs the chunks of every V2 file scan of the query, made by the first
+    /// file that a partition opens.
+    pub scan_scheduler: Arc<OnceLock<ScanScheduler>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -146,6 +147,14 @@ pub(crate) struct VortexOpener {
     /// partition only as far as the engine has not.
     pub partitions: usize,
 }
+
+/// The chunks that the scheduler of a query runs at one time, for each core that the scan has.
+/// More chunks than cores let the reads of one chunk overlap the compute of another.
+const SCHEDULER_CHUNKS_PER_CORE: usize = 2;
+
+/// The bytes of reads in flight and of batches not yet taken that the V2 file scans of one query
+/// hold together before only the earliest rows of each file run.
+const SCAN_MEMORY_BUDGET: u64 = 1 << 30;
 
 /// Identifies a dynamic filter of a scan's predicate by its allocation, which the predicate keeps
 /// alive for as long as the scan.
@@ -224,6 +233,7 @@ impl FileOpener for VortexOpener {
         let layout_readers = Arc::clone(&self.layout_readers);
         let segment_sources = Arc::clone(&self.segment_sources);
         let scan_caches = Arc::clone(&self.scan_caches);
+        let scan_scheduler = Arc::clone(&self.scan_scheduler);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
@@ -539,27 +549,17 @@ impl FileOpener for VortexOpener {
                     .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
                 let scan = Arc::new(scan);
 
-                // The planners, composed: with a filter, its pruning plans first over the whole
-                // partition, continuing into the chunks of the rows they keep; without a
-                // filter, the chunks directly. A chunk plans its conjuncts, then its
-                // projection.
-                let chunks = {
-                    let scan = Arc::clone(&scan);
-                    move |kept: Option<Mask>| -> Box<dyn Planner> {
-                        let rows = scan.rows().clone();
-                        let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-                    }
-                };
-                let root: Box<dyn Planner> = if scan.filter().is_some() {
-                    let rows = scan.rows().clone();
-                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
-                } else {
-                    chunks(None)
-                };
-
-                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                // One scheduler runs the chunks of every file and partition of the query.
+                let scheduler = scan_scheduler.get_or_init(|| {
+                    let chunks = concurrency * partitions * SCHEDULER_CHUNKS_PER_CORE;
+                    ScanScheduler::new()
+                        .with_handle(handle)
+                        .with_max_chunks(chunks)
+                        .with_memory_budget(MemoryBudget::new(SCAN_MEMORY_BUDGET))
+                });
+                // Each batch becomes Arrow on the task that decoded it. The partitions have the
+                // same position, so they share the chunk places evenly.
+                Ok(scheduler.scan_map(scan, 0, has_output_ordering, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -1198,6 +1198,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1609,6 +1610,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1702,6 +1704,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1886,6 +1889,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -1952,6 +1956,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
@@ -2169,6 +2174,7 @@ mod tests {
             layout_readers: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
+            scan_scheduler: Default::default(),
             partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),

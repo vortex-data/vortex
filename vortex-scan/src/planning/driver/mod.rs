@@ -5,11 +5,21 @@
 //!
 //! A [`Run`] drives any number of root planners, each with its own IO session, and hands their
 //! batches to its caller as they are produced. Runnable items are prioritised in DFS preorder,
-//! with roots ordered by admission and children by emission. Each visit takes at most one CPU
-//! step. A parent's continuation follows its emitted child's entire subtree. Waiting work is
-//! skipped and regains its priority when IO makes it runnable. Published IO is registered
-//! immediately and state is inspected again before parking. Output follows emission order,
-//! not global row order. An earlier runnable branch can starve later branches.
+//! with roots ordered by their position and then by admission, and children by emission. Each
+//! visit takes at most one CPU step. A parent's continuation follows its emitted child's entire
+//! subtree. Waiting work is skipped and regains its priority when IO makes it runnable.
+//! Published IO is registered immediately and state is inspected again before parking. Output
+//! follows emission order, not global row order. An earlier runnable branch can starve later
+//! branches.
+//!
+//! A root's position is where its output starts in the output of the caller, such as a global
+//! row offset over many files. [`Run::admit_at`] sets it, so the roots of many scans on one run
+//! are worked in the order the caller consumes them. Roots admitted with [`Run::admit`] share
+//! position zero and keep admission order.
+//!
+//! A run with a [`MemoryBudget`] charges it for the reads its work asks for and for the batches
+//! it hands back. While the budget is full, only the roots at the lowest position run, so the
+//! run stops running ahead but never stops the work its caller waits for.
 //!
 //! A run never blocks: [`Run::advance`] returns [`Progress::Waiting`] when every live item waits
 //! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by handing
@@ -18,6 +28,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::collections::btree_map::Entry as BTreeEntry;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -38,6 +49,8 @@ use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::planning::budget::MemoryBudget;
+use crate::planning::budget::MemoryCharge;
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
 use crate::planning::planner::Planner;
@@ -57,6 +70,9 @@ pub struct Batch {
     pub scope: WorkScope,
     /// The non-empty array.
     pub array: ArrayRef,
+    /// The bytes of the array, charged to the run's budget until this is dropped. `None` when
+    /// the run has no budget.
+    pub charge: Option<MemoryCharge>,
 }
 
 /// What a call to [`Run::advance`] left behind.
@@ -65,9 +81,10 @@ pub enum Progress {
     Batch(Batch),
     /// Every item descended from the root has retired, and its IO session was cleared.
     RootDone(RootId),
-    /// A planner declared this child independent. The run has not queued it: the owner runs it,
-    /// on this run as another root through [`Run::admit`] or on a run of its own elsewhere.
-    Spawn(WorkScope, Box<dyn Planner>),
+    /// A planner descended from this root declared this child independent. The run has not
+    /// queued it: the owner runs it, on this run as another root through [`Run::admit`] or on
+    /// a run of its own elsewhere.
+    Spawn(RootId, WorkScope, Box<dyn Planner>),
     /// Every live item waits for IO. Await [`Run::poll_completion`], or pass the next completion
     /// to [`Run::complete`].
     Waiting,
@@ -93,12 +110,15 @@ struct Work {
     root: RootId,
     scope: WorkScope,
     item: Item,
-    /// Stable child-ordinal path, beginning with the root's admission ordinal.
+    /// The root's position, then the stable child-ordinal path, beginning with the root's
+    /// admission ordinal.
     path: Vec<u64>,
     /// The parent continuation sorts after all previously emitted child subtrees.
     next_child: u64,
     /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
     outstanding: HashMap<IoRequestId, IoTarget>,
+    /// The bytes of the fetches this item published, charged until it retires.
+    charge: Option<MemoryCharge>,
 }
 
 impl Work {
@@ -164,6 +184,11 @@ impl ReadyQueue {
         self.work.remove(&owner)
     }
 
+    /// The position of the root of the next item.
+    fn next_position(&self) -> Option<u64> {
+        self.priorities.first_key_value().map(|(path, _)| path[0])
+    }
+
     fn is_empty(&self) -> bool {
         self.priorities.is_empty()
     }
@@ -182,6 +207,7 @@ const IO_POLL_INTERVAL: usize = 64;
 struct Root {
     io: Arc<dyn IoSource>,
     live: usize,
+    position: u64,
 }
 
 /// A set of root planners advanced by its caller on one thread at a time.
@@ -194,6 +220,9 @@ pub struct Run {
     next_owner: u64,
     queue: ReadyQueue,
     parked: HashMap<IoOwnerId, Box<Work>>,
+    /// The number of live roots at each position.
+    positions: BTreeMap<u64, usize>,
+    budget: Option<Arc<MemoryBudget>>,
     /// Batches and finished roots not yet returned by [`advance`](Self::advance).
     events: VecDeque<Progress>,
     /// Visits left before the sources are polled for completions again.
@@ -223,7 +252,14 @@ impl Run {
         self
     }
 
-    /// Admits `root` and everything it spawns, reading through `io`.
+    /// Charges `budget` for the reads the run's work asks for and the batches it hands back.
+    /// While the budget is full, only the roots at the lowest position run.
+    pub fn with_memory_budget(mut self, budget: Arc<MemoryBudget>) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    /// Admits `root` and everything it spawns, reading through `io`, at position zero.
     ///
     /// The session belongs to the root: the run submits the requests of every descendant to it,
     /// and clears it once they have all retired or the root is cancelled.
@@ -233,11 +269,69 @@ impl Run {
         scope: WorkScope,
         io: Arc<dyn IoSource>,
     ) -> RootId {
+        self.admit_at(root, scope, io, 0)
+    }
+
+    /// Like [`admit`](Self::admit), at `position`: where the root's output starts in the output
+    /// of the caller. The run works roots at a lower position first.
+    pub fn admit_at(
+        &mut self,
+        root: Box<dyn Planner>,
+        scope: WorkScope,
+        io: Arc<dyn IoSource>,
+        position: u64,
+    ) -> RootId {
         let id = RootId(self.next_root);
         self.next_root += 1;
-        self.roots.insert(id, Root { io, live: 0 });
-        self.spawn(id, scope, Item::Planner(root), vec![id.0]);
+        self.roots.insert(
+            id,
+            Root {
+                io,
+                live: 0,
+                position,
+            },
+        );
+        *self.positions.entry(position).or_default() += 1;
+        self.spawn(id, scope, Item::Planner(root), vec![position, id.0]);
         id
+    }
+
+    /// The lowest position of a live root.
+    pub fn lowest_position(&self) -> Option<u64> {
+        self.positions.keys().next().copied()
+    }
+
+    /// Whether the run holds back work because its budget is full.
+    pub fn is_throttled(&self) -> bool {
+        self.throttled_at().is_some()
+    }
+
+    /// The position past which no work runs, when the budget is full.
+    fn throttled_at(&self) -> Option<u64> {
+        let budget = self.budget.as_ref()?;
+        if !budget.is_full() {
+            return None;
+        }
+        self.lowest_position()
+    }
+
+    /// The next item to run, which a full budget limits to the roots at the lowest position.
+    fn pop_runnable(&mut self) -> Option<Box<Work>> {
+        if let Some(limit) = self.throttled_at()
+            && self.queue.next_position()? > limit
+        {
+            return None;
+        }
+        self.queue.pop()
+    }
+
+    fn forget_position(&mut self, position: u64) {
+        if let BTreeEntry::Occupied(mut count) = self.positions.entry(position) {
+            *count.get_mut() -= 1;
+            if *count.get() == 0 {
+                count.remove();
+            }
+        }
     }
 
     /// Drops every live item descended from `root` and clears its session. Batches the root
@@ -246,6 +340,7 @@ impl Run {
         let Some(cancelled) = self.roots.remove(&root) else {
             return;
         };
+        self.forget_position(cancelled.position);
         self.queue.cancel(root);
         self.parked.retain(|_, work| work.root != root);
         cancelled.io.clear();
@@ -275,8 +370,24 @@ impl Run {
                 }
             }
             self.visits_until_poll -= 1;
-            let Some(work) = self.queue.pop() else {
-                continue;
+            let work = match self.pop_runnable() {
+                Some(work) => work,
+                None => {
+                    // A full budget holds back everything that is ready, so the roots at the
+                    // lowest position wait for reads.
+                    self.take_completions()?;
+                    if !self.events.is_empty() {
+                        continue;
+                    }
+                    match self.pop_runnable() {
+                        Some(work) => work,
+                        None if self.parked.is_empty() => match self.queue.pop() {
+                            Some(work) => work,
+                            None => continue,
+                        },
+                        None => return Ok(Progress::Waiting),
+                    }
+                }
             };
             self.steps += 1;
             if let Some(limit) = self.step_limit
@@ -392,6 +503,7 @@ impl Run {
             path,
             next_child: 0,
             outstanding: HashMap::default(),
+            charge: None,
         });
         self.queue.insert(work);
     }
@@ -404,7 +516,9 @@ impl Run {
         root.get().io.release(work.id);
         root.get_mut().live -= 1;
         if root.get().live == 0 {
-            root.remove().io.clear();
+            let root = root.remove();
+            root.io.clear();
+            self.forget_position(root.position);
             self.events.push_back(Progress::RootDone(work.root));
         }
     }
@@ -466,17 +580,23 @@ impl Run {
                 self.queue.insert(work);
             }
             Output::Planner(PlannerOutput::Spawn(scope, child)) => {
-                self.events.push_back(Progress::Spawn(scope, child));
+                self.events
+                    .push_back(Progress::Spawn(work.root, scope, child));
                 self.queue.insert(work);
             }
             Output::Morsel(MorselOutput::Batch(array)) => {
                 if array.is_empty() {
                     vortex_bail!("morsel for scope {:?} returned an empty batch", work.scope);
                 }
+                let charge = self
+                    .budget
+                    .as_ref()
+                    .map(|budget| budget.charge(array.nbytes()));
                 self.events.push_back(Progress::Batch(Batch {
                     root: work.root,
                     scope: work.scope.clone(),
                     array,
+                    charge,
                 }));
                 self.queue.insert(work);
             }
@@ -506,6 +626,20 @@ impl Run {
         let Some(root) = self.roots.get(&work.root) else {
             vortex_bail!("work {:?} outlived its root {:?}", work.id, work.root);
         };
+        if let Some(budget) = &self.budget {
+            let bytes = batch
+                .iter()
+                .filter(|request| request.intent == IoIntent::Fetch)
+                .map(|request| match request.target {
+                    IoTarget::Range { len, .. } => len as u64,
+                    IoTarget::Size => 0,
+                })
+                .sum::<u64>();
+            match &mut work.charge {
+                Some(charge) => charge.add(bytes),
+                None => work.charge = Some(budget.charge(bytes)),
+            }
+        }
         root.io.submit(work.id, batch)
     }
 }
@@ -548,7 +682,7 @@ impl Driver {
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
-                Progress::Spawn(scope, child) => {
+                Progress::Spawn(_, scope, child) => {
                     run.admit(child, scope, Arc::clone(&self.io));
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
