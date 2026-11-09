@@ -233,8 +233,13 @@ impl IoSource for SegmentIoSource {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::task::Wake;
+    use std::task::Waker;
 
     use futures::FutureExt;
     use futures::channel::oneshot;
@@ -258,6 +263,120 @@ mod tests {
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
+    use crate::segments::SharedSegmentSource;
+
+    #[derive(Default)]
+    struct WakeFlag(AtomicBool);
+
+    impl Wake for WakeFlag {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    type PollHook = Box<dyn FnOnce(&Waker) + Send>;
+
+    #[derive(Default)]
+    struct RacingRead {
+        ready: AtomicBool,
+        requests: AtomicUsize,
+        hook: Mutex<Option<PollHook>>,
+    }
+
+    #[derive(Clone)]
+    struct RacingSegments(Arc<RacingRead>);
+
+    impl SegmentSource for RacingSegments {
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            self.0.requests.fetch_add(1, Ordering::SeqCst);
+            let state = Arc::clone(&self.0);
+            future::poll_fn(move |cx| {
+                if state.ready.load(Ordering::SeqCst) {
+                    return Poll::Ready(Ok(BufferHandle::new_host(ByteBuffer::from(vec![7; 4]))));
+                }
+                let hook = state.hook.lock().take();
+                if let Some(hook) = hook {
+                    hook(cx.waker());
+                }
+                // A read may become ready after its readiness check but before poll returns.
+                Poll::Pending
+            })
+            .boxed()
+        }
+    }
+
+    fn park_fetch(fetch: &SegmentIoSource, waker: &Waker, notified: &WakeFlag) {
+        // FuturesUnordered may schedule one fairness wake after polling its only child.
+        // Drain that wake too, so it cannot hide the missing segment-completion wake.
+        for _ in 0..4 {
+            notified.0.store(false, Ordering::SeqCst);
+            assert!(
+                fetch
+                    .poll_completion(&mut Context::from_waker(waker))
+                    .is_pending()
+            );
+            if !notified.0.swap(false, Ordering::SeqCst) {
+                return;
+            }
+        }
+        panic!("the controlled fetch did not park");
+    }
+
+    #[test]
+    fn prefetch_poll_hands_wake_back_to_a_racing_fetch() -> VortexResult<()> {
+        let state = Arc::new(RacingRead::default());
+        let segments: Arc<dyn SegmentSource> =
+            Arc::new(SharedSegmentSource::new(RacingSegments(Arc::clone(&state))));
+        let location = SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        };
+        let ranges = segment_ranges(&[location]);
+        let fetch = Arc::new(SegmentIoSource::new(
+            Arc::clone(&segments),
+            Arc::clone(&ranges),
+        ));
+        let prefetch = SegmentIoSource::new(segments, ranges);
+        let notified = Arc::new(WakeFlag::default());
+        let waker = Waker::from(Arc::clone(&notified));
+
+        fetch.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0)])?;
+        park_fetch(&fetch, &waker, &notified);
+
+        // Re-enter the other session at exactly the point where the shared inner future is
+        // still being polled. This models another thread consuming its wake before that poll
+        // returns, without relying on a scheduler, sleeps, or timing bounds.
+        let racing_fetch = Arc::clone(&fetch);
+        let racing_notified = Arc::clone(&notified);
+        let racing_state = Arc::clone(&state);
+        *state.hook.lock() = Some(Box::new(move |shared_waker| {
+            racing_state.ready.store(true, Ordering::SeqCst);
+            shared_waker.wake_by_ref();
+            assert!(racing_notified.0.swap(false, Ordering::SeqCst));
+            park_fetch(&racing_fetch, &waker, &racing_notified);
+        }));
+
+        prefetch.submit(IoOwnerId(1), vec![request(IoIntent::Prefetch, 1)])?;
+        assert!(
+            notified.0.swap(false, Ordering::SeqCst),
+            "a fetch that raced with a temporary prefetch poll lost its only wake"
+        );
+        let waker = Waker::from(notified);
+        let Poll::Ready(completion) = fetch.poll_completion(&mut Context::from_waker(&waker))
+        else {
+            return Err(vortex_err!("the notified fetch did not complete"));
+        };
+        let completion = completion?;
+        assert_eq!(completion.request, IoRequestId(0));
+        completion.result?;
+        assert_eq!(state.requests.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
 
     /// Serves four bytes per segment and counts the reads it is asked for.
     #[derive(Default)]
