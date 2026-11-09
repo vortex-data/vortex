@@ -1784,6 +1784,10 @@ fn test_coerced_string_comparison_drops_encoding_cast(#[case] predicate: &str) -
 #[case::ree_int16_run_ends(ree_dict_utf8(DataType::Int16), dict_utf8(DataType::UInt32))]
 #[case::ree_identity(ree_dict_utf8(DataType::Int64), ree_dict_utf8(DataType::Int64))]
 #[case::int_identity(DataType::Int32, DataType::Int32)]
+#[case::dict_view_decode(
+    DataType::Dictionary(Box::new(DataType::UInt16), Box::new(DataType::Utf8View)),
+    DataType::Utf8View
+)]
 fn test_infallible_encoding_cast_is_dropped(
     #[case] source: DataType,
     #[case] target: DataType,

@@ -77,6 +77,8 @@ use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
+use crate::convert::schema::dictionary_string_columns;
+use crate::convert::schema::with_dictionary_columns;
 use crate::convert::stats::approx_distinct_count;
 use crate::convert::stats::byte_size_to_df;
 use crate::convert::stats::constant_distinct_count;
@@ -255,6 +257,18 @@ extensions_options! {
         /// zone maps and dictionary values, of the table's files, not their data. It belongs to
         /// the table's [`VortexFormat`], so it lasts as long as the table. Defaults to 256MB.
         pub segment_cache_size_bytes: usize, default = DEFAULT_SEGMENT_CACHE_SIZE_BYTES
+        /// Whether to export dictionary-encoded string columns to DataFusion as Arrow
+        /// dictionaries.
+        ///
+        /// When enabled, schema inference declares a top-level `Utf8` column as
+        /// `Dictionary(UInt16, Utf8View)` (or `UInt32` keys for wider codes) when every chunk of
+        /// it is stored in a dictionary layout in every file. The scan then hands DataFusion the
+        /// dictionary codes and values instead of expanding the values into every row, and
+        /// batches cut from the same dictionary share one exported Arrow values array.
+        ///
+        /// Disabled by default, which declares every string column as `Utf8View`. Only inferred
+        /// schemas are affected; a declared table schema is always respected.
+        pub dictionary_export: bool, default = false
     }
 }
 
@@ -548,10 +562,18 @@ impl FileFormat for VortexFormat {
                             .as_any()
                             .downcast_ref::<CachedVortexMetadata>()
                     {
-                        let inferred_schema = session
-                            .arrow()
-                            .to_arrow_schema(cached_vortex.footer().dtype())?;
-                        return VortexResult::Ok((object.location, inferred_schema));
+                        let footer = cached_vortex.footer();
+                        let inferred_schema = session.arrow().to_arrow_schema(footer.dtype())?;
+                        let dictionary_columns = if opts.dictionary_export {
+                            dictionary_string_columns(footer.layout())?
+                        } else {
+                            Vec::new()
+                        };
+                        return VortexResult::Ok((
+                            object.location,
+                            inferred_schema,
+                            dictionary_columns,
+                        ));
                     }
 
                     // Not entry or invalid - open the file
@@ -575,7 +597,12 @@ impl FileFormat for VortexFormat {
                     cache.put(&object.location, entry);
 
                     let inferred_schema = session.arrow().to_arrow_schema(vxf.dtype())?;
-                    VortexResult::Ok((object.location, inferred_schema))
+                    let dictionary_columns = if opts.dictionary_export {
+                        dictionary_string_columns(vxf.footer().layout())?
+                    } else {
+                        Vec::new()
+                    };
+                    VortexResult::Ok((object.location, inferred_schema, dictionary_columns))
                 })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
@@ -591,10 +618,22 @@ impl FileFormat for VortexFormat {
             .map_err(|e| DataFusionError::Execution(format!("Failed to infer schema: {e}")))?;
 
         // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
-        file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
-        let file_schemas = file_schemas.into_iter().map(|(_, schema)| schema);
+        file_schemas.sort_by(|(l1, ..), (l2, ..)| l1.cmp(l2));
+        let file_count = file_schemas.len();
+        let (file_schemas, dictionary_columns): (Vec<_>, Vec<_>) = file_schemas
+            .into_iter()
+            .map(|(_, schema, dictionary_columns)| (schema, dictionary_columns))
+            .unzip();
 
-        Ok(Arc::new(Schema::try_merge(file_schemas)?))
+        let schema = Schema::try_merge(file_schemas)?;
+        if !self.opts.dictionary_export {
+            return Ok(Arc::new(schema));
+        }
+        Ok(Arc::new(with_dictionary_columns(
+            schema,
+            dictionary_columns,
+            file_count,
+        )))
     }
 
     #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]

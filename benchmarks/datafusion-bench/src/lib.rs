@@ -118,6 +118,12 @@ fn vortex_table_options() -> VortexTableOptions {
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.dictionary_export = env_flag("VORTEX_DICT_EXPORT");
 
     opts
+}
+
+/// Whether the environment variable `name` is set to `1` or `true`.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
 }

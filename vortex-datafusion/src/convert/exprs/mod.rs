@@ -875,6 +875,11 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     use DataType::*;
     Ok(match (source, target) {
         _ if source == target => CastPushdown::Drop,
+        // Decoding a dictionary of views gathers views and reuses the value buffers, so unlike
+        // offset-based values nothing can overflow. Vortex does not distinguish the two types.
+        (Dictionary(_, values), Utf8View | BinaryView) if values.as_ref() == target => {
+            CastPushdown::Drop
+        }
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))
