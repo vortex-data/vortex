@@ -10,9 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateArgs;
 use vortex_array::aggregate_fn::AggregateFnId;
-use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -34,12 +32,12 @@ use crate::extension::flatten_coordinates;
 use crate::extension::is_native_geometry;
 
 /// Aggregates a native geometry column's 2D axis-aligned bounding box (AABB) as a native
-/// `geoarrow.box`, the spatial analogue of min/max. Also the default zone statistic for such
-/// columns (via `zone_stat_default`).
+/// `geoarrow.box`, the spatial analogue of min/max. Writers can explicitly select it for file or
+/// zone statistics.
 #[derive(Clone, Debug)]
 pub struct GeometryAabb;
 
-/// Running union of geometry AABBs, or `None` until the first row. A transient
+/// Running union of geometry AABBs, or `None` until the first non-empty geometry. A transient
 /// `geo::Rect` value - the persisted stat is the native box (see `to_scalar`).
 pub struct AabbPartial {
     rect: Option<SpatialRect<f64>>,
@@ -72,7 +70,7 @@ fn aabb_dtype() -> DType {
     )
 }
 
-/// The `Rect` storage `Struct<xmin, ymin, xmax, ymax>` backing the zone statistic.
+/// The `Rect` storage `Struct<xmin, ymin, xmax, ymax>` backing the AABB statistic.
 fn aabb_storage_dtype() -> DType {
     box_storage_dtype(Dimension::Xy, Nullability::Nullable)
 }
@@ -129,7 +127,7 @@ impl AggregateFnVTable for GeometryAabb {
         *ID
     }
 
-    // Serializable so the zoned writer can persist this as a per-chunk stat. No options to encode.
+    // File and zone statistics serialize this aggregate without options.
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
@@ -144,10 +142,6 @@ impl AggregateFnVTable for GeometryAabb {
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         is_native_geometry(input_dtype).then(aabb_dtype)
-    }
-
-    fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
-        is_native_geometry(input_dtype).then(|| self.bind(EmptyOptions))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -269,9 +263,7 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -304,13 +296,12 @@ mod tests {
         ])
     }
 
-    /// The aggregate must be serializable so the zoned writer can persist its zone-stat descriptor.
     #[test]
-    fn serializes_for_zone_storage() -> VortexResult<()> {
+    fn serializes_for_statistics() -> VortexResult<()> {
         let session = VortexSession::empty();
         let metadata = GeometryAabb
             .serialize(&EmptyOptions)?
-            .expect("GeometryAabb must be serializable to be stored as a zone statistic");
+            .expect("GeometryAabb must be serializable to be stored as a statistic");
         GeometryAabb.deserialize(&metadata, &session)?;
         Ok(())
     }
@@ -371,8 +362,7 @@ mod tests {
         Ok(())
     }
 
-    /// Every native geometry type over the same vertex set yields the same AABB - the zone stat
-    /// covers the whole type family.
+    /// Every native geometry type over the same vertex set yields the same AABB.
     #[test]
     fn aabb_covers_every_native_geometry_type() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -488,30 +478,14 @@ mod tests {
         Ok(())
     }
 
-    /// After `initialize`, the registry yields a default zone statistic for every native geometry
-    /// type (so the zoned writer stores it) but none for ordinary numeric columns.
     #[test]
-    fn registered_as_geometry_zone_default() -> VortexResult<()> {
+    fn initialize_registers_geometry_aggregate() {
         let session = spatial_session();
-
-        for column in every_native_column(&[(0.0, 0.0), (1.0, 1.0)])? {
-            assert!(
-                !session
-                    .aggregate_fns()
-                    .zone_stat_defaults(column.dtype())
-                    .is_empty(),
-                "a geometry zone-stat default should be discovered for {}",
-                column.dtype()
-            );
-        }
-        let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         assert!(
             session
                 .aggregate_fns()
-                .zone_stat_defaults(&i32_dtype)
-                .is_empty(),
-            "no geometry zone-stat default should apply to numeric columns"
+                .find_plugin(&GeometryAabb.id())
+                .is_some()
         );
-        Ok(())
     }
 }

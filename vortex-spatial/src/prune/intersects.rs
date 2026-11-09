@@ -37,7 +37,7 @@ impl StatsRewriteRule for SpatialIntersectsPrune {
         expr: &BoundExpression,
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        let Some((geom, constant)) = geometry_and_constant(expr)? else {
+        let Some((geom, constant)) = geometry_and_constant(expr) else {
             return Ok(None);
         };
         let Some(query) = query_aabb(constant, session)? else {

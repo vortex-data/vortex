@@ -23,7 +23,6 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -114,7 +113,7 @@ impl LayoutStrategy for ZonedStrategy {
             .options
             .aggregate_fns
             .clone()
-            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
+            .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype()));
         // Fields of a nullable struct are written unmasked, so every aggregate over them sees
         // values the logical column does not contain: counts come out wrong and min/max come out
         // wider than the truth. Zone maps hold exact values only, so until the aggregates are
@@ -313,7 +312,7 @@ impl ZonedStrategy {
     }
 }
 
-fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[AggregateFnRef]> {
+fn default_zoned_aggregate_fns(dtype: &DType) -> Arc<[AggregateFnRef]> {
     let (max, min) = match dtype {
         DType::Utf8(_) | DType::Binary(_) => (
             BoundedMax.bind(BoundedMaxOptions {
@@ -330,27 +329,17 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     };
 
     // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
-    // Its semantics are also unsettled - null-on-empty was changed in #9113 and reverted in
-    // #9324 - so it is not a stat to record in every zone of every file, let alone freeze
-    // into an edition. File-level statistics still record a sum by default (see
-    // `file_stats::default_pruning_aggregate_fns`).
-    let mut aggregate_fns = vec![
+    vec![
         max,
         min,
         NanCount.bind(EmptyOptions),
         NullCount.bind(EmptyOptions),
-    ];
-
-    // Stats from spatial extension types are discovered from the registry at runtime instead.
-    aggregate_fns.extend(session.aggregate_fns().zone_stat_defaults(dtype));
-
-    aggregate_fns.into()
+    ]
+    .into()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
@@ -385,8 +374,6 @@ mod tests {
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
     #[rstest]
     #[case::variant(DType::Variant(Nullability::Nullable))]
     #[case::variant_in_struct(DType::Struct(
@@ -394,9 +381,8 @@ mod tests {
         Nullability::NonNullable,
     ))]
     fn zone_maps_hold_no_variant_state(#[case] dtype: DType) {
-        let session = VortexSession::empty().with::<LayoutSession>();
         let accumulator =
-            AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype, &session));
+            AggregateStatsAccumulator::new(&dtype, &default_zoned_aggregate_fns(&dtype));
         for aggregate_fn in accumulator.aggregate_fns().iter() {
             let state = aggregate_state_dtype(&dtype, aggregate_fn).vortex_expect("kept state");
             assert!(!contains_variant(&state), "{aggregate_fn} keeps a variant");
@@ -496,7 +482,7 @@ mod tests {
     #[test]
     fn default_aggregates_bound_variable_length_min_max() {
         let aggregate_fns =
-            default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable), &SESSION);
+            default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable));
 
         assert_eq!(
             aggregate_fns[0].as_::<BoundedMax>().max_bytes,
@@ -510,7 +496,7 @@ mod tests {
 
     #[test]
     fn default_aggregates_keep_fixed_width_min_max_exact() {
-        let aggregate_fns = default_zoned_aggregate_fns(&PType::I32.into(), &SESSION);
+        let aggregate_fns = default_zoned_aggregate_fns(&PType::I32.into());
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
@@ -524,7 +510,7 @@ mod tests {
         Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
     ))]
     fn default_aggregates_never_record_sum(#[case] dtype: DType) {
-        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &VortexSession::empty());
+        let aggregate_fns = default_zoned_aggregate_fns(&dtype);
 
         assert!(
             aggregate_fns
