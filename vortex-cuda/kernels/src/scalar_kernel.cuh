@@ -9,7 +9,7 @@
 
 // True if Op defines `uses_index`, else false — so ops that don't care are unaffected.
 template <typename Op>
-inline constexpr bool op_uses_index() {
+__host__ __device__ inline constexpr bool op_uses_index() {
     if constexpr (requires { Op::uses_index; }) {
         return Op::uses_index;
     } else {
