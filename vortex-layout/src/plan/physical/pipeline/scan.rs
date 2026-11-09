@@ -32,6 +32,7 @@ use super::port::SourceEnd;
 use super::values::ValueCache;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::operator::Cx;
+use crate::plan::physical::operator::InletCompile;
 use crate::plan::physical::operator::InletSet;
 use crate::plan::physical::operator::Input;
 use crate::plan::physical::operator::Operator;
@@ -141,6 +142,7 @@ fn drive(
     session: &VortexSession,
     exec: &mut ExecutionCtx,
     reads: &mut SmallVec<[SegmentId; 1]>,
+    compiles: &mut SmallVec<[InletCompile; 1]>,
 ) -> VortexResult<Progress> {
     let Pipeline {
         source,
@@ -160,6 +162,7 @@ fn drive(
         inlets,
         bytes,
         reads,
+        compiles,
         session,
         exec,
         touched,
@@ -193,6 +196,11 @@ fn drive(
             vortex_ensure!(
                 cx.reads.is_empty() || ready == SourceReady::Blocked(SourceBlocked::Io),
                 "A source that queues reads must block on IO"
+            );
+            vortex_ensure!(
+                cx.compiles.is_empty()
+                    || matches!(ready, SourceReady::Blocked(SourceBlocked::Inlet(_))),
+                "A source that asks for an inlet to be compiled must block on an inlet"
             );
             match ready {
                 SourceReady::Ready => {}
@@ -399,19 +407,44 @@ impl Core {
             .ok_or_else(|| vortex_err!("Pipeline {id} is not live"))?;
         pipe.queued = false;
         let mut reads = SmallVec::new();
+        let mut compiles = SmallVec::new();
         let progress = drive(
             pipe,
             &mut self.arena,
             &self.session,
             &mut self.exec,
             &mut reads,
+            &mut compiles,
         )?;
         for segment_id in reads {
             self.ask(id, segment_id);
         }
+
+        let compiled = !compiles.is_empty();
+        for compile in compiles {
+            self.compile_inlet(id, compile)?;
+        }
         #[cfg(debug_assertions)]
-        self.validate_progress(id, &progress);
+        if compiled {
+            self.validate();
+        }
+
+        // A source that waits on an inlet compiled to no row can run at once: that inlet is
+        // already closed, so nothing would wake it.
+        let waits_on_closed = compiled
+            && matches!(
+                progress,
+                Progress::Blocked(SourceBlocked::Inlet(index))
+                    if self.arena.get(self.pipeline(id).inlets[index]).closed()
+            );
+
+        #[cfg(debug_assertions)]
+        if !waits_on_closed {
+            self.validate_progress(id, &progress);
+        }
+
         match &progress {
+            _ if waits_on_closed => self.make_runnable(id),
             // A read-ahead source can still have delivered bytes to consume.
             Progress::Blocked(SourceBlocked::Io) if !self.pipeline(id).bytes.is_empty() => {
                 self.make_runnable(id);
@@ -425,6 +458,29 @@ impl Core {
         self.wake_neighbours(id);
         if matches!(progress, Progress::Done) {
             self.retire(id);
+        }
+        Ok(())
+    }
+
+    /// Compiles what pipeline `id`'s source asked for into a new inlet of it: a pipeline writing
+    /// a new port, or a closed port when the plan selects no row.
+    fn compile_inlet(&mut self, id: PipelineId, compile: InletCompile) -> VortexResult<()> {
+        let inlet = self.pipeline(id).inlets.len();
+        let port = self
+            .arena
+            .create(compile.capacity, None, SourceEnd::Pipeline { id, inlet });
+
+        let pipe = self.pipeline_mut(id);
+        pipe.inlets.push(port);
+        pipe.touched.grow();
+        pipe.changed.grow();
+        pipe.changed.insert(inlet);
+
+        match self.compile(&compile.plan, compile.rows, &compile.mask)? {
+            Some(chain) => {
+                self.add_pipeline(chain, smallvec::smallvec![port]);
+            }
+            None => self.arena.close(port),
         }
         Ok(())
     }
