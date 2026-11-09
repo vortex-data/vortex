@@ -8,6 +8,7 @@ use std::path::Path;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use anyhow::Result;
 use geo_types::LineString;
@@ -1391,8 +1392,14 @@ fn test_duplicate_struct_fields() {
 
 /// Runs `query` on the file at `path` and collects its single BIGINT output column.
 fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
-    let conn = database_connection();
-    let result = conn.query(&query.replace('?', &format!("'{path}'")))?;
+    query_i64(
+        &database_connection(),
+        &query.replace('?', &format!("'{path}'")),
+    )
+}
+
+fn query_i64(conn: &Connection, query: &str) -> Result<Vec<i64>> {
+    let result = conn.query(query)?;
     let mut values = Vec::new();
     for chunk in result {
         let vec = chunk.get_vector(0);
@@ -1428,12 +1435,81 @@ fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     ));
     let path = file.path().to_string_lossy();
 
-    crate::set_scan_v2(false);
-    let v1 = query_i64_column(&path, query)?;
-    crate::set_scan_v2(true);
-    let v2 = query_i64_column(&path, query);
-    crate::set_scan_v2(false);
-
-    assert_eq!(v2?, v1);
+    let v1 = with_scan_v2(false, || query_i64_column(&path, query))?;
+    let v2 = with_scan_v2(true, || query_i64_column(&path, query))?;
+    assert_eq!(v2, v1);
     Ok(())
+}
+
+// Serialize tests that change the process-wide scan mode, restoring it even on failure.
+fn with_scan_v2<T>(enabled: bool, run: impl FnOnce() -> T) -> T {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _lock = LOCK.lock().unwrap();
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::set_scan_v2(self.0);
+        }
+    }
+    let _restore = Restore(crate::scan_v2());
+    crate::set_scan_v2(enabled);
+    run()
+}
+
+#[rstest]
+fn test_vortex_scan_prunes_multiple_cached_files(
+    #[values(false, true)] scan_v2: bool,
+) -> Result<()> {
+    let (dir, _files) = RUNTIME.block_on(async {
+        let dir = tempfile::tempdir().unwrap();
+        let mut files = Vec::new();
+        for values in [buffer![1i64, 2], buffer![3i64, 4], buffer![5i64, 6]] {
+            files.push(write_vortex_file_to_dir(dir.path(), "numbers", values).await);
+        }
+        (dir, files)
+    });
+    with_scan_v2(scan_v2, || {
+        let conn = database_connection();
+        conn.query("SET disabled_optimizers = 'statistics_propagation'")?;
+        let table = format!("'{}/*.vortex'", dir.path().display());
+        // Populate the existing footer cache before evaluating static predicates.
+        assert_eq!(
+            query_i64(
+                &conn,
+                &format!("SELECT numbers FROM {table} ORDER BY numbers")
+            )?,
+            vec![1, 2, 3, 4, 5, 6]
+        );
+        assert_eq!(
+            query_i64(
+                &conn,
+                &format!("SELECT numbers FROM {table} WHERE numbers > 4 ORDER BY numbers")
+            )?,
+            vec![5, 6]
+        );
+        assert!(
+            query_i64(
+                &conn,
+                &format!("SELECT numbers FROM {table} WHERE numbers > 6")
+            )?
+            .is_empty()
+        );
+        assert_eq!(
+            query_i64(
+                &conn,
+                &format!("SELECT count(*) FROM {table} WHERE numbers > 6")
+            )?,
+            vec![0]
+        );
+        assert_eq!(
+            query_i64(
+                &conn,
+                &format!(
+                    "SELECT coalesce(sum(numbers), -1)::BIGINT FROM {table} WHERE numbers > 6"
+                )
+            )?,
+            vec![-1]
+        );
+        Ok(())
+    })
 }

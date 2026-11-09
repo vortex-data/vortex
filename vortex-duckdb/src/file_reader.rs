@@ -113,8 +113,8 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 }
 
 pub struct OpenFileReader {
-    /// The layout reader and conversion cache of the file. `None` after the file is skipped or
-    /// all its splits are taken.
+    /// The layout reader and conversion cache of the file. `None` when a cached footer prunes
+    /// the file before opening, after it is skipped, or after all its splits are taken.
     ///
     /// DuckDB releases its last reference to a file while it holds the global lock of the
     /// multi-file scan, and dropping this state takes long. So every local state that scans the
@@ -168,6 +168,14 @@ impl OpenFileReader {
         &self.scan_state().reader
     }
 
+    pub(crate) fn row_count(&self) -> u64 {
+        self.scan_state().file.row_count()
+    }
+
+    pub(crate) fn is_pruned(&self) -> bool {
+        self.scan_state.is_none()
+    }
+
     fn can_skip(
         &self,
         filter: &Filter,
@@ -196,7 +204,20 @@ impl OpenFileReader {
 
 /// Called once per file while initializing the scan under file-local lock.
 /// Files are opened lazily.
-pub fn reader_open(file_path: &str) -> VortexResult<OpenFileReader> {
+pub fn reader_open(
+    file_path: &str,
+    predicate: Option<&FilePruningPredicate>,
+) -> VortexResult<OpenFileReader> {
+    if let Some(predicate) = predicate
+        && let Some(footer) = SESSION.get::<MultiFileSession>().get_footer(file_path)
+        && predicate.can_prune_footer(&footer, &SESSION)?
+    {
+        return Ok(OpenFileReader {
+            scan_state: None,
+            splits: Vec::new(),
+            total_splits: 0,
+        });
+    }
     RUNTIME.block_on(OpenFileReader::open(file_path.to_owned()))
 }
 
@@ -227,6 +248,9 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
+    if file.is_pruned() {
+        return Ok(true);
+    }
     if file.can_skip(
         &global.filter,
         global.file_pruning_predicate.as_ref(),
@@ -514,5 +538,60 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::buffer::buffer;
+    use vortex::expr::col;
+    use vortex::expr::gt;
+    use vortex::expr::lit;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::io::runtime::BlockingRuntime as _;
+
+    use super::*;
+
+    #[test]
+    fn cached_footer_prunes_before_opening_the_file() -> VortexResult<()> {
+        let array = StructArray::from_fields(&[("value", buffer![1_i32, 2, 3].into_array())])?;
+        let mut bytes = ByteBufferMut::empty();
+        RUNTIME.block_on(
+            SESSION
+                .write_options()
+                .write(&mut bytes, array.into_array().to_array_stream()),
+        )?;
+        let dir = tempdir()?;
+        let path = dir.path().join("cached.vortex");
+        let path = path.to_str().vortex_expect("temporary path is UTF-8");
+        fs::write(path, bytes.as_slice())?;
+        let opened = reader_open(path, None)?;
+        let dtype = opened.scan_state().file.dtype();
+        let exclude =
+            FilePruningPredicate::try_new(gt(col("value"), lit(9_i32)).bind(dtype)?, &SESSION)?
+                .vortex_expect("comparison supports file pruning");
+        let retain =
+            FilePruningPredicate::try_new(gt(col("value"), lit(1_i32)).bind(dtype)?, &SESSION)?
+                .vortex_expect("comparison supports file pruning");
+        drop(opened);
+        assert!(!reader_open(path, Some(&retain))?.is_pruned());
+
+        fs::remove_file(path)?;
+        let pruned = reader_open(path, Some(&exclude))?;
+        assert!(pruned.is_pruned());
+        assert!(pruned.splits.is_empty());
+        assert!(reader_open(path, Some(&retain)).is_err());
+        assert!(reader_open(path, None).is_err());
+
+        let missing = dir.path().join("uncached.vortex");
+        let missing = missing.to_str().vortex_expect("temporary path is UTF-8");
+        assert!(reader_open(missing, Some(&exclude)).is_err());
+        Ok(())
     }
 }

@@ -49,6 +49,9 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     D_ASSERT(gstate.global_state != nullptr);
 
     VortexBaseReader &reader = reader_data.reader->Cast<VortexBaseReader>();
+    if (duckdb_reader_is_pruned(reader.ffi_file->DataPtr())) {
+        return ReaderInitializeType::SKIP_READING_FILE;
+    }
     const VortexBindData &bind = bind_data.bind_data->Cast<VortexBindData>();
 
     const void *const ffi_bind = bind.ffi_bind_data->DataPtr();
@@ -205,13 +208,13 @@ VortexReaderInterface::InitializeLocalState(ClientContext &, GlobalTableFunction
     return result;
 }
 
-static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file) {
+static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file, const void *global = nullptr) {
     duckdb_vx_error error = nullptr;
 
     const char *const ffi_file_path = file.path.c_str();
     const size_t ffi_file_size = file.path.size();
 
-    duckdb_vx_data ffi_file = duckdb_reader_open(ffi_file_path, ffi_file_size, &error);
+    duckdb_vx_data ffi_file = duckdb_reader_open(ffi_file_path, ffi_file_size, global, &error);
     if (error) {
         throw IOException(IntoErrString(error));
     }
@@ -221,11 +224,12 @@ static shared_ptr<BaseFileReader> OpenReader(const OpenFileInfo &file) {
 }
 
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,
-                                                               GlobalTableFunctionState &,
+                                                               GlobalTableFunctionState &gstate,
                                                                const OpenFileInfo &file,
                                                                idx_t,
                                                                const MultiFileBindData &) {
-    return OpenReader(file);
+    const auto &global = gstate.Cast<VortexGlobalState>();
+    return OpenReader(file, global.ffi_global_state->DataPtr());
 }
 
 shared_ptr<BaseFileReader> VortexReaderInterface::CreateReader(ClientContext &,

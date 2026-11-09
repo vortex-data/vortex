@@ -72,7 +72,10 @@ duckdb_vx_data duckdb_reader_bind(const void *first_file,
 extern
 duckdb_vx_data duckdb_reader_open(const char *file_path,
                                   size_t file_path_len,
+                                  const void *global,
                                   duckdb_vx_error *error);
+
+extern bool duckdb_reader_is_pruned(const void *file);
 
 extern
 bool duckdb_reader_get_statistics(const void *file,
