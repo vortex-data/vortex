@@ -3,16 +3,20 @@
 
 use std::fmt::Formatter;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_groups::FileGroup;
 use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
@@ -31,6 +35,10 @@ use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::metrics::MetricBuilder;
+use datafusion_physical_plan::metrics::MetricCategory;
+use datafusion_pruning::PruningPredicate;
+use datafusion_pruning::build_pruning_predicate;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::expr::Expression;
@@ -45,6 +53,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
+use super::pruning::FilePruningStatistics;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
@@ -197,6 +206,7 @@ pub struct VortexSource {
     /// Combined predicate expression containing all filters from DataFusion query planning.
     /// Used with FilePruner to skip files based on statistics and partition values.
     pub(crate) full_predicate: Option<PhysicalExprRef>,
+    static_pruning_predicate: Arc<OnceLock<Option<Arc<PruningPredicate>>>>,
     /// Accepted exact predicates, evaluated natively or as per-file residuals.
     pub(crate) vortex_predicate: Option<PhysicalExprRef>,
     /// DataFusion-native metrics exposed through `DataSourceExec`.
@@ -243,6 +253,7 @@ impl VortexSource {
             table_schema,
             projection,
             full_predicate: None,
+            static_pruning_predicate: Arc::new(OnceLock::new()),
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
@@ -343,6 +354,64 @@ impl VortexSource {
     /// Returns the predicate this source is going to push down
     pub fn predicate(&self) -> Option<&Arc<dyn PhysicalExpr>> {
         self.vortex_predicate.as_ref()
+    }
+
+    /// Prune before assigning byte ranges, using the same predicate and statistics as the opener.
+    fn prune_file_groups(&self, config: &FileScanConfig) -> Option<Vec<FileGroup>> {
+        if !self.table_schema.table_partition_cols().is_empty() {
+            return None;
+        }
+        let predicate = self.full_predicate.as_ref()?;
+        if DynamicFilterTracking::classify(predicate).contains_dynamic_filter() {
+            return None;
+        }
+        let errors = MetricBuilder::new(&self.df_metrics)
+            .with_category(MetricCategory::Rows)
+            .global_counter("num_predicate_creation_errors");
+        let pruning = self
+            .static_pruning_predicate
+            .get_or_init(|| {
+                build_pruning_predicate(
+                    Arc::clone(predicate),
+                    self.table_schema.file_schema(),
+                    &errors,
+                )
+            })
+            .as_ref()?;
+        let files = config
+            .file_groups
+            .iter()
+            .flat_map(FileGroup::iter)
+            .collect::<Vec<_>>();
+        let unknown = Arc::new(Statistics::new_unknown(self.table_schema.file_schema()));
+        let statistics = files
+            .iter()
+            .map(|file| {
+                file.statistics
+                    .clone()
+                    .unwrap_or_else(|| Arc::clone(&unknown))
+            })
+            .collect::<Vec<_>>();
+        let statistics =
+            FilePruningStatistics::new(&statistics, Arc::clone(self.table_schema.file_schema()));
+        let keep = match pruning.prune(&statistics) {
+            Ok(keep) => keep,
+            Err(error) => {
+                tracing::debug!(%error, "Ignoring file pruning evaluation error");
+                errors.add(1);
+                return None;
+            }
+        };
+        if keep.len() != files.len() || keep.iter().all(|keep| *keep) {
+            return None;
+        }
+        let files = files
+            .into_iter()
+            .zip(keep)
+            .filter(|(_, keep)| *keep)
+            .map(|(file, _)| file.clone())
+            .collect();
+        Some(vec![FileGroup::new(files)])
     }
 
     fn create_vortex_opener(
@@ -475,15 +544,38 @@ impl FileSource for VortexSource {
         if config.file_compression_type.is_compressed() {
             return Ok(None);
         }
-        let Some(file_groups) = FileGroupPartitioner::new()
+        let can_prune = self.options.scan_v2
+            && output_ordering.is_none()
+            && config.output_ordering.is_empty()
+            && !config.preserve_order
+            && config.output_partitioning.is_none()
+            && !self.ordered
+            && self.table_schema.table_partition_cols().is_empty()
+            && self.full_predicate.as_ref().is_some_and(|predicate| {
+                !DynamicFilterTracking::classify(predicate).contains_dynamic_filter()
+            });
+        let pruned_groups = can_prune.then(|| self.prune_file_groups(config)).flatten();
+        let input_groups = pruned_groups.as_deref().unwrap_or(&config.file_groups);
+        let file_groups = match FileGroupPartitioner::new()
             .with_target_partitions(target_partitions)
             .with_repartition_file_min_size(repartition_file_min_size)
             .with_preserve_order_within_groups(output_ordering.is_some())
-            .repartition_file_groups(&config.file_groups)
-        else {
-            return Ok(None);
+            .repartition_file_groups(input_groups)
+        {
+            Some(groups) => groups,
+            // Pruning still applies when the remaining data is too small to split.
+            None if pruned_groups.is_some() => input_groups.to_vec(),
+            None => return Ok(None),
         };
-        let mut repartitioned = config.clone();
+        let mut repartitioned = if pruned_groups.is_some() {
+            // Whole-table counts no longer describe the retained files, even when predicate
+            // pushdown is disabled and DataFusion keeps the row filter above the scan.
+            FileScanConfigBuilder::from(config.clone())
+                .with_statistics(config.statistics().to_inexact())
+                .build()
+        } else {
+            config.clone()
+        };
         repartitioned.file_groups = file_groups;
         Ok(Some(repartitioned))
     }
@@ -509,6 +601,7 @@ impl FileSource for VortexSource {
             )),
             None => Some(conjunction(filters.clone())),
         };
+        source.static_pruning_predicate = Arc::new(OnceLock::new());
 
         if !source.options.predicate_pushdown {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(vec![
@@ -615,7 +708,8 @@ mod tests {
     use arrow_schema::Schema;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
-    use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
+    use datafusion_common::stats::Precision;
+    use datafusion_datasource::PartitionedFile;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
     use datafusion_expr::ScalarUDF;
@@ -625,6 +719,7 @@ mod tests {
     use datafusion_physical_expr::expressions::Column;
     use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
 
     use super::*;
@@ -701,6 +796,199 @@ mod tests {
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
 
         assert!(source.ordered);
+        Ok(())
+    }
+
+    fn pruning_test_source() -> VortexSource {
+        let schema = sort_test_schema();
+        let mut source = sort_test_source(schema).with_options(VortexTableOptions {
+            scan_v2: true,
+            ..Default::default()
+        });
+        source.full_predicate = Some(Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+        )));
+        source
+    }
+
+    fn pruning_test_file(name: &str, value: Precision<ScalarValue>) -> PartitionedFile {
+        let mut statistics = Statistics::new_unknown(&sort_test_schema());
+        statistics.column_statistics[0].min_value = value.clone();
+        statistics.column_statistics[0].max_value = value;
+        PartitionedFile::new(name, 100).with_statistics(Arc::new(statistics))
+    }
+
+    #[rstest]
+    #[case(Operator::Gt, 1, 9)]
+    #[case(Operator::Lt, 9, 1)]
+    fn repartition_prunes_before_assigning_workers_and_preserves_unknown_files(
+        #[case] operator: Operator,
+        #[case] excluded_value: i32,
+        #[case] included_value: i32,
+        #[values(2, 4)] target_partitions: usize,
+        #[values(false, true)] unknown_first: bool,
+    ) -> anyhow::Result<()> {
+        let mut source = pruning_test_source();
+        source.full_predicate = Some(Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            operator,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))),
+        )));
+        let mut statistics = Statistics::new_unknown(&sort_test_schema());
+        statistics.num_rows = Precision::Exact(600);
+        let mut files = vec![
+            pruning_test_file(
+                "excluded",
+                Precision::Exact(ScalarValue::Int32(Some(excluded_value))),
+            ),
+            pruning_test_file(
+                "included",
+                Precision::Exact(ScalarValue::Int32(Some(included_value))),
+            ),
+            pruning_test_file(
+                "inexact",
+                Precision::Inexact(ScalarValue::Int32(Some(excluded_value))),
+            ),
+            pruning_test_file("null", Precision::Exact(ScalarValue::Null)),
+            pruning_test_file(
+                "wrong-type",
+                Precision::Exact(ScalarValue::Int64(Some(i64::from(excluded_value)))),
+            ),
+            PartitionedFile::new("unknown", 100),
+        ];
+        if unknown_first {
+            files.rotate_right(1);
+        }
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_statistics(statistics)
+        .with_file_group(FileGroup::new(files))
+        .build();
+        let result = source
+            .repartitioned(target_partitions, 0, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected a repartitioned scan"))?;
+        assert_eq!(result.statistics().num_rows, Precision::Inexact(600));
+        let repeated = source
+            .repartitioned(3, 0, None, &result)?
+            .ok_or_else(|| anyhow::anyhow!("expected repeated repartitioning"))?;
+        for result in [&result, &repeated] {
+            let files = result
+                .file_groups
+                .iter()
+                .flat_map(FileGroup::iter)
+                .collect::<Vec<_>>();
+            assert!(files.iter().all(|file| file.path().as_ref() != "excluded"));
+            for name in ["included", "inexact", "null", "wrong-type", "unknown"] {
+                let mut ranges = files
+                    .iter()
+                    .filter(|file| file.path().as_ref() == name)
+                    .map(|file| file.range())
+                    .collect::<Vec<_>>();
+                ranges.sort_unstable();
+                let mut end = 0;
+                for (start, next_end) in ranges {
+                    assert_eq!(start, end);
+                    assert!(next_end > start);
+                    end = next_end;
+                }
+                assert_eq!(end, 100);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_retains_pruning_when_no_files_remain() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file(pruning_test_file(
+            "excluded",
+            Precision::Exact(ScalarValue::Int32(Some(1))),
+        ))
+        .build();
+        let result = source
+            .repartitioned(4, 1024, None, &config)?
+            .ok_or_else(|| anyhow::anyhow!("expected the pruned scan"))?;
+        assert_eq!(result.file_groups.len(), 1);
+        assert!(result.file_groups[0].is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_leaves_order_sensitive_scans_unchanged() -> anyhow::Result<()> {
+        for (ordered, preserve_order) in [(true, false), (false, true)] {
+            let mut source = pruning_test_source();
+            source.ordered = ordered;
+            let config = FileScanConfigBuilder::new(
+                ObjectStoreUrl::local_filesystem(),
+                Arc::new(source.clone()),
+            )
+            .with_preserve_order(preserve_order)
+            .with_file(pruning_test_file(
+                "excluded",
+                Precision::Exact(ScalarValue::Int32(Some(1))),
+            ))
+            .build();
+            assert!(source.repartitioned(4, 1024, None, &config)?.is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn added_filters_invalidate_only_the_cloned_pruning_predicate() -> anyhow::Result<()> {
+        let source = pruning_test_source();
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file(pruning_test_file(
+            "included",
+            Precision::Exact(ScalarValue::Int32(Some(9))),
+        ))
+        .build();
+        // Warm the original a > 5 proof before adding a > 10 to its clone.
+        assert!(source.prune_file_groups(&config).is_none());
+        let additional = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Gt,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(10)))),
+        ));
+        let result = source.try_pushdown_filters(vec![additional], &ConfigOptions::new())?;
+        let updated = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected an updated source"))?;
+        let updated = updated
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+        let pruned = updated
+            .prune_file_groups(&config)
+            .ok_or_else(|| anyhow::anyhow!("new predicate must prune the file"))?;
+        assert!(pruned.iter().all(FileGroup::is_empty));
+        assert!(source.prune_file_groups(&config).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn repartition_keeps_dynamic_filters_for_execution() -> anyhow::Result<()> {
+        let mut source = pruning_test_source();
+        source.full_predicate = Some(Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("a", 0)) as PhysicalExprRef],
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(false)))),
+        )));
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(source.clone()),
+        )
+        .with_file(PartitionedFile::new("unknown", 100))
+        .build();
+        assert!(source.prune_file_groups(&config).is_none());
         Ok(())
     }
 
