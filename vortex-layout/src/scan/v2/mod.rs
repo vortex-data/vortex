@@ -24,6 +24,7 @@
 
 mod cache;
 pub(crate) mod io;
+mod local;
 mod retain;
 #[cfg(test)]
 mod tests;
@@ -42,6 +43,7 @@ use vortex_session::VortexSession;
 
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
+pub use self::local::DEFAULT_LOCAL_CHUNKS;
 use crate::LayoutRef;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;

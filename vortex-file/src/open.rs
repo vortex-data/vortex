@@ -75,6 +75,8 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
     /// Whether to cache file's LayoutReader between scans
     cache_layout_reader: bool,
+    /// The segment bytes a cached V2 scan cache retains between scans, or `None` for its default.
+    retained_segment_bytes: Option<u64>,
 }
 
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
@@ -94,6 +96,7 @@ pub trait OpenOptionsSessionExt:
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
+            retained_segment_bytes: None,
         }
     }
 }
@@ -126,6 +129,17 @@ impl VortexOpenOptions {
     /// alive for the lifetime of the file handle.
     pub fn with_layout_reader_cache(mut self) -> Self {
         self.cache_layout_reader = true;
+        self
+    }
+
+    /// Retain at most `bytes` of recently read segments in the cached V2
+    /// [`ScanCache`](vortex_layout::scan::v2::ScanCache), instead of its default budget.
+    ///
+    /// The cache lives as long as the file handle, so retained segments outlive the scans that
+    /// read them. Zero retains no segment between scans, while the cache still shares the scan's
+    /// plans. Applies only with [`with_layout_reader_cache`](Self::with_layout_reader_cache).
+    pub fn with_retained_segment_bytes(mut self, bytes: u64) -> Self {
+        self.retained_segment_bytes = Some(bytes);
         self
     }
 
@@ -253,6 +267,7 @@ impl VortexOpenOptions {
         }
 
         let cache_layout_reader = self.cache_layout_reader;
+        let retained_segment_bytes = self.retained_segment_bytes;
         let include_metadata = self.include_metadata;
         let mut opts = self.with_initial_read_size(0);
 
@@ -273,7 +288,7 @@ impl VortexOpenOptions {
         };
         let file = VortexFile::new(footer, segment_source, opts.session).with_metadata(metadata);
         Ok(if cache_layout_reader {
-            file.with_caching()
+            file.with_caching_retaining(retained_segment_bytes)
         } else {
             file
         })
@@ -351,7 +366,7 @@ impl VortexOpenOptions {
         let file =
             VortexFile::new(footer, segment_source, self.session.clone()).with_metadata(metadata);
         Ok(if self.cache_layout_reader {
-            file.with_caching()
+            file.with_caching_retaining(self.retained_segment_bytes)
         } else {
             file
         })
