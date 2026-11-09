@@ -46,6 +46,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_session::VortexSession;
+use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
@@ -58,6 +59,21 @@ fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> Vorte
     assert_arrays_eq!(&compressed, input, &mut ctx);
 
     Ok(compressed)
+}
+
+#[test]
+fn test_all_null_sample_does_not_hide_sparse_values() -> VortexResult<()> {
+    let input = PrimitiveArray::from_option_iter(
+        (0..100_000i64).map(|i| (i < 1000).then_some((i * 7919) % 1_000_000)),
+    )
+    .into_array();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let compressed = assert_roundtrip(&compressor, &input)?;
+    assert!(compressed.is::<Sparse>());
+    assert!(compressed.nbytes() < 5000);
+    Ok(())
 }
 
 #[test]
