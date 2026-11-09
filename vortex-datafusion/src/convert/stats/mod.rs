@@ -5,6 +5,7 @@ use arrow_schema::DataType;
 use datafusion_common::ColumnStatistics;
 use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
+use vortex::aggregate_fn::fns::approx_distinct::ApproxDistinct;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -13,6 +14,7 @@ use vortex::error::VortexResult;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::expr::stats::Stat;
 use vortex::extension::datetime::AnyTemporal;
+use vortex::layout::layouts::file_stats::AggregateStats;
 use vortex::scalar::Scalar;
 
 use crate::PrecisionExt;
@@ -157,6 +159,36 @@ pub(crate) fn constant_distinct_count(
             Precision::Exact(1)
         }
         _ => Precision::Absent,
+    }
+}
+
+/// The distinct count of a column with `non_null_rows` non-null rows from its
+/// [`ApproxDistinct`] sketch, if the file records one.
+///
+/// The sketch estimates, so the count is inexact, except that a sketch that saw nothing proves a
+/// column holds no non-null value. The estimate is capped at the number of non-null rows, which
+/// it can exceed by its error on columns of unique values.
+pub(crate) fn approx_distinct_count(
+    aggregates: &AggregateStats,
+    non_null_rows: Precision<usize>,
+) -> Precision<usize> {
+    let Some(estimate) = aggregates
+        .iter()
+        .filter(|stat| stat.aggregate_fn().is::<ApproxDistinct>())
+        .find_map(|stat| stat.value().clone().as_exact())
+        .and_then(|estimate| u64::try_from(&estimate).ok())
+        .and_then(|estimate| usize::try_from(estimate).ok())
+    else {
+        return Precision::Absent;
+    };
+    if estimate == 0 {
+        return Precision::Exact(0);
+    }
+    match non_null_rows {
+        Precision::Exact(rows) | Precision::Inexact(rows) => {
+            Precision::Inexact(estimate.min(rows).max(1))
+        }
+        Precision::Absent => Precision::Inexact(estimate),
     }
 }
 

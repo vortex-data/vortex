@@ -77,6 +77,7 @@ use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
+use crate::convert::stats::approx_distinct_count;
 use crate::convert::stats::byte_size_to_df;
 use crate::convert::stats::constant_distinct_count;
 use crate::convert::stats::is_nan_free;
@@ -720,8 +721,18 @@ impl FileFormat for VortexFormat {
                 let null_count = stats_set
                     .get_as::<usize>(Stat::NullCount, &PType::U64.into())
                     .to_df();
-                let distinct_count =
+                let mut distinct_count =
                     constant_distinct_count(stats_set, stats_dtype, &null_count, &min, &max);
+                if distinct_count == DFPrecision::Absent {
+                    let non_null_rows = match null_count {
+                        DFPrecision::Exact(nulls) => usize::try_from(row_count)
+                            .ok()
+                            .and_then(|rows| rows.checked_sub(nulls))
+                            .map_or(DFPrecision::Absent, DFPrecision::Exact),
+                        _ => DFPrecision::Absent,
+                    };
+                    distinct_count = approx_distinct_count(aggregates, non_null_rows);
+                }
 
                 column_statistics.push(ColumnStatistics {
                     null_count,

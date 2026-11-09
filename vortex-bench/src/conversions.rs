@@ -328,7 +328,10 @@ fn write_options_for(
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
     }
-    SESSION.write_options().with_strategy(builder.build())
+    SESSION
+        .write_options()
+        .include_nested_statistics()
+        .with_strategy(builder.build())
 }
 
 /// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.

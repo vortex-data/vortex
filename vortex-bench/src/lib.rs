@@ -114,6 +114,25 @@ static UNSTABLE_BENCH_DECLARATION: EditionDeclaration = EditionDeclaration {
     added: &[EditionMember::layout(&"vortex.list")],
 };
 
+const BENCH_STATS_EDITION_FAMILY: EditionFamily = EditionFamily {
+    name: "benchstats",
+    origin: "vortex-bench",
+    doc: "Unstable file statistics that benchmarks record, without the rest of the unstable edition.",
+};
+
+/// The approximate distinct-count file statistic from the unstable edition, on its own. Every
+/// suite enables it, so that query engines see column distinct counts.
+const BENCH_STATS: EditionId = EditionId::new("benchstats", 2026, 11, 0);
+
+static BENCH_STATS_DECLARATION: EditionDeclaration = EditionDeclaration {
+    edition: Edition {
+        id: BENCH_STATS,
+        immutable: false,
+        min_library_version: None,
+    },
+    added: &[EditionMember::aggregate(&"vortex.approx_distinct.hll")],
+};
+
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
     vortex_spatial::initialize(&session);
@@ -124,6 +143,16 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
         .register_edition(&UNSTABLE_BENCH_DECLARATION)
         .vortex_expect("bench edition declaration is valid");
+    session
+        .editions()
+        .declare_family(&BENCH_STATS_EDITION_FAMILY)
+        .vortex_expect("bench stats edition family is valid");
+    session
+        .register_edition(&BENCH_STATS_DECLARATION)
+        .vortex_expect("bench stats edition declaration is valid");
+    session
+        .enable_edition(BENCH_STATS)
+        .vortex_expect("bench stats edition is registered");
     session
 });
 
@@ -307,7 +336,10 @@ pub enum CompactionStrategy {
 }
 
 impl CompactionStrategy {
+    /// Applies the compaction strategy to `options`, and records the nested file statistics,
+    /// which hold the approximate distinct counts that [`SESSION`] permits.
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+        let options = options.include_nested_statistics();
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::from_session(&SESSION)

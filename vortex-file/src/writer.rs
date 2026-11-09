@@ -92,6 +92,7 @@ pub struct VortexWriteOptions {
     file_statistics: Option<Vec<AggregateFnRef>>,
     write_nested_statistics: bool,
     write_legacy_statistics: bool,
+    write_distinct_count_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
 }
 
@@ -116,6 +117,7 @@ impl VortexWriteOptions {
             file_statistics: None,
             write_nested_statistics: false,
             write_legacy_statistics: true,
+            write_distinct_count_statistics: true,
             metadata: HashMap::default(),
         }
     }
@@ -198,6 +200,18 @@ impl VortexWriteOptions {
     /// [`Stat`](vortex_array::expr::stats::Stat), aggregates without one are not recorded.
     pub fn include_nested_statistics(mut self) -> Self {
         self.write_nested_statistics = true;
+        self
+    }
+
+    /// Leave the approximate distinct-count sketch
+    /// ([`ApproxDistinct`](vortex_array::aggregate_fn::fns::approx_distinct::ApproxDistinct)) out
+    /// of the default file statistics.
+    ///
+    /// By default, the nested statistics record a HyperLogLog sketch of every column whose dtype
+    /// supports it, when the enabled editions include the aggregate. Computing it hashes every
+    /// value written. This has no effect on a list given to [`Self::with_file_statistics`].
+    pub fn exclude_distinct_count_statistics(mut self) -> Self {
+        self.write_distinct_count_statistics = false;
         self
     }
 
@@ -335,6 +349,7 @@ impl VortexWriteOptions {
             &self.session,
             write_nested_statistics,
             self.write_legacy_statistics,
+            self.write_distinct_count_statistics,
             &ctx,
         )?;
 

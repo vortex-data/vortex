@@ -11430,6 +11430,7 @@ dependencies = [
  "tabled",
  "test-with",
  "tracing",
+ "twox-hash",
  "vortex-array",
  "vortex-array-macros",
  "vortex-bench-support",
