@@ -49,15 +49,12 @@ jobs:
           for variant in baseline candidate; do
             revision="$BASELINE"
             if [ "$variant" = candidate ]; then revision="$CANDIDATE"; fi
-            git worktree add --detach "$RUNNER_TEMP/$variant" "$revision"
-            (
-              cd "$RUNNER_TEMP/$variant"
-              CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --locked --profile release_debug --bin data-gen --bin datafusion-bench
-            )
+            git checkout --detach "$revision"
+            cargo build --locked --profile release_debug --bin data-gen --bin datafusion-bench
             cp target/release_debug/datafusion-bench "paired-binaries/$variant"
           done
           cp target/release_debug/data-gen paired-binaries/data-gen
-          sha256sum paired-binaries/* | tee paired-binaries/sha256.txt
+          sha256sum paired-binaries/baseline paired-binaries/candidate paired-binaries/data-gen | tee paired-binaries/sha256.txt
           printf '%s\n%s\n' "$BASELINE" "$CANDIDATE" > paired-binaries/revisions.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:

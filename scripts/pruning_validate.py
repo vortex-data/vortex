@@ -32,6 +32,7 @@ cases = [
     ("tpcds-sf1", "tpcds", 1, None, 5),
     ("clickbench", "clickbench", None, None, 3),
 ]
+cases += [("tpcds-focus", "tpcds", 1, "4,16,59,65,66,71,72", 30)]
 if not args.local:
     cases += [("tpch-sf10-focus", "tpch", 10, "6,7", 20), ("polarsignals", "polarsignals", 1, None, 10)]
 rng = random.Random(11348)
