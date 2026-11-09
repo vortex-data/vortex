@@ -29,6 +29,7 @@ arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
+datasketches = { workspace = true }
 enum-iterator = { workspace = true }
 fearless_simd = { workspace = true }
 fearless_simd_macros = { workspace = true }

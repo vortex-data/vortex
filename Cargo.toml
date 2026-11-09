@@ -139,6 +139,7 @@ crossbeam-channel = "0.5.16"
 crossterm = "0.29"
 custom-labels = "0.4.4"
 dashmap = "6.2.1"
+datasketches = { version = "0.6.0", default-features = false, features = ["hll"] }
 datafusion = { version = "55.0.0", default-features = false, features = [
     "sql",
 ] }
@@ -153,6 +154,7 @@ datafusion-functions-nested = { version = "55.0.0" }
 datafusion-physical-expr = { version = "55.0.0" }
 datafusion-physical-expr-adapter = { version = "55.0.0" }
 datafusion-physical-expr-common = { version = "55.0.0" }
+datafusion-physical-optimizer = { version = "55.0.0" }
 datafusion-physical-plan = { version = "55.0.0" }
 datafusion-pruning = { version = "55.0.0" }
 datafusion-sqllogictest = { version = "55.0.0" }

@@ -379,7 +379,12 @@ static unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats,
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
-    out.SetDistinctCount(min_max_distinct_count(out, stats.row_count));
+    // Both counts are upper bounds, so the smaller known one is the better estimate.
+    idx_t distinct_count = min_max_distinct_count(out, stats.row_count);
+    if (stats.distinct_count != 0 && (distinct_count == 0 || stats.distinct_count < distinct_count)) {
+        distinct_count = stats.distinct_count;
+    }
+    out.SetDistinctCount(distinct_count);
     return out.ToUnique();
 }
 
@@ -399,6 +404,7 @@ static unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, 
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
+    out.SetDistinctCount(stats.distinct_count);
 
     return out.ToUnique();
 }
@@ -414,6 +420,7 @@ static unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, Lo
     if (!stats.has_null) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
+    out.SetDistinctCount(stats.distinct_count);
     return out.ToUnique();
 }
 

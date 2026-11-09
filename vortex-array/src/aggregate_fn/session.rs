@@ -20,6 +20,8 @@ use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCount;
+use crate::aggregate_fn::fns::approx_distinct_count::ApproxDistinctCountHll;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::count::Count;
@@ -115,6 +117,8 @@ impl Default for AggregateFnSession {
         this.register(AllNonNull);
         this.register(AllNan);
         this.register(AllNull);
+        this.register(ApproxDistinctCount);
+        this.register(ApproxDistinctCountHll);
         this.register(BoundedMax);
         this.register(BoundedMin);
         this.register(Count);
