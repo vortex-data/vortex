@@ -23,7 +23,7 @@ bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 itertools = { workspace = true }
-moka = { workspace = true, features = ["sync"] }
+moka = { workspace = true, features = ["future", "sync"] }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
