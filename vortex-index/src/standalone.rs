@@ -240,10 +240,23 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         Ok(())
     }
 
-    /// Read the indexed column of a data file and index it.
+    /// Read the indexed column of a data file and index it, recording it by `uri` alone.
     pub async fn add_file(
         &mut self,
         uri: impl Into<String>,
+        file: &VortexFile,
+    ) -> VortexResult<()> {
+        self.add_covered_file(CoveredFile::new(uri, file.row_count()), file)
+            .await
+    }
+
+    /// Read the indexed column of a data file and index it, recording it as `covered`.
+    ///
+    /// Use this to bind the index to a catalog's own identity for the file, such as a path
+    /// relative to the table and a hash of the file's footer as the fingerprint.
+    pub async fn add_covered_file(
+        &mut self,
+        covered: CoveredFile,
         file: &VortexFile,
     ) -> VortexResult<()> {
         let projection = col(self.column.as_str()).bind(file.dtype())?;
@@ -253,7 +266,7 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
             .into_array_stream()?
             .try_collect()
             .await?;
-        self.push_file(CoveredFile::new(uri, file.row_count()), chunks)
+        self.push_file(covered, chunks)
     }
 
     /// Finish the index and write it as a Vortex file.

@@ -526,3 +526,35 @@ async fn opening_with_the_wrong_kind_fails() -> VortexResult<()> {
     assert!(IndexFileInfo::read(&file).is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn covered_files_keep_catalog_identity() -> VortexResult<()> {
+    let session = session()?;
+    let file = write_plain_file(&session, &Data::generate(4, 50)).await?;
+    let covered = CoveredFile {
+        uri: "data/part-0.vortex".to_string(),
+        row_count: 50,
+        fingerprint: 0x1234_5678_9abc_def0u64.to_le_bytes().to_vec(),
+    };
+    let mut builder = IndexFileBuilder::new(
+        TrigramIndex,
+        TrigramOptions::default(),
+        "text",
+        DType::Utf8(Nullability::Nullable),
+        &session,
+    )?;
+    builder.add_covered_file(covered.clone(), &file).await?;
+    let mut bytes = ByteBufferMut::empty();
+    builder.write(&mut bytes).await?;
+    let index_file = session
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes.freeze())?;
+
+    let info = IndexFileInfo::read(&index_file)?;
+    assert_eq!(info.files, vec![covered.clone()]);
+    assert!(covered.matches(50, &covered.fingerprint));
+    assert!(!covered.matches(50, &[0; 8]));
+    assert!(!covered.matches(51, &covered.fingerprint));
+    Ok(())
+}
