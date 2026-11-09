@@ -627,7 +627,7 @@ mod tests {
 
         let misaligned = aligned.slice(1..17);
         for alignment in [Alignment::new(16), Alignment::new(512)] {
-            let error = misaligned.clone().aligned(alignment).unwrap_err();
+            let error = Arc::clone(&misaligned).aligned(alignment).unwrap_err();
             assert!(error.to_string().contains("without copying"), "{error}");
         }
         Ok(())
