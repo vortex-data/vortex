@@ -22,6 +22,8 @@ use vortex::scalar::Scalar;
 use crate::PrecisionExt;
 use crate::convert::TryToDataFusion;
 
+pub(crate) mod selectivity;
+
 /// Convert a stats set for an array with the given dtype.
 ///
 /// The uncompressed size is left out of `byte_size`. DataFusion's join selection picks
