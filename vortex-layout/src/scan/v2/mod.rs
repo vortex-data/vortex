@@ -25,7 +25,6 @@
 mod cache;
 pub(crate) mod io;
 mod local;
-mod retain;
 #[cfg(test)]
 mod tests;
 

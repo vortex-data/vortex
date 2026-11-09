@@ -7,6 +7,7 @@ pub use adapter::*;
 pub use ext::*;
 use futures::Stream;
 use futures::stream;
+pub use range_cursor::ArrayRangeCursor;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -14,6 +15,7 @@ use crate::dtype::DType;
 
 mod adapter;
 mod ext;
+mod range_cursor;
 
 /// A stream of array chunks along with a DType.
 ///

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Keeps recently read segments so the chunks of a scan that share a segment read it once.
+//! Keeps recently read segments, so later requests for them read nothing.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,19 +16,19 @@ use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// The host bytes of recently read segments, evicting the least recently used past a budget.
+/// The host bytes of recently read segments, evicting the least recently used past a byte
+/// budget.
 ///
-/// A V2 scan cuts its rows into chunks that each read through a session of their own, and a
-/// stored segment that spans a chunk boundary is read by every chunk it overlaps. The file's segment
-/// source shares a read only while it is in flight, so a chunk that starts after its neighbour
-/// finished would read the segment again. Neighbouring chunks run close together, so a small
-/// budget is enough to read each such segment once.
-pub(super) struct RetainedSegments {
+/// One store can serve many [`RetainingSegmentSource`]s, such as the sources of the scans of one
+/// file, so a segment that one of them read is served to the others. A segment larger than a
+/// quarter of the budget is not kept, so one large segment does not evict many small ones.
+/// Segments that do not live in host memory are not kept.
+pub struct RetainedSegments {
     budget: u64,
     state: Mutex<State>,
 }
 
-/// The bytes a file's scans retain by default.
+/// The bytes a store keeps by default.
 const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
 
 impl Default for RetainedSegments {
@@ -48,11 +48,17 @@ struct State {
 }
 
 impl RetainedSegments {
-    pub(super) fn new(budget: u64) -> Self {
+    /// A store that keeps at most `budget` bytes. A budget of zero keeps nothing.
+    pub fn new(budget: u64) -> Self {
         Self {
             budget,
             state: Mutex::default(),
         }
+    }
+
+    /// A store that keeps every segment it is given, until it is dropped.
+    pub fn unbounded() -> Self {
+        Self::new(u64::MAX)
     }
 
     fn get(&self, id: SegmentId) -> Option<BufferHandle> {
@@ -92,11 +98,22 @@ impl RetainedSegments {
     }
 }
 
-/// Serves segments from [`RetainedSegments`] before reading them from `inner`, and retains
-/// what it reads.
-pub(super) struct RetainingSegmentSource {
-    pub(super) inner: Arc<dyn SegmentSource>,
-    pub(super) retained: Arc<RetainedSegments>,
+/// Serves segments from [`RetainedSegments`] before reading them from an inner source, and
+/// retains what it reads.
+///
+/// It does not share requests that are still in flight. Wrap a source that does, such as a
+/// [`SharedSegmentSource`](crate::segments::SharedSegmentSource), when concurrent requests for one
+/// segment must read it once.
+pub struct RetainingSegmentSource {
+    inner: Arc<dyn SegmentSource>,
+    retained: Arc<RetainedSegments>,
+}
+
+impl RetainingSegmentSource {
+    /// Serves the segments of `inner` through `retained`.
+    pub fn new(inner: Arc<dyn SegmentSource>, retained: Arc<RetainedSegments>) -> Self {
+        Self { inner, retained }
+    }
 }
 
 impl SegmentSource for RetainingSegmentSource {
@@ -137,6 +154,17 @@ mod tests {
 
         assert!(retained.get(SegmentId::from(1)).is_none());
         for id in [0, 2, 3, 4] {
+            assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
+        }
+    }
+
+    #[test]
+    fn unbounded_keeps_every_segment() {
+        let retained = RetainedSegments::unbounded();
+        for id in 0..10 {
+            retained.insert(SegmentId::from(id), &buffer(1 << 20));
+        }
+        for id in 0..10 {
             assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
         }
     }

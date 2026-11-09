@@ -13,11 +13,11 @@ use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
 
 use super::io::SegmentRanges;
-use super::retain::RetainedSegments;
-use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
+use crate::segments::RetainedSegments;
+use crate::segments::RetainingSegmentSource;
 use crate::segments::SegmentSource;
 
 /// Reusable state for repeated V2 scans of one file, the V2 counterpart of a cached
@@ -126,10 +126,10 @@ impl ScanCache {
 
     /// Serves `segments` through the segments the file's scans retain.
     pub(super) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
-        Arc::new(RetainingSegmentSource {
-            inner: segments,
-            retained: Arc::clone(&self.0.retained),
-        })
+        Arc::new(RetainingSegmentSource::new(
+            segments,
+            Arc::clone(&self.0.retained),
+        ))
     }
 
     pub(super) fn values(&self) -> ValueCache {
