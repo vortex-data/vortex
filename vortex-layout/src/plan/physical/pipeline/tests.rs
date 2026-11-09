@@ -5,6 +5,8 @@
 #![allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 
 use std::collections::VecDeque;
+use std::error::Error;
+use std::num::TryFromIntError;
 use std::ops::Range;
 
 use rstest::rstest;
@@ -17,7 +19,6 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
@@ -747,39 +748,169 @@ fn take_waits_for_whole_values_and_keeps_them(
 #[rstest]
 #[case::utf8(DType::Utf8(true.into()))]
 #[case::binary(DType::Binary(true.into()))]
-fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexResult<()> {
+fn sparse_string_take_compacts_referenced_values(
+    #[case] dtype: DType,
+    #[values(1, 32)] repetitions: usize,
+) -> VortexResult<()> {
     let mut store = Store::default();
+    let short_value = b"zero".as_slice();
+    let long_value = b"dictionary value 1535 exceeds inline storage".as_slice();
     let values = VarBinArray::from_iter(
-        (0..1536).map(|row| (row != 1).then_some(b"value".as_slice())),
+        (0..1536).map(|row| match row {
+            0 => Some(short_value.to_vec()),
+            1 => None,
+            1535 => Some(long_value.to_vec()),
+            _ => Some(format!("dictionary value {row}").into_bytes()),
+        }),
         dtype.clone(),
     )
     .into_array();
-    let codes =
-        PrimitiveArray::from_option_iter([Some(1535u32), Some(1), None, Some(0)]).into_array();
+    let len = repetitions * 6;
+    let rows = 0..u64::try_from(len)?;
+    let codes = PrimitiveArray::from_option_iter(
+        [Some(1535u32), Some(1), None, Some(0), Some(1535), Some(0)]
+            .into_iter()
+            .cycle()
+            .take(len),
+    )
+    .into_array();
     let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let plan = layout.new_plan()?;
-    let mask = Mask::new_true(4);
-    let result = run(&store, &plan, 0..4, mask.clone(), delivery(Delivery::Lifo))?;
+    let mask = Mask::new_true(len);
+    let result = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Lifo),
+    )?;
 
-    // The values' take kernel must remain visible instead of requiring the shared wrapper
-    // to canonicalize the whole dictionary before gathering the selected entries.
+    // Repeated codes retain a shared dictionary, with only the three referenced entries.
     assert!(
         result
             .arrays
             .iter()
-            .all(|array| array.as_::<Dict>().values().is::<VarBin>())
+            .all(|array| array.as_::<Dict>().values().len() == 3)
     );
     let expected = VarBinArray::from_iter(
         [
-            Some(b"value".as_slice()),
+            Some(long_value),
             None,
             None,
-            Some(b"value".as_slice()),
-        ],
+            Some(short_value),
+            Some(long_value),
+            Some(short_value),
+        ]
+        .into_iter()
+        .cycle()
+        .take(len),
         dtype,
     )
     .into_array();
-    assert_view(&expected, &(0..4), &mask, result.arrays)
+    assert_view(&expected, &rows, &mask, result.arrays)
+}
+
+#[rstest]
+fn sparse_string_take_ignores_null_code_payload(
+    #[values(false, true)] has_valid_code: bool,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let dtype = DType::Utf8(true.into());
+    let values =
+        VarBinArray::from_iter([Some(b"value".as_slice()); 1536], dtype.clone()).into_array();
+    let codes = PrimitiveArray::new(
+        Buffer::from(vec![u64::MAX, 0]),
+        Validity::Array(BoolArray::from_iter([false, has_valid_code]).into_array()),
+    )
+    .into_array();
+    let plan = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).new_plan()?;
+    let mask = Mask::new_true(2);
+    let result = run(&store, &plan, 0..2, mask.clone(), delivery(Delivery::Lifo))?;
+    assert!(
+        result
+            .arrays
+            .iter()
+            .all(|array| { array.as_::<Dict>().values().len() == usize::from(has_valid_code) })
+    );
+    let expected =
+        VarBinArray::from_iter([None, has_valid_code.then_some(b"value".as_slice())], dtype)
+            .into_array();
+    assert_view(&expected, &(0..2), &mask, result.arrays)
+}
+
+#[test]
+fn sparse_string_take_rejects_out_of_range_code() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        VarBinArray::from_iter([Some(b"value".as_slice()); 1536], DType::Utf8(true.into()))
+            .into_array();
+    let codes = PrimitiveArray::from_iter([1536u32]).into_array();
+    let plan = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).new_plan()?;
+    let result = run(
+        &store,
+        &plan,
+        0..1,
+        Mask::new_true(1),
+        delivery(Delivery::Lifo),
+    );
+    let error = result
+        .err()
+        .vortex_expect("out-of-range dictionary code must fail");
+    assert!(error.to_string().contains("Dictionary code out of bounds"));
+    Ok(())
+}
+
+#[test]
+fn sparse_string_take_rejects_negative_code() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        VarBinArray::from_iter([Some(b"value".as_slice()); 1536], DType::Utf8(true.into()))
+            .into_array();
+    let codes = PrimitiveArray::from_iter([-1_i64]).into_array();
+    let plan = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).new_plan()?;
+    let result = run(
+        &store,
+        &plan,
+        0..1,
+        Mask::new_true(1),
+        delivery(Delivery::Lifo),
+    );
+    let error = result
+        .err()
+        .vortex_expect("negative dictionary code must fail");
+    let expected = usize::try_from(-1_i64)
+        .err()
+        .vortex_expect("a negative code cannot be a dictionary index");
+    assert_eq!(
+        error
+            .source()
+            .and_then(|source| source.downcast_ref::<TryFromIntError>()),
+        Some(&expected)
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::f32(PrimitiveArray::from_iter([0.0f32]).into_array())]
+#[case::f64(PrimitiveArray::from_iter([0.0f64]).into_array())]
+fn sparse_string_take_rejects_non_integer_codes(#[case] codes: ArrayRef) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values =
+        VarBinArray::from_iter([Some(b"value".as_slice()); 1536], DType::Utf8(true.into()))
+            .into_array();
+    let plan = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).new_plan()?;
+    let result = run(
+        &store,
+        &plan,
+        0..1,
+        Mask::new_true(1),
+        delivery(Delivery::Lifo),
+    );
+    let error = result
+        .err()
+        .vortex_expect("floating dictionary codes must fail");
+    assert!(error.to_string().contains("expected type: int"));
+    Ok(())
 }
 
 #[test]
