@@ -55,6 +55,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ChunkPlanner;
+use super::DEFAULT_LOCAL_CHUNKS;
 use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::PrunePlanner;
@@ -1157,5 +1158,162 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
+    Ok(())
+}
+
+/// Runs `make`'s scan on the V1 executor and on [`PreparedScan::local_stream`] at several chunk
+/// limits, and checks the local stream yields the same rows in the same order.
+async fn assert_local_same_as_v1(
+    session: &VortexSession,
+    make: impl Fn() -> VortexResult<ScanBuilder>,
+) -> VortexResult<()> {
+    let builder = make()?;
+    let dtype = builder.dtype().clone();
+    let reader = builder.file.layout.new_reader(
+        "".into(),
+        Arc::clone(&builder.file.segments),
+        session,
+        &Default::default(),
+    )?;
+    let mut v1 = V1ScanBuilder::new(session.clone(), reader)
+        .with_projection(builder.projection.clone())
+        .with_some_filter(builder.filter.clone())
+        .with_selection(builder.selection.clone())
+        .with_row_offset(builder.row_offset);
+    if let Some(rows) = builder.row_range.clone() {
+        v1 = v1.with_row_range(rows);
+    }
+    let expected = collect(dtype.clone(), v1.into_stream()?).await?;
+
+    for max_chunks in [1, 3] {
+        let scan = Arc::new(make()?.prepare()?);
+        let actual = collect(dtype.clone(), scan.local_stream(max_chunks)).await?;
+        assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::all(None)]
+#[case::dense(Some(-1))]
+#[case::sparse(Some(200_000))]
+#[case::empty(Some(300_000))]
+#[tokio::test]
+async fn local_stream_yields_chunks_in_row_order(#[case] cutoff: Option<i32>) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let values = PrimitiveArray::from_iter(0i32..210_000).into_array();
+    let dtype = values.dtype().clone();
+    let layout = chunked_flat()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(
+                dtype.clone(),
+                stream::iter([Ok((sequence.advance(), values))]),
+            )
+            .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments: Arc<dyn SegmentSource> = segments;
+
+    assert_local_same_as_v1(&session, || {
+        let filter = cutoff
+            .map(|cutoff| gt(root(), lit(cutoff)).bind(&dtype))
+            .transpose()?;
+        Ok(builder(&session, &segments, &layout)?.with_some_filter(filter))
+    })
+    .await
+}
+
+#[rstest]
+#[case::range(and(
+    gt(get_item("ints", root()), lit(995i32)),
+    lt(get_item("ints", root()), lit(2050i32))
+))]
+#[case::nulls(is_null(get_item("strings", root())))]
+#[case::row_index(gt(row_idx(), lit(1500u64)))]
+#[tokio::test]
+async fn local_stream_matches_v1(
+    #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
+    #[case] filter: Expression,
+    #[values(false, true)] sparse: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
+
+    assert_local_same_as_v1(&session, || {
+        let mut scan = builder(&session, &segments, &layout)?
+            .with_projection(
+                pack(
+                    [("strings", get_item("strings", root())), ("idx", row_idx())],
+                    false.into(),
+                )
+                .bind(layout.dtype())?,
+            )
+            .with_some_filter(Some(filter.bind(layout.dtype())?))
+            .with_row_range(900..3100)
+            .with_row_offset(100);
+        if sparse {
+            scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
+                (0..4000u64).step_by(7),
+            ))?);
+        }
+        Ok(scan)
+    })
+    .await
+}
+
+#[rstest]
+#[case::range(Some(and(
+    gt(get_item("ints", root()), lit(995i32)),
+    lt(get_item("ints", root()), lit(2050i32))
+)))]
+#[case::no_matches(Some(gt(get_item("ints", root()), lit(10_000i32))))]
+#[case::unfiltered(None)]
+#[tokio::test]
+async fn kept_rows_keep_every_matching_row(
+    #[values(Strategy::Flat, Strategy::ZonedTable)] strategy: Strategy,
+    #[case] filter: Option<Expression>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
+    let rows = 900..3100u64;
+    let filter = filter
+        .map(|filter| filter.bind(layout.dtype()))
+        .transpose()?;
+    let scan = || -> VortexResult<ScanBuilder> {
+        Ok(builder(&session, &segments, &layout)?
+            .with_some_filter(filter.clone())
+            .with_row_range(rows.clone()))
+    };
+
+    let kept = Arc::new(scan()?.prepare()?).kept_rows().await?;
+    assert_eq!(kept.len(), usize::try_from(rows.end - rows.start)?);
+
+    let matching = collect(
+        DType::Primitive(vortex_array::dtype::PType::U64, false.into()),
+        Arc::new(
+            scan()?
+                .with_projection(row_idx().bind(layout.dtype())?)
+                .prepare()?,
+        )
+        .local_stream(DEFAULT_LOCAL_CHUNKS),
+    )
+    .await?
+    .execute::<PrimitiveArray>(&mut session.create_execution_ctx())?;
+    for row in matching.as_slice::<u64>() {
+        let index = usize::try_from(row - rows.start)?;
+        assert!(kept.value(index), "pruning dropped row {row}");
+    }
+
+    match (strategy, &filter) {
+        (_, None) => assert!(kept.all_true()),
+        (Strategy::ZonedTable, Some(_)) if matching.is_empty() => assert!(kept.all_false()),
+        _ => {}
+    }
     Ok(())
 }

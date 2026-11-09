@@ -62,6 +62,13 @@ pub struct VortexFile {
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
     plans: ScanCache,
+    /// The segment bytes the plans retain, or the default budget when `None`.
+    retained_segment_bytes: Option<u64>,
+}
+
+/// A scan cache that retains `retained_segment_bytes` of segments, or the default budget.
+fn scan_cache(retained_segment_bytes: Option<u64>) -> ScanCache {
+    retained_segment_bytes.map_or_else(ScanCache::default, ScanCache::with_retained_bytes)
 }
 
 fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
@@ -125,9 +132,16 @@ impl VortexFile {
     /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
+        self.with_caching_retaining(None)
+    }
+
+    /// Like [`with_caching`](Self::with_caching), with a V2 [`ScanCache`] that retains at most
+    /// `retained_segment_bytes` of recently read segments, or its default budget when `None`.
+    pub(crate) fn with_caching_retaining(self, retained_segment_bytes: Option<u64>) -> Self {
         let scan_cache = FileScanCache {
             locations: segment_locations(&self.footer),
-            plans: ScanCache::default(),
+            plans: scan_cache(retained_segment_bytes),
+            retained_segment_bytes,
         };
         Self {
             footer: self.footer,
@@ -195,7 +209,7 @@ impl VortexFile {
             self.layout_reader_cache = Some(OnceLock::new());
         }
         if let Some(cache) = &mut self.scan_cache {
-            cache.plans = ScanCache::default();
+            cache.plans = scan_cache(cache.retained_segment_bytes);
         }
         self
     }

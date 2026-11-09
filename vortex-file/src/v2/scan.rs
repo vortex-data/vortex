@@ -19,8 +19,10 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
+use futures::TryFutureExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::stream;
@@ -28,15 +30,13 @@ use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
-use vortex_layout::scan::v2::ChunkPlanner;
 use vortex_layout::scan::v2::PreparedScan;
-use vortex_layout::scan::v2::PrunePlanner;
 use vortex_layout::scan::v2::ScanBuilder;
-use vortex_mask::Mask;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::Planner;
@@ -48,25 +48,61 @@ pub struct ScanDriver {
     handle: Handle,
     concurrency: usize,
     ordered: bool,
+    limit: Option<u64>,
 }
 
 impl ScanDriver {
     /// A driver spawning on `handle`, running `concurrency` chunks beside each other per worker
     /// thread, or every chunk on the scan's own run at one, and yielding batches in row order
-    /// when `ordered`, which holds them until the scan is done.
+    /// when `ordered`.
+    ///
+    /// An ordered scan holds each chunk's batches until the chunk is done and every earlier chunk
+    /// was yielded, so it holds at most the chunks running beside each other.
     pub fn new(handle: Handle, concurrency: usize, ordered: bool) -> Self {
         assert!(concurrency > 0);
         Self {
             handle,
             concurrency,
             ordered,
+            limit: None,
         }
+    }
+
+    /// Stops the scan once it yielded `limit` rows, slicing the last batch to fit. An ordered
+    /// scan yields the first `limit` rows it selects; an unordered scan yields any `limit` of
+    /// them.
+    pub fn with_limit(mut self, limit: Option<u64>) -> Self {
+        self.limit = limit;
+        self
     }
 
     /// Prepares `builder` where compute runs, composes its planners, and streams their batches.
     /// Preparation errors are the stream's first item.
     pub fn run(self, builder: ScanBuilder) -> BoxStream<'static, VortexResult<ArrayRef>> {
-        self.drive(builder, Arc::new(Ok))
+        let limit = self.limit;
+        let batches = self.drive(builder, Arc::new(Ok));
+        limit_rows(
+            batches,
+            limit,
+            |batch| batch.len(),
+            |batch, rows| batch.slice(0..rows),
+        )
+    }
+
+    /// Like [`ScanDriver::run`], over a scan prepared already. Use it to reuse one preparation,
+    /// or to handle preparation errors before the scan starts.
+    pub fn run_prepared(
+        self,
+        scan: Arc<PreparedScan>,
+    ) -> BoxStream<'static, VortexResult<ArrayRef>> {
+        let limit = self.limit;
+        let batches = self.execute(scan, Arc::new(Ok));
+        limit_rows(
+            batches,
+            limit,
+            |batch| batch.len(),
+            |batch, rows| batch.slice(0..rows),
+        )
     }
 
     /// Like [`ScanDriver::run`], yielding each batch executed to an Arrow [`RecordBatch`] of
@@ -89,7 +125,8 @@ impl ScanDriver {
             },
         };
         let field = Field::new_struct("", schema.fields().clone(), false);
-        self.drive(
+        let limit = self.limit;
+        let batches = self.drive(
             builder,
             Arc::new(move |batch| {
                 let mut ctx = session.create_execution_ctx();
@@ -98,7 +135,10 @@ impl ScanDriver {
                     .execute_arrow(batch, Some(&field), &mut ctx)?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             }),
-        )
+        );
+        limit_rows(batches, limit, RecordBatch::num_rows, |batch, rows| {
+            Ok(batch.slice(0, rows))
+        })
     }
 
     /// Runs the scan, applying `map_fn` to each batch on the task that produced it.
@@ -126,66 +166,101 @@ impl ScanDriver {
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        // An ordered scan runs each chunk on a task of its own, so it can yield a chunk once it
+        // and every chunk before it are done.
+        let inline = in_flight <= 1 && !self.ordered;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
         };
         let io = scan.io();
-        let root = compose(&scan);
+        let root = scan.planner();
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
-        let batches = run_stream(self.handle, root, scope, io.session(), map_fn, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    chunk_io.session(),
-                    Arc::clone(&chunk_map),
-                ),
-            })
-            .try_flatten_unordered(in_flight);
+        let yielded = run_stream(self.handle, root, scope, io.session(), map_fn, inline);
+
+        let batches = if self.ordered {
+            yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => future::ready(Ok(vec![(start, batch)])).boxed(),
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        chunk_io.session(),
+                        Arc::clone(&chunk_map),
+                    )
+                    .try_collect::<Vec<_>>()
+                    .map_ok(|mut held| {
+                        // Morsels finish in whatever order their reads arrive.
+                        held.sort_by_key(|(start, _)| *start);
+                        held
+                    })
+                    .boxed(),
+                })
+                // The root run spawns chunks in row order, and buffering keeps that order.
+                .try_buffered(in_flight)
+                .map_ok(|held| stream::iter(held.into_iter().map(Ok)))
+                .try_flatten()
+                .boxed()
+        } else {
+            yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        stream::once(future::ready(Ok((start, batch)))).boxed()
+                    }
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        chunk_io.session(),
+                        Arc::clone(&chunk_map),
+                    ),
+                })
+                .try_flatten_unordered(in_flight)
+                .boxed()
+        };
+
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
-        let batches = batches.chain(stream::poll_fn(move |_| {
-            let _ = &scan;
-            Poll::Ready(None)
-        }));
-        if !self.ordered {
-            return batches.map_ok(|(_, batch)| batch).boxed();
-        }
-        stream::once(async move {
-            let mut held: Vec<(u64, A)> = batches.try_collect().await?;
-            // Morsels finish in whatever order their reads arrive.
-            held.sort_by_key(|(start, _)| *start);
-            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
-        })
-        .try_flatten()
-        .boxed()
+        batches
+            .chain(stream::poll_fn(move |_| {
+                let _ = &scan;
+                Poll::Ready(None)
+            }))
+            .map_ok(|(_, batch)| batch)
+            .boxed()
     }
 }
 
-/// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
-/// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
-    let rows = scan.rows().clone();
-    let chunks = {
-        let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            let selection = scan.selection().clone();
-            Box::new(ChunkPlanner::new(scan, rows, selection, kept))
-        }
+/// Ends `batches` once they hold `limit` rows, slicing the last batch to fit. Dropping the scan's
+/// stream cancels the chunks still running.
+fn limit_rows<A: Send + 'static>(
+    batches: BoxStream<'static, VortexResult<A>>,
+    limit: Option<u64>,
+    len: fn(&A) -> usize,
+    slice: fn(A, usize) -> VortexResult<A>,
+) -> BoxStream<'static, VortexResult<A>> {
+    let Some(limit) = limit else {
+        return batches;
     };
-    if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(chunks)))
-    } else {
-        chunks(None)
-    }
+
+    stream::unfold((batches, limit), move |(mut batches, left)| async move {
+        if left == 0 {
+            return None;
+        }
+        let batch = match batches.next().await? {
+            Ok(batch) => batch,
+            Err(error) => return Some((Err(error), (batches, 0))),
+        };
+        let rows = len(&batch) as u64;
+        if rows <= left {
+            return Some((Ok(batch), (batches, left - rows)));
+        }
+        let rows = usize::try_from(left).vortex_expect("fewer rows than the batch fit usize");
+        Some((slice(batch, rows), (batches, 0)))
+    })
+    .boxed()
 }
 
 /// A mapping applied to each batch on the task that produced it.

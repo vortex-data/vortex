@@ -21,6 +21,7 @@ mod selection;
 use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_array::dtype::DType;
 use vortex_buffer::Alignment;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
@@ -115,6 +116,11 @@ impl PreparedScan {
         &self.selection
     }
 
+    /// The dtype of the scan's batches.
+    pub fn dtype(&self) -> &DType {
+        self.projection.dtype()
+    }
+
     /// The filter's plans, when the scan has a filter.
     pub fn filter(&self) -> Option<&FilterPlans> {
         self.filter.as_deref()
@@ -127,6 +133,31 @@ impl PreparedScan {
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
         ))
+    }
+
+    /// The scan's planners, composed: with a filter, its pruning plans first over the scan's
+    /// rows, continuing into the chunks of the rows they keep; without, the chunks directly.
+    ///
+    /// Admit the result to a [`Run`](vortex_scan::planning::driver::Run) over
+    /// [`rows`](Self::rows) to execute the whole scan. Each chunk arrives as a
+    /// [`PlannerOutput::Spawn`](vortex_scan::planning::planner::PlannerOutput::Spawn), in row
+    /// order.
+    pub fn planner(self: &Arc<Self>) -> Box<dyn Planner> {
+        let rows = self.rows.clone();
+        let chunks = {
+            let scan = Arc::clone(self);
+            let rows = rows.clone();
+            move |kept: Option<Mask>| -> Box<dyn Planner> {
+                let selection = scan.selection.clone();
+                Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+            }
+        };
+
+        if self.filter.is_some() {
+            Box::new(PrunePlanner::new(Arc::clone(self), rows, Box::new(chunks)))
+        } else {
+            chunks(None)
+        }
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
