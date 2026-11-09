@@ -174,19 +174,7 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-
-                // A full compression is slow, so do it only if it can give a dictionary.
-                if self
-                    .probe_compressor
-                    .may_compress_to(&sample, Dict.id(), &mut exec_ctx)?
-                {
-                    let compressed = self
-                        .probe_compressor
-                        .compress_chunk(&sample, &mut exec_ctx)?;
-                    !compressed.is::<Dict>()
-                } else {
-                    true
-                }
+                self.probe_compressor.encoding_for(&sample, &mut exec_ctx)? != Dict.id()
             }
         };
         if should_fallback {

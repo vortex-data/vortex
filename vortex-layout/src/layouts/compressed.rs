@@ -33,18 +33,13 @@ use crate::sequence::SequentialStreamExt;
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Returns `false` if [`compress_chunk`](Self::compress_chunk) cannot return an array of
-    /// `encoding` for `chunk`. Returns `true` if it can, or if the plugin cannot tell without
-    /// compressing.
+    /// Returns the encoding of the array that [`compress_chunk`](Self::compress_chunk) returns
+    /// for `chunk`.
     ///
-    /// A writer can use this to skip a compression that it does only to look at the encoding.
-    fn may_compress_to(
-        &self,
-        _chunk: &ArrayRef,
-        _encoding: ArrayId,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        Ok(true)
+    /// A writer can use this to choose a layout from the encoding the plugin produces. The default
+    /// compresses `chunk`. A plugin can override it to give the answer without a full compression.
+    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
+        Ok(self.compress_chunk(chunk, ctx)?.encoding_id())
     }
 }
 
@@ -53,13 +48,8 @@ impl CompressorPlugin for Arc<dyn CompressorPlugin> {
         self.as_ref().compress_chunk(chunk, ctx)
     }
 
-    fn may_compress_to(
-        &self,
-        chunk: &ArrayRef,
-        encoding: ArrayId,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        self.as_ref().may_compress_to(chunk, encoding, ctx)
+    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
+        self.as_ref().encoding_for(chunk, ctx)
     }
 }
 
@@ -77,13 +67,8 @@ impl CompressorPlugin for BtrBlocksCompressor {
         self.compress(chunk, ctx)
     }
 
-    fn may_compress_to(
-        &self,
-        chunk: &ArrayRef,
-        encoding: ArrayId,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        self.0.may_compress_to(chunk, encoding, ctx)
+    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
+        self.0.encoding_for(chunk, ctx)
     }
 }
 

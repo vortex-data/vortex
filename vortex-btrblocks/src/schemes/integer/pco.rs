@@ -36,6 +36,10 @@ impl Scheme for PcoScheme {
         vec![vortex_pco::Pco.id()]
     }
 
+    fn root_encoding(&self) -> Option<ArrayId> {
+        Some(vortex_pco::Pco.id())
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,

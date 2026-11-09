@@ -58,6 +58,10 @@ impl Scheme for FloatDictScheme {
         vec![Dict.id()]
     }
 
+    fn root_encoding(&self) -> Option<ArrayId> {
+        Some(Dict.id())
+    }
+
     fn stats_options(&self) -> GenerateStatsOptions {
         GenerateStatsOptions {
             count_distinct_values: true,
