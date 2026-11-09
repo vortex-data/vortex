@@ -299,7 +299,7 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             let array = match local.pending.pop() {
                 Some(array) => array,
                 None => {
-                    let Some(array) = scan.next_array(&mut local.run)? else {
+                    let Some(array) = scan.next_array(&mut local.run, local.v2_work.take())? else {
                         return Ok(SplitItem::Done);
                     };
                     // A V2 batch can join chunks of several layout chunks. Canonicalizing it
@@ -333,13 +333,16 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A V2 scan's threads take chunks from the file's scan until it has spawned
-    // them all, so the file has work for another thread until then.
+    // Reserve a V2 chunk before DuckDB releases the global lock, so a thread joins the file
+    // only with work in hand and idle threads move on to the next file instead.
     let v2 = file
         .scan_state
         .as_ref()
         .and_then(|state| state.v2.get())
-        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+        .map(|scan| {
+            local.v2_work = scan.take_work();
+            local.v2_work.as_ref().map(|_| Split::V2)
+        });
     let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
