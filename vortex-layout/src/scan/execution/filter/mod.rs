@@ -6,9 +6,15 @@ use std::sync::Arc;
 
 use bit_vec::BitVec;
 use rustc_hash::FxHashSet;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Bool;
+use vortex_array::arrays::Constant;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -237,8 +243,53 @@ pub(super) fn hint(
 
 /// Executes a scan's boolean piece to a mask, nulls as false.
 pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<Mask> {
+    if let Some(mask) = try_ready_piece_mask(&piece.array)? {
+        return Ok(mask);
+    }
     let mut ctx = session.create_execution_ctx();
     piece.array.fill_null(false)?.execute::<Mask>(&mut ctx)
+}
+
+/// Avoid expression execution for already computed host Boolean pieces. Encoded values and
+/// validity, and device buffers, retain the ordinary execution path.
+fn try_ready_piece_mask(array: &ArrayRef) -> VortexResult<Option<Mask>> {
+    if !array.dtype().is_boolean() {
+        return Ok(None);
+    }
+    let len = array.len();
+    if let Some(constant) = array.as_opt::<Constant>() {
+        return Ok(Some(Mask::new(
+            len,
+            constant.scalar().as_bool().value().unwrap_or(false),
+        )));
+    }
+    let Some(boolean) = array.as_opt::<Bool>() else {
+        return Ok(None);
+    };
+    let Some(bits) = host_bool_bits(boolean) else {
+        return Ok(None);
+    };
+    let mask = match boolean.validity()? {
+        Validity::NonNullable | Validity::AllValid => Mask::from_buffer(bits),
+        Validity::AllInvalid => Mask::new_false(len),
+        Validity::Array(validity) => {
+            if validity.dtype().is_nullable() {
+                return Ok(None);
+            }
+            let Some(validity_bits) = validity.as_opt::<Bool>().and_then(host_bool_bits) else {
+                return Ok(None);
+            };
+            Mask::from_buffer(bits & validity_bits)
+        }
+    };
+    Ok(Some(mask))
+}
+
+fn host_bool_bits(array: ArrayView<'_, Bool>) -> Option<BitBuffer> {
+    let parts = array.data().clone().into_parts(array.len());
+    parts.bits.is_on_host().then(|| {
+        BitBuffer::new_with_offset(parts.bits.unwrap_host(), array.len(), parts.meta.offset())
+    })
 }
 
 impl IoConsumer for FilterPlanner {
@@ -390,3 +441,6 @@ impl Planner for FilterPlanner {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests;
