@@ -53,6 +53,7 @@ EXCLUDED_PACKAGES: dict[str, str] = {
     "vortex-btrblocks": "its benchmarks are compiled out under `cfg(codspeed)`",
     "vortex-cuda": "its benchmarks need a GPU and run in the `bench-codspeed-cuda` jobs",
     "vortex-duckdb": "its build script downloads or builds DuckDB",
+    "vortex-session": "its standalone contention harness does not use the CodSpeed benchmark API",
 }
 
 # The features that a package builds its benchmarks with, if it needs any.
