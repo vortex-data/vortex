@@ -58,15 +58,23 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-/// A session that can look up [`Tagged`] by its Vortex ID.
+/// A session that can look up [`Tagged`] by its Vortex ID and by [`TAGGED_ALIAS`].
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
     session.dtypes().register(Tagged);
+    session
+        .dtypes()
+        .registry()
+        .insert(*TAGGED_ALIAS_ID, Arc::new(Tagged));
     vortex_arrow::initialize(&session);
     session
 });
 
 static TAGGED_ID: CachedId = CachedId::new("test.tagged");
+
+/// Another name that the dtype registry of [`SESSION`] resolves to [`Tagged`].
+const TAGGED_ALIAS: &str = "test.tagged.alias";
+static TAGGED_ALIAS_ID: CachedId = CachedId::new(TAGGED_ALIAS);
 
 /// An extension type without an Arrow plugin. It accepts any storage, and its metadata is one tag
 /// byte.
@@ -334,6 +342,66 @@ fn timestamp_round_trips_through_a_vortex_id_field(
     Ok(())
 }
 
+/// A field that names an alias of a Vortex ID exports and imports like a field that names the ID.
+#[test]
+fn alias_of_vortex_id_round_trips() -> VortexResult<()> {
+    let array = tagged_i64s(0xff)?;
+    let mut field = storage_field_as(Ok(array.clone()), DataType::Int64)?;
+    field
+        .metadata_mut()
+        .insert(EXTENSION_TYPE_NAME_KEY.to_owned(), TAGGED_ALIAS.to_owned());
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let exported = SESSION
+        .arrow()
+        .execute_arrow(array.clone(), Some(&field), &mut ctx)?;
+    let imported = SESSION.arrow().from_arrow_array(exported, &field)?;
+    assert_arrays_eq!(imported, array, &mut ctx);
+
+    Ok(())
+}
+
+/// A plain array exports to a field that names a Vortex ID, because a plugin such as `Vector`
+/// exports its storage to the same field that it received.
+#[test]
+fn plain_array_exports_to_a_vortex_id_field() -> VortexResult<()> {
+    let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+    let field = storage_field_as(tagged_i64s(0xff), DataType::Int64)?;
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let exported = SESSION
+        .arrow()
+        .execute_arrow(storage.clone(), Some(&field), &mut ctx)?;
+    let plain_field = Field::new("t", DataType::Int64, true);
+    let imported = SESSION.arrow().from_arrow_array(exported, &plain_field)?;
+    assert_arrays_eq!(imported, storage, &mut ctx);
+
+    Ok(())
+}
+
+/// The export to a field that names a Vortex ID compares nested extension types by their storage,
+/// because the import of the field may not restore them. Here the session does not know the nested
+/// Vortex ID, and an import plugin that loses metadata, such as the version of a UUID, has the same
+/// effect.
+#[test]
+fn export_compares_nested_extension_types_by_storage() -> VortexResult<()> {
+    let array = tagged_array(0x01, struct_of_tagged()?)?;
+    let field = SESSION
+        .arrow()
+        .to_arrow_storage_field("t", array.dtype().as_extension())?;
+    let session = VortexSession::empty();
+    vortex_arrow::initialize(&session);
+    let mut ctx = session.create_execution_ctx();
+
+    let exported = session
+        .arrow()
+        .execute_arrow(array.clone(), Some(&field), &mut ctx)?;
+    let imported = SESSION.arrow().from_arrow_array(exported, &field)?;
+    assert_arrays_eq!(imported, array, &mut ctx);
+
+    Ok(())
+}
+
 /// A session that does not know the Vortex ID imports the field as plain storage.
 #[test]
 fn unknown_vortex_id_imports_as_storage() -> VortexResult<()> {
@@ -426,8 +494,8 @@ fn run_end_field_that_names_its_type_twice_wraps_it_once() -> VortexResult<()> {
     Ok(())
 }
 
-/// The entries field of a map is part of the map type, so a Vortex ID on it is ignored by both the
-/// dtype import and the array import.
+/// The entries field of a map is part of the map type, so the dtype import and the array import
+/// both ignore a Vortex ID on it.
 #[test]
 fn map_entries_ignore_a_vortex_id() -> VortexResult<()> {
     let key_field = Arc::new(Field::new("key", DataType::Int64, false));
