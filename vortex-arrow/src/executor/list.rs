@@ -24,6 +24,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::matcher::Matcher;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -98,13 +99,14 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .execute::<Canonical>(ctx)?
         .into_primitive()
         .to_buffer::<O>();
+    let (offsets, elements) = referenced_elements(offsets, array.elements().clone())?;
 
     // SAFETY: `ListArray` guarantees its offsets are non-empty, non-negative and sorted. The
-    // checked cast keeps every value, so the order stays the same.
+    // checked cast keeps every value, so the order stays the same, and rebasing them onto the
+    // first referenced element keeps them non-negative.
     let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
-    let elements =
-        exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
+    let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -119,6 +121,39 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         elements,
         null_buffer,
     )))
+}
+
+/// The elements `offsets` reference, with the offsets rebased onto them when that drops more
+/// elements than there are offsets.
+///
+/// A sliced list keeps its whole elements array, and exporting the elements no list references
+/// costs as much as exporting the rest: a scan that slices one list into many batches would
+/// export its elements once per batch. The elements after the last list are dropped by slicing
+/// alone; those before the first cost rewriting every offset, so a few are kept, and the
+/// offsets with them.
+fn referenced_elements<O: OffsetSizeTrait + NativePType>(
+    offsets: Buffer<O>,
+    elements: ArrayRef,
+) -> VortexResult<(Buffer<O>, ArrayRef)> {
+    let (Some(&first), Some(&last)) = (offsets.first(), offsets.last()) else {
+        return Ok((offsets, elements));
+    };
+    let start = if first.as_usize() > offsets.len() {
+        first.as_usize()
+    } else {
+        0
+    };
+    let end = last.as_usize();
+    if start == 0 && end == elements.len() {
+        return Ok((offsets, elements));
+    }
+    let elements = elements.slice(start..end)?;
+    let offsets = if start == 0 {
+        offsets
+    } else {
+        offsets.iter().map(|&offset| offset - first).collect()
+    };
+    Ok((offsets, elements))
 }
 
 fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
@@ -179,7 +214,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         offsets[offsets.len() - 1] + final_size
     });
 
-    // Extract the elements array.
+    let (offsets, elements) = referenced_elements(offsets.freeze(), elements)?;
     let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
@@ -190,8 +225,8 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     // SAFETY: zero-copy-to-list offsets are non-negative and sorted, and the final offset we
     // pushed is the last offset plus a non-negative size. The array is not empty, so the buffer
-    // is not empty.
-    let offsets = unsafe { offsets.freeze().into_arrow_offset_buffer_unchecked() };
+    // is not empty, and rebasing it onto the first referenced element keeps it non-negative.
+    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
     Ok(Arc::new(GenericListArray::<O>::new(
         Arc::clone(elements_field),
@@ -224,6 +259,7 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -436,6 +472,39 @@ mod tests {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// A slice of a few lists of a long list exports the elements those lists hold, not every
+    /// element of the list it was cut from.
+    #[test]
+    fn sliced_list_exports_only_its_elements() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Lists [0..50), [50], [51] and [52..100), sliced to the middle two.
+        let elements =
+            PrimitiveArray::new((0..100).collect::<Buffer<i32>>(), Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 50, 51, 52, 100], Validity::NonNullable);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        let sliced = SliceArray::new(list.into_array(), 1..3).into_array();
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_array = sliced.execute_arrow(Some(&DataType::List(field.into())), &mut ctx)?;
+        let arrow_list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+        assert_eq!(arrow_list.value_offsets(), &[0, 1, 2]);
+        let values = arrow_list
+            .values()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(values.values(), &[50, 51]);
         Ok(())
     }
 
