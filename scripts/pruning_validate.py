@@ -34,7 +34,11 @@ cases = [
 ]
 cases += [("tpcds-focus", "tpcds", 1, "4,16,59,65,66,71,72", 30)]
 if not args.local:
-    cases = [("polarsignals-v1-control", "polarsignals", 1, None, 10), ("tpch-sf10-focus", "tpch", 10, "6,7", 20), *cases]
+    cases = [
+        ("polarsignals-v1-control", "polarsignals", 1, None, 10),
+        ("tpch-sf10-focus", "tpch", 10, "6,7", 20),
+        *cases,
+    ]
 rng = random.Random(11348)
 orders = {}
 for name, *_ in cases:
