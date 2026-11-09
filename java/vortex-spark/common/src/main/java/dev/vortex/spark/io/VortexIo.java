@@ -83,7 +83,10 @@ public final class VortexIo implements Serializable {
     /** Hadoop I/O over a default configuration, for callers that have no Spark session to draw one from. */
     public static VortexIo defaults() {
         return new VortexIo(
-                new SerializableHadoopConf(new Configuration()), null, DEFAULT_READ_CONCURRENCY, DEFAULT_SPLIT_CONCURRENCY);
+                new SerializableHadoopConf(new Configuration()),
+                null,
+                DEFAULT_READ_CONCURRENCY,
+                DEFAULT_SPLIT_CONCURRENCY);
     }
 
     private VortexIo(
