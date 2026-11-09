@@ -15,6 +15,7 @@ use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_execution::object_store::ObjectStoreUrl;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
@@ -35,6 +36,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::expr::Expression;
 use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::io::CoalesceConfig;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
@@ -356,10 +358,13 @@ impl VortexSource {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultPhysicalExprAdapterFactory));
 
-        let vortex_reader_factory = self
-            .vortex_reader_factory
-            .clone()
-            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+        let vortex_reader_factory = self.vortex_reader_factory.clone().unwrap_or_else(|| {
+            let mut factory = DefaultVortexReaderFactory::new(object_store);
+            if base_config.object_store_url == ObjectStoreUrl::local_filesystem() {
+                factory = factory.with_coalesce_config(CoalesceConfig::file());
+            }
+            Arc::new(factory)
+        });
 
         let opener = VortexOpener {
             partition,

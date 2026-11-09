@@ -10,6 +10,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_datasource::PartitionedFile;
 use object_store::ObjectStore;
 use vortex::array::memory::MemorySessionExt;
+use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -43,6 +44,7 @@ pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
 #[derive(Debug)]
 pub struct DefaultVortexReaderFactory {
     object_store: Arc<dyn ObjectStore>,
+    coalesce_config: Option<CoalesceConfig>,
 }
 
 impl DefaultVortexReaderFactory {
@@ -59,7 +61,16 @@ impl DefaultVortexReaderFactory {
     /// # let _ = factory;
     /// ```
     pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
-        Self { object_store }
+        Self {
+            object_store,
+            coalesce_config: None,
+        }
+    }
+
+    /// Sets how nearby read requests are coalesced for this store.
+    pub fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
+        self.coalesce_config = Some(config);
+        self
     }
 }
 
@@ -69,11 +80,15 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
         file: &PartitionedFile,
         session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
-        Ok(Arc::new(ObjectStoreReadAt::new_with_allocator(
+        let mut reader = ObjectStoreReadAt::new_with_allocator(
             Arc::clone(&self.object_store),
             file.path().clone(),
             session.handle(),
             session.allocator(),
-        )) as _)
+        );
+        if let Some(config) = self.coalesce_config {
+            reader = reader.with_coalesce_config(config);
+        }
+        Ok(Arc::new(reader) as _)
     }
 }
