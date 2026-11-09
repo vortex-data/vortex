@@ -23,7 +23,7 @@ use vortex_array::IntoArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::stats::Precision;
+use vortex_array::stats::Precision;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;

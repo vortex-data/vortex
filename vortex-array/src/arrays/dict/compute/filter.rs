@@ -50,11 +50,11 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProviderExt;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProviderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

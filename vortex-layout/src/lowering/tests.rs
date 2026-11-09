@@ -20,7 +20,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;

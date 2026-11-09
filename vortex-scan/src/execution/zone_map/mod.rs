@@ -33,7 +33,7 @@ use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::internal::row_count::RowCount;

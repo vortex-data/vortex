@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Bound expression trees and their optimizer, and the statistics vocabulary arrays expose.
+//! Bound expression trees and their optimizer.
 //!
 //! [`BoundExpression`] lives here because the scalar function vtable reduces over it: keeping it
 //! next to [`ScalarFnVTable`](crate::scalar_fn::ScalarFnVTable) lets every reduction rule be
@@ -11,6 +11,5 @@
 mod bound_expression;
 pub mod display;
 mod optimize;
-pub mod stats;
 
 pub use bound_expression::*;

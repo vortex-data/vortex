@@ -22,7 +22,7 @@ use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_array::ExecutionCtx;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;

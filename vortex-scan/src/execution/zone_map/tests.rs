@@ -40,7 +40,7 @@ use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::root;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
 use vortex_array::validity::Validity;

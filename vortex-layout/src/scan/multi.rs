@@ -38,7 +38,7 @@ use itertools::Itertools;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::stats::Precision;
+use vortex_array::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;

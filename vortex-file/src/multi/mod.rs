@@ -307,7 +307,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::Expression;
     use vortex_array::expr::pack;
-    use vortex_array::expr::stats::Precision;
+    use vortex_array::stats::Precision;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
