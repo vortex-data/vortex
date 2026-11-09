@@ -44,7 +44,7 @@ pub fn get_session_context() -> SessionContext {
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
         .with_runtime_env(rt)
         .with_default_features()
-        .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown));
+        .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown::default()));
 
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(

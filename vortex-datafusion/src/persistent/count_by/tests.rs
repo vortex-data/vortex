@@ -13,6 +13,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
+use datafusion::arrow::util::display::array_value_to_string;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -37,6 +38,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::mask::Mask;
 use vortex::session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::CountBy;
 use super::count_chunk;
@@ -45,16 +47,16 @@ use crate::VortexCountByPushdown;
 use crate::VortexFormatFactory;
 
 fn session(store: &Arc<InMemory>, count_by: bool) -> SessionContext {
-    session_with_config(
-        store,
-        count_by,
-        SessionConfig::new().with_target_partitions(4),
-    )
+    session_with(store, count_by.then(VortexCountByPushdown::default))
+}
+
+fn session_with(store: &Arc<InMemory>, rule: Option<VortexCountByPushdown>) -> SessionContext {
+    session_with_config(store, rule, SessionConfig::new().with_target_partitions(4))
 }
 
 fn session_with_config(
     store: &Arc<InMemory>,
-    count_by: bool,
+    rule: Option<VortexCountByPushdown>,
     config: SessionConfig,
 ) -> SessionContext {
     let factory = Arc::new(VortexFormatFactory::new());
@@ -69,8 +71,8 @@ fn session_with_config(
             &Url::try_from("file://").unwrap(),
             Arc::clone(store) as Arc<dyn ObjectStore>,
         );
-    if count_by {
-        builder = builder.with_physical_optimizer_rule(Arc::new(VortexCountByPushdown));
+    if let Some(rule) = rule {
+        builder = builder.with_physical_optimizer_rule(Arc::new(rule));
     }
     if let Some(file_formats) = builder.file_formats() {
         file_formats.push(factory as _);
@@ -217,11 +219,11 @@ async fn count_by_matches_datafusion_over_split_files() -> anyhow::Result<()> {
             .with_repartition_file_min_size(0)
     };
 
-    let expected = session_with_config(&store, false, split());
+    let expected = session_with_config(&store, None, split());
     expected.sql(CREATE_HITS).await?;
     let (_, expected) = run(&expected, sql).await?;
 
-    let actual = session_with_config(&store, true, split());
+    let actual = session_with_config(&store, Some(VortexCountByPushdown::default()), split());
     actual.sql(CREATE_HITS).await?;
     let (plan, actual) = run(&actual, sql).await?;
 
@@ -275,6 +277,85 @@ async fn count_by_pushdown_can_be_disabled_per_table() -> anyhow::Result<()> {
     .await?;
     let (plan, _) = run(&ctx, "SELECT url, COUNT(*) AS c FROM hits GROUP BY url").await?;
     assert!(!plan.contains("VortexCountBy:"), "{plan}");
+    Ok(())
+}
+
+/// Rows of a result, as `(grouping values, count)` with the count last.
+async fn rows(ctx: &SessionContext, sql: &str) -> anyhow::Result<Vec<(String, i64)>> {
+    let batches = ctx.sql(sql).await?.collect().await?;
+    let mut rows = Vec::new();
+    for batch in batches {
+        let count = batch.num_columns() - 1;
+        let counts = batch
+            .column(count)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| anyhow::anyhow!("count is not Int64"))?;
+        let keys = (0..batch.num_rows())
+            .map(|row| {
+                (0..count)
+                    .map(|column| array_value_to_string(batch.column(column), row))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|values| values.join("|"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.extend(keys.into_iter().zip(counts.values().iter().copied()));
+    }
+    Ok(rows)
+}
+
+/// The largest counts the pushed-down top-k returns are DataFusion's, and each is a group's
+/// exact total. Groups tied at the cutoff may differ.
+#[rstest]
+#[case::dictionary_key("url", "", "LIMIT 5")]
+#[case::computed_key(
+    "source, CASE WHEN source = 0 THEN referer ELSE '' END AS src, url",
+    "WHERE width > 10",
+    "LIMIT 20"
+)]
+#[case::offset("url", "", "LIMIT 3 OFFSET 4")]
+#[case::nullable_key("referer", "WHERE width < 500", "LIMIT 7")]
+#[case::no_rows("url", "WHERE width > 5000", "LIMIT 4")]
+#[tokio::test]
+async fn top_count_matches_datafusion(
+    #[case] keys: &str,
+    #[case] filter: &str,
+    #[case] limit: &str,
+    #[values(0, usize::MAX)] merge_all_rows: usize,
+) -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new());
+    write_hits(&store).await?;
+    let group_by = (1..=keys.split(", ").count())
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let top = format!(
+        "SELECT {keys}, COUNT(*) AS c FROM hits {filter} GROUP BY {group_by} ORDER BY c DESC {limit}"
+    );
+    let all = format!("SELECT {keys}, COUNT(*) AS c FROM hits {filter} GROUP BY {group_by}");
+
+    let expected = session(&store, false);
+    expected.sql(CREATE_HITS).await?;
+    let expected_top = rows(&expected, &top).await?;
+    let totals = rows(&expected, &all)
+        .await?
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+    let actual = session_with(
+        &store,
+        Some(VortexCountByPushdown::default().with_merge_all_rows(merge_all_rows)),
+    );
+    actual.sql(CREATE_HITS).await?;
+    let (plan, _) = run(&actual, &top).await?;
+    assert!(plan.contains("VortexTopCountExec"), "{plan}");
+    let actual_top = rows(&actual, &top).await?;
+
+    let counts = |rows: &[(String, i64)]| rows.iter().map(|(_, count)| *count).collect::<Vec<_>>();
+    assert_eq!(counts(&actual_top), counts(&expected_top));
+    for (key, count) in &actual_top {
+        assert_eq!(totals.get(key), Some(count), "{key}");
+    }
     Ok(())
 }
 

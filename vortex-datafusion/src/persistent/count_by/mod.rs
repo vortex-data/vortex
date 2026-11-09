@@ -60,8 +60,11 @@ use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::InputOrderMode;
 use datafusion_physical_plan::aggregates::AggregateExec;
 use datafusion_physical_plan::aggregates::AggregateMode;
+use datafusion_physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion_physical_plan::execution_plan::SchedulingType;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::repartition::RepartitionExec;
+use datafusion_physical_plan::sorts::sort::SortExec;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
@@ -85,6 +88,10 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::VortexSource;
 use crate::VortexTableOptions;
 
+mod top;
+
+pub use top::VortexTopCountExec;
+
 /// A physical optimizer rule that pushes the partial stage of a `COUNT(*)` into the Vortex scan
 /// beneath it.
 ///
@@ -100,11 +107,32 @@ use crate::VortexTableOptions;
 /// # use vortex_datafusion::VortexCountByPushdown;
 /// let state = SessionStateBuilder::new()
 ///     .with_default_features()
-///     .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown))
+///     .with_physical_optimizer_rule(Arc::new(VortexCountByPushdown::default()))
 ///     .build();
 /// ```
-#[derive(Debug, Default)]
-pub struct VortexCountByPushdown;
+#[derive(Debug)]
+pub struct VortexCountByPushdown {
+    /// Up to this many partial rows, a [`VortexTopCountExec`] merges them all rather than
+    /// pruning them first.
+    merge_all_rows: usize,
+}
+
+impl Default for VortexCountByPushdown {
+    fn default() -> Self {
+        Self {
+            merge_all_rows: top::MERGE_ALL_ROWS,
+        }
+    }
+}
+
+impl VortexCountByPushdown {
+    /// Sets how many partial rows a [`VortexTopCountExec`] merges without pruning them first.
+    #[cfg(test)]
+    pub(crate) fn with_merge_all_rows(mut self, merge_all_rows: usize) -> Self {
+        self.merge_all_rows = merge_all_rows;
+        self
+    }
+}
 
 impl PhysicalOptimizerRule for VortexCountByPushdown {
     fn optimize(
@@ -119,9 +147,17 @@ impl PhysicalOptimizerRule for VortexCountByPushdown {
         {
             return Ok(plan);
         }
-        plan.transform_down(|node| {
-            Ok(match push_down_count_by(&node) {
-                Some(pushed) => Transformed::yes(pushed),
+        let plan = plan
+            .transform_down(|node| {
+                Ok(match push_down_count_by(&node) {
+                    Some(pushed) => Transformed::yes(pushed),
+                    None => Transformed::no(node),
+                })
+            })
+            .data()?;
+        plan.transform_up(|node| {
+            Ok(match top_count(&node, self.merge_all_rows) {
+                Some(top) => Transformed::yes(top),
                 None => Transformed::no(node),
             })
         })
@@ -235,6 +271,51 @@ fn push_down_count_by(node: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn Execution
     Some(DataSourceExec::from_data_source(VortexCountBySource::new(
         config,
         aggregate.schema(),
+    )))
+}
+
+/// Replaces a `TopK` sort by descending count over the final merge of a [`VortexCountBySource`]'s
+/// partial counts with a [`VortexTopCountExec`], which merges only the groups that can be among
+/// the largest counts.
+fn top_count(
+    node: &Arc<dyn ExecutionPlan>,
+    merge_all_rows: usize,
+) -> Option<Arc<dyn ExecutionPlan>> {
+    let sort = node.downcast_ref::<SortExec>()?;
+    let fetch = sort.fetch()?;
+    let [order] = sort.expr().as_ref() else {
+        return None;
+    };
+    let aggregate = sort.input().downcast_ref::<AggregateExec>()?;
+    let count = aggregate.schema().fields().len().checked_sub(1)?;
+    if !order.options.descending
+        || order.expr.downcast_ref::<Column>()?.index() != count
+        || !matches!(
+            aggregate.mode(),
+            AggregateMode::Final | AggregateMode::FinalPartitioned
+        )
+        || aggregate.limit_options().is_some()
+        || aggregate.aggr_expr().len() != 1
+    {
+        return None;
+    }
+
+    let mut input = aggregate.input();
+    if let Some(repartition) = input.downcast_ref::<RepartitionExec>() {
+        input = repartition.input();
+    } else if let Some(coalesce) = input.downcast_ref::<CoalescePartitionsExec>() {
+        input = coalesce.input();
+    }
+    input
+        .downcast_ref::<DataSourceExec>()?
+        .data_source()
+        .downcast_ref::<VortexCountBySource>()?;
+    Some(Arc::new(VortexTopCountExec::new(
+        Arc::clone(input),
+        aggregate.schema(),
+        fetch,
+        order.options,
+        merge_all_rows,
     )))
 }
 
