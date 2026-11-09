@@ -623,7 +623,7 @@ async fn test_local_store_scan_reads_byte_range_partitions(
         .into_array()
     }))
     .into_array();
-    let path = object_store::path::Path::parse("local-prefix.vortex")?;
+    let path = Path::parse("local-prefix.vortex")?;
     let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
     session
         .write_options()
@@ -1172,7 +1172,7 @@ async fn test_rewritten_predicate_memtable_oracle(
 
 async fn write_cache_test_file(
     store: &Arc<dyn ObjectStore>,
-    path: &object_store::path::Path,
+    path: &Path,
     offset: i32,
 ) -> anyhow::Result<()> {
     let row_count = 40_000_i32;
@@ -1233,7 +1233,7 @@ async fn run_with_cache_metrics(
 #[tokio::test]
 async fn test_segment_cache_reused_across_queries(#[case] size: usize) -> anyhow::Result<()> {
     let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-    let path = object_store::path::Path::parse("/cached/data.vortex")?;
+    let path = Path::parse("/cached/data.vortex")?;
     write_cache_test_file(&store, &path, 0).await?;
 
     let factory = Arc::new(
