@@ -54,7 +54,11 @@ mod test {
 
     use crate::alp_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(buffer![1.23f32, 4.56, 7.89, 10.11, 12.13].into_array())]

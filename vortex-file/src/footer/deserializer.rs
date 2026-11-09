@@ -18,7 +18,9 @@ use vortex_session::VortexSession;
 use crate::EOF_SIZE;
 use crate::Footer;
 use crate::MAGIC_BYTES;
+use crate::POSTSCRIPT_LEN_BYTES;
 use crate::VERSION;
+use crate::VERSION_BYTES;
 use crate::footer::FileStatistics;
 use crate::footer::SegmentSpec;
 use crate::footer::postscript::Postscript;
@@ -235,7 +237,7 @@ impl FooterDeserializer {
             );
         }
         let eof_loc = initial_read.len() - EOF_SIZE;
-        let magic_bytes_loc = eof_loc + (EOF_SIZE - MAGIC_BYTES.len());
+        let magic_bytes_loc = eof_loc + VERSION_BYTES + POSTSCRIPT_LEN_BYTES;
 
         let magic_number = &initial_read[magic_bytes_loc..];
         if magic_number != MAGIC_BYTES {
@@ -243,7 +245,7 @@ impl FooterDeserializer {
         }
 
         let version = u16::from_le_bytes(
-            initial_read[eof_loc..eof_loc + 2]
+            initial_read[eof_loc..eof_loc + VERSION_BYTES]
                 .try_into()
                 .map_err(|e| vortex_err!("Version was not a u16 {e}"))?,
         );
@@ -252,7 +254,7 @@ impl FooterDeserializer {
         }
 
         let ps_size = u16::from_le_bytes(
-            initial_read[eof_loc + 2..eof_loc + 4]
+            initial_read[eof_loc + VERSION_BYTES..magic_bytes_loc]
                 .try_into()
                 .map_err(|e| vortex_err!("Postscript size was not a u16 {e}"))?,
         ) as usize;

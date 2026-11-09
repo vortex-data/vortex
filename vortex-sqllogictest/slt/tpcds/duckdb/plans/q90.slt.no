@@ -502,7 +502,7 @@ logical_opt [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "(ws_ship_hdemo_sk = hd_demo_sk)",
-                                            "Estimated Cardinality": "2388"
+                                            "Estimated Cardinality": "2387"
                                         }
                                     }
                                 ],
@@ -511,7 +511,7 @@ logical_opt [
                                         "#0",
                                         "#1"
                                     ],
-                                    "Estimated Cardinality": "2388"
+                                    "Estimated Cardinality": "2387"
                                 }
                             },
                             {
@@ -543,14 +543,14 @@ logical_opt [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "CTE Index": "74",
-                                                                    "Estimated Cardinality": "2388"
+                                                                    "Estimated Cardinality": "2387"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(t_time_sk = ws_sold_time_sk)",
-                                                            "Estimated Cardinality": "576"
+                                                            "Estimated Cardinality": "477"
                                                         }
                                                     }
                                                 ],
@@ -592,14 +592,14 @@ logical_opt [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "CTE Index": "74",
-                                                                    "Estimated Cardinality": "2388"
+                                                                    "Estimated Cardinality": "2387"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(t_time_sk = ws_sold_time_sk)",
-                                                            "Estimated Cardinality": "576"
+                                                            "Estimated Cardinality": "477"
                                                         }
                                                     }
                                                 ],
@@ -625,7 +625,7 @@ logical_opt [
                         "extra_info": {
                             "CTE Name": "__common_subplan_1",
                             "Table Index": "74",
-                            "Estimated Cardinality": "2388"
+                            "Estimated Cardinality": "2387"
                         }
                     }
                 ],
@@ -704,7 +704,7 @@ physical_plan [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "ws_ship_hdemo_sk = hd_demo_sk",
-                                    "Estimated Cardinality": "2388"
+                                    "Estimated Cardinality": "2387"
                                 }
                             },
                             {
@@ -734,14 +734,14 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "CTE Index": "74",
-                                                            "Estimated Cardinality": "2388"
+                                                            "Estimated Cardinality": "2387"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "t_time_sk = ws_sold_time_sk",
-                                                    "Estimated Cardinality": "576"
+                                                    "Estimated Cardinality": "477"
                                                 }
                                             }
                                         ],
@@ -774,14 +774,14 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "CTE Index": "74",
-                                                            "Estimated Cardinality": "2388"
+                                                            "Estimated Cardinality": "2387"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "t_time_sk = ws_sold_time_sk",
-                                                    "Estimated Cardinality": "576"
+                                                    "Estimated Cardinality": "477"
                                                 }
                                             }
                                         ],
@@ -798,7 +798,7 @@ physical_plan [
                             "CTE Name": "__common_subplan_1",
                             "Table Index": "74",
                             "Execution Mode": "PIPELINE_DEPENDENT",
-                            "Estimated Cardinality": "2388"
+                            "Estimated Cardinality": "2387"
                         }
                     }
                 ],

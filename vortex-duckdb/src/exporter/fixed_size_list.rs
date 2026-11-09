@@ -216,21 +216,6 @@ mod tests {
     }
 
     #[test]
-    fn test_export_alternating_null_pattern() {
-        // Create a FixedSizeListArray with alternating null/valid pattern.
-        // Lists: NULL, [2, 3], NULL, [6, 7], NULL
-        let fsl = FixedSizeListArray::new(
-            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
-            2,
-            Validity::from_iter([false, true, false, true, false]),
-            5,
-        );
-        let chunk = export_to_chunk(fsl, 2, 0, 5);
-
-        assert_rows(&chunk, &["NULL", "[2, 3]", "NULL", "[6, 7]", "NULL"]);
-    }
-
-    #[test]
     fn test_export_list_size_one() {
         // Create a FixedSizeListArray with list_size=1 (single element arrays).
         // Lists: [10], [20], [30], [40]

@@ -29,6 +29,16 @@ object VortexScan {
 
   /** Option turning footer-backed row-count statistics off. */
   val RowCountStatisticsOption = "vortex.stats.rowCount"
+
+  /** Option turning splitting of large files into row ranges off. */
+  val SplitFilesOption = "vortex.splitFiles"
+
+  /** Whether Spark may split `path` into byte ranges, which the reader maps to
+    * row ranges.
+    */
+  def isSplitable(options: VortexOptions, path: Path): Boolean =
+    options.getBoolean(SplitFilesOption, true) &&
+      VortexFile.hasVortexExtension(path.getName)
 }
 
 /** A Vortex scan planned by Spark's file source framework. */
@@ -49,10 +59,18 @@ final class VortexScan(
   private val hadoopConf =
     sparkSession.sessionState.newHadoopConfWithOptions(caseSensitiveOptions)
   private val io = VortexIo.create(options, hadoopConf)
+
+  /** The I/O the readers use, whose configuration is broadcast once rather than
+    * shipped with every task.
+    */
+  private lazy val executorIo =
+    VortexIo.broadcast(options, hadoopConf, sparkSession.sparkContext)
   private val caseSensitive =
     sparkSession.sessionState.conf.caseSensitiveAnalysis
 
-  override def isSplitable(path: Path): Boolean = false
+  // A pushed COUNT(*) reads only the footer, so splitting would just open it once per split.
+  override def isSplitable(path: Path): Boolean =
+    pushedAggregation.isEmpty && VortexScan.isSplitable(options, path)
 
   override def readSchema(): StructType =
     if (pushedAggregation.nonEmpty) readDataSchema else super.readSchema()
@@ -63,7 +81,7 @@ final class VortexScan(
       case Some(aggregation) =>
         new VortexAggregateReaderFactory(
           fileOptions,
-          io,
+          executorIo,
           options,
           readDataSchema,
           readPartitionSchema,
@@ -72,7 +90,7 @@ final class VortexScan(
       case None =>
         new VortexPartitionReaderFactory(
           fileOptions,
-          io,
+          executorIo,
           options,
           dataSchema,
           readDataSchema,
@@ -112,7 +130,10 @@ final class VortexScan(
   private def vortexFiles =
     partitions
       .flatMap(_.files)
-      .filter(file => VortexFile.hasVortexExtension(file.toPath.getName))
+      // A split file appears once per split, and exactly one of them starts at its first byte.
+      .filter(file =>
+        file.start == 0 && VortexFile.hasVortexExtension(file.toPath.getName)
+      )
 
   override def equals(other: Any): Boolean = other match {
     case scan: VortexScan =>

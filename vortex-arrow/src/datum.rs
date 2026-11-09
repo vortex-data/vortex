@@ -17,6 +17,13 @@ use vortex_error::vortex_panic;
 use crate::ArrowSessionExt;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
+///
+/// A `Datum` has no Arrow field to hold extension metadata, so [`Datum::try_new`] and
+/// [`Datum::try_new_array`] fail for the same types that
+/// [`ArrowSession::default_arrow_export_field`] rejects. [`Datum::try_new_with_target_datatype`]
+/// exports to the given [`DataType`] instead, which can be the storage type of an extension type.
+///
+/// [`ArrowSession::default_arrow_export_field`]: crate::ArrowSession::default_arrow_export_field
 #[derive(Debug)]
 pub struct Datum {
     array: ArrowArrayRef,

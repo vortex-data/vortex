@@ -308,35 +308,35 @@ logical_opt [
                                                 "name": "READ_VORTEX",
                                                 "children": [],
                                                 "extra_info": {
-                                                    "Filters": "($.s_gmt_offset = decimal128(-500, precision=5, scale=2))",
+                                                    "Filters": [
+                                                        "($.d_year = 2000i32)",
+                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
+                                                    ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "1"
+                                                    "Estimated Cardinality": "14609"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "(ss_store_sk = s_store_sk)",
-                                            "Estimated Cardinality": "120242"
+                                            "Conditions": "(ss_sold_date_sk = d_date_sk)",
+                                            "Estimated Cardinality": "48094"
                                         }
                                     },
                                     {
                                         "name": "READ_VORTEX",
                                         "children": [],
                                         "extra_info": {
-                                            "Filters": [
-                                                "($.d_year = 2000i32)",
-                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
-                                            ],
+                                            "Filters": "($.s_gmt_offset = decimal128(-500, precision=5, scale=2))",
                                             "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "14609"
+                                            "Estimated Cardinality": "1"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                    "Estimated Cardinality": "120242"
+                                    "Conditions": "(ss_store_sk = s_store_sk)",
+                                    "Estimated Cardinality": "24047"
                                 }
                             }
                         ],
@@ -414,20 +414,22 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
-                                                    "Filters": "($.s_gmt_offset = decimal128(-500, precision=5, scale=2))",
-                                                    "Projections": [
-                                                        "s_store_sk",
-                                                        "s_store_id",
-                                                        "s_store_name"
+                                                    "Filters": [
+                                                        "($.d_year = 2000i32)",
+                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                     ],
-                                                    "Estimated Cardinality": "1"
+                                                    "Projections": [
+                                                        "d_date_sk",
+                                                        "d_day_name"
+                                                    ],
+                                                    "Estimated Cardinality": "14609"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "ss_store_sk = s_store_sk",
-                                            "Estimated Cardinality": "120242"
+                                            "Conditions": "ss_sold_date_sk = d_date_sk",
+                                            "Estimated Cardinality": "48094"
                                         }
                                     },
                                     {
@@ -435,22 +437,20 @@ physical_plan [
                                         "children": [],
                                         "extra_info": {
                                             "Function": "Vortex Scan",
-                                            "Filters": [
-                                                "($.d_year = 2000i32)",
-                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
-                                            ],
+                                            "Filters": "($.s_gmt_offset = decimal128(-500, precision=5, scale=2))",
                                             "Projections": [
-                                                "d_date_sk",
-                                                "d_day_name"
+                                                "s_store_sk",
+                                                "s_store_id",
+                                                "s_store_name"
                                             ],
-                                            "Estimated Cardinality": "14609"
+                                            "Estimated Cardinality": "1"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "ss_sold_date_sk = d_date_sk",
-                                    "Estimated Cardinality": "120242"
+                                    "Conditions": "ss_store_sk = s_store_sk",
+                                    "Estimated Cardinality": "24047"
                                 }
                             }
                         ],
@@ -466,7 +466,7 @@ physical_plan [
                                 "CASE  WHEN ((d_day_name = 'Friday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END",
                                 "CASE  WHEN ((d_day_name = 'Saturday')) THEN (ss_sales_price) ELSE NULL::DECIMAL(7,2) END"
                             ],
-                            "Estimated Cardinality": "120242"
+                            "Estimated Cardinality": "24047"
                         }
                     }
                 ],

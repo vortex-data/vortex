@@ -347,11 +347,18 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
     use prost::Message;
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::proto::dtype as pb;
+    use vortex_array::dtype::proto::dtype::d_type::DtypeType;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -359,9 +366,13 @@ mod tests {
     use super::LineString;
     use super::MultiLineString;
     use super::MultiPoint;
+    use super::MultiPolygon;
     use super::Point;
     use super::Polygon;
     use crate::extension::SpatialMetadata;
+    use crate::extension::coordinate::Dimension;
+    use crate::extension::coordinate::coordinate_storage_dtype;
+    use crate::test_harness::spatial_session;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -544,6 +555,56 @@ mod tests {
         let expected_storage = expected.as_extension().to_storage_scalar();
         assert_eq!(actual_storage.dtype(), expected_storage.dtype());
         assert_eq!(actual_storage, expected_storage);
+        Ok(())
+    }
+
+    /// A non-nullable `List` of `element`.
+    fn list(element: DType) -> DType {
+        DType::List(Arc::new(element), Nullability::NonNullable)
+    }
+
+    /// The non-nullable 2D coordinate `Struct`.
+    fn xy() -> DType {
+        coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable)
+    }
+
+    /// The list-based geometry types reject storage with a nullable inner `List` or coordinate
+    /// `Struct`, and the error reports the rejected storage.
+    #[rstest]
+    #[case::linestring_coordinates(     LineString,      list(xy().as_nullable()))]
+    #[case::multipoint_coordinates(     MultiPoint,      list(xy().as_nullable()))]
+    #[case::polygon_rings(              Polygon,         list(list(xy()).as_nullable()))]
+    #[case::polygon_coordinates(        Polygon,         list(list(xy().as_nullable())))]
+    #[case::multilinestring_lines(      MultiLineString, list(list(xy()).as_nullable()))]
+    #[case::multilinestring_coordinates(MultiLineString, list(list(xy().as_nullable())))]
+    #[case::multipolygon_polygons(      MultiPolygon,    list(list(list(xy())).as_nullable()))]
+    #[case::multipolygon_rings(         MultiPolygon,    list(list(list(xy()).as_nullable())))]
+    #[case::multipolygon_coordinates(   MultiPolygon,    list(list(list(xy().as_nullable()))))]
+    fn nullable_nested_level_is_rejected(
+        #[case] vtable: impl ExtVTable<Metadata = SpatialMetadata>,
+        #[case] storage: DType,
+    ) {
+        let result = ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.clone());
+        assert!(result.is_err_and(|error| error.to_string().contains(&format!("left: {storage}"))));
+    }
+
+    /// A serialized `vortex.st.linestring` dtype with a nullable coordinate `Struct` fails to read,
+    /// with an error that names the expected storage. [`LineString`] rejects that storage at
+    /// construction, so the test builds the serialized extension dtype by hand.
+    #[test]
+    fn nullable_nested_level_fails_to_read() -> VortexResult<()> {
+        let serialized = pb::DType {
+            dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
+                id: "vortex.st.linestring".to_string(),
+                storage_dtype: Some(Box::new(pb::DType::try_from(&list(xy().as_nullable()))?)),
+                metadata: None,
+            }))),
+        };
+
+        let result = DType::from_proto(&serialized, &spatial_session());
+        assert!(result.is_err_and(|error| error.to_string().contains(
+            "linestring storage can be nullable only at its outer List\n  left: list({x=f64, y=f64}?)\n right: list({x=f64, y=f64})"
+        )));
         Ok(())
     }
 }

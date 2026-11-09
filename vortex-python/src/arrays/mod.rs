@@ -44,6 +44,7 @@ use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::session::ArraySessionExt;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -227,7 +228,7 @@ impl ArrowExport {
                 Some(target_field) => target_field,
                 None => session()
                     .arrow()
-                    .to_arrow_field("", chunked_array.dtype())?,
+                    .default_arrow_export_field(chunked_array.dtype())?,
             };
 
             let chunks = chunked_array
@@ -706,42 +707,54 @@ impl PyArray {
     /// Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Lt)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Lt)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Lte)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Lte)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Eq)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Eq)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::NotEq)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::NotEq)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Gte)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Gte)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
     /// Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.binary(other.into_inner(), Operator::Gt)?;
+        let inner = slf
+            .binary(other.into_inner(), Operator::Gt)?
+            .optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 
@@ -933,7 +946,7 @@ impl PyArray {
             .into());
         }
 
-        let inner = slf.take(indices.clone())?;
+        let inner = slf.take(indices.clone())?.optimize_ctx(session())?;
 
         Ok(PyArrayRef::from(inner))
     }
@@ -941,7 +954,7 @@ impl PyArray {
     #[pyo3(signature = (start, end))]
     fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.slice(start..end)?;
+        let inner = slf.slice(start..end)?.optimize_ctx(session())?;
         Ok(PyArrayRef::from(inner))
     }
 

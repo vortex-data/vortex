@@ -105,7 +105,7 @@ export function formatPercent(fraction: number): string {
 /** Format bytes-per-row density, e.g. "4.0 B/row" or "—" when unknown. */
 export function formatBytesPerRow(bytesPerRow: number | null): string {
   if (bytesPerRow === null) return '—';
-  if (bytesPerRow >= 1024) return `${(bytesPerRow / 1024).toFixed(1)} KB/row`;
+  if (bytesPerRow >= 1e3) return `${(bytesPerRow / 1e3).toFixed(1)} KB/row`;
   if (bytesPerRow >= 10) return `${bytesPerRow.toFixed(0)} B/row`;
   return `${bytesPerRow.toFixed(2)} B/row`;
 }

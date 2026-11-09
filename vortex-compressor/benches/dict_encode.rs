@@ -15,6 +15,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
@@ -44,6 +45,8 @@ fn make_array() -> PrimitiveArray {
 #[divan::bench]
 fn encode_generic(bencher: Bencher) {
     let array = make_array().into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| dict_encode(array, ctx).unwrap());

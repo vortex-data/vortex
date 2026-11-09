@@ -358,28 +358,31 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
         let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
-        let iter = RUNTIME
-            .block_on_stream_thread_safe(|handle| {
-                array_stream
-                    .map(move |chunk| {
-                        let session = session.clone();
-                        let target = Arc::clone(&target);
-                        handle.spawn(async move {
-                            let chunk = chunk?;
-                            let mut ctx = session.create_execution_ctx();
-                            let arrow = session.arrow().execute_arrow(
-                                chunk,
-                                Some(target.as_ref()),
-                                &mut ctx,
-                            )?;
-                            rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
-                        })
-                    })
-                    .buffered(POOL.worker_count().max(1))
+        let handle = RUNTIME.handle();
+        let batches = array_stream
+            .map(move |chunk| {
+                let session = session.clone();
+                let target = Arc::clone(&target);
+                handle.spawn(async move {
+                    let chunk = chunk?;
+                    let mut ctx = session.create_execution_ctx();
+                    let arrow =
+                        session
+                            .arrow()
+                            .execute_arrow(chunk, Some(target.as_ref()), &mut ctx)?;
+                    rebase_offsets(RecordBatch::from(arrow.as_struct().clone()))
+                })
             })
-            .map(|result: VortexResult<RecordBatch>| {
-                result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
-            });
+            .buffered(POOL.worker_count().max(1));
+
+        // Each JNI stream has a single consumer, so keep only one completed batch ahead of Java
+        // rather than the per-core queue of `block_on_stream_thread_safe`.
+        let iter =
+            RUNTIME
+                .block_on_stream_prefetch(batches)
+                .map(|result: VortexResult<RecordBatch>| {
+                    result.map_err(|e| ArrowError::ExternalError(Box::new(e)))
+                });
 
         let reader = RecordBatchIteratorAdapter::new(iter, schema);
         let arrow_stream = FFI_ArrowArrayStream::new(Box::new(reader));

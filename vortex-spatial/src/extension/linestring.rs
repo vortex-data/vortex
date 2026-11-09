@@ -104,12 +104,21 @@ pub(crate) fn linestring_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate `dtype` is `List<coordinate-struct>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`linestring_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn linestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
         vortex_bail!("linestring storage must be a List of coordinates, was {dtype}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        linestring_storage_dtype(dimension, dtype.nullability()),
+        "linestring storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 /// Return one coordinate ordinate, filling an ordinate absent from the point dimension with zero.

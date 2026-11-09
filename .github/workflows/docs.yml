@@ -21,9 +21,16 @@ jobs:
   build:
     uses: ./.github/workflows/docs-build.yml
 
+  web:
+    name: Build Explorer
+    permissions:
+      contents: read
+    uses: ./.github/workflows/web-build.yml
+
+  # One Vercel project serves the docs and the Explorer.
   deploy:
     name: Deploy to Vercel
-    needs: build
+    needs: [build, web]
     permissions:
       contents: read
       deployments: write
@@ -33,7 +40,7 @@ jobs:
     secrets: inherit
     with:
       environment: vercel-docs
-      artifact-ids: ${{ needs.build.outputs.artifact-id }}
+      artifact-ids: ${{ needs.build.outputs.artifact-id }},${{ needs.web.outputs.artifact-id }}
       config: docs/vercel-output-config.json
       pages-html-handling: true
       production: ${{ github.ref == 'refs/heads/develop' }}

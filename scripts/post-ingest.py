@@ -27,13 +27,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import subprocess
 import sys
 import time
-import urllib.request
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import TypeVar
@@ -94,12 +91,6 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Run `git show` in this directory (default: current directory).",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=30.0,
-        help="Site cache refresh timeout in seconds (default: 30).",
     )
     return parser.parse_args()
 
@@ -939,59 +930,6 @@ def connect_postgres(dsn: str, region: str | None) -> object:
     return conn
 
 
-def _http(method: str, url: str, token: str | None, timeout: float) -> bytes:
-    """Issue one HTTP request and return the body. Raises on any non-2xx or
-    transport error; callers in `refresh_site_cache` swallow those."""
-    headers = {"accept": "application/json"}
-    if token is not None:
-        headers["authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, method=method, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
-
-
-def _warm_default_windows(base: str, timeout: float) -> None:
-    """Best-effort warm pass: prime the freshly invalidated Data Cache for the
-    landing page and every group's default last-100 bundle, so the first human
-    request after an ingest is already hot. Each request is independent; one
-    failure does not abort the others."""
-
-    def warm(url: str) -> None:
-        try:
-            _http("GET", url, None, timeout)
-        except Exception as exc:  # noqa: BLE001 -- warm is best-effort.
-            print(f"warning: warm {url} failed: {exc}", file=sys.stderr)
-
-    warm(f"{base}/")
-    try:
-        groups_body = _http("GET", f"{base}/api/groups", None, timeout)
-        slugs = [g["slug"] for g in json.loads(groups_body).get("groups", []) if "slug" in g]
-    except Exception as exc:  # noqa: BLE001 -- group discovery is best-effort.
-        print(f"warning: warm group discovery failed: {exc}", file=sys.stderr)
-        return
-    # A whole-bundle recompute is a few seconds cold, so warm with bounded
-    # concurrency rather than one slow serial pass.
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        pool.map(lambda s: warm(f"{base}/api/group/{s}?n=100"), slugs)
-
-
-def refresh_site_cache(base_url: str, token: str, timeout: float) -> None:
-    """Revalidate the site's Data Cache tag, then warm the default windows.
-
-    BEST-EFFORT: every failure is logged to stderr and swallowed so a cache
-    refresh can never change the ingest exit code. The warm pass is skipped
-    when revalidation fails: warming after a failed flush would repopulate the
-    Data Cache with stale data, which is the opposite of the intent.
-    """
-    base = base_url.rstrip("/")
-    try:
-        _http("POST", f"{base}/api/revalidate", token, timeout)
-    except Exception as exc:  # noqa: BLE001 -- refresh must never raise into ingest.
-        print(f"warning: cache revalidate failed: {exc}", file=sys.stderr)
-        return  # Skip the warm pass: no point warming a cache that was not flushed.
-    _warm_default_windows(base, timeout)
-
-
 # A restart of the RDS instance refuses connections for 30 seconds to a few minutes: on 2026-10-28
 # an engine upgrade took 33 seconds and an OS update about 3 minutes, and four ingest jobs failed.
 # These waits, about 4 minutes in all, span that window.
@@ -1049,12 +987,8 @@ def _main_postgres(args: argparse.Namespace) -> int:
             separators=(",", ":"),
         )
     )
-    # Best-effort site-cache refresh after a successful write. It runs only
-    # when both environment variables are configured and can never fail ingest.
-    base_url = os.environ.get("BENCH_SITE_BASE_URL")
-    revalidate_token = os.environ.get("BENCH_REVALIDATE_TOKEN")
-    if base_url and revalidate_token:
-        refresh_site_cache(base_url, revalidate_token, args.timeout)
+    # The site cache is refreshed once per push by `refresh-bench-site.py`, after the last
+    # benchmark job of the push, not after each ingest.
     return 0
 
 

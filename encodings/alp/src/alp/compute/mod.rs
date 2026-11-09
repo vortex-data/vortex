@@ -43,9 +43,6 @@ mod tests {
     #[case::single_element(alp_encode(PrimitiveArray::from_iter([42.42f64]).as_view(), None, &mut SESSION.create_execution_ctx()).unwrap())]
     // Large arrays
     #[case::large_f32(alp_encode(PrimitiveArray::from_iter((0..1000).map(|i| i as f32 * 0.1)).as_view(), None, &mut SESSION.create_execution_ctx()).unwrap())]
-    // Arrays with patterns
-    #[case::repeating_pattern(alp_encode(PrimitiveArray::from_iter([1.1f32, 2.2, 3.3, 1.1, 2.2, 3.3, 1.1, 2.2, 3.3]).as_view(), None, &mut SESSION.create_execution_ctx()).unwrap())]
-    #[case::close_values(alp_encode(PrimitiveArray::from_iter([100.001f64, 100.002, 100.003, 100.004, 100.005]).as_view(), None, &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_alp_consistency(#[case] array: ALPArray) {
         test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }

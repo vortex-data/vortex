@@ -45,6 +45,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -65,6 +66,10 @@ use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
+use crate::plan::physical::LegacyStatsPlan;
+use crate::plan::physical::PlanRef;
+use crate::plan::physical::PlanSlots;
+use crate::plan::physical::ZonedPlan;
 use crate::segments::SegmentSource;
 
 /// Zoned layout vtable.
@@ -174,6 +179,10 @@ impl VTable for Zoned {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
 }
 
 impl VTable for LegacyStats {
@@ -242,6 +251,51 @@ impl VTable for LegacyStats {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn new_plan(layout: &Layout<Self>) -> VortexResult<PlanRef> {
+        zoned_plan(layout)
+    }
+}
+
+/// Plans a zoned or legacy stats layout. Both share a child shape: transparent data, auxiliary
+/// zones.
+///
+/// Unoptimized, the plan reads only its data; the optimizer rewrites a statistics predicate over
+/// it into a pruning plan. Without zones or statistics it plans the data child directly.
+fn zoned_plan<V: VTable<LayoutData = ZonedData>>(layout: &Layout<V>) -> VortexResult<PlanRef> {
+    let metadata = layout.data();
+    // Without zones, or with a zone table holding no statistics, nothing can be pruned.
+    let no_stats = metadata
+        .stats_table_dtype()
+        .as_struct_fields_opt()
+        .is_none_or(|fields| fields.nfields() == 0);
+    if metadata.zone_len() == 0 || no_stats {
+        let data = layout
+            .slot(0)?
+            .ok_or_else(|| vortex_err!("Zoned layout has no data child"))?;
+        return data.new_plan();
+    }
+    let slots = PlanSlots::from_layout_slots(&layout.to_layout(), [0, 1]);
+    let zone_len = u64::try_from(metadata.zone_len())?;
+    // A legacy table is converted to the aggregate schema when the plan is optimized.
+    Ok(match metadata.legacy_stats() {
+        Some(stats) => LegacyStatsPlan::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            Arc::clone(stats),
+        )
+        .into_plan(),
+        None => ZonedPlan::from_slots(
+            layout.dtype().clone(),
+            layout.row_count(),
+            slots,
+            zone_len,
+            metadata.aggregate_fns(),
+        )
+        .into_plan(),
+    })
 }
 
 impl LegacyStatsLayout {

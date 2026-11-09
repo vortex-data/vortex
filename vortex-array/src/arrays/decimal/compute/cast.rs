@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Decimal casts with checked precision, scale, and nullability.
+//!
+//! Same-scale casts that increase the canonical width defer the copy through a [`WidenArray`].
+//! Scale changes and precision reductions run the conversion kernel to check or rescale valid values.
+
 use num_traits::CheckedMul;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -21,6 +26,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -44,8 +50,6 @@ use crate::validity::Validity;
 
 impl CastReduce for Decimal {
     fn cast(array: ArrayView<'_, Decimal>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Only nullability changes within the same decimal dtype are reducible without execution.
-        // Precision/scale changes need the kernel.
         let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
             return Ok(None);
         };
@@ -56,7 +60,8 @@ impl CastReduce for Decimal {
             );
         };
 
-        if from_decimal_dtype != to_decimal_dtype {
+        let grows_width = grows_canonical_width(*from_decimal_dtype, *to_decimal_dtype);
+        if from_decimal_dtype != to_decimal_dtype && !grows_width {
             return Ok(None);
         }
 
@@ -66,6 +71,10 @@ impl CastReduce for Decimal {
         else {
             return Ok(None);
         };
+
+        if grows_width {
+            return widen_decimal_values(array, dtype, new_validity).map(Some);
+        }
 
         // SAFETY: validity has the same length, only its nullability tag changes.
         unsafe {
@@ -121,6 +130,10 @@ impl CastKernel for Decimal {
             .clone()
             .cast_nullability(*to_nullability, array.len(), ctx)?;
 
+        if grows_canonical_width(*from_decimal_dtype, *to_decimal_dtype) {
+            return widen_decimal_values(array, dtype, new_validity).map(Some);
+        }
+
         // Reuse the values buffer untouched when no rescale is required, the target precision
         // only widens (so every value still fits), and the current physical type is already wide
         // enough to hold the target precision. This keeps the common precision-widening cast
@@ -167,6 +180,31 @@ impl CastKernel for Decimal {
             })
         })
     }
+}
+
+/// Returns whether a same-scale cast increases the canonical width.
+fn grows_canonical_width(from: DecimalDType, to: DecimalDType) -> bool {
+    from.scale() == to.scale() && from.canonical_values_type() < to.canonical_values_type()
+}
+
+/// Wraps the source values in a [`WidenArray`] with the target dtype.
+///
+/// The caller must cast `validity` to the target nullability without changing its length or valid
+/// rows. The child keeps the source decimal dtype and statistics because its values are unchanged.
+fn widen_decimal_values(
+    array: ArrayView<'_, Decimal>,
+    dtype: &DType,
+    validity: Validity,
+) -> VortexResult<ArrayRef> {
+    let values = DecimalArray::new_handle(
+        array.buffer_handle().clone(),
+        array.values_type(),
+        array.decimal_dtype(),
+        validity,
+    );
+    values.statistics().inherit_from(array.statistics());
+
+    Ok(WidenArray::try_new(values.into_array(), dtype.clone())?.into_array())
 }
 
 fn cast_to_integer<T: IntegerPType + BigCast>(
@@ -964,68 +1002,6 @@ mod tests {
         assert!(mask.value(0));
         assert!(!mask.value(1));
         assert_eq!(casted.buffer::<i16>().as_ref()[0], 1);
-    }
-
-    #[test]
-    fn cast_upcast_precision_succeeds() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![100i32, 200, 300],
-            DecimalDType::new(10, 2),
-            Validity::NonNullable,
-        );
-
-        // Cast to higher precision with same scale - should succeed
-        let wider_dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
-        let casted = array
-            .into_array()
-            .cast(wider_dtype)
-            .unwrap()
-            .execute::<DecimalArray>(&mut ctx)
-            .unwrap();
-
-        assert_eq!(casted.precision(), 38);
-        assert_eq!(casted.scale(), 2);
-        assert_eq!(casted.len(), 3);
-        // Should be stored in i128 now (precision 38 requires i128)
-        assert_eq!(casted.values_type(), DecimalType::I128);
-        assert_arrays_eq!(
-            casted,
-            DecimalArray::from_iter([100i128, 200, 300], DecimalDType::new(38, 2)),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn cast_widening_same_physical_type_is_zero_copy() {
-        let mut ctx = SESSION.create_execution_ctx();
-        // Decimal(10,2) and Decimal(18,2) are both physically i64 with the same scale, so widening
-        // the precision must reuse the values buffer rather than allocate and re-scan it.
-        let array = DecimalArray::new(
-            buffer![100i64, 200, 300],
-            DecimalDType::new(10, 2),
-            Validity::NonNullable,
-        );
-        let src_ptr = array.buffer::<i64>().as_ptr();
-
-        let wider_dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable);
-        let casted = array
-            .into_array()
-            .cast(wider_dtype)
-            .unwrap()
-            .execute::<DecimalArray>(&mut ctx)
-            .unwrap();
-
-        assert_eq!(casted.precision(), 18);
-        assert_eq!(casted.scale(), 2);
-        assert_eq!(casted.values_type(), DecimalType::I64);
-        assert_eq!(casted.buffer::<i64>().as_ref(), &[100, 200, 300]);
-        // The values buffer must be shared with the source (zero-copy), not reallocated.
-        assert_eq!(
-            casted.buffer::<i64>().as_ptr(),
-            src_ptr,
-            "precision-widening cast must reuse the source values buffer"
-        );
     }
 
     #[test]

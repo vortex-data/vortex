@@ -135,6 +135,9 @@ fn count_ones_simd<S: Simd>(simd: S, bytes: &[u8], offset: usize, len: usize) ->
 mod tests {
     #[cfg(target_arch = "x86_64")]
     use fearless_simd::Level;
+    use hegel::TestCase;
+    use hegel::generators as gs;
+    #[cfg(target_arch = "x86_64")]
     use rstest::rstest;
 
     #[cfg(target_arch = "x86_64")]
@@ -143,48 +146,29 @@ mod tests {
     use super::count_ones_simd;
     use crate::BitBuffer;
 
-    #[cfg_attr(miri, ignore)]
-    #[rstest]
-    fn test_count_ones_matches_iteration_for_slices(
-        #[values(
-            0usize, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30
-        )]
-        offset: usize,
-        #[values(
-            0usize, 1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 255, 256, 257, 513
-        )]
-        slice_len: usize,
-    ) {
-        let len = 513;
-        let buf = BitBuffer::collect_bool(len + 31, |i| (i % 3 == 0) ^ (i % 11 == 0));
+    const MAX_LEN: usize = 4096;
 
-        if offset + slice_len > buf.len() {
-            return;
+    fn draw_bits(tc: &TestCase, len: usize) -> Vec<bool> {
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => vec![true; len],
+            1 => vec![false; len],
+            _ => tc.draw(gs::vecs(gs::booleans()).min_size(len).max_size(len)),
         }
-
-        let sliced = buf.slice(offset..offset + slice_len);
-        let expected = sliced.iter().filter(|bit| *bit).count();
-
-        assert_eq!(
-            sliced.true_count(),
-            expected,
-            "offset={offset} len={slice_len}"
-        );
     }
 
-    /// Lengths spanning many 64-byte SIMD chunks plus a scalar tail.
+    #[hegel::test]
     #[cfg_attr(miri, ignore)]
-    #[rstest]
-    fn test_count_ones_matches_iteration_multi_chunk(
-        #[values(0usize, 5)] offset: usize,
-        #[values(1024usize, 4096, 4097, 65_537)] len: usize,
-    ) {
-        let buf = BitBuffer::collect_bool(offset + len, |i| (i % 3 == 0) ^ (i % 7 == 0));
-        let sliced = buf.slice(offset..offset + len);
-        let expected = sliced.iter().filter(|bit| *bit).count();
+    fn true_count(tc: TestCase) {
+        let len = tc.draw(gs::integers::<usize>().max_value(MAX_LEN));
+        let bits = draw_bits(&tc, len);
+        let buf = BitBuffer::from(bits.clone());
+        let end = tc.draw(gs::integers::<usize>().max_value(len));
+        let start = tc.draw(gs::integers::<usize>().max_value(end));
 
-        assert_eq!(sliced.true_count(), expected, "offset={offset} len={len}");
+        let sliced = buf.slice(start..end);
+        let expected = bits[start..end].iter().filter(|&&b| b).count();
+
+        assert_eq!(sliced.true_count(), expected);
     }
 
     /// Every SIMD level the host supports must match the scalar count, not only the one

@@ -527,7 +527,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                                                    "Estimated Cardinality": "240485"
+                                                                    "Estimated Cardinality": "48094"
                                                                 }
                                                             }
                                                         ],
@@ -539,7 +539,7 @@ logical_opt [
                                                                 "#3",
                                                                 "#4"
                                                             ],
-                                                            "Estimated Cardinality": "240485"
+                                                            "Estimated Cardinality": "48094"
                                                         }
                                                     }
                                                 ],
@@ -549,7 +549,7 @@ logical_opt [
                                                         "ss_item_sk"
                                                     ],
                                                     "Expressions": "sum(ss_sales_price)",
-                                                    "Estimated Cardinality": "3800"
+                                                    "Estimated Cardinality": "3799"
                                                 }
                                             }
                                         ],
@@ -559,7 +559,7 @@ logical_opt [
                                                 "CAST(#1 AS INTEGER)",
                                                 "#2"
                                             ],
-                                            "Estimated Cardinality": "3800"
+                                            "Estimated Cardinality": "3799"
                                         }
                                     }
                                 ],
@@ -569,7 +569,7 @@ logical_opt [
                                         "#1",
                                         "#2"
                                     ],
-                                    "Estimated Cardinality": "3800"
+                                    "Estimated Cardinality": "3799"
                                 }
                             },
                             {
@@ -583,7 +583,7 @@ logical_opt [
                                                 "children": [],
                                                 "extra_info": {
                                                     "CTE Index": "66",
-                                                    "Estimated Cardinality": "3800"
+                                                    "Estimated Cardinality": "3799"
                                                 }
                                             },
                                             {
@@ -614,7 +614,7 @@ logical_opt [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "(ss_item_sk = i_item_sk)",
-                                            "Estimated Cardinality": "3800"
+                                            "Estimated Cardinality": "3799"
                                         }
                                     },
                                     {
@@ -658,7 +658,7 @@ logical_opt [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "CTE Index": "66",
-                                                                                    "Estimated Cardinality": "3800"
+                                                                                    "Estimated Cardinality": "3799"
                                                                                 }
                                                                             }
                                                                         ],
@@ -667,7 +667,7 @@ logical_opt [
                                                                                 "ss_store_sk",
                                                                                 "revenue"
                                                                             ],
-                                                                            "Estimated Cardinality": "3800"
+                                                                            "Estimated Cardinality": "3799"
                                                                         }
                                                                     }
                                                                 ],
@@ -676,7 +676,7 @@ logical_opt [
                                                                         "CAST(#0 AS TINYINT)",
                                                                         "#1"
                                                                     ],
-                                                                    "Estimated Cardinality": "3800"
+                                                                    "Estimated Cardinality": "3799"
                                                                 }
                                                             }
                                                         ],
@@ -709,14 +709,14 @@ logical_opt [
                                         "(ss_store_sk = s_store_sk)",
                                         "(CAST(revenue AS DOUBLE) <= (0.1 * ave))"
                                     ],
-                                    "Estimated Cardinality": "4787"
+                                    "Estimated Cardinality": "4786"
                                 }
                             }
                         ],
                         "extra_info": {
                             "CTE Name": "__common_subplan_1",
                             "Table Index": "66",
-                            "Estimated Cardinality": "4787"
+                            "Estimated Cardinality": "4786"
                         }
                     }
                 ],
@@ -729,7 +729,7 @@ logical_opt [
                         "i_wholesale_cost",
                         "i_brand"
                     ],
-                    "Estimated Cardinality": "4787"
+                    "Estimated Cardinality": "4786"
                 }
             }
         ],
@@ -795,7 +795,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_sold_date_sk = d_date_sk",
-                                                                    "Estimated Cardinality": "240485"
+                                                                    "Estimated Cardinality": "48094"
                                                                 }
                                                             }
                                                         ],
@@ -807,7 +807,7 @@ physical_plan [
                                                                 "#3",
                                                                 "#4"
                                                             ],
-                                                            "Estimated Cardinality": "240485"
+                                                            "Estimated Cardinality": "48094"
                                                         }
                                                     }
                                                 ],
@@ -817,7 +817,7 @@ physical_plan [
                                                         "ss_item_sk",
                                                         "ss_sales_price"
                                                     ],
-                                                    "Estimated Cardinality": "240485"
+                                                    "Estimated Cardinality": "48094"
                                                 }
                                             }
                                         ],
@@ -827,7 +827,7 @@ physical_plan [
                                                 "#1"
                                             ],
                                             "Aggregates": "sum(#2)",
-                                            "Estimated Cardinality": "3800"
+                                            "Estimated Cardinality": "3799"
                                         }
                                     }
                                 ],
@@ -837,7 +837,7 @@ physical_plan [
                                         "CAST(#1 AS INTEGER)",
                                         "#2"
                                     ],
-                                    "Estimated Cardinality": "3800"
+                                    "Estimated Cardinality": "3799"
                                 }
                             },
                             {
@@ -851,7 +851,7 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "CTE Index": "66",
-                                                    "Estimated Cardinality": "3800"
+                                                    "Estimated Cardinality": "3799"
                                                 }
                                             },
                                             {
@@ -873,7 +873,7 @@ physical_plan [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "ss_item_sk = i_item_sk",
-                                            "Estimated Cardinality": "3800"
+                                            "Estimated Cardinality": "3799"
                                         }
                                     },
                                     {
@@ -911,7 +911,7 @@ physical_plan [
                                                                                         "children": [],
                                                                                         "extra_info": {
                                                                                             "CTE Index": "66",
-                                                                                            "Estimated Cardinality": "3800"
+                                                                                            "Estimated Cardinality": "3799"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -920,7 +920,7 @@ physical_plan [
                                                                                         "ss_store_sk",
                                                                                         "revenue"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "3800"
+                                                                                    "Estimated Cardinality": "3799"
                                                                                 }
                                                                             }
                                                                         ],
@@ -929,7 +929,7 @@ physical_plan [
                                                                                 "CAST(#0 AS TINYINT)",
                                                                                 "#1"
                                                                             ],
-                                                                            "Estimated Cardinality": "3800"
+                                                                            "Estimated Cardinality": "3799"
                                                                         }
                                                                     }
                                                                 ],
@@ -938,7 +938,7 @@ physical_plan [
                                                                         "ss_store_sk",
                                                                         "revenue"
                                                                     ],
-                                                                    "Estimated Cardinality": "3800"
+                                                                    "Estimated Cardinality": "3799"
                                                                 }
                                                             }
                                                         ],
@@ -971,7 +971,7 @@ physical_plan [
                                         "ss_store_sk = s_store_sk",
                                         "CAST(revenue AS DOUBLE) <= (0.1 * ave)"
                                     ],
-                                    "Estimated Cardinality": "4787"
+                                    "Estimated Cardinality": "4786"
                                 }
                             }
                         ],
@@ -979,7 +979,7 @@ physical_plan [
                             "CTE Name": "__common_subplan_1",
                             "Table Index": "66",
                             "Execution Mode": "PIPELINE_DEPENDENT",
-                            "Estimated Cardinality": "4787"
+                            "Estimated Cardinality": "4786"
                         }
                     }
                 ],
@@ -992,7 +992,7 @@ physical_plan [
                         "i_wholesale_cost",
                         "i_brand"
                     ],
-                    "Estimated Cardinality": "4787"
+                    "Estimated Cardinality": "4786"
                 }
             }
         ],

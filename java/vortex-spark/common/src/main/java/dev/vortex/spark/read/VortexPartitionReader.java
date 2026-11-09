@@ -4,6 +4,7 @@
 package dev.vortex.spark.read;
 
 import dev.vortex.api.DataSource;
+import dev.vortex.api.DataSource.RowCount;
 import dev.vortex.api.Expression;
 import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
@@ -91,11 +92,30 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
             // scan anyway, so one that reads a column this file lacks is dropped rather than pushed.
             buildFilterExpression(pushedFilters, restrictTo(dataSchema, fileColumns))
                     .ifPresent(options::filter);
-            scan = dataSource.scan(options.build());
+            Optional<SplitRows> rows = splitRows(file, dataSource.rowCount());
+            if (rows.isPresent() && rows.get().count() == 0) {
+                // The native scan reads a range of 0 to 0 as the whole file.
+                exhausted = true;
+            } else {
+                rows.ifPresent(range -> options.rowRangeBegin(range.begin()).rowRangeEnd(range.end()));
+                scan = dataSource.scan(options.build());
+            }
         } catch (RuntimeException e) {
             closeReadableAfterFailure(e);
             throw e;
         }
+    }
+
+    /** The rows this split of {@code file} reads, or empty when it reads them all. */
+    private static Optional<SplitRows> splitRows(PartitionedFile file, RowCount rowCount) {
+        if (file.start() == 0 && file.length() >= file.fileSize()) {
+            return Optional.empty();
+        }
+        if (!(rowCount instanceof RowCount.Exact exact)) {
+            // Without an exact count no two splits can agree on a boundary, so the first reads everything.
+            return file.start() == 0 ? Optional.empty() : Optional.of(new SplitRows(0, 0));
+        }
+        return Optional.of(SplitRows.of(file.start(), file.length(), file.fileSize(), exact.value()));
     }
 
     private static StructType restrictTo(StructType schema, List<Field> fileColumns) {

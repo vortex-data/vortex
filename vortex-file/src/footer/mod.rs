@@ -177,8 +177,22 @@ impl Footer {
     }
 
     /// Returns the segment map of the file.
+    ///
+    /// Segment IDs in the [`Self::layout`] tree index this map. This includes segments in
+    /// auxiliary `zones` children of zoned layouts; walk the child's subtree to find all of its
+    /// segments, since a zone map need not occupy a single segment.
     pub fn segment_map(&self) -> &Arc<[SegmentSpec]> {
         &self.segments
+    }
+
+    /// Returns the largest exclusive byte end of the data and user-defined metadata segments.
+    ///
+    /// Returns `Some(0)` when there are no segments, or `None` if any segment's end overflows
+    /// `u64`. For files produced by the Vortex writer, reading from this offset through the end
+    /// of the file includes the serialized footer. User-defined metadata bytes precede this
+    /// offset; their locations are available through [`Self::metadata_segments`].
+    pub fn segments_end(&self) -> Option<u64> {
+        self.segments_end
     }
 
     /// Returns the statistics of the file.
@@ -384,6 +398,22 @@ mod tests {
             .validate_file_size(150)
             .unwrap_err();
         assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn segments_end_includes_data_and_metadata() {
+        assert_eq!(
+            footer_with_metadata_segment(segment(50, 1)).segments_end(),
+            Some(100)
+        );
+        assert_eq!(
+            footer_with_metadata_segment(segment(100, 50)).segments_end(),
+            Some(150)
+        );
+        assert_eq!(
+            footer_with_metadata_segment(segment(u64::MAX, 1)).segments_end(),
+            None
+        );
     }
 
     #[test]

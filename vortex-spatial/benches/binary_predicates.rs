@@ -39,6 +39,7 @@ use vortex_array::dtype::session::DTypeSession;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSession;
 use vortex_edition::EditionSession;
@@ -110,7 +111,10 @@ fn query_constant(ctx: &mut ExecutionCtx, rows: usize) -> ArrayRef {
         .unwrap()
         .execute_scalar(0, ctx)
         .unwrap();
-    ConstantArray::new(scalar, rows).into_array()
+    let array = ConstantArray::new(scalar, rows).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// A batch-constant point operand with the requested row count.
@@ -119,7 +123,10 @@ fn point_constant(ctx: &mut ExecutionCtx, rows: usize) -> ArrayRef {
         .unwrap()
         .execute_scalar(0, ctx)
         .unwrap();
-    ConstantArray::new(scalar, rows).into_array()
+    let array = ConstantArray::new(scalar, rows).into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// A small square (side 2) centered at `(cx, cy)`.
@@ -139,7 +146,10 @@ fn squares_mostly_disjoint(rows: usize) -> ArrayRef {
     let rows = (0..rows)
         .map(|i| square(150.0 + 700.0 * unit(i), 150.0 + 700.0 * unit(i + 1)))
         .collect();
-    polygon_column(rows).unwrap()
+    let array = polygon_column(rows).unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// `rows` small squares whose centers all fall well inside the query polygon, so a bbox check
@@ -148,14 +158,20 @@ fn squares_mostly_overlapping(rows: usize) -> ArrayRef {
     let rows = (0..rows)
         .map(|i| square(120.0 * unit(i) - 60.0, 120.0 * unit(i + 1) - 60.0))
         .collect();
-    polygon_column(rows).unwrap()
+    let array = polygon_column(rows).unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// `rows` points spread over `[-150, 150)^2`, mixing rows inside and outside the query polygon.
 fn points(rows: usize) -> ArrayRef {
     let xs = (0..rows).map(|i| 300.0 * unit(i) - 150.0).collect();
     let ys = (0..rows).map(|i| 300.0 * unit(i + 1) - 150.0).collect();
-    point_column(xs, ys).unwrap()
+    let array = point_column(xs, ys).unwrap();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// Execute `array` to completion.
@@ -172,18 +188,24 @@ fn execute(array: VortexResult<impl IntoArray>, ctx: &mut ExecutionCtx) -> Array
 fn nullable_every(array: ArrayRef, null_every: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| !i.is_multiple_of(null_every)));
-    MaskedArray::try_new(array, validity, &mut ctx)
+    let array = MaskedArray::try_new(array, validity, &mut ctx)
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// A deterministic 90%-null validity pattern.
 fn ninety_percent_null(array: ArrayRef) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| i.is_multiple_of(10)));
-    MaskedArray::try_new(array, validity, &mut ctx)
+    let array = MaskedArray::try_new(array, validity, &mut ctx)
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 /// A deterministic 50% validity pattern with a distinct phase per operand. Adjacent phases make
@@ -191,9 +213,12 @@ fn ninety_percent_null(array: ArrayRef) -> ArrayRef {
 fn half_valid(array: ArrayRef, phase: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| (i + phase) % 4 < 2));
-    MaskedArray::try_new(array, validity, &mut ctx)
+    let array = MaskedArray::try_new(array, validity, &mut ctx)
         .unwrap()
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).unwrap();
+
+    array
 }
 
 mod contains {

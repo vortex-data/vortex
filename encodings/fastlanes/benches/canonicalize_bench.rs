@@ -17,6 +17,8 @@ use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
+use vortex_array::test_harness::mark_decoded;
+use vortex_array::test_harness::mark_optimized;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 use vortex_session::VortexSession;
@@ -29,19 +31,29 @@ fn main() {
     divan::main();
 }
 
-const BENCH_ARGS: &[(usize, usize, f64)] = &[
-    // chunk_len, chunk_count, fraction_patched
-    (10000, 1, 0.10),
-    (10000, 1, 0.01),
-    (10000, 1, 0.00),
-    (10000, 10, 0.10),
-    (10000, 10, 0.01),
-    (10000, 10, 0.00),
-    (10000, 100, 0.10),
-    (10000, 100, 0.01),
-    (10000, 100, 0.00),
-    (1000, 1000, 0.00),
-];
+const BENCH_ARGS: &[(usize, usize, f64)] = if cfg!(codspeed) {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+        (1000, 1000, 0.00),
+    ]
+} else {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 1, 0.01),
+        (10000, 1, 0.00),
+        (10000, 10, 0.10),
+        (10000, 10, 0.01),
+        (10000, 10, 0.00),
+        (10000, 100, 0.10),
+        (10000, 100, 0.01),
+        (10000, 100, 0.00),
+        (1000, 1000, 0.00),
+    ]
+};
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
@@ -72,13 +84,16 @@ fn into_canonical_non_nullable(
             .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
+    for chunk in &chunks {
+        mark_optimized(chunk, &SESSION).vortex_expect("mark the chunk as optimized");
+    }
 
     bencher
         .with_inputs(|| {
-            (
-                ChunkedArray::from_iter(chunks.clone()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
+            mark_decoded(&chunked);
+
+            (chunked, SESSION.create_execution_ctx())
         })
         .bench_refs(|(chunked, ctx)| chunked.clone().execute::<Canonical>(ctx));
 }
@@ -102,10 +117,13 @@ fn canonical_into_non_nullable(
             .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
+    for chunk in &chunks {
+        mark_optimized(chunk, &SESSION).vortex_expect("mark the chunk as optimized");
+    }
 
     bencher
         .with_inputs(|| {
-            let chunked = ChunkedArray::from_iter(chunks.clone()).into_array();
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
             let ctx = SESSION.create_execution_ctx();
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
                 chunked.dtype().nullability(),
@@ -122,15 +140,24 @@ fn canonical_into_non_nullable(
         });
 }
 
-const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
-    // chunk_len, chunk_count, fraction_patched
-    (10000, 1, 0.10),
-    (10000, 1, 0.00),
-    (10000, 10, 0.10),
-    (10000, 10, 0.00),
-    (10000, 100, 0.10),
-    (10000, 100, 0.00),
-];
+const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = if cfg!(codspeed) {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+    ]
+} else {
+    &[
+        // chunk_len, chunk_count, fraction_patched
+        (10000, 1, 0.10),
+        (10000, 1, 0.00),
+        (10000, 10, 0.10),
+        (10000, 10, 0.00),
+        (10000, 100, 0.10),
+        (10000, 100, 0.00),
+    ]
+};
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn into_canonical_nullable(
@@ -151,13 +178,16 @@ fn into_canonical_nullable(
             .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
+    for chunk in &chunks {
+        mark_optimized(chunk, &SESSION).vortex_expect("mark the chunk as optimized");
+    }
 
     bencher
         .with_inputs(|| {
-            (
-                ChunkedArray::from_iter(chunks.clone()).into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
+            mark_decoded(&chunked);
+
+            (chunked, SESSION.create_execution_ctx())
         })
         .bench_values(|(chunked, mut ctx)| chunked.execute::<Canonical>(&mut ctx));
 }
@@ -181,10 +211,13 @@ fn canonical_into_nullable(
             .vortex_expect("make_array works")
         })
         .collect::<Vec<_>>();
+    for chunk in &chunks {
+        mark_optimized(chunk, &SESSION).vortex_expect("mark the chunk as optimized");
+    }
 
     bencher
         .with_inputs(|| {
-            let chunked = ChunkedArray::from_iter(chunks.clone()).into_array();
+            let chunked = ChunkedArray::from_iter(chunks.iter().cloned()).into_array();
             let ctx = SESSION.create_execution_ctx();
             let primitive_builder = PrimitiveBuilder::<i32>::with_capacity_in(
                 chunked.dtype().nullability(),

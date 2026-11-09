@@ -1,4 +1,4 @@
-# DType Format
+# DType format
 
 ## FlatBuffer Definition
 

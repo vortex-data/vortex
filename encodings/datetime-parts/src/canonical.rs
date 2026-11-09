@@ -128,8 +128,8 @@ impl TimePart {
             ));
         }
 
-        // `split_temporal` produces `i32` parts, so this cast is normally a no-op. Other widths
-        // are cast up front rather than instantiating the fused kernel for every width
+        // `split_temporal` produces `i32` seconds and subseconds, so this cast is normally a no-op.
+        // Other widths are cast up front rather than instantiating the fused kernel for every width
         // combination.
         let values = part
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))?
