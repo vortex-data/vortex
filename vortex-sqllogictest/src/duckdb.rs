@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bigdecimal::BigDecimal;
+use bigdecimal::RoundingMode;
 use datafusion_sqllogictest::DFColumnType;
 use regex::RegexBuilder;
 use sqllogictest::DBOutput;
@@ -172,26 +173,29 @@ fn line_matches(actual: &str, expected: &str) -> bool {
 ///
 /// TPC-H and TPC-DS share their expected results between DataFusion and DuckDB. DataFusion
 /// prints decimals at their full scale (`4.10`), while this adapter strips trailing zeros
-/// (`4.1`). DataFusion also truncates decimal division and `avg` to the scale of the result
-/// type, where DuckDB calculates them as `DOUBLE`. Thus a DuckDB value matches when it equals
-/// or truncates to the expected value.
+/// (`4.1`). DataFusion also truncates decimal division and `avg`, where DuckDB calculates them
+/// as `DOUBLE` and prints more fractional digits. Thus a DuckDB value with more fractional
+/// digits than the expected value matches when it truncates to the expected value, ignoring the
+/// expected value's trailing zeros (`96.075905…` matches `96.075900`).
 fn value_matches(actual: &str, expected: &str) -> bool {
     if actual == expected {
         return true;
     }
 
-    if let (Ok(actual), Ok(expected)) =
+    let (Ok(actual_number), Ok(expected_number)) =
         (BigDecimal::from_str(actual), BigDecimal::from_str(expected))
-        && actual == expected
-    {
+    else {
+        return false;
+    };
+    if actual_number == expected_number {
         return true;
     }
 
+    let truncated_scale = expected_number.normalized().fractional_digit_count();
     expected.contains('.')
-        && BigDecimal::from_str(expected).is_ok()
-        && actual
-            .strip_prefix(expected)
-            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+        && truncated_scale > 0
+        && actual_number.fractional_digit_count() > expected_number.fractional_digit_count()
+        && actual_number.with_scale_round(truncated_scale, RoundingMode::Down) == expected_number
 }
 
 #[async_trait]
@@ -475,7 +479,11 @@ mod tests {
     #[case("4.1", "4.10", true)]
     #[case("8622", "8622.00", true)]
     #[case("A 2888.4 21.8", "A 2888.40 21.800000", true)]
+    #[case("96.075905070942", "96.075900", true)]
+    #[case("10842.586666666666", "10842.586666", true)]
+    #[case("-31.91907079646", "-31.919070", true)]
     #[case("4.11", "4.10", false)]
+    #[case("96.075995", "96.075900", false)]
     #[case("4.593670124475", "4.593669", false)]
     #[case("1.9", "1", false)]
     #[case("12", "1", false)]
