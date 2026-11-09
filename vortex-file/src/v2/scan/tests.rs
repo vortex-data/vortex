@@ -123,10 +123,11 @@ async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
     Ok(())
 }
 
-/// A file opened with caching shares a cache that keeps the values its scans decode, such as
-/// dictionary values, for as long as the cache lives, so its scans track no liveness.
+/// A file opened with caching hands out a retaining cache, whose scans track no liveness, and
+/// its scans outlive the file handle. `scan_cache_reuses_values_between_scans` tests that the
+/// cache reuses its values.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cached_file_keeps_its_values_for_the_life_of_its_cache() -> VortexResult<()> {
+async fn cached_file_shares_a_retaining_cache() -> VortexResult<()> {
     let file = file().await?.with_caching();
     let scan_file = file.scan_file();
     let cache = scan_file

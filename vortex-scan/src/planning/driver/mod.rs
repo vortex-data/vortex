@@ -16,7 +16,8 @@
 //! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
 //! convenience for one root.
 //!
-//! A root admitted with [`Run::admit_with_liveness`] also reports which rows its live work may
+//! A root admitted with a [`Liveness`], through [`Run::admit_tracked`] or
+//! [`Run::admit_with_liveness`], also reports which rows its live work may
 //! still touch, so values pinned to those rows are dropped once no work needs them. See
 //! [`Liveness`].
 

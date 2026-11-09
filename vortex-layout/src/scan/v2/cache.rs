@@ -33,9 +33,12 @@ use crate::segments::SegmentSource;
 /// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
 /// the file's scans that share a stored segment read it once.
 ///
-/// The cache also holds the file's [`Liveness`], which every scan of the file reports its live
-/// work to. Dictionary values are kept while that work still claims a row they cover, and
-/// dropped once none does.
+/// A [default](Self::default) cache, and one [`with_retained_bytes`](Self::with_retained_bytes),
+/// holds the file's [`Liveness`], which every scan of the file reports its live work to.
+/// Dictionary values are kept while that work still claims a row they cover, and dropped once
+/// none does, so only scans that overlap in time share them. An owner that scans the file
+/// repeatedly, one scan after another, should use [`retaining_values`](Self::retaining_values),
+/// which keeps every decoded value for as long as the cache lives.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans live as long as the cache, one set per

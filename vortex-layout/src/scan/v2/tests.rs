@@ -829,7 +829,7 @@ async fn scan_cache_reuses_values_between_scans(
         reads.push(counted.requests() - before);
     }
     // Every values chunk and the one selected codes chunk, then only the codes chunk if the
-    // values are still claimed.
+    // values are still claimed or the cache retains them.
     assert_eq!(reads, vec![4, second_scan_reads]);
     Ok(())
 }
