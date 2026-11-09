@@ -7,6 +7,7 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -122,7 +123,8 @@ impl PlanVTable for Share {
         };
         let mask = mask.clone();
         let file_rows = compiler.file_rows(plan.row_count());
-        let source = WholeSource::new(plan.dtype().clone(), move |whole, _cx| {
+        let source = WholeSource::new(plan.dtype().clone(), move |whole, cx| {
+            let whole = whole.optimize_ctx(cx.session())?;
             let value = cache.insert(&shared, Shared::new(whole).into_array(), file_rows.clone());
             selected_rows(&value, &rows, &mask)
         });

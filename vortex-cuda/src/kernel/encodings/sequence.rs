@@ -83,7 +83,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
             .arg(&len_u64);
     })?;
 
-    let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)));
+    let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)?));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_buf,
@@ -102,6 +102,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::builtins::ArrayBuiltins;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::dtype::DType;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
@@ -171,7 +172,8 @@ mod tests {
 
         let array = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
             .into_array()
-            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?
+            .optimize_ctx(cuda_ctx.execution_ctx())?;
 
         let gpu_result = SequenceExecutor
             .execute(array.clone(), &mut cuda_ctx)

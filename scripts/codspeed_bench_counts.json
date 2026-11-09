@@ -77,6 +77,9 @@
     "widen": 17,
     "widen_decimal": 9
   },
+  "vortex-arrow": {
+    "to_arrow": 131
+  },
   "vortex-buffer": {
     "allocation": 35,
     "collect_bool": 4,
@@ -84,6 +87,9 @@
     "take_bits": 0,
     "vortex_bitbuffer": 58,
     "vortex_buffer": 29
+  },
+  "vortex-bytebool": {
+    "bytebool_probe": 2
   },
   "vortex-compressor": {
     "dict_encode": 0,
@@ -140,11 +146,17 @@
     "rank": 4,
     "valid_counts": 6
   },
+  "vortex-onpair": {
+    "decode": 12
+  },
   "vortex-pco": {
     "scalar": 4
   },
   "vortex-row": {
     "row_encode": 5
+  },
+  "vortex-sequence": {
+    "sequence_probe": 2
   },
   "vortex-sparse": {
     "sparse_canonical": 6,

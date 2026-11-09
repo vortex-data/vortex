@@ -2,8 +2,17 @@
    tokens, and the system's docs rules for the frame and Sphinx's markup. Spacing, colour, radii,
    and motion come from the tokens. */
 
-/* Geist Mono, the tokens' first mono face: Google Fonts' Latin subset, one variable file for every
-   weight (23 KB). layout.html preloads it. Body text keeps the platform's sans. */
+/* Geist and Geist Mono, the tokens' first faces: Google Fonts' Latin subsets, as vortex.dev ships
+   them, each one variable file for every weight (29 KB and 23 KB). layout.html preloads both, as
+   the site does, so the docs and the site draw the same text. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 @font-face {
   font-family: "Geist Mono";
   font-style: normal;
@@ -13,12 +22,10 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-@media (prefers-color-scheme: dark) {
-  .only-light { display: none !important; }
-}
-@media (prefers-color-scheme: light) {
-  .only-dark { display: none !important; }
-}
+/* Images for one theme: the theme on the root, which the bootstrap resolves from the reader's
+   choice (ThemeSwitch). */
+[data-theme="dark"] .only-light,
+[data-theme="light"] .only-dark { display: none !important; }
 
 /* The landing page: the wordmark in place of the title, then cards. */
 .page-index .vx-docs-main > section > h1 {
@@ -54,3 +61,16 @@
 table.versioning-terms td:first-child { white-space: nowrap; }
 figure.versioning-diagram { margin-inline: 0; }
 figure.versioning-diagram img { border-radius: var(--radius-card); }
+
+/* The 404 (404.html): the shared Status between the header and the footer. The page is a flex
+   column, so the status takes the height that is left. The mark's cell is vortex.dev's: the
+   turning mark (vortex-status-mark.js), and, where it cannot draw, the static symbol, white in
+   Dark and inverted in Light. With scripts (the theme bootstrap set data-theme-choice), the cell
+   stays empty until the mark reports that it cannot draw. */
+body.page-404 { display: flex; flex-direction: column; min-height: 100dvh; }
+.vx-docs-status { flex: 1 0 auto; display: flex; flex-direction: column; }
+.vx-ascii-mark-still { position: absolute; inset: 0; margin: auto; width: 40%; height: auto; opacity: 0.85; }
+:root[data-theme-choice] .vx-ascii-mark-still { visibility: hidden; }
+:root[data-theme-choice] [data-mark-mode="static"] > .vx-ascii-mark-still,
+:root[data-theme-choice] [data-mark-mode="error"] > .vx-ascii-mark-still { visibility: visible; }
+[data-theme="light"] .vx-ascii-mark-still { filter: invert(1); }

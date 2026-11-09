@@ -31,5 +31,6 @@ rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
-name = "probe"
+name = "bytebool_probe"
+path = "benches/probe.rs"
 harness = false

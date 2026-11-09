@@ -8,6 +8,7 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 
 use super::UNBOUNDED;
@@ -83,7 +84,9 @@ impl Operator for TakeSource {
             Some(values) => values.clone(),
             None => {
                 let values_plan = self.plan.values()?;
-                let values = shared(join_inlet(cx, VALUES, values_plan.dtype())?);
+                let values =
+                    join_inlet(cx, VALUES, values_plan.dtype())?.optimize_ctx(cx.session())?;
+                let values = shared(values);
                 let values = match &self.cache {
                     Some((cache, rows)) => cache.insert(&values_plan, values, rows.clone()),
                     None => values,

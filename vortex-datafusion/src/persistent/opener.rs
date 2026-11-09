@@ -16,7 +16,6 @@ use datafusion_common::ScalarValue;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
-use datafusion_common::tree_node::TreeNode;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
@@ -25,7 +24,6 @@ use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
-use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
@@ -48,6 +46,7 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -71,6 +70,7 @@ use vortex::metrics::MetricsRegistry;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -367,9 +367,6 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // TODO: support lambda pushdown.
-            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
-
             // Split the adapted filter into conjuncts Vortex evaluates natively and residual
             // conjuncts DataFusion evaluates on the raw scan output.
             let mut native_filters = Vec::new();
@@ -488,14 +485,9 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let map_batch = move |chunk| {
+            let map_batch = move |chunk: ArrayRef| {
                 let mut ctx = session.create_execution_ctx();
-                let arrow_session = ctx.session().clone();
-                let arrow = arrow_session.arrow().execute_arrow(
-                    chunk,
-                    Some(&stream_target_field),
-                    &mut ctx,
-                )?;
+                let arrow = chunk.execute_arrow(Some(&stream_target_field), &mut ctx)?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
@@ -747,19 +739,6 @@ impl NaturalSplits {
             assignment_bytes,
         }
     }
-}
-
-/// Whether any expression in `projection` contains a lambda.
-fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
-    for projection_expr in projection.iter() {
-        if projection_expr
-            .expr
-            .exists(|node| Ok(node.downcast_ref::<LambdaExpr>().is_some()))?
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// Returns the scan cache other partitions of `path` are planning with, or registers a new one.

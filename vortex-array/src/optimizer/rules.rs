@@ -15,12 +15,12 @@
 //!   its parent. Example: a `DictArray` child of a `ScalarFnArray` pushes the scalar function
 //!   into the dictionary values.
 //!
-//! Rules are collected into [`ReduceRuleSet`] and [`ParentRuleSet`] respectively, and
-//! evaluated by the optimizer in a fixpoint loop until no more rules apply.
+//! Reduce rules are collected into a [`ReduceRuleSet`] per encoding. Parent-reduce rules are
+//! registered with the session's [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) for
+//! each `(parent, child)` pair they apply to. The optimizer evaluates both in a fixpoint loop until
+//! no more rules apply.
 
-use std::any::type_name;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
@@ -67,55 +67,6 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-/// Type-erased version of [`ArrayParentReduceRule`] used for dynamic dispatch within
-/// [`ParentRuleSet`].
-pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
-    fn matches(&self, parent: &ArrayRef) -> bool;
-
-    fn reduce_parent(
-        &self,
-        array: ArrayView<'_, V>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>>;
-}
-
-/// Bridges a concrete [`ArrayParentReduceRule<V, R>`] to the type-erased
-/// [`DynArrayParentReduceRule<V>`] trait. Created by [`ParentRuleSet::lift`].
-pub struct ParentReduceRuleAdapter<V, R> {
-    rule: R,
-    _phantom: PhantomData<V>,
-}
-
-impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayParentReduceRuleAdapter")
-            .field("parent", &type_name::<R::Parent>())
-            .field("rule", &self.rule)
-            .finish()
-    }
-}
-
-impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
-    for ParentReduceRuleAdapter<V, K>
-{
-    fn matches(&self, parent: &ArrayRef) -> bool {
-        K::Parent::matches(parent)
-    }
-
-    fn reduce_parent(
-        &self,
-        child: ArrayView<'_, V>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = K::Parent::try_match(parent) else {
-            return Ok(None);
-        };
-        self.rule.reduce_parent(child, parent_view, child_idx)
-    }
-}
-
 /// A collection of [`ArrayReduceRule`]s registered for a specific encoding.
 ///
 /// During optimization, the optimizer calls [`evaluate`](Self::evaluate) which tries each rule
@@ -138,92 +89,6 @@ impl<V: VTable> ReduceRuleSet<V> {
                 return Ok(Some(reduced));
             }
             trace_op!(record_reduce_declined(array.array(), *rule));
-        }
-        Ok(None)
-    }
-}
-
-/// A set of parent reduction rules for a specific child array encoding.
-pub struct ParentRuleSet<V: VTable> {
-    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
-}
-
-impl<V: VTable> ParentRuleSet<V> {
-    /// Create a new parent rule set with the given rules.
-    ///
-    /// Use [`ParentRuleSet::lift`] to lift static rules into dynamic trait objects.
-    pub const fn new(rules: &'static [&'static dyn DynArrayParentReduceRule<V>]) -> Self {
-        Self { rules }
-    }
-
-    /// Lift the given rule into a dynamic trait object.
-    pub const fn lift<R: ArrayParentReduceRule<V>>(
-        rule: &'static R,
-    ) -> &'static dyn DynArrayParentReduceRule<V> {
-        // Assert that self is zero-sized
-        const {
-            assert!(
-                !(size_of::<R>() != 0),
-                "Rule must be zero-sized to be lifted"
-            );
-        }
-        unsafe { &*(rule as *const R as *const ParentReduceRuleAdapter<V, R>) }
-    }
-
-    /// Evaluate the parent reduction rules on the given child and parent arrays.
-    pub fn evaluate(
-        &self,
-        child: ArrayView<'_, V>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        for rule in self.rules.iter() {
-            if !rule.matches(parent) {
-                trace_op!(record_static_parent_reduce_no_match(
-                    parent,
-                    child.array(),
-                    child_idx,
-                    *rule,
-                ));
-                continue;
-            }
-            if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
-                // Debug assertions because these checks are already run elsewhere.
-                #[cfg(debug_assertions)]
-                {
-                    vortex_error::vortex_ensure_eq!(
-                        reduced.len(),
-                        parent.len(),
-                        "Reduced array length mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
-                        rule,
-                        parent.encoding_id(),
-                        reduced.encoding_id()
-                    );
-                    vortex_error::vortex_ensure_eq!(
-                        reduced.dtype(),
-                        parent.dtype(),
-                        "Reduced array dtype mismatch from {:?}\nFrom:\n{}\nTo:\n{}",
-                        rule,
-                        parent.encoding_id(),
-                        reduced.encoding_id()
-                    );
-                }
-
-                trace_op!(record_static_parent_reduce_applied(
-                    parent,
-                    child.array(),
-                    child_idx,
-                    *rule,
-                    &reduced,
-                ));
-                return Ok(Some(reduced));
-            }
-            trace_op!(record_static_parent_reduce_declined(
-                parent,
-                child.array(),
-                child_idx,
-                *rule,
-            ));
         }
         Ok(None)
     }

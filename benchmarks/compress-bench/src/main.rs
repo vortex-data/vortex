@@ -54,6 +54,7 @@ use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
 use vortex_bench::setup_logging_and_tracing_with_format;
+use vortex_bench::statpopgen::StatPopGenBenchmark;
 use vortex_bench::v3;
 
 #[derive(Parser, Debug)]
@@ -302,7 +303,10 @@ async fn run_compress(
     .collect();
 
     let sparse_wide = SparseWide::ALL;
+    // Keep the full cohort and nested genotype fields, sampling only the variant rows.
+    let statpopgen = StatPopGenBenchmark::new(10)?;
     let all_datasets: Vec<&dyn Dataset> = [
+        &statpopgen as &dyn Dataset,
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
         PBI_DATASETS.get(Bimbo),

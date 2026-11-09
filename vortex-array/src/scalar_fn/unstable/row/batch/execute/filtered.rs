@@ -30,6 +30,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
+use crate::optimizer::ArrayOptimizer;
 
 impl RowFnExecutionArgs<'_> {
     /// Filter the batch to valid rows, then execute the kernel into the original row domain.
@@ -50,7 +51,7 @@ impl RowFnExecutionArgs<'_> {
             .batch
             .inputs
             .iter()
-            .map(|input| input.filter(filter_mask.clone()))
+            .map(|input| input.filter(filter_mask.clone())?.optimize_ctx(ctx))
             .collect::<VortexResult<_>>()?;
 
         let filtered_args = self.execution_args(&filtered_inputs, filtered_len);

@@ -16,6 +16,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -78,9 +79,7 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
     let original = rect_column(vec![(0.0, 1.0, 2.0, 3.0), (-5.0, -5.0, 5.0, 5.0)])?;
 
     let target = box_field("bbox", GeoArrowDimension::XY, false, Some("EPSG:4326"));
-    let exported = SESSION
-        .arrow()
-        .execute_arrow(original, Some(&target), &mut ctx)?;
+    let exported = original.execute_arrow(Some(&target), &mut ctx)?;
     let reimported = SESSION.arrow().from_arrow_array(exported, &target)?;
 
     let ext = reimported

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { applyTheme, readChoice, saveChoice } from '../vendor/vortex-design/theme.js';
 import { ThemeContext } from './ThemeContextCore';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
@@ -11,41 +12,45 @@ export interface ThemeContextValue {
   setTheme: (theme: ThemeChoice) => void;
 }
 
-// The system's ThemeSwitch key. The Explorer stored 'vortex-theme' before; theme.js moves it.
-const STORAGE_KEY = 'vx-theme';
+function storage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function cookie(): string {
+  try {
+    return document.cookie;
+  } catch {
+    return '';
+  }
+}
 
 /**
- * The design system's tokens read the choice from `data-theme` on the root: `dark`, `light`, or
- * `system`, which follows the operating system through prefers-color-scheme. `public/theme.js`
- * sets it before the first paint; this keeps it in step with the switch.
+ * The theme every Vortex surface shares (the design system's ThemeSwitch): the vx-theme cookie on
+ * vortex.dev, else this origin's storage, else Dark. `public/theme.js` sets it before the first
+ * paint; this keeps it in step with the switches, and follows the OS while the choice is System.
  */
-function applyTheme(choice: ThemeChoice) {
-  document.documentElement.dataset.theme = choice;
-}
-
-function getStoredTheme(): ThemeChoice {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
-  } catch {
-    // Storage can be blocked; fall back to the default.
-  }
-  return 'dark';
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeChoice>(getStoredTheme);
+  const [theme, setThemeState] = useState<ThemeChoice>(
+    () => readChoice(storage(), cookie()) as ThemeChoice,
+  );
 
   const setTheme = useCallback((choice: ThemeChoice) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, choice);
-    } catch {
-      // The choice then lasts for this page only.
-    }
+    saveChoice(storage(), choice);
     setThemeState(choice);
   }, []);
 
-  useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== 'system') return;
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const follow = () => applyTheme('system');
+    media.addEventListener('change', follow);
+    return () => media.removeEventListener('change', follow);
+  }, [theme]);
 
   return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
 }

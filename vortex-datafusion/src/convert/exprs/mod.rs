@@ -21,10 +21,17 @@ use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
+use datafusion_functions::string::contains::ContainsFunc;
+use datafusion_functions::string::ends_with::EndsWithFunc;
+use datafusion_functions::string::lower::LowerFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions::string::starts_with::StartsWithFunc;
+use datafusion_functions::unicode::strpos::StrposFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -36,7 +43,10 @@ use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 use vortex::expr::Expression;
+use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -45,14 +55,21 @@ use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::list_sum_opts;
+use vortex::expr::list_transform;
 use vortex::expr::lit;
+use vortex::expr::lower;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::strpos;
+use vortex::expr::traversal::NodeExt;
+use vortex::expr::traversal::Transformed;
+use vortex::expr::var;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -217,13 +234,22 @@ pub struct DefaultExpressionConverter {
     /// `FixedSizeBinary[16]`) convert correctly instead of hitting the static,
     /// non-plugin-aware `DType::from_arrow`.
     session: VortexSession,
+    /// What `$` is in the expressions this converts.
+    scope: Scope,
+}
+
+/// What `$` is where an expression is converted.
+enum Scope {
+    /// Outside any lambda, the scan's columns: a column `c` reads `$.c`.
+    Global,
+    /// A lambda's parameters: a parameter `x` reads `$.x`, as Vortex runs a lambda's body. Vortex
+    /// lambdas can't read columns yet.
+    Lambda(StructFields),
 }
 
 impl Default for DefaultExpressionConverter {
     fn default() -> Self {
-        Self {
-            session: VortexSession::default(),
-        }
+        Self::new(VortexSession::default())
     }
 }
 
@@ -231,7 +257,10 @@ impl DefaultExpressionConverter {
     /// Create a converter that resolves Arrow extension types using `session`'s
     /// dtype registry.
     pub fn new(session: VortexSession) -> Self {
-        Self { session }
+        Self {
+            session,
+            scope: Scope::Global,
+        }
     }
 
     /// Resolve an Arrow field through the session registry; unknown types are unsupported.
@@ -345,7 +374,29 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(col_expr) = expr.downcast_ref::<df_expr::Column>() {
-            return Ok(get_item(col_expr.name(), root()));
+            return match self.scope {
+                Scope::Global => Ok(get_item(col_expr.name(), root())),
+                Scope::Lambda(_) => Err(Unconverted::Unsupported),
+            };
+        }
+
+        if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
+            return match &self.scope {
+                Scope::Lambda(params) if params.find(variable.name()).is_some() => {
+                    Ok(get_item(variable.name(), root()))
+                }
+                // Outside any lambda, or a parameter of an enclosing lambda, which Vortex lambdas
+                // can't read yet.
+                _ => Err(Unconverted::Unsupported),
+            };
+        }
+
+        if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
+            let function_impl: &dyn std::any::Any = function.fun().inner().as_ref();
+            if function_impl.downcast_ref::<ArrayTransform>().is_some() {
+                return self.convert_array_transform(function, schema, input_dtype);
+            }
+            return Err(Unconverted::Unsupported);
         }
 
         if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
@@ -402,13 +453,9 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(like) = expr.downcast_ref::<df_expr::LikeExpr>() {
-            if !like.expr().data_type(schema)?.is_string()
-                || !like.pattern().data_type(schema)?.is_string()
-            {
-                return Err(Unconverted::Unsupported);
-            }
-            let child = self.convert_expr(like.expr(), schema, input_dtype)?;
-            let pattern = self.convert_expr(like.pattern(), schema, input_dtype)?;
+            // Dictionary-encoded strings convert to Utf8 too.
+            let child = self.convert_string(like.expr(), schema, input_dtype)?;
+            let pattern = self.convert_string(like.pattern(), schema, input_dtype)?;
             return Ok(Like.new_expr(
                 LikeOptions {
                     negated: like.negated(),
@@ -509,6 +556,20 @@ impl DefaultExpressionConverter {
             })
     }
 
+    /// Converts a string argument of a string function.
+    fn convert_string(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let converted = self.convert_expr(expr, schema, input_dtype)?;
+        if !converted_dtype(&converted, input_dtype)?.is_utf8() {
+            return Err(Unconverted::Unsupported);
+        }
+        Ok(converted)
+    }
+
     fn convert_in_list(
         &self,
         in_list: &df_expr::InListExpr,
@@ -563,6 +624,67 @@ impl DefaultExpressionConverter {
         schema: &Schema,
         input_dtype: &DType,
     ) -> Conversion<Expression> {
+        if ScalarFunctionExpr::try_downcast_func::<LowerFunc>(scalar_fn).is_some() {
+            let [input] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!("lower requires exactly one argument").into());
+            };
+            return Ok(lower(self.convert_string(input, schema, input_dtype)?));
+        }
+
+        if ScalarFunctionExpr::try_downcast_func::<StrposFunc>(scalar_fn).is_some() {
+            let [input, search] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!("strpos requires exactly two arguments").into());
+            };
+            let position = strpos(
+                self.convert_string(input, schema, input_dtype)?,
+                self.convert_string(search, schema, input_dtype)?,
+            );
+            return match scalar_fn.return_type() {
+                DataType::Int64 => Ok(position),
+                // DataFusion only returns Int32 for strings with 32-bit offsets, whose positions
+                // fit.
+                DataType::Int32 => {
+                    let nullability = converted_dtype(&position, input_dtype)?.nullability();
+                    Ok(cast(position, DType::Primitive(PType::I32, nullability)))
+                }
+                _ => Err(Unconverted::Unsupported),
+            };
+        }
+
+        let like_pattern: Option<fn(&str) -> String> =
+            if ScalarFunctionExpr::try_downcast_func::<ContainsFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("%{needle}%"))
+            } else if ScalarFunctionExpr::try_downcast_func::<StartsWithFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("{needle}%"))
+            } else if ScalarFunctionExpr::try_downcast_func::<EndsWithFunc>(scalar_fn).is_some() {
+                Some(|needle| format!("%{needle}"))
+            } else {
+                None
+            };
+        if let Some(like_pattern) = like_pattern {
+            let [input, needle] = scalar_fn.args() else {
+                return Err(exec_datafusion_err!(
+                    "{} requires exactly two arguments",
+                    scalar_fn.name()
+                )
+                .into());
+            };
+            // Only a literal needle becomes a LIKE pattern that encodings and stats can use.
+            let Some(Some(needle)) = needle
+                .downcast_ref::<df_expr::Literal>()
+                .and_then(|literal| literal.value().try_as_str())
+            else {
+                return Err(Unconverted::Unsupported);
+            };
+            return Ok(Like.new_expr(
+                LikeOptions::default(),
+                [
+                    self.convert_string(input, schema, input_dtype)?,
+                    lit(like_pattern(&escape_like(needle))),
+                ],
+            ));
+        }
+
         if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
             // DataFusion's GetFieldFunc flattens nested field access into a single call
             // with multiple field name arguments, e.g. `outer.inner.leaf` becomes
@@ -659,6 +781,45 @@ impl DefaultExpressionConverter {
         Ok(list_sum_opts(list, NumericalAggregateOpts::include_nans()))
     }
 
+    /// Converts `array_transform` to `list_transform`.
+    ///
+    /// The body is converted in the lambda's scope, where it may read only its one parameter, the
+    /// element.
+    fn convert_array_transform(
+        &self,
+        function: &HigherOrderFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [list, lambda] = function.args() else {
+            return Err(
+                exec_datafusion_err!("array_transform requires a list and a lambda").into(),
+            );
+        };
+        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let [param] = lambda.params() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let list = self.convert_expr(list, schema, input_dtype)?;
+        let DType::List(element, _) = converted_dtype(&list, input_dtype)? else {
+            return Err(Unconverted::Unsupported);
+        };
+        let params = StructFields::from_iter([(param.as_str(), element.as_ref().clone())]);
+        let inputs = DType::Struct(params.clone(), Nullability::NonNullable);
+        let body_converter = Self {
+            session: self.session.clone(),
+            scope: Scope::Lambda(params),
+        };
+        // DataFusion also types the body against the outer schema: a lambda variable carries its
+        // own field.
+        let body = body_converter.convert_expr(lambda.body(), schema, &inputs)?;
+        let lambda = Lambda::new([param.as_str()], read_params(body)?)
+            .map_err(|_| Unconverted::Unsupported)?;
+        Ok(list_transform(list, lambda))
+    }
+
     fn convert_case_expr(
         &self,
         case_expr: &df_expr::CaseExpr,
@@ -714,10 +875,37 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
         && expr.children().iter().all(is_infallible)
 }
 
+/// Escapes the LIKE wildcards and escape character in `literal`.
+fn escape_like(literal: &str) -> String {
+    let mut escaped = String::with_capacity(literal.len());
+    for c in literal.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
 fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
     expr.return_dtype(input_dtype)
         .map_err(|_| Unconverted::Unsupported)
+}
+
+/// Turns a body converted in a lambda's scope, where `$.x` is the parameter `x`, into a lambda's
+/// body, which reads it as `@x`.
+fn read_params(body: Expression) -> Conversion<Expression> {
+    body.transform_down(|node| {
+        if let Some(name) = node.as_opt::<GetItem>()
+            && node.child(0).is_root()
+        {
+            return Ok(Transformed::yes(var(name.clone())));
+        }
+        Ok(Transformed::no(node))
+    })
+    .map(Transformed::into_inner)
+    .map_err(|_| Unconverted::Unsupported)
 }
 
 /// How a supported DataFusion cast is converted.
@@ -742,6 +930,19 @@ fn classify_cast_types(source: &DataType, target: &DataType) -> Conversion<CastP
     use DataType::*;
     Ok(match (source, target) {
         _ if source == target => CastPushdown::Drop,
+        // Views preserve narrow-offset strings without concatenating their values.
+        (Utf8, Utf8View) => CastPushdown::Drop,
+        // Decoding to views does not concatenate dictionary values into a narrow offset buffer.
+        (Dictionary(_, values), Utf8View) if matches!(values.as_ref(), Utf8 | Utf8View) => {
+            CastPushdown::Drop
+        }
+        // Run expansion gathers dictionary keys, then decodes them directly to views.
+        (RunEndEncoded(run_ends, values), Utf8View)
+            if matches!(run_ends.data_type(), Int16 | Int32)
+                && matches!(values.data_type(), Dictionary(_, strings) if matches!(strings.as_ref(), Utf8 | Utf8View)) =>
+        {
+            CastPushdown::Drop
+        }
         // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
         // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
         (RunEndEncoded(run_ends, values), Dictionary(..))

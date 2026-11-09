@@ -10,14 +10,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayParts;
 use crate::ArrayRef;
-use crate::ArraySlots;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -27,9 +25,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::unsupported_buffer_replacement;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -50,11 +48,10 @@ use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
 use crate::scalar::ListScalar;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::serde::ArrayChildren;
 pub(crate) mod canonical;
 mod operations;
+mod plugin;
 mod validity;
 
 /// A [`Constant`]-encoded Vortex array.
@@ -131,50 +128,6 @@ impl VTable for Constant {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn serialize(
-        _array: ArrayView<'_, Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
-        // metadata at all.
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        dtype: &DType,
-        len: usize,
-        _metadata: &[u8],
-
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-        session: &VortexSession,
-    ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(buffers.len(), 1);
-
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bytes: &[u8] = buffer.as_ref();
-
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            ConstantData::new(scalar),
-            ArraySlots::new(),
-        ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -264,10 +217,12 @@ impl VTable for Constant {
                 // is a constant storage array, which stays constant-encoded in the builder.
                 // Canonicalizing instead would materialize the storage: see the note in
                 // `constant_canonicalize` about `ExtensionConstantRule`.
+                //
+                // Call the Extension vtable directly: `ArrayRef::append_to_builder` would optimize
+                // the array back into this constant and recurse.
                 let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
-                ExtensionArray::new(ext_dtype.clone(), storage.into_array())
-                    .into_array()
-                    .append_to_builder(builder, ctx)?
+                let extension = ExtensionArray::new(ext_dtype.clone(), storage.into_array());
+                Extension::append_to_builder(extension.as_view(), builder, ctx)?
             }
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?

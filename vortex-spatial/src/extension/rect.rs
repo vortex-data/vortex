@@ -44,7 +44,7 @@ use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -184,8 +184,7 @@ fn box_type(spatial_metadata: &SpatialMetadata, dimension: Dimension) -> BoxType
 /// Build a geoarrow `RectArray` from a `Rect`'s box `Struct` storage.
 fn rect_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RectArray> {
     let box_type = box_type(&SpatialMetadata::default(), box_dimension(storage.dtype())?);
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     RectArray::try_from((arrow.as_ref(), box_type))
         .map_err(|e| vortex_err!("failed to construct RectArray: {e}"))
 }
@@ -259,12 +258,8 @@ impl ArrowExportVTable for Rect {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))

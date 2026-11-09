@@ -4,13 +4,18 @@ Build hooks for our theme.
    and fail the build if a copy of the system was edited by hand
 2. Load only one CSS and no JS per page except search page
 3. Rewrite TOC into detail/summary with regex so it loads without JS
-4. Minify CSS
+4. Make the 404 page's relative URLs root-relative, since it is served at any address
+5. Minify CSS
+6. Read the repository's star count for the header's GitHub button, as vortex.dev does
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -102,9 +107,56 @@ def _toc(app: Sphinx, pagename: str, templatename: str, context: dict[str, Any],
     context["vortex_globaltoc"] = html
 
 
+# The 404 page is served at whatever address missed, so its relative links and assets would resolve
+# against that address. Every relative URL in it becomes root-relative: links, assets, and the
+# header's search form.
+_RELATIVE_URL = re.compile(r'((?:href|src|action)=")(?![a-z][a-z0-9+.-]*:|/|#)')
+
+
+def _root_relative_404(app: Sphinx, exception: Exception | None) -> None:
+    if exception is not None or app.builder.format != "html":
+        return
+    page = Path(app.outdir) / "404.html"
+    if page.exists():
+        page.write_text(_RELATIVE_URL.sub(r"\1/", page.read_text()))
+
+
+# The header's GitHub button shows the star count, as on vortex.dev, so every surface draws the same
+# button. It is read once per build. Any failure (offline, a timeout, a rate limit) leaves it out,
+# and the button shows the mark alone.
+_STARS_API = "https://api.github.com/repos/vortex-data/vortex"
+
+
+def _format_stars(n: int) -> str:
+    """vortex.dev's formatStars: "950", "3.3k", "12k"."""
+    if n < 1000:
+        return str(n)
+    k = int(n / 100 + 0.5) / 10 if n < 9950 else int(n / 1000 + 0.5)
+    return f"{k:g}k"
+
+
+def _github_stars(app: Sphinx) -> None:
+    stars = None
+    try:
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        # A token, where the build has one, lifts the API's limit of 60 requests an hour.
+        if token := os.environ.get("GITHUB_TOKEN"):
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(_STARS_API, headers=headers)
+        with urllib.request.urlopen(request, timeout=5) as response:
+            count = json.load(response).get("stargazers_count")
+        if isinstance(count, int) and count >= 0:
+            stars = _format_stars(count)
+    except Exception:  # noqa: BLE001 - the count is optional
+        stars = None
+    app.config.html_context["github_stars"] = stars
+
+
 def setup(app: Sphinx) -> dict[str, Any]:
     _GEN_STATIC.mkdir(parents=True, exist_ok=True)
     app.connect("builder-inited", _css)
+    app.connect("builder-inited", _github_stars)
     app.connect("html-page-context", _filter_assets)
     app.connect("html-page-context", _toc)
+    app.connect("build-finished", _root_relative_404)
     return {"parallel_read_safe": True, "parallel_write_safe": True}

@@ -155,7 +155,7 @@ where
             .arg(&array_len_u64);
     })?;
 
-    let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
+    let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)?));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output,
         P::PTYPE,

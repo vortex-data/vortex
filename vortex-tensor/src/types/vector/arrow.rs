@@ -29,7 +29,7 @@ use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -107,12 +107,7 @@ impl ArrowExportVTable for Vector {
         let executed = array.execute::<ExtensionArray>(ctx)?;
         let storage = executed.storage_array().clone();
 
-        let session = ctx.session().clone();
-        let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(target), ctx)?;
+        let arrow_storage = storage.execute_arrow_with_options(Some(target), options, ctx)?;
 
         Ok(ArrowExport::Exported(arrow_storage))
     }
@@ -197,9 +192,9 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowExport;
     use vortex_arrow::ArrowImport;
-    use vortex_arrow::ArrowSession;
     use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::tests::SESSION;
@@ -237,16 +232,18 @@ mod tests {
         ))
     }
 
-    fn session_with_vector() -> ArrowSession {
-        let session = ArrowSession::default();
-        session.register_exporter(Arc::new(Vector));
-        session.register_importer(Arc::new(Vector));
+    /// A session whose only Arrow plugins are the [`Vector`] exporter and importer.
+    fn session_with_vector() -> VortexSession {
+        let session = VortexSession::empty();
+        session.arrow().register_exporter(Arc::new(Vector));
+        session.arrow().register_importer(Arc::new(Vector));
         session
     }
 
     #[test]
     fn to_arrow_field_attaches_extension_metadata() -> VortexResult<()> {
-        let session = session_with_vector();
+        let vortex_session = session_with_vector();
+        let session = vortex_session.arrow();
         let field = session.to_arrow_field("embedding", &vector_dtype(false))?;
         assert_eq!(
             field.extension_type_name(),
@@ -265,7 +262,8 @@ mod tests {
 
     #[test]
     fn from_arrow_field_recovers_vector_dtype() -> VortexResult<()> {
-        let session = session_with_vector();
+        let vortex_session = session_with_vector();
+        let session = vortex_session.arrow();
         let arrow_field = Field::new(
             "embedding",
             DataType::FixedSizeList(
@@ -282,7 +280,8 @@ mod tests {
 
     #[test]
     fn schema_roundtrip_preserves_top_level_vector() -> VortexResult<()> {
-        let session = session_with_vector();
+        let vortex_session = session_with_vector();
+        let session = vortex_session.arrow();
         let dtype = DType::Struct(
             StructFields::from_iter([(FieldName::from("embedding"), vector_dtype(false))]),
             Nullability::NonNullable,
@@ -295,7 +294,8 @@ mod tests {
 
     #[test]
     fn schema_roundtrip_preserves_nested_struct_vector() -> VortexResult<()> {
-        let session = session_with_vector();
+        let vortex_session = session_with_vector();
+        let session = vortex_session.arrow();
         let inner = DType::Struct(
             StructFields::from_iter([(FieldName::from("embedding"), vector_dtype(true))]),
             Nullability::NonNullable,
@@ -312,7 +312,8 @@ mod tests {
 
     #[test]
     fn schema_roundtrip_preserves_list_of_vector() -> VortexResult<()> {
-        let session = session_with_vector();
+        let vortex_session = session_with_vector();
+        let session = vortex_session.arrow();
         let dtype = DType::Struct(
             StructFields::from_iter([(
                 FieldName::from("embeddings"),
@@ -332,7 +333,7 @@ mod tests {
         let session = SESSION.arrow();
         let original = sample_vector_array();
         let field = session.to_arrow_field("embedding", original.dtype())?;
-        let arrow = session.execute_arrow(original.clone(), Some(&field), &mut ctx)?;
+        let arrow = original.clone().execute_arrow(Some(&field), &mut ctx)?;
 
         assert!(matches!(arrow.data_type(), DataType::FixedSizeList(_, n) if *n == DIM as i32));
 
@@ -351,7 +352,8 @@ mod tests {
         // Session with no Vector plugin must not error on a vector.tensor.vector-tagged field;
         // it should fall through to the canonical Arrow → Vortex path and drop the extension
         // identity, producing the raw FSL storage instead.
-        let session = ArrowSession::default();
+        let unregistered = VortexSession::empty();
+        let session = unregistered.arrow();
         let mut arrow_field = Field::new(
             "embedding",
             DataType::FixedSizeList(
@@ -407,7 +409,7 @@ mod tests {
             int_array,
             &field,
             &dtype,
-            &ArrowSession::default(),
+            &VortexSession::empty().arrow(),
         )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
@@ -432,7 +434,7 @@ mod tests {
             fsl_arrow,
             &field,
             &DType::Extension(uuid_ext),
-            &ArrowSession::default(),
+            &VortexSession::empty().arrow(),
         )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
@@ -443,7 +445,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let session = SESSION.arrow();
         let original = sample_vector_array();
-        let arrow = session.execute_arrow(original.clone(), None, &mut ctx)?;
+        let arrow = original.clone().execute_arrow(None, &mut ctx)?;
 
         let field = session.to_arrow_field("v", original.dtype())?;
         assert_eq!(

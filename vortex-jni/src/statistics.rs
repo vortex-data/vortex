@@ -22,6 +22,8 @@ use vortex::array::scalar::ScalarValue;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Precision;
@@ -122,6 +124,19 @@ fn scalar_to_java<'local>(
         }
         ScalarValue::Utf8(value) => Ok(env.new_string(value.as_str())?.into()),
         ScalarValue::Binary(value) => Ok(env.byte_array_from_slice(value.as_slice())?.into()),
+        ScalarValue::Tuple(elements) if is_fixed_size_byte_list(scalar.dtype()) => {
+            let bytes = elements
+                .iter()
+                .map(|element| match element {
+                    Some(ScalarValue::Primitive(PValue::U8(byte))) => Ok(*byte),
+                    _ => Err(vortex_err!(
+                        "fixed-size byte list statistic has a non-u8 element: {element:?}"
+                    )),
+                })
+                .collect::<VortexResult<Vec<u8>>>()?;
+
+            Ok(env.byte_array_from_slice(&bytes)?.into())
+        }
         ScalarValue::Tuple(_) | ScalarValue::Union(_) | ScalarValue::Variant(_) => {
             Err(JNIError::Vortex(vortex_err!(
                 "cannot return nested scalar statistic with dtype {} to Java",
@@ -129,6 +144,16 @@ fn scalar_to_java<'local>(
             )))
         }
     }
+}
+
+/// Returns true when `dtype` is a fixed-size list of non-null `u8`, the storage of byte-valued
+/// extension types such as UUID.
+fn is_fixed_size_byte_list(dtype: &DType) -> bool {
+    matches!(
+        dtype,
+        DType::FixedSizeList(element, _, _)
+            if matches!(element.as_ref(), DType::Primitive(PType::U8, Nullability::NonNullable))
+    )
 }
 
 /// The statistics of one top-level column that are returned to Java.

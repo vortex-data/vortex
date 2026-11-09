@@ -17,6 +17,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -75,9 +76,7 @@ async fn record_batches_match_arrays() -> VortexResult<()> {
     let expected = arrays
         .into_iter()
         .map(|array| {
-            let arrow = SESSION
-                .arrow()
-                .execute_arrow(array, Some(&field), &mut ctx)?;
+            let arrow = array.execute_arrow(Some(&field), &mut ctx)?;
             Ok(RecordBatch::from(arrow.as_struct().clone()))
         })
         .collect::<VortexResult<Vec<_>>>()?;
