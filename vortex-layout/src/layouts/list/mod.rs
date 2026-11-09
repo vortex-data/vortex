@@ -17,6 +17,7 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -90,10 +91,16 @@ impl VTable for List {
         args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
         let offsets_dtype = DType::Primitive(offsets_ptype, Nullability::NonNullable);
         let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
+        let offsets_rows = args.row_count.checked_add(1).ok_or_else(|| {
+            vortex_err!(
+                "List row count {} overflows its offsets row count",
+                args.row_count
+            )
+        })?;
         vortex_ensure_eq!(
-            offsets.row_count().saturating_sub(1),
-            args.row_count,
-            "List offsets row count does not match parent"
+            offsets.row_count(),
+            offsets_rows,
+            "List offsets row count must be the parent row count plus one"
         );
         if args.dtype.is_nullable() {
             let validity = args
@@ -189,8 +196,15 @@ impl Layout<List> {
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> Self {
-        let row_count = offsets.row_count().saturating_sub(1);
+        let row_count = offsets
+            .row_count()
+            .checked_sub(1)
+            .vortex_expect("list offsets must have at least one row");
         let offsets_ptype = offsets.dtype().as_ptype();
+        assert!(
+            offsets_ptype.is_int(),
+            "list offsets must be integers, got {offsets_ptype}"
+        );
         let mut children = vec![elements, offsets];
         children.extend(validity);
         Self::validate_children(&dtype, children.len()).vortex_expect("invalid list children");
@@ -255,12 +269,17 @@ impl ListLayoutMetadata {
     }
 
     fn get_offsets_ptype(&self) -> VortexResult<PType> {
-        PType::try_from(self.offsets_ptype).map_err(|_| {
+        let ptype = PType::try_from(self.offsets_ptype).map_err(|_| {
             vortex_err!(
                 "ListLayoutMetadata offsets_ptype must be a known PType, got {}",
                 self.offsets_ptype
             )
-        })
+        })?;
+        vortex_ensure!(
+            ptype.is_int(),
+            "ListLayoutMetadata offsets_ptype must be an integer PType, got {ptype}"
+        );
+        Ok(ptype)
     }
 }
 
@@ -269,6 +288,7 @@ mod tests {
     use std::sync::Arc;
 
     use prost::Message;
+    use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -280,8 +300,63 @@ mod tests {
     use crate::LayoutBuildContext;
     use crate::LayoutDeserialization;
     use crate::LayoutPlugin;
+    use crate::LayoutRef;
     use crate::layout_children;
+    use crate::layouts::flat::FlatLayout;
     use crate::test::SESSION;
+
+    /// Deserialize a non-nullable `list<i32>` node whose offsets child has `offsets_rows` rows.
+    fn deserialize(ptype: PType, row_count: u64, offsets_rows: u64) -> VortexResult<LayoutRef> {
+        let elements = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let dtype = DType::List(Arc::new(elements.clone()), Nullability::NonNullable);
+        let offsets = DType::Primitive(ptype, Nullability::NonNullable);
+        let read_ctx = ReadContext::new([]);
+        let children = layout_children(vec![
+            FlatLayout::new(0, elements, 0.into(), read_ctx.clone()).into_layout(),
+            FlatLayout::new(offsets_rows, offsets, 1.into(), read_ctx.clone()).into_layout(),
+        ]);
+        let metadata = ListLayoutMetadata::new(ptype).encode_to_vec();
+        LayoutPlugin::deserialize(
+            &List,
+            LayoutDeserialization {
+                serialized_id: LayoutPlugin::id(&List),
+                dtype: &dtype,
+                row_count,
+                metadata: &metadata,
+                segment_ids: vec![],
+                children: children.as_ref(),
+            },
+            &LayoutBuildContext {
+                session: &SESSION,
+                array_read_ctx: &read_ctx,
+            },
+        )
+    }
+
+    #[rstest]
+    #[case::float_offsets(PType::F64, 3, 4, "must be an integer PType, got f64")]
+    #[case::zero_rows_without_offsets(PType::U64, 0, 0, "parent row count plus one")]
+    #[case::row_count_overflow(PType::U64, u64::MAX, u64::MAX, "overflows")]
+    fn deserialize_rejects_malformed_offsets(
+        #[case] ptype: PType,
+        #[case] row_count: u64,
+        #[case] offsets_rows: u64,
+        #[case] message: &str,
+    ) {
+        let err = deserialize(ptype, row_count, offsets_rows)
+            .err()
+            .map(|err| err.to_string());
+        assert!(
+            err.as_ref().is_some_and(|err| err.contains(message)),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn deserialize_accepts_a_zero_row_node_with_one_offset() -> VortexResult<()> {
+        assert_eq!(deserialize(PType::U64, 0, 1)?.row_count(), 0);
+        Ok(())
+    }
 
     #[test]
     fn test_build_rejects_unknown_offsets_ptype() -> VortexResult<()> {
