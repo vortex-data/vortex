@@ -2,28 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::and;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::gt;
-use vortex_array::expr::bound::gt_eq;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::bound::lt;
-use vortex_array::expr::bound::lt_eq;
-use vortex_array::expr::bound::or_collect;
-use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::binary::Binary;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::is_null::IsNull;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::Operator;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::bound::and;
+use crate::bound::eq;
+use crate::bound::gt;
+use crate::bound::gt_eq;
+use crate::bound::lit;
+use crate::bound::lt;
+use crate::bound::lt_eq;
+use crate::bound::or_collect;
 use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::falsify;
 use crate::stats::rewrite::helpers::*;
@@ -40,12 +36,6 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(IsNotNullNullCountStatsRewrite);
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
-}
-
-fn row_count() -> BoundExpression {
-    RowCount
-        .try_new_bound_expr(EmptyOptions, [])
-        .vortex_expect("row-count expressions are always well-typed")
 }
 
 #[derive(Debug)]
@@ -320,31 +310,31 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::and;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::lt_eq;
-    use vortex_array::expr::or;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnId;
     use vortex_array::scalar_fn::ScalarFnVTable;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::builtin::binary::Binary;
-    use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::BoundExpression;
+    use crate::Expression;
+    use crate::ScalarFnExprExt;
+    use crate::and;
+    use crate::cast;
+    use crate::col;
+    use crate::eq;
+    use crate::gt;
+    use crate::gt_eq;
+    use crate::is_not_null;
+    use crate::is_null;
+    use crate::lambda::row_count::RowCount;
+    use crate::lit;
+    use crate::lt;
+    use crate::lt_eq;
+    use crate::or;
     use crate::stats::expr::StatFn;
     use crate::stats::expr::StatOptions;
     use crate::stats::rewrite::BoundExpressionPruneExt;

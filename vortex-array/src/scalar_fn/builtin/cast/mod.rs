@@ -37,9 +37,6 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::expr::bound;
-use crate::expr::display::ExprDisplay;
 use crate::proto::expr as pb;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -49,7 +46,7 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::display::ExprDisplay;
 use crate::scalar_fn::is_not_null_node;
 
 /// A cast expression that converts values to a target data type.
@@ -167,17 +164,21 @@ impl ScalarFnVTable for Cast {
         Ok(None)
     }
 
-    fn simplify(
-        &self,
-        target_dtype: &DType,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let Some(scalar) = expr.child(0).as_opt::<Literal>() else {
-            return Ok(None);
-        };
-        // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
-        // surfaces at execution time rather than during optimization.
-        Ok(scalar.cast(target_dtype).ok().map(bound::lit))
+    fn simplify<T: ReduceNode>(&self, target_dtype: &DType, node: &T) -> VortexResult<Option<T>> {
+        let child = node.child(0);
+        if let Some(scalar) = child.as_constant() {
+            // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
+            // surfaces at execution time rather than during optimization.
+            return Ok(scalar
+                .cast(target_dtype)
+                .ok()
+                .map(|scalar| node.new_constant(scalar)));
+        }
+        // Collapse node if child is already the target type
+        if &child.node_dtype()? == target_dtype {
+            return Ok(Some(child));
+        }
+        Ok(None)
     }
 
     fn validity<T: ReduceNode>(
@@ -237,148 +238,4 @@ fn cast_canonical(
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
 fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
     <Constant as CastReduce>::cast(array, dtype)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::LazyLock;
-
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
-    use vortex_session::VortexSession;
-
-    use super::Cast;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::StructArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::DType;
-    use crate::dtype::DecimalDType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::Expression;
-    use crate::expr::cast;
-    use crate::expr::get_item;
-    use crate::expr::lit;
-    use crate::expr::root;
-    use crate::expr::test_harness;
-    use crate::scalar::DecimalValue;
-    use crate::scalar::Scalar;
-    use crate::scalar_fn::builtin::literal::Literal;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[test]
-    fn dtype() {
-        let dtype = test_harness::struct_dtype();
-        assert_eq!(
-            cast(root(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&dtype)
-                .unwrap(),
-            DType::Bool(Nullability::NonNullable)
-        );
-    }
-
-    #[test]
-    fn replace_children() -> VortexResult<()> {
-        let dtype = DType::Bool(Nullability::Nullable);
-        let expr = cast(root(), dtype.clone());
-        let replaced = expr.with_children(vec![get_item("a", root())])?;
-        assert_eq!(replaced, cast(get_item("a", root()), dtype));
-        Ok(())
-    }
-
-    #[test]
-    fn evaluate() {
-        let test_array = StructArray::from_fields(&[
-            ("a", buffer![0i32, 1, 2].into_array()),
-            ("b", buffer![4i64, 5, 6].into_array()),
-        ])
-        .unwrap()
-        .into_array();
-
-        let expr: Expression = cast(
-            get_item("a", root()),
-            DType::Primitive(PType::I64, Nullability::NonNullable),
-        );
-        let result = test_array.apply(&expr).unwrap();
-
-        assert_eq!(
-            result.dtype(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable)
-        );
-        assert_arrays_eq!(
-            result,
-            buffer![0i64, 1, 2].into_array(),
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn simplify_folds_cast_of_literal() -> VortexResult<()> {
-        let expr = cast(
-            lit(3i32),
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
-
-        let scalar = optimized
-            .as_opt::<Literal>()
-            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
-        assert_eq!(scalar, &Scalar::primitive(3.0f64, Nullability::NonNullable));
-        Ok(())
-    }
-
-    #[test]
-    fn simplify_folds_cast_of_decimal_literal() -> VortexResult<()> {
-        let decimal = Scalar::decimal(
-            DecimalValue::I128(319),
-            DecimalDType::new(3, 2),
-            Nullability::NonNullable,
-        );
-        let expr = cast(
-            lit(decimal),
-            DType::Primitive(PType::F64, Nullability::NonNullable),
-        );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
-
-        let scalar = optimized
-            .as_opt::<Literal>()
-            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
-        assert_eq!(
-            scalar,
-            &Scalar::primitive(3.19f64, Nullability::NonNullable)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn simplify_leaves_failing_cast_unchanged() -> VortexResult<()> {
-        let target = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let expr = cast(
-            lit(Scalar::null(DType::Primitive(
-                PType::I32,
-                Nullability::Nullable,
-            ))),
-            target.clone(),
-        );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
-
-        assert!(optimized.as_opt::<Literal>().is_none());
-        assert_eq!(optimized.as_opt::<Cast>(), Some(&target));
-        Ok(())
-    }
-
-    #[test]
-    fn test_display() {
-        let expr = cast(
-            get_item("value", root()),
-            DType::Primitive(PType::I64, Nullability::NonNullable),
-        );
-        assert_eq!(expr.to_string(), "cast($.value as i64)");
-
-        let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
-        assert_eq!(expr2.to_string(), "cast($ as bool?)");
-    }
 }

@@ -32,9 +32,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 use vortex_expr::analysis::referenced_field_paths;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;

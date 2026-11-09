@@ -10,7 +10,7 @@ use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use vortex_array::expr::BoundExpression;
+use vortex_expr::BoundExpression;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -204,13 +204,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::root;
 
     use super::ExprKey;
 

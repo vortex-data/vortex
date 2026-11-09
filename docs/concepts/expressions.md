@@ -9,8 +9,10 @@ to the returned data.
 Expressions are defined as abstract scalar functions. These vtables define the signature of the function, properties
 such as whether the function is strict, and the actual logic for executing the function over input arrays.
 
-The built-in scalar functions can be found in the `vortex-array::expr` module, with additional use-case specific
-functions provided by integration and plugin crates.
+The scalar function framework and the handful of functions the array crate itself is built on live in
+`vortex_array::scalar_fn`; expression trees, their optimizer and the analyses built on them live in the
+`vortex-expr` crate; `vortex-functions` holds the rest of the built-in scalar functions, with additional
+use-case specific functions provided by integration and plugin crates.
 
 In the future, we plan to add full support for spatial functions, date-time functions, and more.
 

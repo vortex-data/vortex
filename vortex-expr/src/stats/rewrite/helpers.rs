@@ -13,21 +13,21 @@ use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::and;
-use vortex_array::expr::bound::and_collect;
-use vortex_array::expr::bound::cast;
-use vortex_array::expr::bound::eq;
-use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::literal::Literal;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::BoundExpression;
+use crate::ScalarFnExprExt;
+use crate::bound::and;
+use crate::bound::and_collect;
+use crate::bound::cast;
+use crate::bound::eq;
+use crate::bound::lit;
+use crate::lambda::row_count::RowCount;
 use crate::stats::bound::stat;
 
 pub fn row_count() -> BoundExpression {

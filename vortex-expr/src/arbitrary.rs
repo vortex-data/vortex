@@ -5,18 +5,18 @@ use std::cmp::max;
 
 use arbitrary::Result as AResult;
 use arbitrary::Unstructured;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::scalar::arbitrary::random_scalar;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::expr::Expression;
-use crate::expr::and_collect;
-use crate::expr::col;
-use crate::expr::lit;
-use crate::expr::pack;
-use crate::scalar::arbitrary::random_scalar;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::operators::Operator;
+use crate::Expression;
+use crate::ScalarFnExprExt;
+use crate::and_collect;
+use crate::col;
+use crate::lit;
+use crate::pack;
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {

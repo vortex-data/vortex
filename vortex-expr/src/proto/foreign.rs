@@ -5,22 +5,21 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnRef;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::TypedScalarFnInstance;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
-
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::expr::display::ExprDisplay;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::TypedScalarFnInstance;
 
 /// Options payload for a foreign scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

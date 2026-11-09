@@ -15,7 +15,6 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::Expression;
 use vortex_array::proto::expr as pb;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -27,6 +26,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
 use vortex_functions::variant_get::VariantPath;
 use vortex_functions::variant_get::VariantPathElement;
 use vortex_session::VortexSession;
@@ -314,11 +315,11 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::session::DTypeSession;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
     use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::scalar_fn::session::ScalarFnSessionExt;
     use vortex_array::session::ArraySession;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
 
     use super::*;
 

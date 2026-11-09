@@ -35,6 +35,7 @@ vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true, features = ["arbitrary"] }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-functions = { workspace = true }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }

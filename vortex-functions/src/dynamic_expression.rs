@@ -21,15 +21,16 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_expr::ArrayExprExt;
 use vortex_session::registry::CachedId;
 
 /// A source of a predicate that can change while a query runs, such as the build-side bounds of
@@ -230,12 +231,12 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::root;
     use vortex_buffer::buffer;
+    use vortex_expr::col;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use super::*;

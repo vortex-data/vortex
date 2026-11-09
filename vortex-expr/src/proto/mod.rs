@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod foreign;
+
+pub use foreign::*;
 use itertools::Itertools;
+use vortex_array::proto::expr as pb;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::expr::Expression;
-use crate::expr::expression::unbound_variable;
-use crate::proto::expr as pb;
-use crate::scalar_fn::ForeignScalarFnVTable;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::session::ScalarFnSessionExt;
+use crate::Expression;
+use crate::expression::unbound_variable;
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
@@ -104,19 +106,19 @@ mod tests {
     use std::sync::LazyLock;
 
     use prost::Message;
+    use vortex_array::proto::expr as pb;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::lit;
-    use crate::expr::lt;
-    use crate::expr::or;
-    use crate::expr::root;
-    use crate::proto::expr as pb;
-    use crate::scalar_fn::session::ScalarFnSession;
+    use crate::Expression;
+    use crate::and;
+    use crate::eq;
+    use crate::get_item;
+    use crate::lit;
+    use crate::lt;
+    use crate::or;
+    use crate::root;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ScalarFnSession>();

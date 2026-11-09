@@ -5,14 +5,14 @@
 
 use std::ptr;
 
-use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::binary::Binary;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
+use vortex_expr::ScalarFnExprExt;
 
 use crate::between::Between;
 use crate::between::BetweenOptions;
@@ -227,18 +227,19 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::and;
-    use vortex_array::expr::col;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
-    use vortex_array::expr::lt_eq;
-    use vortex_array::expr::or;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::and;
+    use vortex_expr::col;
+    use vortex_expr::gt;
+    use vortex_expr::gt_eq;
+    use vortex_expr::lit;
+    use vortex_expr::lt;
+    use vortex_expr::lt_eq;
+    use vortex_expr::or;
     use vortex_session::VortexSession;
 
     use super::find_between;

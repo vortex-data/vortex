@@ -22,6 +22,8 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
 - `vortex-array` contains the core `Array` trait and the base encodings, including most
   Apache Arrow-style encodings.
 - `encodings/*` contains more specialized compressed encodings.
+- `vortex-expr` contains expression trees, their optimizer, and the analyses and rewrites built on
+  them. `vortex-functions` contains the scalar functions that `vortex-array` itself is not built on.
 - `vortex-file` implements file IO. It uses `LayoutReader` from `vortex-layout`.
 - `vortex-io` holds the core async and blocking IO traits, plus the generic `object_store`
   adapters that implement them.

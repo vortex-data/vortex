@@ -17,6 +17,7 @@
 
 pub mod binary;
 pub mod cast;
+mod field;
 pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;

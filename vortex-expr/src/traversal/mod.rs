@@ -17,8 +17,8 @@ pub use fold::NodeFolderContext;
 pub use visitor::pre_order_visit_down;
 use vortex_error::VortexResult;
 
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
+use crate::BoundExpression;
+use crate::Expression;
 
 /// Signal to control a traversal's flow
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -549,6 +549,10 @@ impl Node for BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::get_item::GetItem;
+    use vortex_array::scalar_fn::builtin::literal::Literal;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -558,18 +562,14 @@ mod tests {
     use super::Transformed;
     use super::TraversalOrder;
     use super::visitor::pre_order_visit_down;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::is_root;
-    use crate::expr::lit;
-    use crate::expr::not_eq;
-    use crate::expr::root;
-    use crate::scalar_fn::builtin::binary::Binary;
-    use crate::scalar_fn::builtin::get_item::GetItem;
-    use crate::scalar_fn::builtin::literal::Literal;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::Expression;
+    use crate::and;
+    use crate::col;
+    use crate::eq;
+    use crate::is_root;
+    use crate::lit;
+    use crate::not_eq;
+    use crate::root;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);

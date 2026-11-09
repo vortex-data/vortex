@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use crate::expr::traversal::Node;
+use crate::traversal::Node;
 
 /// Use to indicate the control flow of the fold on the downwards pass.
 /// In the case of Continue, the context is passed on to the children nodes.
@@ -72,18 +72,18 @@ pub trait NodeFolderContext {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::scalar_fn::builtin::binary::Binary;
+    use vortex_array::scalar_fn::builtin::literal::Literal;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_error::VortexExpect;
     use vortex_error::vortex_bail;
 
     use super::*;
-    use crate::expr::Expression;
-    use crate::expr::checked_add;
-    use crate::expr::gt;
-    use crate::expr::lit;
-    use crate::expr::traversal::NodeExt;
-    use crate::scalar_fn::builtin::binary::Binary;
-    use crate::scalar_fn::builtin::literal::Literal;
-    use crate::scalar_fn::builtin::operators::Operator;
+    use crate::Expression;
+    use crate::checked_add;
+    use crate::gt;
+    use crate::lit;
+    use crate::traversal::NodeExt;
 
     struct AddFold;
     impl NodeFolderContext for AddFold {

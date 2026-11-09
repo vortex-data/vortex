@@ -55,12 +55,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::is_nan;

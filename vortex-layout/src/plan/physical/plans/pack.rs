@@ -11,9 +11,7 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr as unbound;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::is_null::IsNull;
@@ -25,6 +23,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr as unbound;
+use vortex_expr::Expression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -599,10 +599,10 @@ impl PartitionRule for IsNullRule {
 mod tests {
     use insta::assert_snapshot;
     use vortex_array::dtype::PType;
-    use vortex_array::expr as unbound;
-    use vortex_array::expr::bound::get_item;
-    use vortex_array::expr::bound::is_not_null;
-    use vortex_array::expr::bound::pack;
+    use vortex_expr as unbound;
+    use vortex_expr::bound::get_item;
+    use vortex_expr::bound::is_not_null;
+    use vortex_expr::bound::pack;
 
     use super::*;
     use crate::partition::PartitionedExpression;

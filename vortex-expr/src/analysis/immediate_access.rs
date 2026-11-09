@@ -3,11 +3,11 @@
 
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
 
+use crate::BoundExpression;
 use crate::analysis::AnnotationFn;
 
 /// Returns the "free fields" for this bound expression node.

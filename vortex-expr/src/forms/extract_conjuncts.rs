@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::builtin::binary::Binary;
 use vortex_array::scalar_fn::builtin::operators::Operator;
+
+use crate::Expression;
 
 /// Converting an expression to a conjunctive normal form can lead to a large number of expression
 /// nodes.

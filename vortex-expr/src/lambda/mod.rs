@@ -4,7 +4,7 @@
 //! Lambdas, the function arguments of higher-order scalar functions such as `list_transform`.
 //!
 //! A [`Lambda`] is a list of parameter names and a body that reads them with
-//! [`var`](crate::expr::var). A function that takes a lambda keeps it in its options. When the
+//! [`var`](crate::var). A function that takes a lambda keeps it in its options. When the
 //! function's node is bound, it binds the lambda to its parameters' dtypes, once, and keeps the
 //! [`BoundLambda`] instead.
 //!
@@ -16,43 +16,46 @@
 #[cfg(test)]
 mod tests;
 
+pub mod row_count;
+
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
 use itertools::Itertools;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::StructArray;
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
-use crate::dtype::StructFields;
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::expr::get_item;
-use crate::expr::root;
-use crate::expr::traversal::NodeExt;
-use crate::expr::traversal::Transformed;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::traversal::pre_order_visit_down;
-use crate::scalar_fn::internal::row_count::RowCount;
-use crate::validity::Validity;
+use crate::ArrayExprExt;
+use crate::BoundExpression;
+use crate::Expression;
+use crate::get_item;
+use crate::lambda::row_count::RowCount;
+use crate::root;
+use crate::traversal::NodeExt;
+use crate::traversal::Transformed;
+use crate::traversal::TraversalOrder;
+use crate::traversal::pre_order_visit_down;
 
 /// Parameter names and a body: the function argument of a higher-order scalar function, as
 /// written.
 ///
 /// The body is an ordinary [`Expression`] that reads its parameters with
-/// [`var`](crate::expr::var), and nothing else from outside the lambda.
+/// [`var`](crate::var), and nothing else from outside the lambda.
 ///
 /// ```rust
-/// # use vortex_array::expr::{Lambda, checked_add, lit, var};
+/// # use vortex_expr::{Lambda, checked_add, lit, var};
 /// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
 /// assert_eq!(lambda.to_string(), "(x) -> (@x + 1i32)");
 /// ```
