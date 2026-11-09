@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks for the `list_sum` scalar function over `List`, `ListView`, and
-//! `FixedSizeList` inputs.
+//! `FixedSizeList` inputs, and over lists of bool, run-end and chunked elements.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -21,10 +21,12 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::expr::list_sum;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
@@ -56,11 +58,22 @@ const SMALL: usize = 100;
 const MEDIUM: usize = 250;
 const LARGE: usize = 500;
 
-/// A uniformly-random partition of `num_lists * BASE_LIST_SIZE` elements into `num_lists`
-/// lists, plus a validity mask with ~1/8 of lists null at random positions.
-fn random_lists(num_lists: usize) -> (Vec<i32>, Validity) {
+/// Average list lengths: short lists weigh per-list overhead, long lists per-element work. The
+/// longest is about the length of statpopgen's genotype lists.
+const LIST_SIZES: &[usize] = &[8, 256, 4_096];
+/// Element chunks in each chunked benchmark.
+const NUM_CHUNKS: usize = 4;
+
+/// Elements for lists of `list_size`: at least 4096, and at least 16 lists.
+fn num_elements(list_size: usize) -> usize {
+    (16 * list_size).max(4_096)
+}
+
+/// A uniformly-random partition of `total` elements into `num_lists` lists, plus a validity
+/// mask with ~1/8 of lists null at random positions.
+fn random_lists(num_lists: usize, total: usize) -> (Vec<i32>, Validity) {
     let mut rng = StdRng::seed_from_u64(num_lists as u64);
-    let total = (num_lists * BASE_LIST_SIZE) as i32;
+    let total = total as i32;
 
     let cut_dist = Uniform::new_inclusive(0i32, total).unwrap();
     let mut cuts: Vec<i32> = (0..num_lists - 1).map(|_| rng.sample(cut_dist)).collect();
@@ -94,10 +107,14 @@ fn make_elements(total: i32, nullable: bool) -> ArrayRef {
 
 /// A canonical `List<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_list(num_lists: usize, nullable_elements: bool) -> ArrayRef {
+    let elements = make_elements((num_lists * BASE_LIST_SIZE) as i32, nullable_elements);
+    list_over(elements, BASE_LIST_SIZE)
+}
+
+/// A `List` over `elements` with `list_size` elements per list on average, ~1/8 of lists null.
+fn list_over(elements: ArrayRef, list_size: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    let (sizes, validity) = random_lists(num_lists);
-    let total: i32 = sizes.iter().sum();
-    let elements = make_elements(total, nullable_elements);
+    let (sizes, validity) = random_lists(elements.len() / list_size, elements.len());
     let offsets: Buffer<i32> = std::iter::once(0)
         .chain(sizes.iter().scan(0i32, |acc, &s| {
             *acc += s;
@@ -112,7 +129,7 @@ fn make_list(num_lists: usize, nullable_elements: bool) -> ArrayRef {
 /// A gapless `ListView<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_listview(num_lists: usize) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
-    let (sizes, validity) = random_lists(num_lists);
+    let (sizes, validity) = random_lists(num_lists, num_lists * BASE_LIST_SIZE);
     let total: i32 = sizes.iter().sum();
     let elements = make_elements(total, false);
     let offsets: Buffer<i32> = sizes
@@ -143,6 +160,47 @@ fn make_fsl(num_lists: usize) -> ArrayRef {
     let valid = (0..num_lists).map(|_| rng.sample(null_dist) != 0);
     let validity = Validity::Array(BoolArray::from_iter(valid).into_array());
     FixedSizeListArray::new(elements, BASE_LIST_SIZE as u32, validity, num_lists).into_array()
+}
+
+/// `len` random bools, ~1/8 null.
+fn bool_elements(len: usize, seed: u64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let null_dist = Uniform::new(0u32, 8).unwrap();
+    BoolArray::from_iter(
+        (0..len).map(|_| (rng.sample(null_dist) != 0).then(|| rng.random_bool(0.5))),
+    )
+    .into_array()
+}
+
+/// `len` run-end encoded bools in runs of 1 to 32, ~1/8 of runs null.
+fn run_end_bool_elements(len: usize, seed: u64) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let run_dist = Uniform::new_inclusive(1usize, 32).unwrap();
+    let mut ends = Vec::new();
+    let mut end = 0;
+    while end < len {
+        end = (end + rng.sample(run_dist)).min(len);
+        ends.push(end as u32);
+    }
+    let values = bool_elements(ends.len(), seed);
+    let ends: Buffer<u32> = ends.into_iter().collect();
+    RunEnd::new(
+        ends.into_array(),
+        values,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .into_array()
+}
+
+/// `len` elements in `NUM_CHUNKS` chunks, each built by `chunk(chunk_len, seed)`.
+fn chunked(len: usize, chunk: impl Fn(usize, u64) -> ArrayRef) -> ArrayRef {
+    let chunk_len = len.div_ceil(NUM_CHUNKS);
+    let chunks: Vec<ArrayRef> = (0..len)
+        .step_by(chunk_len)
+        .map(|start| chunk(chunk_len.min(len - start), start as u64))
+        .collect();
+    let dtype = chunks[0].dtype().clone();
+    ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
 }
 
 /// Apply `list_sum(root())` and materialize the result.
@@ -215,4 +273,47 @@ fn fsl_sum_medium(bencher: Bencher) {
 #[divan::bench]
 fn fsl_sum_large(bencher: Bencher) {
     run(bencher, make_fsl(LARGE));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn bool_sum(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(bool_elements(num_elements(list_size), 0), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn run_end_bool_sum(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(run_end_bool_elements(num_elements(list_size), 0), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn chunked_i32_sum(bencher: Bencher, list_size: usize) {
+    let elements = chunked(num_elements(list_size), |len, _| {
+        make_elements(len as i32, true)
+    });
+    run(bencher, list_over(elements, list_size));
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn chunked_bool_sum(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(chunked(num_elements(list_size), bool_elements), list_size),
+    );
+}
+
+#[divan::bench(args = LIST_SIZES)]
+fn chunked_run_end_bool_sum(bencher: Bencher, list_size: usize) {
+    run(
+        bencher,
+        list_over(
+            chunked(num_elements(list_size), run_end_bool_elements),
+            list_size,
+        ),
+    );
 }
