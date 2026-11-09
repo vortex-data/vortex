@@ -107,28 +107,102 @@ where
     let array_len = array.encoded().len();
     vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
 
-    let FoRReferences::Global(reference) = array.references() else {
-        vortex_bail!("CUDA FoR decoding requires a global reference")
-    };
-    let reference: P = reference
-        .as_primitive()
-        .as_::<P>()
-        .vortex_expect("Cannot have a null reference");
+    match array.references() {
+        FoRReferences::Global(reference) => {
+            let reference: P = reference
+                .as_primitive()
+                .as_::<P>()
+                .vortex_expect("Cannot have a null reference");
 
-    // Execute child and copy to device
+            // Execute child and copy to device
+            let canonical = array.encoded().clone().execute_cuda(ctx).await?;
+            let primitive = canonical.into_primitive();
+            let PrimitiveDataParts {
+                buffer, validity, ..
+            } = primitive.into_data_parts();
+
+            let mut device_buffer = ctx.ensure_on_device(buffer).await?;
+            let array_len_u64 = array_len as u64;
+
+            let cuda_function = ctx.load_function("for", &[P::PTYPE])?;
+            let (next, launch) = with_cuda_view_mut::<P, _>(device_buffer, |view| {
+                ctx.launch_kernel(&cuda_function, array_len, |args| {
+                    args.arg(view).arg(&reference).arg(&array_len_u64);
+                })
+            })?;
+            device_buffer = next;
+            if let Some(launch) = launch {
+                launch?;
+                return Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+                    device_buffer,
+                    P::PTYPE,
+                    validity,
+                )));
+            }
+
+            // Preserve aliased inputs by using the out-of-place kernel only when unique mutable access is
+            // unavailable.
+            let input_view = device_buffer.cuda_view::<P>()?;
+            let mut output = ctx.device_alloc::<P>(array_len)?;
+            let ptype_suffix = P::PTYPE.to_string();
+            let cuda_function =
+                ctx.load_function_with_suffixes("for", &["in", "out", ptype_suffix.as_str()])?;
+            ctx.launch_kernel(&cuda_function, array_len, |args| {
+                args.arg(&input_view)
+                    .arg(&mut output)
+                    .arg(&reference)
+                    .arg(&array_len_u64);
+            })?;
+
+            let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
+            Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+                output,
+                P::PTYPE,
+                validity,
+            )))
+        }
+    
+        FoRReferences::Blocked(references) => {
+            let references = references.clone();
+            return decode_for_blocked::<P>(array, references, ctx).await;
+        }
+    }
+}
+
+async fn decode_for_blocked<P>(
+    array: FoRArray,
+    references: ArrayRef,          // the Blocked(references) payload
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical>
+where
+    P: NativePType + DeviceRepr + Send + Sync + 'static,
+{
+    let array_len = array.encoded().len();
+    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
+
+    let offset_u64 = array.offset() as u64;
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveDataParts {
-        buffer, validity, ..
-    } = primitive.into_data_parts();
-
+    let PrimitiveDataParts { buffer, validity, .. } = primitive.into_data_parts();
     let mut device_buffer = ctx.ensure_on_device(buffer).await?;
+
+    let refs_canonical = references.clone().execute_cuda(ctx).await?;
+    let refs_primitive = refs_canonical.into_primitive();
+    let PrimitiveDataParts { buffer: refs_buffer, ..} = refs_primitive.into_data_parts();
+    let refs_device = ctx.ensure_on_device(refs_buffer).await?;
+
+    let refs_view = refs_device.cuda_view::<P>()?;
+
     let array_len_u64 = array_len as u64;
 
-    let cuda_function = ctx.load_function("for", &[P::PTYPE])?;
+    let cuda_function = ctx.load_function("for_blocked", &[P::PTYPE])?;
+
     let (next, launch) = with_cuda_view_mut::<P, _>(device_buffer, |view| {
         ctx.launch_kernel(&cuda_function, array_len, |args| {
-            args.arg(view).arg(&reference).arg(&array_len_u64);
+            args.arg(view)
+                .arg(&refs_view)
+                .arg(&offset_u64)
+                .arg(&array_len_u64);
         })
     })?;
     device_buffer = next;
@@ -141,20 +215,21 @@ where
         )));
     }
 
-    // Preserve aliased inputs by using the out-of-place kernel only when unique mutable access is
-    // unavailable.
     let input_view = device_buffer.cuda_view::<P>()?;
     let mut output = ctx.device_alloc::<P>(array_len)?;
     let ptype_suffix = P::PTYPE.to_string();
-    let cuda_function =
-        ctx.load_function_with_suffixes("for", &["in", "out", ptype_suffix.as_str()])?;
+
+    let cuda_function = ctx.load_function_with_suffixes(
+        "for_blocked",
+        &["in", "out", ptype_suffix.as_str()],
+    )?;
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&input_view)
             .arg(&mut output)
-            .arg(&reference)
+            .arg(&refs_view)
+            .arg(&offset_u64)
             .arg(&array_len_u64);
     })?;
-
     let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output,
