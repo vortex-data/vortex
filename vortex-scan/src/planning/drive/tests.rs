@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::VecDeque;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
+use futures::StreamExt;
 use futures::TryStreamExt;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -204,13 +206,20 @@ fn scope(rows: std::ops::Range<u64>) -> WorkScope {
 /// A plan over `service` that spawns one independent chunk per `chunk` rows of `rows`, each a
 /// morsel.
 fn plan(service: &Arc<InstantService>, rows: u64, chunk: u64) -> PlanRoot {
+    plan_with(service, rows, chunk, |scope| Box::new(ReadThenBatch::new(scope)))
+}
+
+/// Like [`plan`], with each chunk's morsel made by `morsel`.
+fn plan_with(
+    service: &Arc<InstantService>,
+    rows: u64,
+    chunk: u64,
+    morsel: impl Fn(WorkScope) -> Box<dyn Morsel>,
+) -> PlanRoot {
     let outputs = (0..rows.div_ceil(chunk))
         .map(|i| {
             let rows = i * chunk..((i + 1) * chunk).min(rows);
-            let morsel = PlannerOutput::Morsel(
-                scope(rows.clone()),
-                Box::new(ReadThenBatch::new(scope(rows.clone()))),
-            );
+            let morsel = PlannerOutput::Morsel(scope(rows.clone()), morsel(scope(rows.clone())));
             PlannerOutput::Spawn(scope(rows), Box::new(Emit(VecDeque::from([morsel]))))
         })
         .collect();
@@ -323,4 +332,84 @@ fn read_errors_fail_the_stream(#[case] parallel: bool) {
         error.as_deref().is_some_and(|e| e.contains("read failed")),
         "{error:?}"
     );
+}
+
+/// Panics when first computed.
+struct PanicMorsel;
+
+impl IoConsumer for PanicMorsel {
+    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
+}
+
+impl Morsel for PanicMorsel {
+    fn state(&self) -> State {
+        State::NeedsCompute
+    }
+
+    fn compute(&mut self) -> VortexResult<MorselOutput> {
+        panic!("morsel panicked");
+    }
+}
+
+#[rstest]
+#[case::one_worker(1)]
+#[case::many_workers(3)]
+fn parallel_reraises_a_worker_panic(#[case] workers: usize) {
+    let service = Arc::new(InstantService::default());
+    let runtime = CurrentThreadRuntime::new();
+    let pool = runtime.new_pool();
+    pool.set_workers(4);
+    let root = plan_with(&service, 40, 4, |scope| -> Box<dyn Morsel> {
+        if scope.rows.start == 8 {
+            Box::new(PanicMorsel)
+        } else {
+            Box::new(ReadThenBatch::new(scope))
+        }
+    });
+    let stream = ParallelDriver::new(runtime.handle())
+        .with_workers(workers)
+        .with_roots_per_worker(1)
+        .execute(root);
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        runtime.block_on(stream.try_collect::<Vec<ScopedBatch>>())
+    }));
+    assert!(result.is_err(), "the panic must end the stream");
+}
+
+#[test]
+fn parallel_error_stops_queued_roots() {
+    let service = Arc::new(InstantService::failing());
+    let runtime = CurrentThreadRuntime::new();
+    let stream = ParallelDriver::new(runtime.handle())
+        .with_workers(2)
+        .with_roots_per_worker(1)
+        .execute(plan(&service, 400, 4));
+    let result: VortexResult<Vec<ScopedBatch>> = runtime.block_on(stream.try_collect());
+    assert!(result.is_err());
+    // Each worker reads at most the chunk it held when the first read failed.
+    assert!(service.fetches.load(Ordering::Relaxed) <= 2);
+}
+
+#[test]
+fn parallel_starts_on_first_poll() -> VortexResult<()> {
+    let service = Arc::new(InstantService::default());
+    let runtime = CurrentThreadRuntime::new();
+    let stream = ParallelDriver::new(runtime.handle()).execute(plan(&service, 8, 4));
+    assert_eq!(service.sessions.load(Ordering::Relaxed), 0);
+    let batches: Vec<ScopedBatch> = runtime.block_on(stream.try_collect())?;
+    assert_eq!(shape(&batches), expected(8, 4));
+    Ok(())
+}
+
+#[test]
+fn parallel_stream_dropped_mid_plan() -> VortexResult<()> {
+    let service = Arc::new(InstantService::default());
+    let runtime = CurrentThreadRuntime::new();
+    let mut stream = ParallelDriver::new(runtime.handle())
+        .with_workers(2)
+        .execute(plan(&service, 400, 4));
+    let first = runtime.block_on(stream.next());
+    assert!(first.transpose()?.is_some());
+    drop(stream);
+    Ok(())
 }

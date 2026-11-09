@@ -21,7 +21,6 @@ mod sequential;
 
 use std::sync::Arc;
 
-use futures::stream::BoxStream;
 pub use parallel::ParallelDriver;
 pub use sequential::SequentialDriver;
 use vortex_array::ArrayRef;
@@ -66,12 +65,6 @@ pub struct ScopedBatch<A = ArrayRef> {
 /// A mapping a driver applies to each batch on the worker that produced it, such as decoding to
 /// Arrow, so that the work runs in parallel rather than on the task polling the stream.
 pub type MapFn<A> = Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>;
-
-/// Runs a plan to its end, choosing where its independent children run.
-pub trait PlanDriver: Send + Sync {
-    /// Runs `root` and everything it emits, streaming the batches of its morsels.
-    fn execute(&self, root: PlanRoot) -> BoxStream<'static, VortexResult<ScopedBatch>>;
-}
 
 /// Sorts batches into the order of their scopes: by file, then by first row. A morsel's own
 /// batches keep the order it emitted them in.

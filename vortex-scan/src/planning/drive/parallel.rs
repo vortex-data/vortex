@@ -5,6 +5,7 @@ use std::future;
 use std::mem;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -24,7 +25,6 @@ use vortex_io::runtime::Task;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::MapFn;
-use super::PlanDriver;
 use super::PlanRoot;
 use super::ScopedBatch;
 use super::sort_by_scope;
@@ -41,9 +41,11 @@ const DEFAULT_ROOTS_PER_WORKER: usize = 2;
 /// workers as fast as its planners declare independent work. Dependent children stay with their
 /// parent on its worker.
 ///
-/// Workers are spawned with [`Handle::spawn`] as work is queued, up to the limit, so a plan with
-/// little independent work spawns few tasks, and the task polling the stream does no scan work.
-/// Dropping the stream cancels every worker.
+/// Nothing runs until the stream is first polled. Workers are then spawned with
+/// [`Handle::spawn`] as work is queued, up to the limit, so a plan with little independent work
+/// spawns few tasks, and the task polling the stream does no scan work. Dropping the stream
+/// cancels every worker. An error or a panic in any worker stops the others taking more work and
+/// ends the stream with it.
 ///
 /// Batches arrive as workers produce them. With [`ordered`](Self::with_ordered), the driver holds
 /// them until the plan is done and yields them by file and first row.
@@ -85,12 +87,42 @@ impl ParallelDriver {
         self
     }
 
+    /// Runs `root` and everything it emits, streaming the batches of its morsels.
+    pub fn execute(&self, root: PlanRoot) -> BoxStream<'static, VortexResult<ScopedBatch>> {
+        self.execute_with(root, Arc::new(Ok))
+    }
+
     /// Runs `root`, applying `map_fn` to each batch on the worker that produced it.
     pub fn execute_with<A: Send + 'static>(
         &self,
         root: PlanRoot,
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<ScopedBatch<A>>> {
+        let driver = self.clone();
+        let batches = stream::once(async move { driver.start(root, map_fn) }).flatten();
+        if !self.ordered {
+            return batches.boxed();
+        }
+        stream::once(async move {
+            let mut held: Vec<ScopedBatch<A>> = batches.try_collect().await?;
+            sort_by_scope(&mut held);
+            VortexResult::Ok(stream::iter(held.into_iter().map(Ok)))
+        })
+        .try_flatten()
+        .boxed()
+    }
+
+    /// Queues `root`, which spawns the first worker, and returns the workers' batches, in the
+    /// order they are produced.
+    fn start<A: Send + 'static>(
+        self,
+        root: PlanRoot,
+        map_fn: MapFn<A>,
+    ) -> BoxStream<'static, VortexResult<ScopedBatch<A>>> {
+        // Unbounded: a planner that spawns, such as a scan's chunk planner, runs ahead and queues
+        // every independent child at once. Each child is a small planner that has done no IO yet,
+        // and bounding the queue would park the spawning worker, which deadlocks once every
+        // worker holds a spawning root.
         let (queue, take) = async_channel::unbounded();
         let (out, batches) = mpsc::channel(self.workers);
         // Owned by the stream alone: dropping the stream drops the tasks, which cancels them.
@@ -103,6 +135,7 @@ impl ParallelDriver {
             out,
             map_fn,
             tasks: Arc::downgrade(&tasks),
+            stopped: AtomicBool::new(false),
             pending: AtomicUsize::new(0),
             spawned: AtomicUsize::new(0),
             workers: self.workers,
@@ -118,23 +151,7 @@ impl ParallelDriver {
             futures::future::join_all(tasks).await;
         })
         .filter_map(|()| async { None });
-        let batches = batches.chain(joined);
-        if !self.ordered {
-            return batches.boxed();
-        }
-        stream::once(async move {
-            let mut held: Vec<ScopedBatch<A>> = batches.try_collect().await?;
-            sort_by_scope(&mut held);
-            VortexResult::Ok(stream::iter(held.into_iter().map(Ok)))
-        })
-        .try_flatten()
-        .boxed()
-    }
-}
-
-impl PlanDriver for ParallelDriver {
-    fn execute(&self, root: PlanRoot) -> BoxStream<'static, VortexResult<ScopedBatch>> {
-        self.execute_with(root, Arc::new(Ok))
+        batches.chain(joined).boxed()
     }
 }
 
@@ -150,6 +167,9 @@ struct Shared<A> {
     map_fn: MapFn<A>,
     /// The stream's list of worker tasks; gone once the stream is dropped.
     tasks: Weak<Mutex<Vec<Task<()>>>>,
+    /// Set when a worker fails, panics or finds the stream dropped: no worker takes another root.
+    /// Closing the queue alone would still hand out the roots already in it.
+    stopped: AtomicBool,
     /// Roots queued or running anywhere. A root is counted before its parent can finish, so this
     /// reaches zero only once the plan is done.
     pending: AtomicUsize,
@@ -190,6 +210,41 @@ impl<A: Send + 'static> Shared<A> {
             self.queue.close();
         }
     }
+
+    /// Stops every worker taking more roots. Each finishes only what it already runs.
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.queue.close();
+    }
+
+    /// The next queued root, if any and the plan has not stopped.
+    fn try_take(&self) -> Option<PlanRoot> {
+        if self.stopped.load(Ordering::Acquire) {
+            return None;
+        }
+        self.take.try_recv().ok()
+    }
+
+    /// Waits for the next root, or `None` once the plan is done or has stopped.
+    async fn take(&self) -> Option<PlanRoot> {
+        let root = self.take.recv().await.ok()?;
+        (!self.stopped.load(Ordering::Acquire)).then_some(root)
+    }
+}
+
+/// Stops the plan unless disarmed: dropped without disarming, the worker panicked or was
+/// cancelled, and the other workers must not wait for roots that will never finish.
+struct StopOnDrop<A: Send + 'static> {
+    shared: Arc<Shared<A>>,
+    armed: bool,
+}
+
+impl<A: Send + 'static> Drop for StopOnDrop<A> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.shared.stop();
+        }
+    }
 }
 
 struct Worker<A> {
@@ -199,11 +254,16 @@ struct Worker<A> {
 
 impl<A: Send + 'static> Worker<A> {
     async fn run(mut self) {
+        let mut guard = StopOnDrop {
+            shared: Arc::clone(&self.shared),
+            armed: true,
+        };
         if let Err(error) = self.drive().await {
             // Stop every worker, then report the error unless the stream was dropped.
-            self.shared.queue.close();
+            self.shared.stop();
             drop(self.out.send(Err(error)).await);
         }
+        guard.armed = false;
     }
 
     async fn drive(&mut self) -> VortexResult<()> {
@@ -211,19 +271,19 @@ impl<A: Send + 'static> Worker<A> {
         let mut run = Run::new();
         loop {
             while run.live_roots() < shared.roots_per_worker {
-                match shared.take.try_recv() {
-                    Ok(root) => root.admit_to(&mut run),
-                    Err(_) => break,
+                match shared.try_take() {
+                    Some(root) => root.admit_to(&mut run),
+                    None => break,
                 }
             }
             if run.live_roots() == 0 {
-                match shared.take.recv().await {
-                    Ok(root) => {
+                match shared.take().await {
+                    Some(root) => {
                         root.admit_to(&mut run);
                         continue;
                     }
-                    // Closed: the plan is done, or another worker failed.
-                    Err(_) => return Ok(()),
+                    // The plan is done, or another worker stopped it.
+                    None => return Ok(()),
                 }
             }
             match run.advance()? {
@@ -234,7 +294,7 @@ impl<A: Send + 'static> Worker<A> {
                     };
                     if self.out.send(Ok(batch)).await.is_err() {
                         // The stream was dropped.
-                        shared.queue.close();
+                        shared.stop();
                         return Ok(());
                     }
                 }
@@ -245,7 +305,7 @@ impl<A: Send + 'static> Worker<A> {
                 Progress::Idle => {}
                 Progress::Waiting => {
                     if run.live_roots() < shared.roots_per_worker
-                        && let Ok(root) = shared.take.try_recv()
+                        && let Some(root) = shared.try_take()
                     {
                         root.admit_to(&mut run);
                         continue;

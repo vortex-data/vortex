@@ -6,8 +6,9 @@
 //! A V2 scan lowers the file's layout once into a physical plan and runs it through the planning
 //! protocol: a [`PreparedScan`] composes its planners, a [`PrunePlanner`] into a [`ChunkPlanner`]
 //! ([`PreparedScan::planner`]), an engine's driver runs them, and every segment read is a
-//! protocol request served from the file's [`SegmentSource`]. The layout reader is never asked to evaluate anything, and this crate never
-//! decides where compute runs or how IO is awaited: that is the engine's driver.
+//! protocol request served from the file's [`SegmentSource`]. The layout reader is never asked to
+//! evaluate anything, and this crate never decides where compute runs or how IO is awaited: that
+//! is the engine's driver.
 //!
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an

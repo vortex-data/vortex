@@ -10,7 +10,6 @@ use futures::stream::BoxStream;
 use vortex_error::VortexResult;
 
 use super::MapFn;
-use super::PlanDriver;
 use super::PlanRoot;
 use super::ScopedBatch;
 use crate::planning::driver::Progress;
@@ -28,6 +27,11 @@ impl SequentialDriver {
     /// A driver that runs every root on the polling task.
     pub fn new() -> Self {
         Self
+    }
+
+    /// Runs `root` and everything it emits, streaming the batches of its morsels.
+    pub fn execute(&self, root: PlanRoot) -> BoxStream<'static, VortexResult<ScopedBatch>> {
+        self.execute_with(root, Arc::new(Ok))
     }
 
     /// Runs `root`, applying `map_fn` to each batch.
@@ -61,11 +65,5 @@ impl SequentialDriver {
             }
         })
         .boxed()
-    }
-}
-
-impl PlanDriver for SequentialDriver {
-    fn execute(&self, root: PlanRoot) -> BoxStream<'static, VortexResult<ScopedBatch>> {
-        self.execute_with(root, Arc::new(Ok))
     }
 }
