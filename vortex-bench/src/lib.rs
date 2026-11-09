@@ -133,6 +133,7 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// Enables [`UNSTABLE_BENCH`] on [`SESSION`], so it writes lists with the list layout.
 ///
 /// The V2 scan cannot read the list layout yet, so only suites that read through V1 call this.
+/// TPC-H nested is the only such suite.
 fn enable_unstable_bench_edition() {
     SESSION
         .enable_edition(UNSTABLE_BENCH)
@@ -465,7 +466,6 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {
-            enable_unstable_bench_edition();
             let scale_factor = opts.get_as::<u64>(SCALE_FACTOR_KEY).unwrap_or(1);
             let benchmark = StatPopGenBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
@@ -486,7 +486,6 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {
-            enable_unstable_bench_edition();
             let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
             let benchmark = PolarSignalsBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
