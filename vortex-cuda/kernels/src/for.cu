@@ -4,12 +4,15 @@
 #include "scalar_kernel.cuh"
 #include "types.cuh"
 
+#include <type_traits>
+
 #define FL_CHUNK_SIZE 1024 // Chunk size for Blocked FoR algorithm as per fastlanes.
 
 // Frame-of-Reference operation: adds a reference value to each element.
 template <typename T>
 struct ForOp {
     T reference;
+    static constexpr bool uses_index = false;
 
     __device__ inline T operator()(T value) const {
         return value + reference;
@@ -46,18 +49,25 @@ struct BlockedForOp{
         scalar_kernel(input, output, array_len, ForOp<Type> {reference});                                    \
     }
 
-#define GENERATE_BLOCKED_FOR_KERNEL(suffix, Type)
-    extern "C" __global__ void for_##suffix(Type *__restrict values, Type *references, uint64_t array_len) {
-        scalar_kernel_inplace(values, array_len, BlockedForOp<Type> {references, offset});
+#define GENERATE_BLOCKED_FOR_KERNEL(suffix, Type)                                                            \
+    extern "C" __global__ void for_blocked_##suffix(Type *__restrict values, Type *references,               \
+        uint64_t offset,  uint64_t array_len) {                                                              \
+        scalar_kernel_inplace(values, array_len, BlockedForOp<Type> {references, offset});                   \
     }
 
-#define GENERATE_FOR_KERNEL(suffix, Type)                                                                    \
-    extern "C" __global__ void for_##suffix(Type *__restrict values, Type reference, uint64_t array_len) {   \
-        scalar_kernel_inplace(values, array_len, BlockedForOp<Type> {reference, offset});                                   \
+#define GENERATE_BLOCKED_FOR_IN_OUT_KERNEL(suffix, Type)                                                     \
+    extern "C" __global__ void for_blocked_in_out_##suffix(const Type *__restrict input,                             \
+                                                   Type *__restrict output,                                  \
+                                                   Type *references,                                         \
+                                                   uint64_t offset,                                          \
+                                                   uint64_t array_len) {                                     \
+        scalar_kernel(input, output, array_len, BlockedForOp<Type> {references, offset});                    \
     }
 
 // In-place variants (modifies input buffer) - FoR is only used for integers
 FOR_EACH_INTEGER(GENERATE_FOR_KERNEL)
+FOR_EACH_INTEGER(GENERATE_BLOCKED_FOR_KERNEL)
 
 // Separate input/output variants (preserves input buffer)
 FOR_EACH_INTEGER(GENERATE_FOR_IN_OUT_KERNEL)
+FOR_EACH_INTEGER(GENERATE_BLOCKED_FOR_IN_OUT_KERNEL)
