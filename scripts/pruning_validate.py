@@ -21,6 +21,7 @@ parser.add_argument("--baseline", required=True, type=Path)
 parser.add_argument("--candidate", required=True, type=Path)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--local", action="store_true")
+parser.add_argument("--regression-only", action="store_true")
 args = parser.parse_args()
 out = args.output.resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -39,6 +40,8 @@ if not args.local:
         ("tpch-sf10-focus", "tpch", 10, "6,7", 20),
         *cases,
     ]
+if args.regression_only:
+    cases = [("tpcds-regression-confirm", "tpcds", 1, "3,20,43,59,65,69", 30)]
 rng = random.Random(11348)
 orders = {}
 for name, *_ in cases:

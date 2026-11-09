@@ -18,6 +18,13 @@ on:
         description: "Reuse paired binaries from this run, or leave empty to build"
         required: false
         default: ""
+      target:
+        description: "Full comparison or focused regression confirmation"
+        type: choice
+        default: "full"
+        options:
+          - "full"
+          - "regressions"
 
 permissions:
   actions: read
@@ -101,6 +108,7 @@ jobs:
         env:
           BASELINE: ${{ inputs.baseline }}
           CANDIDATE: ${{ inputs.candidate }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -Eeuo pipefail
           printf '%s\n%s\n' "$BASELINE" "$CANDIDATE" | cmp - paired-binaries/revisions.txt
@@ -108,15 +116,21 @@ jobs:
           chmod +x paired-binaries/baseline paired-binaries/candidate paired-binaries/data-gen
           mkdir -p target/release_debug
           cp paired-binaries/data-gen target/release_debug/data-gen
-          for suite in tpch tpcds clickbench; do
-            uv run --project bench-orchestrator vx-bench prepare-data "$suite" --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=1.0
-          done
-          uv run --project bench-orchestrator vx-bench prepare-data polarsignals --formats-json '["vortex"]' --opt scale-factor=1
-          uv run --project bench-orchestrator vx-bench prepare-data tpch --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=10.0
+          if [ "$TARGET" = regressions ]; then
+            uv run --project bench-orchestrator vx-bench prepare-data tpcds --formats-json '["vortex"]' --opt scale-factor=1.0
+          else
+            for suite in tpch tpcds clickbench; do
+              uv run --project bench-orchestrator vx-bench prepare-data "$suite" --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=1.0
+            done
+            uv run --project bench-orchestrator vx-bench prepare-data polarsignals --formats-json '["vortex"]' --opt scale-factor=1
+            uv run --project bench-orchestrator vx-bench prepare-data tpch --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=10.0
+          fi
       - name: Prepare benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Run balanced comparisons
-        run: bash scripts/bench-taskset.sh python3 scripts/pruning_validate.py --baseline paired-binaries/baseline --candidate paired-binaries/candidate --output paired-results
+        env:
+          EXTRA_ARGS: ${{ inputs.target == 'regressions' && '--regression-only' || '' }}
+        run: bash scripts/bench-taskset.sh python3 scripts/pruning_validate.py --baseline paired-binaries/baseline --candidate paired-binaries/candidate --output paired-results $EXTRA_ARGS
       - name: Publish summary
         run: |
           cat paired-results/summary.csv
