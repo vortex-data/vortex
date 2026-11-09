@@ -1347,3 +1347,56 @@ async fn pushed_filter_scales_scan_statistics(
     assert_eq!(statistics.column_statistics.len(), 1);
     Ok(())
 }
+
+/// Scans report the in-memory size of the columns they read, including variable-width ones.
+#[rstest]
+#[case::fixed_width("id", Some(Precision::Exact(8_000)))]
+#[case::variable_width("s", None)]
+#[case::mixed("id, s", None)]
+#[tokio::test]
+async fn scan_reports_projected_byte_size(
+    #[case] projection: &str,
+    #[case] fixed_width_total: Option<Precision<usize>>,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+    let batch = arrow_array::record_batch!(
+        ("id", Int64, (0..1_000).collect::<Vec<i64>>()),
+        (
+            "s",
+            Utf8,
+            (0..1_000)
+                .map(|i| format!("value-{i:>20}"))
+                .collect::<Vec<_>>()
+        ),
+        (
+            "unread",
+            Utf8,
+            (0..1_000).map(|i| format!("{i:>100}")).collect::<Vec<_>>()
+        )
+    )?;
+    ctx.write_arrow_batch("sized.vortex", &batch).await?;
+    let table = ctx
+        .table_provider("t", "/sized.vortex", batch.schema().as_ref().clone())
+        .await?;
+    ctx.session.register_table("t", table)?;
+
+    let plan = ctx
+        .session
+        .sql(&format!("SELECT {projection} FROM t"))
+        .await?
+        .create_physical_plan()
+        .await?;
+    let statistics = scan_statistics(&plan)?;
+    let column_sizes = statistics
+        .column_statistics
+        .iter()
+        .map(|column| match column.byte_size {
+            Precision::Inexact(size) if size > 0 => Ok(size),
+            other => Err(anyhow!("expected an inexact byte size, got {other:?}")),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let expected_total =
+        fixed_width_total.unwrap_or_else(|| Precision::Inexact(column_sizes.iter().sum()));
+    assert_eq!(statistics.total_byte_size, expected_total);
+    Ok(())
+}

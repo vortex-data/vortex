@@ -77,8 +77,10 @@ use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
+use crate::convert::stats::byte_size_to_df;
 use crate::convert::stats::constant_distinct_count;
 use crate::convert::stats::is_nan_free;
+use crate::convert::stats::sum_byte_sizes;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -664,15 +666,15 @@ impl FileFormat for VortexFormat {
                 }
             };
 
+            let num_rows = usize::try_from(row_count)
+                .map_err(|_| vortex_err!("Row count overflow"))
+                .vortex_expect("Row count overflow");
+
             // Evaluate the statistics for each column that we are able to return to DataFusion.
             let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
                 return Ok(Statistics {
-                    num_rows: DFPrecision::Exact(
-                        usize::try_from(row_count)
-                            .map_err(|_| vortex_err!("Row count overflow"))
-                            .vortex_expect("Row count overflow"),
-                    ),
+                    num_rows: DFPrecision::Exact(num_rows),
                     total_byte_size: DFPrecision::Absent,
                     column_statistics: vec![
                         ColumnStatistics::default();
@@ -727,18 +729,13 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count,
-                    // See `stats_set_to_df` for why the uncompressed size is not reported.
-                    byte_size: DFPrecision::Absent,
+                    byte_size: byte_size_to_df(stats_set, field.data_type(), num_rows),
                 })
             }
 
             Ok(Statistics {
-                num_rows: DFPrecision::Exact(
-                    usize::try_from(row_count)
-                        .map_err(|_| vortex_err!("Row count overflow"))
-                        .vortex_expect("Row count overflow"),
-                ),
-                total_byte_size: DFPrecision::Absent,
+                num_rows: DFPrecision::Exact(num_rows),
+                total_byte_size: sum_byte_sizes(column_statistics.iter()),
                 column_statistics,
             })
         })
@@ -760,8 +757,25 @@ impl FileFormat for VortexFormat {
         source = source
             .with_file_metadata_cache(state.runtime_env().cache_manager.get_file_metadata_cache());
 
+        // DataFusion's `project_statistics` keeps the table's `total_byte_size` for any projection
+        // with a variable-width column, so narrow it to the columns this scan reads.
+        let mut statistics = file_scan_config.statistics();
+        if let Some(projected_columns) = source.projection().and_then(|projection| {
+            projection
+                .column_indices()
+                .into_iter()
+                .map(|index| statistics.column_statistics.get(index))
+                .collect::<Option<Vec<_>>>()
+        }) {
+            let projected_byte_size = sum_byte_sizes(projected_columns);
+            if projected_byte_size != DFPrecision::Absent {
+                statistics.total_byte_size = projected_byte_size;
+            }
+        }
+
         let conf = FileScanConfigBuilder::from(file_scan_config)
             .with_source(Arc::new(source))
+            .with_statistics(statistics)
             .build();
 
         Ok(DataSourceExec::from_data_source(VortexScanConfig::new(

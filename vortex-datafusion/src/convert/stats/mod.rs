@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_schema::DataType;
 use datafusion_common::ColumnStatistics;
 use datafusion_common::ScalarValue;
 use datafusion_common::stats::Precision;
@@ -19,11 +20,8 @@ use crate::convert::TryToDataFusion;
 
 /// Convert a stats set for an array with the given dtype.
 ///
-/// The uncompressed size is left out of `byte_size`. DataFusion's join selection picks
-/// `CollectLeft` below `hash_join_single_partition_threshold` (1 MiB) when a byte size is known
-/// and below `hash_join_single_partition_threshold_rows` (128 Ki rows) otherwise, so known sizes
-/// turn small build sides into partitioned joins. DataFusion's `project_statistics` also keeps
-/// the whole table's size for any projection with a variable-width column.
+/// `byte_size` is the uncompressed size recorded by Vortex, which is an estimate of the size
+/// DataFusion's join selection, `with_fetch` and filter estimates compare and scale.
 pub(crate) fn stats_set_to_df(
     stats_set: &StatsSet,
     dtype: &DType,
@@ -42,8 +40,50 @@ pub(crate) fn stats_set_to_df(
         max_value,
         sum_value: scalar_stat_to_df(stats_set, Stat::Sum, dtype).to_df(),
         distinct_count,
-        byte_size: Precision::Absent,
+        byte_size: uncompressed_size_to_df(stats_set),
     })
+}
+
+/// The in-memory size of a column of `num_rows` values of `data_type`, as DataFusion estimates
+/// it: the value width times the row count for fixed-width types, otherwise the uncompressed
+/// size recorded in `stats_set`.
+///
+/// Both are reported inexact. DataFusion's join selection uses `total_byte_size` instead of the
+/// row count whenever it is known: a build side is collected into one partition only below
+/// `hash_join_single_partition_threshold` (1 MiB in DataFusion 55, 4 MiB later), and
+/// `hash_join_single_partition_threshold_rows` (128 Ki rows) is no longer consulted. A narrow
+/// build side with many rows therefore stays partitioned, while one with few wide rows is no
+/// longer collected. Vortex's uncompressed size counts its own canonical layout (for example
+/// 16-byte string views), so it can overestimate the Arrow size of short strings.
+pub(crate) fn byte_size_to_df(
+    stats_set: &StatsSet,
+    data_type: &DataType,
+    num_rows: usize,
+) -> Precision<usize> {
+    match data_type.primitive_width() {
+        Some(width) => num_rows
+            .checked_mul(width)
+            .map_or(Precision::Absent, Precision::Inexact),
+        None => uncompressed_size_to_df(stats_set),
+    }
+}
+
+/// The total of the column byte sizes, or `Absent` if any column's size is unknown.
+pub(crate) fn sum_byte_sizes<'a>(
+    columns: impl IntoIterator<Item = &'a ColumnStatistics>,
+) -> Precision<usize> {
+    columns
+        .into_iter()
+        .fold(Precision::Exact(0), |total, column| {
+            total.add(&column.byte_size)
+        })
+}
+
+fn uncompressed_size_to_df(stats_set: &StatsSet) -> Precision<usize> {
+    stats_set
+        .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
+        .to_df()
+        .to_inexact()
 }
 
 /// Read one NaN-skipping statistic (min, max or sum) and convert it to DataFusion, or `Absent` if it
