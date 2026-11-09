@@ -241,6 +241,7 @@ impl FilePruningCache {
 }
 
 pub(super) enum FilePruner {
+    Static(bool),
     Shared(SharedFilePruner),
     DataFusion(datafusion_pruning::FilePruner),
 }
@@ -253,6 +254,12 @@ impl FilePruner {
         errors: Count,
         cache: Option<Arc<FilePruningCache>>,
     ) -> Option<Self> {
+        if let Some(pruned) = cache
+            .as_ref()
+            .and_then(|cache| cache.should_prune(&predicate, schema, file, &errors))
+        {
+            return Some(Self::Static(pruned));
+        }
         let cache = cache.filter(|cache| cache.kind(&predicate) != CacheKind::Uncached);
         let Some(cache) = cache else {
             return datafusion_pruning::FilePruner::try_new(predicate, schema, file, errors)
@@ -276,6 +283,7 @@ impl FilePruner {
 
     pub(super) fn is_watching(&self) -> bool {
         match self {
+            Self::Static(_) => false,
             Self::Shared(pruner) => matches!(pruner.tracking, DynamicFilterTracking::Watching(_)),
             Self::DataFusion(pruner) => pruner.is_watching(),
         }
@@ -283,6 +291,7 @@ impl FilePruner {
 
     pub(super) fn should_prune(&mut self) -> DFResult<bool> {
         match self {
+            Self::Static(pruned) => Ok(std::mem::take(pruned)),
             Self::Shared(pruner) => Ok(pruner.should_prune()),
             Self::DataFusion(pruner) => pruner.should_prune(),
         }
@@ -290,6 +299,7 @@ impl FilePruner {
 
     pub(super) async fn should_prune_initial(&mut self) -> DFResult<bool> {
         match self {
+            Self::Static(pruned) => Ok(std::mem::take(pruned)),
             Self::Shared(pruner) => Ok(pruner.should_prune_initial().await),
             Self::DataFusion(pruner) => pruner.should_prune(),
         }
