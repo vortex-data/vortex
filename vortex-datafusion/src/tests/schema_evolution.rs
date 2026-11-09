@@ -25,14 +25,30 @@ use datafusion_expr::lit;
 use datafusion_functions::expr_fn::get_field;
 use rstest::rstest;
 
+use crate::VortexFormatFactory;
+use crate::VortexTableOptions;
 use crate::common_tests::TestSessionContext;
 
 #[rstest]
 #[tokio::test]
 async fn test_filter_with_schema_evolution(
     #[values(false, true)] projection_pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
-    let ctx = TestSessionContext::new(projection_pushdown);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(VortexTableOptions {
+            projection_pushdown,
+            scan_v2,
+            ..Default::default()
+        }),
+    ));
+    ctx.session
+        .state_ref()
+        .write()
+        .config_mut()
+        .options_mut()
+        .optimizer
+        .repartition_file_min_size = 0;
 
     // file1 only contains field "a"
     ctx.write_arrow_batch(
@@ -88,8 +104,22 @@ async fn test_filter_with_schema_evolution(
 #[tokio::test]
 async fn test_filter_schema_evolution_order(
     #[values(false, true)] projection_pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
-    let ctx = TestSessionContext::new(projection_pushdown);
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(VortexTableOptions {
+            projection_pushdown,
+            scan_v2,
+            ..Default::default()
+        }),
+    ));
+    ctx.session
+        .state_ref()
+        .write()
+        .config_mut()
+        .options_mut()
+        .optimizer
+        .repartition_file_min_size = 0;
 
     // file1 only contains field "a"
     ctx.write_arrow_batch(
