@@ -29,6 +29,8 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::layout::DynLayout;
 use vortex::layout::LayoutChildType;
+use vortex::editions::EditionSessionExt;
+use vortex::editions::UNSTABLE;
 use vortex_bench::SESSION;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
 
@@ -42,7 +44,7 @@ fn walk_layout(
     let mine: u64 = l
         .segment_ids()
         .iter()
-        .map(|s| segs[*s as usize].length as u64)
+        .map(|s| segs[**s as usize].length as u64)
         .sum();
     if mine > 0 {
         *out.entry(format!("{cat}|{enc}")).or_default() += mine;
@@ -59,7 +61,12 @@ fn walk_layout(
     Ok(())
 }
 
-fn walk_array(a: &ArrayRef, path: &str, out: &mut BTreeMap<String, u64>) {
+fn walk_array(
+    a: &ArrayRef,
+    path: &str,
+    seen: &mut std::collections::HashSet<(usize, usize)>,
+    out: &mut BTreeMap<String, u64>,
+) {
     let enc = a.encoding_id().to_string();
     let enc = enc.trim_start_matches("vortex.").to_string();
     let p = if enc == "chunked" {
@@ -69,7 +76,12 @@ fn walk_array(a: &ArrayRef, path: &str, out: &mut BTreeMap<String, u64>) {
     } else {
         format!("{path}>{enc}")
     };
-    let own: u64 = a.buffers().iter().map(|b| b.len() as u64).sum();
+    let own: u64 = a
+        .buffers()
+        .iter()
+        .filter(|b| seen.insert((b.as_ptr() as usize, b.len())))
+        .map(|b| b.len() as u64)
+        .sum();
     if own > 0 {
         *out.entry(p.clone()).or_default() += own;
     }
@@ -79,7 +91,7 @@ fn walk_array(a: &ArrayRef, path: &str, out: &mut BTreeMap<String, u64>) {
         } else {
             format!("{p}[{name}]")
         };
-        walk_array(&child, &cp, out);
+        walk_array(&child, &cp, seen, out);
     }
 }
 
@@ -125,8 +137,9 @@ async fn vortex_columns(
                 .with_projection(proj)
                 .into_array_stream()?
                 .boxed();
+            let mut seen = std::collections::HashSet::new();
             while let Some(a) = stream.next().await {
-                walk_array(&a?, "", &mut arr);
+                walk_array(&a?, "", &mut seen, &mut arr);
             }
         }
         cols.insert(name.to_string(), json!({"layout": m, "arrays": arr}));
@@ -136,6 +149,9 @@ async fn vortex_columns(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::var_os("VX_UNSTABLE").is_some() {
+        SESSION.enable_edition(UNSTABLE)?;
+    }
     let path = PathBuf::from(std::env::args().nth(1).expect("parquet path"));
     let encodings = std::env::args().nth(2).as_deref() != Some("noenc");
 
@@ -189,7 +205,7 @@ async fn main() -> anyhow::Result<()> {
     let compact = write_vortex(chunks.clone(), true).await?;
     drop(chunks);
     let (d_total, d_cols) = vortex_columns(default, encodings).await?;
-    let (c_total, c_cols) = vortex_columns(compact, false).await?;
+    let (c_total, c_cols) = vortex_columns(compact, encodings).await?;
 
     let out = json!({
         "file": path.display().to_string(),
