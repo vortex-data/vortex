@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sorted searches over compressed children: reads of a Sparse array whose patch indices are
-//! BitPacked, through one-off and repeated probes, and slices of those patches and of a RunEnd
-//! array whose ends are BitPacked. Each read or slice binary searches the compressed child, so
+//! Sorted searches over compressed children: reads, through one-off and repeated probes, of a
+//! Sparse array whose patch indices are BitPacked and of a RunEnd array whose ends are BitPacked,
+//! and slices of those patches and of that RunEnd array. Each read or slice binary searches the compressed child, so
 //! these measure how much of the child's preparation is shared across searches.
 
 use std::ops::Range;
@@ -132,6 +132,32 @@ fn sparse_read_once(bencher: Bencher) {
 #[divan::bench]
 fn sparse_read_repeated(bencher: Bencher) {
     let array = sparse().into_array();
+    let rows = positions(ACCESSES, LEN);
+    bencher
+        .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
+        .bench_refs(|(ctx, probe)| {
+            for &row in &rows {
+                divan::black_box(probe.execute_scalar(row, ctx).vortex_expect("read"));
+            }
+        });
+}
+
+#[divan::bench]
+fn run_end_read_once(bencher: Bencher) {
+    let array = run_end();
+    let rows = positions(ACCESSES, LEN);
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            for &row in &rows {
+                divan::black_box(array.execute_scalar(row, ctx).vortex_expect("read"));
+            }
+        });
+}
+
+#[divan::bench]
+fn run_end_read_repeated(bencher: Bencher) {
+    let array = run_end();
     let rows = positions(ACCESSES, LEN);
     bencher
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))

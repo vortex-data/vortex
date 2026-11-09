@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
@@ -10,6 +8,7 @@ use std::ops::Range;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
@@ -27,6 +26,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayProbe;
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::EncodingProbeState;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProbeState;
@@ -44,11 +44,11 @@ use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::search_sorted::IndexOrd;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
+use crate::search_sorted::decode_sorted_positions;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 
@@ -139,6 +139,37 @@ impl PatchesMetadata {
 pub struct PatchesData {
     offset: usize,
     offset_within_chunk: Option<usize>,
+}
+
+/// What a repeated probe keeps for the patches of the array it reads: the patch indices,
+/// decoded on its first read so that later reads binary search a plain buffer.
+///
+/// Encodings with patches use it as, or inside, their
+/// [`OperationsVTable::ProbeState`](crate::vtable::OperationsVTable::ProbeState) and read
+/// through [`Patches::probe_patched`].
+#[derive(Debug, Default)]
+pub struct PatchesProbeState {
+    indices: Option<Buffer<u64>>,
+}
+
+impl PatchesProbeState {
+    /// The decoded patch indices, decoding `indices` on the first call.
+    fn indices(
+        &mut self,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<&Buffer<u64>> {
+        if self.indices.is_none() {
+            self.indices = Some(decode_sorted_positions(indices, ctx)?);
+        }
+        Ok(self.indices.as_ref().vortex_expect("decoded above"))
+    }
+}
+
+impl AsMut<PatchesProbeState> for PatchesProbeState {
+    fn as_mut(&mut self) -> &mut PatchesProbeState {
+        self
+    }
 }
 
 /// Slot indices for the three patch components within a slot array.
@@ -639,72 +670,37 @@ impl Patches {
     /// Get the patched value at `index` of the array `state` reads, as [`Self::get_patched`]
     /// does.
     ///
-    /// `self` must be the patches held in the `slots` of that array. The patch children are
-    /// read through `state`, so a [`RepeatedArrayProbe`](crate::RepeatedArrayProbe) keeps their
-    /// probes across reads instead of building a searcher per read. A one-off read takes the
-    /// [`Self::get_patched`] path.
+    /// `self` must be the patches held in the `slots` of that array. A repeated probe decodes the
+    /// patch indices into its [`PatchesProbeState`] on its first read, so every later read binary
+    /// searches a plain buffer and reads the value through the probe's values slot. A one-off
+    /// read takes the [`Self::get_patched`] path, which does not decode the whole index array.
     pub fn probe_patched<V: VTable>(
         &self,
         state: &mut ProbeState<'_, V>,
         slots: PatchSlotIndices,
         index: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Scalar>> {
-        // A one-off read keeps nothing between reads, so reading the children through `state`
-        // would build a probe per comparison. `get_patched` shares one probe across the search.
-        if state.retained().is_none() {
+    ) -> VortexResult<Option<Scalar>>
+    where
+        EncodingProbeState<V>: AsMut<PatchesProbeState>,
+    {
+        let (retained, mut children) = state.split();
+        let Some(retained) = retained else {
             return self.get_patched(index, ctx);
-        }
-
-        let range = if self.chunk_offsets.is_some() {
-            let mut chunk_offsets = state
-                .slot(slots.chunk_offsets)?
-                .ok_or_else(|| vortex_err!("patch chunk offsets slot is missing"))?;
-            match self.chunk_patch_range(&mut chunk_offsets, index, ctx)? {
-                Some(range) => range,
-                None => return Ok(None),
-            }
-        } else {
-            0..self.indices.len()
         };
+        let indices = retained.as_mut().indices(&self.indices, ctx)?;
 
-        let needle = index + self.offset;
-        let found = if let Some(primitive) = self.indices.as_opt::<Primitive>() {
-            match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-                // A needle that does not fit the index type is larger than every patch index.
-                let Ok(needle) = T::try_from(needle) else {
-                    return Ok(None);
-                };
-                primitive
-                    .as_slice::<T>()
-                    .get(range.clone())
-                    .ok_or_else(|| {
-                        vortex_err!(
-                            "patch range {range:?} out of bounds for {} indices",
-                            primitive.len()
-                        )
-                    })?
-                    .search_sorted(&needle, SearchSortedSide::Left)?
-            })
-        } else {
-            let indices = state
-                .slot(slots.indices)?
-                .ok_or_else(|| vortex_err!("patch indices slot is missing"))?;
-            ProbedIndices {
-                probe: RefCell::new(indices),
-                ctx: RefCell::new(&mut *ctx),
-                range: range.clone(),
-            }
-            .search_sorted(&needle, SearchSortedSide::Left)?
-        };
-
-        let Some(found) = found.to_found() else {
+        // A needle past `u64` is past every patch index.
+        let Ok(needle) = u64::try_from(index + self.offset) else {
             return Ok(None);
         };
-        state
+        let Ok(position) = indices.binary_search(&needle) else {
+            return Ok(None);
+        };
+        children
             .slot(slots.values)?
             .ok_or_else(|| vortex_err!("patch values slot is missing"))?
-            .execute_scalar(range.start + found, ctx)
+            .execute_scalar(position, ctx)
             .map(Some)
     }
 
@@ -1169,31 +1165,6 @@ impl Patches {
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
         })
-    }
-}
-
-/// A [`SearchSorted`] adapter over the patch indices in `range`, read through a probe.
-struct ProbedIndices<'p, 'c> {
-    probe: RefCell<ArrayProbe<'p>>,
-    ctx: RefCell<&'c mut ExecutionCtx>,
-    range: Range<usize>,
-}
-
-impl IndexOrd<usize> for ProbedIndices<'_, '_> {
-    /// The probe and the context are separate cells, so the two borrows never overlap.
-    fn index_cmp(&self, idx: usize, elem: &usize) -> VortexResult<Option<Ordering>> {
-        let value = self
-            .probe
-            .borrow_mut()
-            .execute_scalar(self.range.start + idx, &mut self.ctx.borrow_mut())?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("patch index does not fit in usize"))?;
-        Ok(Some(value.cmp(elem)))
-    }
-
-    fn index_len(&self) -> usize {
-        self.range.len()
     }
 }
 
