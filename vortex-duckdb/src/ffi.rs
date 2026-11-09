@@ -235,15 +235,24 @@ pub unsafe extern "C-unwind" fn duckdb_reader_bind(
 pub unsafe extern "C-unwind" fn duckdb_reader_open(
     file_path: *const c_char,
     file_path_len: usize,
+    global: *const c_void,
     error: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     let path = unsafe { std::slice::from_raw_parts(file_path.cast::<u8>(), file_path_len) };
 
     try_or_null(error, || {
         let path = str::from_utf8(path).map_err(|_| vortex_err!("invalid utf-8"))?;
-        let file = reader_open(path)?;
+        let global = unsafe { global.cast::<GlobalState>().as_ref() };
+        let predicate = global.and_then(|global| global.file_pruning_predicate.as_ref());
+        let file = reader_open(path, predicate)?;
         Ok(Data::from(Box::new(file)).as_ptr())
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_reader_is_pruned(file: *const c_void) -> bool {
+    let file = unsafe { file.cast::<OpenFileReader>().as_ref() }.vortex_expect("null pointer");
+    file.is_pruned()
 }
 
 #[unsafe(no_mangle)]
@@ -264,7 +273,7 @@ pub unsafe extern "C-unwind" fn duckdb_reader_get_statistics(
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };
-    stats_out.row_count = file.reader().row_count();
+    stats_out.row_count = file.row_count();
     stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max_string_length = stats.max_string_length;
