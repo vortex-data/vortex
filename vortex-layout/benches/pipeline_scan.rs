@@ -9,6 +9,8 @@ use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use futures::executor::block_on;
+use futures::future::join_all;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
@@ -21,9 +23,11 @@ use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
+use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_layout::plan::physical::PackPlan;
 use vortex_layout::plan::physical::PlanRef;
 use vortex_layout::plan::physical::SegmentScanPlan;
+use vortex_layout::plan::physical::optimize;
 use vortex_layout::plan::physical::pipeline::Scan;
 use vortex_layout::plan::physical::pipeline::Split;
 use vortex_layout::plan::physical::pipeline::Turn;
@@ -137,4 +141,30 @@ fn scan(bencher: Bencher, columns: u32) {
             }
         }
     });
+}
+
+#[divan::bench(threads = [1, 4, 16])]
+fn spawn_scan_tasks(bencher: Bencher) {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(16)
+        .build()
+        .unwrap();
+    let handle = TokioRuntime::current();
+    bencher.bench(|| {
+        let _guard = runtime.enter();
+        let nested = handle.clone();
+        black_box(block_on(handle.spawn(async move {
+            let tasks = (0..16).map(|_| nested.spawn_cpu(|| black_box(42)));
+            join_all(tasks).await
+        })))
+    });
+}
+
+/// An unchanged plan should not clone and drop every shared child slot while traversing it.
+#[divan::bench(args = [100, 1000], threads = [1, 4, 16])]
+fn optimize_shared_unchanged(bencher: Bencher, columns: u32) {
+    let fixture = Fixture::new(columns);
+    let optimized = optimize(fixture.plan.clone(), &fixture.session).unwrap();
+    assert!(PlanRef::ptr_eq(&fixture.plan, &optimized));
+    bencher.bench(|| black_box(optimize(fixture.plan.clone(), &fixture.session).unwrap()));
 }

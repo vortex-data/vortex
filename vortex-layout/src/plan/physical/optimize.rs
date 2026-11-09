@@ -30,43 +30,47 @@ fn reduce(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRe
 
 /// Optimizes `plan`, preserving its dtype and row domain.
 pub fn optimize(plan: PlanRef, session: &VortexSession) -> VortexResult<PlanRef> {
+    Ok(optimize_borrowed(&plan, session)?.unwrap_or(plan))
+}
+
+/// Returns a replacement only when the plan changes, without cloning unchanged child plans.
+fn optimize_borrowed(plan: &PlanRef, session: &VortexSession) -> VortexResult<Option<PlanRef>> {
     // Concat has no local rewrites. Optimizing its independent chunks eagerly traverses the
     // entire file even when a partition only scans a small row range.
     if let Some(concat) = plan.as_opt::<Concat>() {
         let session = session.clone();
-        return Ok(concat
-            .map_chunks(plan.dtype().clone(), move |chunk| optimize(chunk, &session))
-            .into_plan());
+        return Ok(Some(
+            concat
+                .map_chunks(plan.dtype().clone(), move |chunk| optimize(chunk, &session))
+                .into_plan(),
+        ));
     }
-    if let Some(rewritten) = reduce(&plan, session)? {
-        return optimize(rewritten, session);
+    if let Some(rewritten) = reduce(plan, session)? {
+        return optimize(rewritten, session).map(Some);
     }
 
-    // Absent slots stay absent, and unchanged slots keep their shared lazy slot.
-    let mut changed = false;
-    let slots = plan
-        .slots()
-        .iter()
-        .map(|slot| {
-            let Some(lazy) = slot else {
-                return Ok(None);
-            };
-            let child = lazy.get()?;
-            let optimized = optimize(child.clone(), session)?;
-            if PlanRef::ptr_eq(child, &optimized) {
-                return Ok(Some(lazy.clone()));
-            }
-            changed = true;
-            Ok(Some(LazyPlanRef::ready(optimized)))
-        })
-        .collect::<VortexResult<PlanSlots>>()?;
-    if !changed {
-        return Ok(plan);
+    // Rebuilding unchanged slots would clone and drop shared references on every traversal.
+    let mut slots: Option<PlanSlots> = None;
+    for (index, slot) in plan.slots().iter().enumerate() {
+        if let Some(lazy) = slot
+            && let Some(optimized) = optimize_borrowed(lazy.get()?, session)?
+        {
+            slots
+                .get_or_insert_with(|| plan.slots().iter().take(index).cloned().collect())
+                .push(Some(LazyPlanRef::ready(optimized)));
+            continue;
+        }
+        if let Some(slots) = &mut slots {
+            slots.push(slot.clone());
+        }
     }
+    let Some(slots) = slots else {
+        return Ok(None);
+    };
 
     let plan = plan.with_slots(slots)?;
     if let Some(rewritten) = reduce(&plan, session)? {
-        return optimize(rewritten, session);
+        return optimize(rewritten, session).map(Some);
     }
-    Ok(plan)
+    Ok(Some(plan))
 }

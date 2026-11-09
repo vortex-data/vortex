@@ -11823,6 +11823,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "object_store 0.13.2",
+ "parking_lot",
  "rstest",
  "tempfile",
  "tokio",
@@ -12473,6 +12474,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "lasso",
+ "mimalloc",
  "parking_lot",
  "vortex-error",
  "vortex-utils",
