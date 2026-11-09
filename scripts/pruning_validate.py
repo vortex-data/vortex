@@ -90,7 +90,8 @@ def run(case: tuple[str, str, int | None, str | None, int], label: str, key: str
         str(output),
     ]
     if scale is not None:
-        command += ["--opt", f"scale-factor={float(scale)}"]
+        scale_option = str(scale) if suite == "polarsignals" else str(float(scale))
+        command += ["--opt", f"scale-factor={scale_option}"]
     if queries:
         command += ["--queries", queries]
     if args.local and suite == "clickbench":

@@ -14,8 +14,13 @@ on:
         description: "Pruning-only revision"
         required: true
         default: "e44b5babd234f1318dadac6ff2d7a2f81e08d73a"
+      binaries_run:
+        description: "Reuse paired binaries from this run, or leave empty to build"
+        required: false
+        default: ""
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -24,6 +29,7 @@ env:
 
 jobs:
   build:
+    if: inputs.binaries_run == ''
     runs-on: ${{ format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=pruning-paired-build/extras=s3-cache', github.run_id) }}
     timeout-minutes: 60
     steps:
@@ -63,6 +69,7 @@ jobs:
 
   benchmark:
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ${{ format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag=pruning-paired/extras=s3-cache', github.run_id) }}
     timeout-minutes: 90
     steps:
@@ -83,20 +90,28 @@ jobs:
         with:
           name: paired-pruning-binaries
           path: paired-binaries/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.binaries_run || github.run_id }}
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
           role-duration-seconds: 7200
       - name: Prepare shared datasets
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CANDIDATE: ${{ inputs.candidate }}
         run: |
           set -Eeuo pipefail
+          printf '%s\n%s\n' "$BASELINE" "$CANDIDATE" | cmp - paired-binaries/revisions.txt
+          sha256sum -c paired-binaries/sha256.txt
           chmod +x paired-binaries/baseline paired-binaries/candidate paired-binaries/data-gen
           mkdir -p target/release_debug
           cp paired-binaries/data-gen target/release_debug/data-gen
-          for suite in tpch tpcds clickbench polarsignals; do
+          for suite in tpch tpcds clickbench; do
             uv run --project bench-orchestrator vx-bench prepare-data "$suite" --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=1.0
           done
+          uv run --project bench-orchestrator vx-bench prepare-data polarsignals --formats-json '["vortex"]' --opt scale-factor=1
           uv run --project bench-orchestrator vx-bench prepare-data tpch --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=10.0
       - name: Prepare benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
