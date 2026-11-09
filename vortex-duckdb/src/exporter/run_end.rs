@@ -168,6 +168,36 @@ mod tests {
         Ok(())
     }
 
+    #[rstest::rstest]
+    #[case::one_run(1..3, "CONSTANT INTEGER: 2 = [ 10]")]
+    #[case::two_runs(2..6, "DICTIONARY INTEGER: 4 = [ 10, 20, 20, 20]")]
+    fn sliced_run_end_exports_without_flattening(
+        #[case] range: std::ops::Range<usize>,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = RunEnd::encode(
+            buffer![10i32, 10, 10, 20, 20, 20, 20].into_array(),
+            &mut ctx,
+        )?
+        .into_array()
+        .slice(range.clone())?;
+
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
+        new_array_exporter(array, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            range.len(),
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(range.len());
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            format!("Chunk - [1 Columns]\n- {expected}\n")
+        );
+        Ok(())
+    }
+
     #[test]
     fn run_end_with_chunked_values_exports_across_value_chunks() -> VortexResult<()> {
         let values0 = PrimitiveArray::from_iter([10i32]).into_array();
