@@ -12474,7 +12474,6 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "lasso",
- "mimalloc",
  "parking_lot",
  "vortex-error",
  "vortex-utils",

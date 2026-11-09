@@ -250,10 +250,9 @@ impl SessionExt for VortexSession {
     }
 
     fn get<V: VortexSessionVar + Default>(&self) -> SessionGuard<'_, V> {
-        if let Some(value) = self.get_opt::<V>() {
-            return value;
+        if self.get_opt::<V>().is_none() {
+            self.insert_default::<V>();
         }
-        self.insert_default::<V>();
         self.get_opt::<V>()
             .vortex_expect("variable was just inserted")
     }

@@ -24,10 +24,3 @@ lasso = { workspace = true }
 parking_lot = { workspace = true }
 vortex-error = { workspace = true }
 vortex-utils = { workspace = true }
-
-[dev-dependencies]
-mimalloc = { workspace = true }
-
-[[bench]]
-name = "session_contention"
-harness = false
