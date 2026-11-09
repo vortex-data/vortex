@@ -100,7 +100,7 @@ impl FileScan {
         loop {
             match root.advance()? {
                 Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
-                Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
+                Progress::Spawn(_, scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
                 Progress::RootDone(_) if root.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => {
@@ -148,7 +148,7 @@ impl FileScan {
             }
             match run.advance()? {
                 Progress::Batch(batch) => return Ok(Some(batch.array)),
-                Progress::Spawn(scope, child) => {
+                Progress::Spawn(_, scope, child) => {
                     run.admit(child, scope, self.io.session());
                 }
                 Progress::RootDone(_) => {}

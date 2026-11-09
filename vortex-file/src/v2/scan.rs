@@ -328,7 +328,7 @@ fn run_stream<A: Send + 'static>(
                             Progress::Batch(batch) => {
                                 Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
                             }
-                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::Spawn(_, scope, child) => Step::Spawn(scope, child),
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
                             Progress::Waiting => Step::Waiting,
@@ -381,7 +381,7 @@ fn chunk_stream<A: Send + 'static>(
                         return Ok(());
                     }
                 }
-                Progress::Spawn(scope, child) => {
+                Progress::Spawn(_, scope, child) => {
                     run.admit(child, scope, Arc::clone(&io));
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}

@@ -59,12 +59,14 @@ use vortex_session::VortexSession;
 use super::ChunkPlanner;
 use super::DEFAULT_LOCAL_CHUNKS;
 use super::MAX_ROWS_PER_CHUNK;
+use super::MemoryBudget;
 use super::PreparedScan;
 use super::PrunePlanner;
 use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
+use super::ScanScheduler;
 use super::filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
@@ -302,7 +304,7 @@ async fn run_batches(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult
     loop {
         match run.advance()? {
             Progress::Batch(batch) => batches.push(batch),
-            Progress::Spawn(scope, chunk) => {
+            Progress::Spawn(_, scope, chunk) => {
                 run.admit(chunk, scope, io.session());
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
@@ -984,7 +986,7 @@ async fn prune(scan: &Arc<PreparedScan>, rows: Range<u64>) -> VortexResult<Optio
     loop {
         match run.advance()? {
             Progress::Batch(_) => vortex_bail!("pruning alone produced a batch"),
-            Progress::Spawn(scope, planner) => {
+            Progress::Spawn(_, scope, planner) => {
                 run.admit(planner, scope, io.session());
             }
             Progress::RootDone(_) if run.live_roots() > 0 => {}
@@ -1361,6 +1363,251 @@ async fn kept_rows_keep_every_matching_row(
         (_, None) => assert!(kept.all_true()),
         (Strategy::ZonedTable, Some(_)) if matching.is_empty() => assert!(kept.all_false()),
         _ => {}
+    }
+    Ok(())
+}
+
+/// A prepared scan of the integers of a new file, in chunks of `CHUNK_ROWS` rows, with a count
+/// of the segments it requests.
+async fn counted_ints_scan(
+    session: &VortexSession,
+) -> VortexResult<(Arc<PreparedScan>, Arc<CountingSegmentSource>)> {
+    let (segments, layout) = write(session, chunked_flat().as_ref()).await?;
+    let located = locations(segments.as_ref(), &layout)?;
+    let counted = Arc::new(CountingSegmentSource::new(segments));
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+
+    let projection = get_item("ints", root()).bind(layout.dtype())?;
+    let mut scan = ScanBuilder::new(session.clone(), scan_file_at(&segments, &layout, located)?)
+        .with_projection(projection)
+        .prepare()?;
+    scan.chunk_rows = CHUNK_ROWS;
+    Ok((Arc::new(scan), counted))
+}
+
+fn file_ints() -> ArrayRef {
+    let rows = 0..i32::try_from(CHUNKS * CHUNK_ROWS).unwrap_or(i32::MAX);
+    PrimitiveArray::from_iter(rows).into_array()
+}
+
+/// The order in which a test consumes the two scans of a scheduler.
+#[derive(Clone, Copy, Debug)]
+enum Consume {
+    FirstThenSecond,
+    SecondThenFirst,
+    Together,
+}
+
+#[rstest]
+#[tokio::test]
+async fn scheduled_scans_each_return_their_rows(
+    #[values(Consume::FirstThenSecond, Consume::SecondThenFirst, Consume::Together)]
+    consume: Consume,
+    #[values(1, 3)] max_chunks: usize,
+    #[values(None, Some(1), Some(1 << 30))] budget: Option<u64>,
+    #[values(false, true)] tasks: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (first, _) = counted_ints_scan(&session).await?;
+    let (second, _) = counted_ints_scan(&session).await?;
+    let dtype = first.dtype().clone();
+
+    let mut scheduler = ScanScheduler::new().with_max_chunks(max_chunks);
+    if tasks {
+        scheduler = scheduler.with_handle(session.handle());
+    }
+    if let Some(bytes) = budget {
+        scheduler = scheduler.with_memory_budget(MemoryBudget::new(bytes));
+    }
+    let first = collect(dtype.clone(), scheduler.scan(first, 0));
+    let second = collect(dtype, scheduler.scan(second, 4000));
+
+    let (first, second) = match consume {
+        Consume::FirstThenSecond => {
+            let first = first.await?;
+            (first, second.await?)
+        }
+        Consume::SecondThenFirst => {
+            let second = second.await?;
+            (first.await?, second)
+        }
+        Consume::Together => futures::try_join!(first, second)?,
+    };
+
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(first, file_ints(), &mut ctx);
+    assert_arrays_eq!(second, file_ints(), &mut ctx);
+    if let Some(budget) = scheduler.memory_budget() {
+        assert_eq!(budget.used(), 0);
+    }
+    Ok(())
+}
+
+/// The scan at the lower position is worked first, even when only the other scan is polled.
+#[rstest]
+#[tokio::test]
+async fn scheduled_scans_run_the_lowest_position_first(
+    #[values(false, true)] tasks: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (early, early_reads) = counted_ints_scan(&session).await?;
+    let (late, late_reads) = counted_ints_scan(&session).await?;
+
+    let mut scheduler = ScanScheduler::new().with_max_chunks(1);
+    if tasks {
+        scheduler = scheduler.with_handle(session.handle());
+    }
+    // The scan added first is at the higher position.
+    let mut late = scheduler.scan(late, 4000);
+    let _early = scheduler.scan(early, 0);
+
+    late.try_next()
+        .await?
+        .ok_or_else(|| vortex_err!("the late scan has rows"))?;
+
+    // One chunk runs at a time, so every chunk of the early scan ran before the first chunk
+    // of the late scan.
+    assert_eq!(early_reads.requests(), CHUNKS);
+    if tasks {
+        // The chunks on tasks continue without a poll, so more chunks of the late scan can
+        // have started.
+        assert!(late_reads.requests() >= 1);
+    } else {
+        assert_eq!(late_reads.requests(), 1);
+    }
+    Ok(())
+}
+
+/// A full budget stops the scan that nobody consumes from running ahead: at most its first chunk
+/// runs, once no work precedes it. Without a budget, it runs ahead while the consumed scan is
+/// polled.
+#[rstest]
+#[case::no_budget(None, CHUNKS)]
+#[case::full_budget(Some(1), 1)]
+#[tokio::test]
+async fn a_memory_budget_limits_the_run_ahead(
+    #[case] budget: Option<u64>,
+    #[case] late_requests: usize,
+    #[values(false, true)] tasks: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (early, _) = counted_ints_scan(&session).await?;
+    let (late, late_reads) = counted_ints_scan(&session).await?;
+
+    let mut scheduler = ScanScheduler::new().with_max_chunks(2 * CHUNKS);
+    if tasks {
+        scheduler = scheduler.with_handle(session.handle());
+    }
+    if let Some(bytes) = budget {
+        scheduler = scheduler.with_memory_budget(MemoryBudget::new(bytes));
+    }
+    let early = scheduler.scan(early, 0);
+    let _late = scheduler.scan(late, 4000);
+
+    // Every batch of the early scan stays alive, and the late scan is never polled.
+    let batches = early.try_collect::<Vec<_>>().await?;
+    assert_eq!(batches.len(), CHUNKS);
+    if budget.is_some() {
+        assert!(late_reads.requests() <= late_requests);
+    } else {
+        assert_eq!(late_reads.requests(), late_requests);
+    }
+    Ok(())
+}
+
+/// An unordered scan yields every row once. Its batches come in any order, so the test sorts
+/// the rows.
+#[rstest]
+#[tokio::test]
+async fn unordered_scheduled_scans_return_every_row(
+    #[values(false, true)] tasks: bool,
+    #[values(None, Some(130))] budget: Option<u64>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (first, _) = counted_ints_scan(&session).await?;
+    let (second, _) = counted_ints_scan(&session).await?;
+
+    let mut scheduler = ScanScheduler::new().with_max_chunks(3);
+    if tasks {
+        scheduler = scheduler.with_handle(session.handle());
+    }
+    if let Some(bytes) = budget {
+        scheduler = scheduler.with_memory_budget(MemoryBudget::new(bytes));
+    }
+    let first = scheduler.scan_unordered(first, 0).try_collect::<Vec<_>>();
+    let second = scheduler
+        .scan_unordered(second, 4000)
+        .try_collect::<Vec<_>>();
+    let (first, second) = futures::try_join!(first, second)?;
+
+    let mut ctx = session.create_execution_ctx();
+    for batches in [first, second] {
+        let mut rows = Vec::new();
+        for batch in batches {
+            let batch = batch.execute::<PrimitiveArray>(&mut ctx)?;
+            rows.extend_from_slice(batch.as_slice::<i32>());
+        }
+        rows.sort_unstable();
+        assert_arrays_eq!(PrimitiveArray::from_iter(rows), file_ints(), &mut ctx);
+    }
+    if let Some(budget) = scheduler.memory_budget() {
+        assert_eq!(budget.used(), 0);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn dropping_a_scheduled_scan_leaves_the_others_running() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (dropped, dropped_reads) = counted_ints_scan(&session).await?;
+    let (kept, _) = counted_ints_scan(&session).await?;
+    let dtype = kept.dtype().clone();
+
+    let scheduler = ScanScheduler::new().with_max_chunks(1);
+    let mut dropped = scheduler.scan(dropped, 0);
+    let kept = scheduler.scan(kept, 4000);
+
+    dropped
+        .try_next()
+        .await?
+        .ok_or_else(|| vortex_err!("the dropped scan has rows"))?;
+    let reads = dropped_reads.requests();
+    drop(dropped);
+
+    let kept = collect(dtype, kept).await?;
+    assert_arrays_eq!(kept, file_ints(), &mut session.create_execution_ctx());
+    assert_eq!(dropped_reads.requests(), reads);
+    Ok(())
+}
+
+/// Many scans on one scheduler, with their chunks on the tasks of several threads and a budget
+/// that is full most of the time, each return their rows.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scheduled_scans_on_tasks_of_many_threads_return_their_rows() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    for _ in 0..20 {
+        let scheduler = ScanScheduler::new()
+            .with_max_chunks(6)
+            .with_handle(session.handle())
+            .with_memory_budget(MemoryBudget::new(8 << 10));
+
+        let mut scans = Vec::new();
+        for file in 0..6u64 {
+            let (scan, _) = counted_ints_scan(&session).await?;
+            let dtype = scan.dtype().clone();
+            let offset = file * (CHUNKS * CHUNK_ROWS) as u64;
+            scans.push(tokio::spawn(collect(dtype, scheduler.scan(scan, offset))));
+        }
+
+        let mut ctx = session.create_execution_ctx();
+        for scan in scans {
+            let rows = scan.await.map_err(|error| vortex_err!("{error}"))??;
+            assert_arrays_eq!(rows, file_ints(), &mut ctx);
+        }
+        assert_eq!(
+            scheduler.memory_budget().map(|budget| budget.used()),
+            Some(0)
+        );
     }
     Ok(())
 }

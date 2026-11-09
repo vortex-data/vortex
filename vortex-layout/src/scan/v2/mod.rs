@@ -25,6 +25,7 @@
 mod cache;
 pub(crate) mod io;
 mod local;
+mod scheduler;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +37,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
+pub use vortex_scan::planning::budget::MemoryBudget;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -43,6 +45,7 @@ use vortex_session::VortexSession;
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 pub use self::local::DEFAULT_LOCAL_CHUNKS;
+pub use self::scheduler::ScanScheduler;
 use crate::LayoutRef;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
