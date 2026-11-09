@@ -22,9 +22,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::BufferedBytesReservation;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::SizeScope;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -80,6 +82,12 @@ impl RepartitionWriterOptions {
 ///
 /// Each emitted block (except the last) is at least `block_size_minimum` bytes and contains a
 /// multiple of `block_len_multiple` rows.
+///
+/// The strategy reserves the blocks that it holds as uncompressed bytes, because a repartition
+/// comes before compression in the default strategy. It counts them in a new child of its
+/// [size scope](LayoutWriterContext::size_scope), which it also gives to its child strategy. So
+/// the blocks that it holds use the compression ratio that the strategies below it measure. It
+/// releases the reservation of an emitted block after the child takes the block.
 #[derive(Clone)]
 pub struct RepartitionStrategy {
     child: Arc<dyn LayoutStrategy>,
@@ -133,13 +141,15 @@ impl LayoutStrategy for RepartitionStrategy {
         let block_len = options.effective_block_len(&dtype);
         let block_size_minimum = options.block_size_minimum;
         let repartition_session = session.clone();
+        let ctx = ctx.with_child_size_scope();
+        let size_scope = ctx.size_scope().clone();
 
         let repartitioned_stream = try_stream! {
             let canonical_stream = stream.peekable();
             pin_mut!(canonical_stream);
 
             let mut ctx = repartition_session.create_execution_ctx();
-            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len);
+            let mut chunks = ChunksBuffer::new(block_size_minimum, block_len, size_scope);
             while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
@@ -151,7 +161,7 @@ impl LayoutStrategy for RepartitionStrategy {
                     offset = end;
 
                     if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks(&mut ctx)?;
+                        let (output_chunks, reservations) = chunks.collect_exact_blocks(&mut ctx)?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
@@ -162,13 +172,16 @@ impl LayoutStrategy for RepartitionStrategy {
                                 canonical,
                             )
                         }
+
+                        // The stream resumes when the child asks for the next block, so the
+                        // child counts the emitted block before these reservations release it.
+                        drop(reservations);
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr),
-                        dtype_clone.clone(),
-                    )?;
+                    let (output_chunks, reservations): (Vec<_>, Vec<_>) =
+                        chunks.data.drain(..).unzip();
+                    let to_flush = ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
                     if !to_flush.is_empty() {
                         let canonical = to_flush.into_array().execute::<Canonical>(&mut ctx)?.into_array();
                         yield (
@@ -176,6 +189,8 @@ impl LayoutStrategy for RepartitionStrategy {
                             canonical,
                         )
                     }
+
+                    drop(reservations);
                 }
             }
         };
@@ -197,24 +212,26 @@ impl LayoutStrategy for RepartitionStrategy {
 /// Bytes are the exact uncompressed size of each block, not the buffers it holds: a view array
 /// read from Arrow points into whole decompressed pages, which `nbytes()` would count in full.
 struct ChunksBuffer {
-    /// Each entry stores the chunk and the size snapshot taken at push time.
+    /// Each entry stores the chunk and a reservation of the size snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
-    data: VecDeque<(ArrayRef, u64)>,
+    data: VecDeque<(ArrayRef, BufferedBytesReservation)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
     block_len_multiple: usize,
+    size_scope: SizeScope,
 }
 
 impl ChunksBuffer {
-    fn new(block_size_minimum: u64, block_len_multiple: usize) -> Self {
+    fn new(block_size_minimum: u64, block_len_multiple: usize, size_scope: SizeScope) -> Self {
         Self {
             data: Default::default(),
             row_count: 0,
             nbytes: 0,
             block_size_minimum,
             block_len_multiple,
+            size_scope,
         }
     }
 
@@ -222,14 +239,24 @@ impl ChunksBuffer {
         self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
     }
 
-    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<ArrayRef>> {
+    /// Removes the leading whole blocks, and returns them with the reservations of their bytes.
+    ///
+    /// A chunk that is split counts in full in the returned reservations, and its remainder gets
+    /// a new reservation. So the bytes are counted twice until the caller drops the returned
+    /// reservations, but they are never not counted.
+    fn collect_exact_blocks(
+        &mut self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<(Vec<ArrayRef>, Vec<BufferedBytesReservation>)> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
+        let mut reservations = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, _) = self
+            let (chunk, reservation) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
+            reservations.push(reservation);
             let len = chunk.len();
 
             if len > remaining {
@@ -243,14 +270,14 @@ impl ChunksBuffer {
                 remaining -= len;
             }
         }
-        Ok(res)
+        Ok((res, reservations))
     }
 
     fn push_back(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_back((chunk, nb));
+        self.data.push_back((chunk, self.size_scope.reserve(nb)));
         Ok(())
     }
 
@@ -258,15 +285,15 @@ impl ChunksBuffer {
         let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
-        self.data.push_front((chunk, nb));
+        self.data.push_front((chunk, self.size_scope.reserve(nb)));
         Ok(())
     }
 
-    fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
+    fn pop_front(&mut self) -> Option<(ArrayRef, BufferedBytesReservation)> {
         let res = self.data.pop_front();
-        if let Some((chunk, nb)) = res.as_ref() {
+        if let Some((chunk, reservation)) = res.as_ref() {
             self.row_count -= chunk.len();
-            self.nbytes -= nb;
+            self.nbytes -= reservation.bytes();
         }
         res
     }
@@ -302,6 +329,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -557,6 +585,30 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn chunks_buffer_reserves_held_bytes() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let tracker = SizeScope::new();
+        let mut buf = ChunksBuffer::new(0, 6, tracker.clone());
+
+        buf.push_back(buffer![1u64, 2, 3, 4].into_array(), &mut ctx)?;
+        buf.push_back(buffer![5u64, 6, 7, 8].into_array(), &mut ctx)?;
+        assert_eq!(tracker.uncompressed_bytes(), 64);
+
+        // The split chunk counts in full until the caller drops the returned reservations, and
+        // its remainder has its own reservation.
+        let (blocks, reservations) = buf.collect_exact_blocks(&mut ctx)?;
+        assert_eq!(blocks.iter().map(|block| block.len()).sum::<usize>(), 6);
+        assert_eq!(tracker.uncompressed_bytes(), 80);
+
+        drop(reservations);
+        assert_eq!(tracker.uncompressed_bytes(), 16);
+
+        drop(buf);
+        assert_eq!(tracker.uncompressed_bytes(), 0);
+        Ok(())
+    }
+
     /// Regression test: `SharedArray` slices sharing an `Arc<Mutex<SharedState>>` can
     /// transition from Source to Cached when any one of them is canonicalized. This caused
     /// `pop_front` to panic with `attempt to subtract with overflow` because the buffer's
@@ -576,7 +628,7 @@ mod tests {
         let s1 = arr.slice(0..block_len)?;
         let s2 = arr.slice(block_len..n)?;
 
-        let mut buf = ChunksBuffer::new(0, block_len);
+        let mut buf = ChunksBuffer::new(0, block_len, SizeScope::new());
         buf.push_back(s1, &mut ctx)?;
         buf.push_back(s2, &mut ctx)?;
 
