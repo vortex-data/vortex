@@ -88,13 +88,13 @@ jobs:
         # Windows has no versioned `python3.11` executable, so pin what `python` resolves to.
         if: "${{ matrix.target.runs-on == 'macos-latest' || matrix.target.os == 'windows' }}"
         with:
-          python-version: "3.11"
+          python-version: "3.15"
 
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b  # v1
         with:
           command: build
-          maturin-version: 1.15.0
+          maturin-version: 1.16.0
           target: ${{ matrix.target.target }}
           args: >
             ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}

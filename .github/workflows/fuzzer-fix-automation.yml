@@ -272,7 +272,7 @@ jobs:
           CRASH_FILE: ${{ steps.extract.outputs.crash_file }}
           CRASH_FILE_PATH: ${{ steps.download.outputs.crash_file_path }}
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
-        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d  # v1.0.266
         with:
           # This job runs in the claude-automation environment, so the OIDC subject is
           # `environment:claude-automation`. Only the `vortex-claude-write` rule matches
