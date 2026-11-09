@@ -10,25 +10,18 @@ use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 
-use crate::dtype::DType;
-use crate::dtype::Nullability::NonNullable;
-
-mod bound;
-mod precision;
-mod provider;
-mod stat_bound;
-
-pub use bound::*;
-pub use precision::*;
-pub use provider::*;
-pub use stat_bound::*;
-
 use crate::aggregate_fn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::dtype::DType;
+use crate::dtype::Nullability::NonNullable;
+use crate::stats::LowerBound;
+use crate::stats::Precision;
+use crate::stats::StatType;
+use crate::stats::UpperBound;
 
 #[derive(
     Debug,
@@ -273,7 +266,7 @@ mod test {
 
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
-    use crate::expr::stats::Stat;
+    use crate::stats::Stat;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

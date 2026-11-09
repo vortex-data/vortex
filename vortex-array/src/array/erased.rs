@@ -44,14 +44,14 @@ use crate::arrays::SliceArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProviderExt;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 

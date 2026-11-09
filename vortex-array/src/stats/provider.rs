@@ -5,9 +5,9 @@ use vortex_error::VortexError;
 use vortex_error::vortex_panic;
 
 use super::StatType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
 
 pub trait StatsProvider {
     fn get(&self, stat: Stat) -> Precision<Scalar>;

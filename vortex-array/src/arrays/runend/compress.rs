@@ -31,12 +31,12 @@ use crate::arrays::runend::iter::slice_relative_ends;
 use crate::buffer::BufferHandle;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.

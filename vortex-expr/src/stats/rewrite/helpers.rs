@@ -13,10 +13,10 @@ use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
 use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::builtin::cast::Cast;
 use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::stats::Stat;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

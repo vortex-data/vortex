@@ -11,7 +11,7 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

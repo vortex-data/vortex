@@ -31,14 +31,14 @@ use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::builtin::cast::CastKernel;
 use crate::scalar_fn::builtin::cast::CastReduce;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
 use crate::validity::Validity;
 
 #[rstest]

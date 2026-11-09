@@ -37,12 +37,12 @@ use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 
 /// Return the sum of an array.
 ///
@@ -479,11 +479,11 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::i256;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

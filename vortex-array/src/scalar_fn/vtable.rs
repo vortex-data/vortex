@@ -26,7 +26,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::executor::DonePredicate;
 use crate::expr::BoundExpression;
-use crate::expr::stats::Stat;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
@@ -37,6 +36,7 @@ use crate::scalar_fn::builtin::is_not_null::IsNotNull;
 use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::operators::Operator;
 use crate::scalar_fn::display::ExprDisplay;
+use crate::stats::Stat;
 use crate::validity::Validity;
 
 // Here and beyond we use validity(x) interchangeably with is_not_null(x).

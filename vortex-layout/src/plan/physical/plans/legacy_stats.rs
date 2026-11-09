@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Stat;
+use vortex_array::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;

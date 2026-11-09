@@ -95,7 +95,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::stats::Stat;
+    use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
 
     use super::*;

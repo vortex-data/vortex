@@ -20,11 +20,11 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::take_varbin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Stat;
+use vortex_array::stats::StatsProviderExt;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
@@ -174,9 +174,9 @@ mod tests {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::stats::Precision;
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

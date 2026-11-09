@@ -112,7 +112,24 @@ pub mod expr {
 
     /// Statistics, stat expressions, and statistics-based pruning rewrites.
     pub mod stats {
-        pub use vortex_array::expr::stats::*;
+        pub use vortex_array::stats::IntersectionResult;
+        pub use vortex_array::stats::IsConstant;
+        pub use vortex_array::stats::IsSorted;
+        pub use vortex_array::stats::IsStrictSorted;
+        pub use vortex_array::stats::LowerBound;
+        pub use vortex_array::stats::Max;
+        pub use vortex_array::stats::Min;
+        pub use vortex_array::stats::NaNCount;
+        pub use vortex_array::stats::NullCount;
+        pub use vortex_array::stats::Precision;
+        pub use vortex_array::stats::Stat;
+        pub use vortex_array::stats::StatBound;
+        pub use vortex_array::stats::StatType;
+        pub use vortex_array::stats::StatsProvider;
+        pub use vortex_array::stats::StatsProviderExt;
+        pub use vortex_array::stats::Sum;
+        pub use vortex_array::stats::UncompressedSizeInBytes;
+        pub use vortex_array::stats::UpperBound;
         pub use vortex_expr::stats::*;
     }
 

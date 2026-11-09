@@ -8,12 +8,12 @@ use std::fmt::Formatter;
 use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
-use crate::expr::stats::IntersectionResult;
-use crate::expr::stats::StatBound;
-use crate::expr::stats::StatType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::stats::IntersectionResult;
+use crate::stats::StatBound;
+use crate::stats::StatType;
 
 /// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
 /// Exact values are computed, where can inexact values are likely inferred from compute functions.

@@ -546,11 +546,11 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::half::f16;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     /// A shared session for these constant-array tests, used to create execution contexts.

@@ -41,13 +41,13 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::half::f16;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
-use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::StatsProvider;
+use crate::stats::StatsProviderExt;
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
 
@@ -585,14 +585,14 @@ mod tests {
     use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
-    use crate::expr::stats::Precision;
-    use crate::expr::stats::Stat;
-    use crate::expr::stats::StatsProvider;
     use crate::extension::datetime::TimeUnit;
     use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::stats::Precision;
+    use crate::stats::Stat;
+    use crate::stats::StatsProvider;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

@@ -20,9 +20,9 @@ use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::Stat;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

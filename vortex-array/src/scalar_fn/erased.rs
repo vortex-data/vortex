@@ -20,7 +20,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
@@ -33,6 +32,7 @@ use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
 use crate::scalar_fn::typed::TypedScalarFnInstance;
+use crate::stats::Stat;
 
 /// A type-erased scalar function, pairing a vtable with bound options behind a trait object.
 ///

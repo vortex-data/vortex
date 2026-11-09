@@ -28,7 +28,6 @@ use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::BoundExpression;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
@@ -41,6 +40,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::display::ExprDisplay;
+use crate::stats::Stat;
 
 /// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
 ///

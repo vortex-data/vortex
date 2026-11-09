@@ -32,14 +32,14 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
 use crate::optimizer::mark_decoded_optimized;
 use crate::session::ArraySessionExt;
+use crate::stats::Precision;
+use crate::stats::Stat;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.

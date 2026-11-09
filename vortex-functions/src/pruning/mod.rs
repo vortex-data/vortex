@@ -5,13 +5,13 @@
 
 use std::cmp::Ordering;
 
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StringLike;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_expr::BoundExpression;
 use vortex_expr::bound::and;
@@ -380,10 +380,10 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::stats::Stat;
     use vortex_error::VortexResult;
     use vortex_expr::BoundExpression;
     use vortex_expr::Expression;

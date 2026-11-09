@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::bound::IntersectionResult;
+use crate::stats::Precision;
+use crate::stats::Stat;
+use crate::stats::bound::IntersectionResult;
 
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
 /// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
