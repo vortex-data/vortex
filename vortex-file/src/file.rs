@@ -26,6 +26,7 @@ use vortex_layout::scan::v2::ScanFile;
 use vortex_layout::scan::v2::SegmentLocation;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -62,6 +63,20 @@ pub struct VortexFile {
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
     plans: ScanCache,
+    /// A claim on every row of the file, held as long as the file caches, so the values its scans
+    /// decode, such as dictionary values, outlive each scan for the next one to reuse.
+    _retained: Arc<RowClaim>,
+}
+
+impl FileScanCache {
+    fn new(footer: &Footer) -> Self {
+        let plans = ScanCache::default();
+        Self {
+            locations: segment_locations(footer),
+            _retained: Arc::new(plans.liveness().claim(0..footer.row_count())),
+            plans,
+        }
+    }
 }
 
 fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
@@ -125,10 +140,7 @@ impl VortexFile {
     /// [`data_source`](Self::data_source) will share the same reader tree. Repeated V2 scans of
     /// [`scan_file`](Self::scan_file) will share its segment locations and a [`ScanCache`].
     pub fn with_caching(self) -> Self {
-        let scan_cache = FileScanCache {
-            locations: segment_locations(&self.footer),
-            plans: ScanCache::default(),
-        };
+        let scan_cache = FileScanCache::new(&self.footer);
         Self {
             footer: self.footer,
             segment_source: self.segment_source,
@@ -195,7 +207,7 @@ impl VortexFile {
             self.layout_reader_cache = Some(OnceLock::new());
         }
         if let Some(cache) = &mut self.scan_cache {
-            cache.plans = ScanCache::default();
+            *cache = FileScanCache::new(&self.footer);
         }
         self
     }

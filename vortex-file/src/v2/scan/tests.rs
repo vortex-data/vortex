@@ -16,11 +16,14 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::v2::ScanBuilder;
@@ -119,5 +122,41 @@ async fn batches_are_mapped_off_the_polling_thread() -> VortexResult<()> {
     assert!(!batches.is_empty());
     assert_eq!(mapped_on.len(), batches.len());
     assert!(mapped_on.iter().all(|thread| *thread != polling));
+    Ok(())
+}
+
+/// A file opened with caching keeps the dictionary values its scans decode after each scan ends,
+/// so the next scan of the file reuses them instead of decoding them again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cached_file_keeps_dictionary_values_between_scans() -> VortexResult<()> {
+    let rows = 1 << 16;
+    let strings = VarBinArray::from_iter(
+        (0..rows).map(|row| Some(["red", "green", "blue"][row % 3])),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let array = StructArray::from_fields(&[("strings", strings)])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?.with_caching();
+    let liveness = file
+        .scan_file()
+        .cache
+        .as_ref()
+        .map(|cache| cache.liveness())
+        .ok_or_else(|| vortex_err!("a cached file shares a scan cache"))?;
+
+    let arrays: Vec<ArrayRef> = driver()
+        .run(ScanBuilder::new(SESSION.clone(), file.scan_file()))
+        .try_collect()
+        .await?;
+    assert_eq!(arrays.iter().map(|array| array.len()).sum::<usize>(), rows);
+    assert!(
+        liveness.pinned() > 0,
+        "the file's dictionary values must outlive the scan that decoded them"
+    );
     Ok(())
 }
