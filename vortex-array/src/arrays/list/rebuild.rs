@@ -21,6 +21,7 @@ use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::dtype::PType;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 impl ListArray {
@@ -65,6 +66,7 @@ impl ListArray {
 
         let (elements, mut offsets) =
             drop_unreferenced_elements(self.elements(), starts, end, &null_runs, ctx.allocator())?;
+        let elements = elements.optimize_ctx(ctx)?;
         offsets.push(
             num_traits::cast(elements.len())
                 .vortex_expect("the elements kept fit the offsets' type"),

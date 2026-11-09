@@ -152,6 +152,9 @@ impl FixedSizeListBuilder {
         if n == 0 {
             return Ok(());
         }
+        if n == 1 {
+            return self.append_array_as_list(array, ctx);
+        }
 
         // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
         let tiled = unsafe {

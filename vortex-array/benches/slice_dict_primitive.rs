@@ -4,6 +4,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
@@ -12,11 +14,22 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
+
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -46,7 +59,12 @@ fn slice_primitive_tight_loop(bencher: Bencher, len: usize) {
             out.clear();
             let mut offset = 0;
             while offset + slice_len <= len {
-                out.push(arr.slice(offset..offset + slice_len).unwrap());
+                out.push(
+                    arr.slice(offset..offset + slice_len)
+                        .unwrap()
+                        .optimize_ctx(&*SESSION)
+                        .unwrap(),
+                );
                 offset += slice_len;
             }
         });
@@ -87,7 +105,12 @@ fn slice_dict_tight_loop(bencher: Bencher, len: usize) {
             out.clear();
             let mut offset = 0;
             while offset + slice_len <= len {
-                out.push(dict.slice(offset..offset + slice_len).unwrap());
+                out.push(
+                    dict.slice(offset..offset + slice_len)
+                        .unwrap()
+                        .optimize_ctx(&*SESSION)
+                        .unwrap(),
+                );
                 offset += slice_len;
             }
         });

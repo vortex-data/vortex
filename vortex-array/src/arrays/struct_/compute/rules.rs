@@ -222,8 +222,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        // Without the session-registered rule the cast stays a scalar function.
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         let cast = source.cast(target).unwrap();
-        let optimized = cast.optimize().unwrap();
+        let optimized = cast.optimize_ctx(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 

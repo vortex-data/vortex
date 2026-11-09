@@ -59,6 +59,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
@@ -74,7 +75,7 @@ mod tests {
         )
         .into_array();
 
-        let sliced = array.slice(1..3).unwrap();
+        let sliced = array.slice(1..3).unwrap().optimize_ctx(&SESSION).unwrap();
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<Decimal>();

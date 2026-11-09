@@ -28,6 +28,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 
 /// Creates a `ListViewArray` from a `ListArray` by computing `sizes` from `offsets`.
 ///
@@ -57,7 +58,10 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
 
     // We need to slice the `offsets` to remove the last element (`ListArray` has `n + 1` offsets).
     debug_assert_eq!(list_offsets.len(), list.len() + 1);
-    let adjusted_offsets = list_offsets.into_array().slice(0..list.len())?;
+    let adjusted_offsets = list_offsets
+        .into_array()
+        .slice(0..list.len())?
+        .optimize_ctx(ctx)?;
 
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.

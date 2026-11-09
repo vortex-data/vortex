@@ -12,6 +12,7 @@ use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::DictArray;
+use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -367,9 +368,16 @@ async fn test_decode_non_contiguous_dictionary_list_view() -> VortexResult<()> {
 async fn test_decode_unsupported_device_dictionary_does_not_fall_back_to_cpu() -> VortexResult<()> {
     let session = VortexSession::empty().with_some(CudaSession::try_default()?);
     let mut ctx = CudaSession::create_execution_ctx(&session)?;
-    // A dictionary of structs can be preserved, but has no CUDA gather kernel today.
-    let (values, _) = values_and_expected(false);
-    let array = upload(dictionary(wrap_struct(values), PType::U8)?, &mut ctx)?;
+    // A dictionary of fixed-size lists can be preserved, but has no CUDA gather kernel today.
+    // No optimizer rule pushes it into the lists, as one does for a dictionary of structs.
+    let values = FixedSizeListArray::try_new(
+        PrimitiveArray::from_iter([10i32, 11, 20, 21, 30, 31]).into_array(),
+        2,
+        Validity::NonNullable,
+        3,
+    )?
+    .into_array();
+    let array = upload(dictionary(values, PType::U8)?, &mut ctx)?;
     assert!(!array.is_host());
     let mut preserved = array.clone().export_device_array(&mut ctx).await?;
     assert!(!preserved.array.dictionary.is_null());

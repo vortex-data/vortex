@@ -29,6 +29,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
@@ -82,6 +83,7 @@ struct Store {
 impl Store {
     fn flat(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
         let ctx = ArrayContext::empty();
+        let array = array.optimize_ctx(&SESSION)?;
         let buffers = array.serialize(
             &ctx,
             &SESSION,

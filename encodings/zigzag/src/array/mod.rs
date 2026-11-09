@@ -247,6 +247,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -277,7 +278,7 @@ mod test {
             array.statistics().compute_is_constant(&mut ctx)
         );
 
-        let sliced = zigzag.slice(0..2)?;
+        let sliced = zigzag.slice(0..2)?.optimize_ctx(&SESSION)?;
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
             sliced.array().execute_scalar(sliced.len() - 1, &mut ctx,)?,

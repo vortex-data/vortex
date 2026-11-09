@@ -10,7 +10,6 @@ use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::dtype::DType;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
@@ -36,9 +35,7 @@ impl ListContainsElementReduce for Chunked {
             .map(|chunk| {
                 let set = list.slice(offset..offset + chunk.len())?;
                 offset += chunk.len();
-                ListContains::try_new_opts(set, chunk.clone(), *options)?
-                    .into_array()
-                    .optimize()
+                Ok(ListContains::try_new_opts(set, chunk.clone(), *options)?.into_array())
             })
             .collect::<VortexResult<Vec<_>>>()?;
 

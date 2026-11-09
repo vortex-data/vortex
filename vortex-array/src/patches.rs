@@ -38,6 +38,7 @@ use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
@@ -582,7 +583,10 @@ impl Patches {
             self.indices.len()
         };
 
-        let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
+        let chunk_indices = self
+            .indices
+            .slice(patches_start_idx..patches_end_idx)?
+            .optimize_ctx(ctx)?;
         let result = search_index_binary_search(&chunk_indices, index + self.offset, ctx)?;
 
         Ok(match result {
@@ -790,8 +794,14 @@ impl Patches {
             return Ok(None);
         }
 
-        let values = self.values().slice(slice_start_idx..slice_end_idx)?;
-        let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
+        let values = self
+            .values()
+            .slice(slice_start_idx..slice_end_idx)?
+            .optimize_ctx(ctx)?;
+        let indices = self
+            .indices()
+            .slice(slice_start_idx..slice_end_idx)?
+            .optimize_ctx(ctx)?;
 
         let new_chunk_offsets = self
             .chunk_offsets
@@ -800,7 +810,9 @@ impl Patches {
                 let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
                 let chunk_start_idx = (chunk_relative_offset + range.start) / PATCH_CHUNK_SIZE;
                 let chunk_end_idx = (chunk_relative_offset + range.end).div_ceil(PATCH_CHUNK_SIZE);
-                chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
+                chunk_offsets
+                    .slice(chunk_start_idx..chunk_end_idx)?
+                    .optimize_ctx(ctx)
             })
             .transpose()?;
 

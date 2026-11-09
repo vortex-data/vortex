@@ -23,6 +23,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
@@ -165,6 +166,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 .map(|filter| Arc::new(FilterExpr::new(filter))),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
+            session: self.session.clone(),
         })
     }
 
@@ -282,9 +284,11 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 let arrays = buffer(tasks, ordered, concurrency)
                     .filter_map(|array| future::ready(array.transpose()))
                     .boxed();
+                let session = self.session.clone();
                 let mapped = limit_rows(arrays, limit).map(move |array| {
                     let map_fn = Arc::clone(&map_fn);
-                    handle.spawn_cpu(move || map_fn(array?))
+                    let session = session.clone();
+                    handle.spawn_cpu(move || map_fn(array?.optimize_ctx(&session)?))
                 });
                 buffer(mapped, ordered, concurrency)
             }

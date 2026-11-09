@@ -28,6 +28,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
@@ -192,6 +193,7 @@ impl ListViewArray {
 
         let (elements, offsets) =
             drop_unreferenced_elements(self.elements(), starts, end, &null_runs, ctx.allocator())?;
+        let elements = elements.optimize_ctx(ctx)?;
         let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable)
             .reinterpret_cast(offsets_ptype)
             .into_array();

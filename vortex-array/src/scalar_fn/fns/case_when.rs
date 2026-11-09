@@ -39,6 +39,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
+use crate::optimizer::ArrayOptimizer;
 use crate::proto::expr as pb;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -429,9 +430,9 @@ fn merge_runs(
     // Cast once up front: every span below is a slice of these arrays.
     let values = branches
         .iter()
-        .map(|(_, value)| value.cast(output_dtype.clone()))
+        .map(|(_, value)| value.cast(output_dtype.clone())?.optimize_ctx(ctx))
         .collect::<VortexResult<Vec<_>>>()?;
-    let else_value = else_value.cast(output_dtype.clone())?;
+    let else_value = else_value.cast(output_dtype.clone())?.optimize_ctx(ctx)?;
     let len = else_value.len();
 
     let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());

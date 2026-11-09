@@ -27,6 +27,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 
@@ -67,8 +68,14 @@ impl ZipKernel for ListView {
 
         // `if_false`'s elements share the element dtype up to nullability; normalize so both chunks
         // of the concatenated elements array have an identical dtype.
-        let true_elements = if_true.elements().cast(result_elements_dtype.clone())?;
-        let false_elements = if_false.elements().cast(result_elements_dtype.clone())?;
+        let true_elements = if_true
+            .elements()
+            .cast(result_elements_dtype.clone())?
+            .optimize_ctx(ctx)?;
+        let false_elements = if_false
+            .elements()
+            .cast(result_elements_dtype.clone())?
+            .optimize_ctx(ctx)?;
 
         // `if_false` views index into the second half of the concatenated elements.
         let false_shift = true_elements.len() as u64;
@@ -261,6 +268,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -510,7 +518,8 @@ mod tests {
             .collect();
         let mask = BoolArray::from_iter(mask_bits.iter().copied())
             .into_array()
-            .slice(offset..offset + len)?;
+            .slice(offset..offset + len)?
+            .optimize_ctx(&SESSION)?;
 
         let result = mask.zip(if_true, if_false)?.execute::<ArrayRef>(&mut ctx)?;
         assert!(result.is::<ListView>());

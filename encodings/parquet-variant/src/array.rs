@@ -31,6 +31,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
@@ -260,6 +261,7 @@ fn logical_shredded_from_parquet_field(
             typed_value
                 .clone()
                 .mask(validity.to_array(typed_value.len()))?
+                .optimize_ctx(ctx)?
         };
         let value = field_struct
             .unmasked_field_by_name_opt("value")
@@ -267,7 +269,10 @@ fn logical_shredded_from_parquet_field(
                 if validity.definitely_no_nulls() {
                     Ok(value.clone())
                 } else {
-                    value.clone().mask(validity.to_array(value.len()))
+                    value
+                        .clone()
+                        .mask(validity.to_array(value.len()))?
+                        .optimize_ctx(ctx)
                 }
             })
             .transpose()?;
