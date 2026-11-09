@@ -136,9 +136,7 @@ impl ScanDriver {
         if in_flight <= 1 {
             driver.with_workers(1).with_roots_per_worker(usize::MAX)
         } else {
-            // One more worker for the root planner, so it never takes a chunk's place while it
-            // prunes and cuts chunks.
-            driver.with_workers(in_flight + 1).with_roots_per_worker(1)
+            driver.with_workers(in_flight).with_roots_per_worker(1)
         }
     }
 }
