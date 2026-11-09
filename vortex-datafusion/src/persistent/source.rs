@@ -7,7 +7,9 @@ use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
 use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::config::OptimizerOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
@@ -46,6 +48,7 @@ use super::opener::VortexOpener;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
+use crate::convert::stats::selectivity::filtered_statistics;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
 
@@ -216,6 +219,8 @@ pub struct VortexSource {
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
+    /// The selectivity, in percent, of accepted filters that statistics cannot estimate.
+    default_filter_selectivity: u8,
 }
 
 impl VortexSource {
@@ -251,6 +256,7 @@ impl VortexSource {
             file_metadata_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
+            default_filter_selectivity: OptimizerOptions::default().default_filter_selectivity,
         }
     }
 
@@ -408,6 +414,21 @@ impl FileSource for VortexSource {
         self.vortex_predicate.clone()
     }
 
+    /// DataFusion drops the `FilterExec` of every filter this source accepts, so apply their
+    /// selectivity here rather than reporting every row of the files.
+    fn filtered_statistics(&self, statistics: Statistics) -> Statistics {
+        match &self.vortex_predicate {
+            Some(predicate) => filtered_statistics(
+                statistics,
+                self.table_schema.table_schema(),
+                std::slice::from_ref(predicate),
+                false,
+                f64::from(self.default_filter_selectivity) / 100.0,
+            ),
+            None => statistics,
+        }
+    }
+
     fn metrics(&self) -> &ExecutionPlanMetricsSet {
         &self.df_metrics
     }
@@ -484,7 +505,7 @@ impl FileSource for VortexSource {
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
-        _config: &ConfigOptions,
+        config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
@@ -552,6 +573,7 @@ impl FileSource for VortexSource {
         tracing::debug!(%predicate, "Saving predicate");
 
         source.vortex_predicate = Some(predicate);
+        source.default_filter_selectivity = config.optimizer.default_filter_selectivity;
 
         Ok(FilterPushdownPropagation::with_parent_pushdown_result(
             supported_filters.iter().map(|f| f.discriminant).collect(),
@@ -595,8 +617,10 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use datafusion_common::ColumnStatistics;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
+    use datafusion_common::stats::Precision;
     use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
     use datafusion_execution::object_store::ObjectStoreUrl;
     use datafusion_expr::Operator;
@@ -751,6 +775,40 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    /// DataFusion drops the `FilterExec` of an accepted filter, so the source's statistics must
+    /// apply its selectivity: one row for an equality over 1,000 distinct values.
+    #[test]
+    fn filtered_statistics_apply_accepted_filters() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("name", 0)),
+            Operator::Eq,
+            df_expr::lit("x"),
+        )) as PhysicalExprRef;
+        let statistics = Statistics {
+            num_rows: Precision::Exact(1_000),
+            total_byte_size: Precision::Absent,
+            column_statistics: vec![ColumnStatistics {
+                distinct_count: Precision::Inexact(1_000),
+                ..ColumnStatistics::new_unknown()
+            }],
+        };
+
+        let source = sort_test_source(Arc::clone(&schema));
+        assert_eq!(source.filtered_statistics(statistics.clone()), statistics);
+
+        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
+        let source = result
+            .updated_node
+            .ok_or_else(|| anyhow::anyhow!("expected updated VortexSource"))?;
+        assert_eq!(
+            source.filtered_statistics(statistics).num_rows,
+            Precision::Inexact(1)
+        );
         Ok(())
     }
 

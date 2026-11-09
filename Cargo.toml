@@ -481,6 +481,41 @@ incremental = false
 debug = false
 
 [patch.crates-io]
+# Benchmarking only: DataFusion 55.2.0 plus a FileSource::filtered_statistics hook.
+datafusion = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-catalog = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-catalog-listing = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-common = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-common-runtime = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource-arrow = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource-avro = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource-csv = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource-json = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-datasource-parquet = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-doc = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-execution = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-expr = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-expr-common = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-aggregate = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-aggregate-common = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-nested = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-table = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-window = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-functions-window-common = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-macros = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-optimizer = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-physical-expr = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-physical-expr-adapter = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-physical-expr-common = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-physical-optimizer = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-physical-plan = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-pruning = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-session = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-spark = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-sql = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
+datafusion-sqllogictest = { git = "https://github.com/joseph-isaacs/datafusion", rev = "7f593750cccd4166802cb5ffac006d00e225fc3f" }
 geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
 geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
