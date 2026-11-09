@@ -1197,6 +1197,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::FieldRef;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
@@ -1371,7 +1372,7 @@ mod tests {
         let metadata = extension_name
             .map(|id| (EXTENSION_TYPE_NAME_KEY.to_string(), id.to_string()))
             .into_iter()
-            .collect();
+            .collect::<Metadata>();
         let field = Field::new("s", dict.data_type().clone(), false).with_metadata(metadata);
 
         let dtype = session.from_arrow_field(&field)?;
