@@ -1,44 +1,119 @@
-# Runs SQL benchmarks once for a pull request.
-# Called from pr-bench-dispatch.yml when SQL benchmark labels are added.
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-name: PR SQL Benchmarks
-
-concurrency:
-  group: >-
-    ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
-      github.head_ref || github.run_id
-    }}
-  cancel-in-progress: true
+name: Paired pruning validation
 
 on:
-  workflow_call:
-    inputs:
-      matrix_preset:
-        required: false
-        type: string
-        default: "pr"
   workflow_dispatch:
     inputs:
-      matrix_preset:
-        description: "SQL benchmark matrix to run"
-        required: false
-        type: choice
-        default: "pr"
-        options:
-          - "pr"
-          - "pr-compact"
-          - "pr-all"
-          - "pr-full"
+      baseline:
+        description: "Develop revision"
+        required: true
+        default: "a1fbac6799aa6ada3bf1f307f1543e6f4ad988f2"
+      candidate:
+        description: "Pruning-only revision"
+        required: true
+        default: "e44b5babd234f1318dadac6ff2d7a2f81e08d73a"
 
 permissions:
   contents: read
-  pull-requests: write  # for commenting on PRs
-  id-token: write  # enables AWS-GitHub OIDC
+  id-token: write
+
+env:
+  FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
 
 jobs:
-  sql:
-    uses: ./.github/workflows/sql-bench-matrix.yml
-    secrets: inherit
-    with:
-      mode: "pr"
-      matrix_preset: ${{ inputs.matrix_preset }}
+  build:
+    runs-on: ${{ format('runs-on={0}/region=us-east-1/runner=arm64-bench/tag=pruning-paired-build/extras=s3-cache', github.run_id) }}
+    timeout-minutes: 60
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/assert-cpu
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build both revisions
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CANDIDATE: ${{ inputs.candidate }}
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          set -Eeuo pipefail
+          mkdir paired-binaries
+          for variant in baseline candidate; do
+            revision="$BASELINE"
+            if [ "$variant" = candidate ]; then revision="$CANDIDATE"; fi
+            git worktree add --detach "$RUNNER_TEMP/$variant" "$revision"
+            (
+              cd "$RUNNER_TEMP/$variant"
+              CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --locked --profile release_debug --bin data-gen --bin datafusion-bench
+            )
+            cp target/release_debug/datafusion-bench "paired-binaries/$variant"
+          done
+          cp target/release_debug/data-gen paired-binaries/data-gen
+          sha256sum paired-binaries/* | tee paired-binaries/sha256.txt
+          printf '%s\n%s\n' "$BASELINE" "$CANDIDATE" > paired-binaries/revisions.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: paired-pruning-binaries
+          path: paired-binaries/
+
+  benchmark:
+    needs: build
+    runs-on: ${{ format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/tag=pruning-paired/extras=s3-cache', github.run_id) }}
+    timeout-minutes: 90
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - uses: ./.github/actions/setup-duckdb
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: paired-pruning-binaries
+          path: paired-binaries/
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Prepare shared datasets
+        run: |
+          set -Eeuo pipefail
+          chmod +x paired-binaries/baseline paired-binaries/candidate paired-binaries/data-gen
+          mkdir -p target/release_debug
+          cp paired-binaries/data-gen target/release_debug/data-gen
+          for suite in tpch tpcds clickbench polarsignals; do
+            uv run --project bench-orchestrator vx-bench prepare-data "$suite" --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=1.0
+          done
+          uv run --project bench-orchestrator vx-bench prepare-data tpch --formats-json '["vortex"]' --s3-cache s3://vortex-ci-benchmark-datasets/data-gen-cache/ --opt scale-factor=10.0
+      - name: Prepare benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Run balanced comparisons
+        run: bash scripts/bench-taskset.sh python3 scripts/pruning_validate.py --baseline paired-binaries/baseline --candidate paired-binaries/candidate --output paired-results
+      - name: Publish summary
+        run: |
+          cat paired-results/summary.csv
+          cat paired-results/summary.csv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: paired-pruning-results
+          path: |
+            paired-results/
+            paired-binaries/revisions.txt
+            paired-binaries/sha256.txt
