@@ -256,33 +256,26 @@ type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
-/// Exporters are stored in two indices: one keyed by Arrow extension Id (used for
-/// `execute_arrow` dispatch) and one keyed by Vortex extension Id (used **only** by
-/// `to_arrow_field` / `to_arrow_schema` inference, when callers need to translate a Vortex
-/// extension `DType` into an Arrow `Field` with no target schema in hand). Importers are
-/// keyed by Arrow extension name. Extension plugins are registered by the crate that owns the
-/// extension type (for example `vortex-uuid`); temporal extensions are handled by the canonical
-/// Arrow ↔ Vortex path and do not need plugins.
+/// A plugin converts one Vortex extension type to and from an Arrow extension type. The crate that
+/// owns the type registers its plugin, as `vortex-uuid` does. Temporal types need no plugin,
+/// because Arrow has native types for them.
 ///
-/// An extension type that does not have an exporter exports its storage field, with field metadata
-/// that names its Vortex ID and holds its serialized metadata ([`ext_metadata`] describes the
-/// format). DataFusion compares this metadata when it merges file schemas, so
-/// [`ExtDTypeRef::serialize_metadata`] must give equal bytes for equal dtypes. The export fails if
-/// the storage field already has an Arrow extension name, because one field cannot have two.
+/// An extension type without a plugin exports as its storage, and the Arrow field records the type
+/// so that an import can restore it. `ARROW:extension:name` holds the Vortex ID, and
+/// `ARROW:extension:metadata` holds the metadata in base64, since Arrow metadata must be UTF-8
+/// ([`ext_metadata`] describes the format). DataFusion compares this metadata when it merges file
+/// schemas, so [`ExtDTypeRef::serialize_metadata`] must give equal bytes for equal types.
 ///
-/// A caller can also export to such a field directly, for example one from
-/// [`Self::to_arrow_storage_field`]. If no exporter accepts the target, but its extension name is
-/// the Vortex ID of the array, the array exports its storage. This works for every extension type,
-/// so a caller can export a timestamp column as `Int64` without losing its type. However, the
-/// target must have the same metadata as the array, because different metadata would give the
-/// values a different meaning, such as a different time unit for a timestamp. To check this, a
-/// session that knows the Vortex ID rebuilds the dtype from the target and compares the dtypes, and
-/// any other session compares the metadata bytes.
+/// A caller can also export an array to a field that names its Vortex ID, such as a field from
+/// [`Self::to_arrow_storage_field`]. The export then checks that an import of the result gives back
+/// the same type. The field must have the same metadata, and its Arrow type must convert to the
+/// storage type (or to the type itself, such as an Arrow timestamp). Without these checks, values
+/// could silently change meaning, such as milliseconds that read back as seconds. For the same
+/// reason, an extension array cannot export to a field that names a different known Vortex ID.
 ///
-/// On import, the importers run first. If none of them accepts the field, but its extension name is
-/// a Vortex ID that the session knows (see [`initialize`]), the field imports as that extension
-/// type over its storage. In that case, the import fails if the type rejects the metadata or the
-/// storage. A field with any other extension name imports as plain storage.
+/// On import, the plugins run first. If none applies, a field that names a known Vortex ID imports
+/// as that type over its storage, and a field with any other name imports as plain storage. A
+/// Vortex ID is known if its type is registered in the session (see [`initialize`]).
 ///
 /// [`ext_metadata`]: crate::ext_metadata
 /// [`initialize`]: crate::initialize
@@ -341,8 +334,7 @@ impl ArrowSession {
     /// For [`DType::Extension`]s, plugins registered against the extension's `Id`
     /// are tried in registration order; the first plugin to return `Some(field)` wins.
     ///
-    /// An extension type without a plugin exports its storage field, plus Arrow extension metadata
-    /// that holds its Vortex ID (see [`ArrowSession`]).
+    /// An extension type without a plugin exports through [`Self::to_arrow_storage_field`].
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
         // Handle the structural encodings, which may have recursive types
         match dtype {
@@ -513,26 +505,40 @@ impl ArrowSession {
         Ok(field)
     }
 
-    /// Rebuild the extension dtype whose Vortex ID is the extension name of `field`, with
-    /// `storage_dtype` as its storage.
+    /// Returns the extension type that `field` names by Vortex ID, to wrap around `storage_dtype`.
     ///
-    /// Returns `None` if the session does not know that Vortex ID, and an error if the metadata of
-    /// `field` is not valid for that dtype.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
-    fn rebuild_ext_dtype_by_vortex_id(
+    /// Returns `None` if the session does not know that Vortex ID, or if `storage_dtype` already is
+    /// that type, such as an Arrow timestamp that names `vortex.timestamp`. Fails if the metadata
+    /// of `field` does not fit the type.
+    fn ext_dtype_to_wrap(
         &self,
         field: &Field,
         storage_dtype: &DType,
     ) -> VortexResult<Option<ExtDTypeRef>> {
-        let Some(dtype_plugin) = field
-            .extension_type_name()
-            .and_then(|name| self.ext_dtypes.get(&Id::new(name)))
-        else {
+        let Some(extension_name) = field.extension_type_name() else {
             return Ok(None);
         };
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+        let Some(ext_dtype_plugin) = self.ext_dtypes.get(&Id::new(extension_name)) else {
+            return Ok(None);
+        };
+        let metadata = decode_arrow_ext_metadata(field)?;
 
-        dtype_plugin
-            .deserialize(&decode_arrow_ext_metadata(field)?, storage_dtype.clone())
+        // Wrapping a storage that already is the type would nest the type inside itself.
+        let existing_ext_dtype = storage_dtype
+            .as_extension_opt()
+            .filter(|ext_dtype| ext_dtype.id() == ext_dtype_plugin.id());
+        if let Some(existing_ext_dtype) = existing_ext_dtype {
+            vortex_ensure!(
+                metadata == existing_ext_dtype.serialize_metadata()?,
+                "Arrow field {:?} must carry the metadata of {existing_ext_dtype}, got {metadata:?}",
+                field.name()
+            );
+            return Ok(None);
+        }
+
+        ext_dtype_plugin
+            .deserialize(&metadata, storage_dtype.clone())
             .map(Some)
     }
 
@@ -571,12 +577,10 @@ impl ArrowSession {
         let storage_dtype =
             self.from_arrow_datatype(field.data_type(), field.is_nullable().into())?;
 
-        Ok(
-            match self.rebuild_ext_dtype_by_vortex_id(field, &storage_dtype)? {
-                Some(ext_dtype) => DType::Extension(ext_dtype),
-                None => storage_dtype,
-            },
-        )
+        Ok(match self.ext_dtype_to_wrap(field, &storage_dtype)? {
+            Some(ext_dtype) => DType::Extension(ext_dtype),
+            None => storage_dtype,
+        })
     }
 
     /// Build the Vortex [`DType`] for an Arrow [`DataType`].
@@ -783,10 +787,9 @@ impl ArrowSession {
     }
 
     /// [`Self::from_arrow_array`] with the Arrow [`Field`] already resolved: peel a dictionary,
-    /// probe the import plugins registered for the field's extension name, then fall back to the
-    /// canonical conversion. If the extension name of the field is a Vortex ID that the session
-    /// knows, the result is wrapped in that extension type. Also the recursion point for nested
-    /// fields, which already have a [`Field`].
+    /// import through [`Self::from_arrow_array_with_importers`], and wrap the result in the
+    /// extension type if the extension name of the field is a Vortex ID that the session knows.
+    /// Also the recursion point for nested fields, which already have a [`Field`].
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array_inner(
         &self,
@@ -797,6 +800,23 @@ impl ArrowSession {
             return self.dictionary_from_arrow(array.as_ref(), field);
         }
 
+        let imported = self.from_arrow_array_with_importers(array, field)?;
+
+        match self.ext_dtype_to_wrap(field, imported.dtype())? {
+            Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
+            None => Ok(imported),
+        }
+    }
+
+    /// Probe the import plugins registered for the extension name of `field`, then fall back to
+    /// the canonical conversion. Unlike [`Self::from_arrow_array_inner`], this never wraps the
+    /// result in the extension type that a Vortex ID names.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_arrow_array_with_importers(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+    ) -> VortexResult<ArrayRef> {
         let mut current = array;
 
         if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
@@ -838,12 +858,7 @@ impl ArrowSession {
             }
         }
 
-        let imported = self.from_arrow_array_canonical(current.as_ref(), field)?;
-
-        match self.rebuild_ext_dtype_by_vortex_id(field, imported.dtype())? {
-            Some(ext_dtype) => Ok(ExtensionArray::try_new(ext_dtype, imported)?.into_array()),
-            None => Ok(imported),
-        }
+        self.from_arrow_array_canonical(current.as_ref(), field)
     }
 
     /// Recurse into Arrow container arrays so nested fields with extension metadata reach
@@ -955,7 +970,11 @@ impl ArrowSession {
                 let map = array.as_map();
                 let (entries, offsets) = trim_map_entries(map);
                 let entries_array: ArrowArrayRef = Arc::new(entries);
-                let entries = self.from_arrow_array_inner(entries_array, entries_field.as_ref())?;
+                // Map entries must import as a plain struct, so a Vortex ID on their field is
+                // ignored, as `from_arrow_datatype` also does. Wrapping the entries in that
+                // extension type would only make `map_from_arrow_parts` fail.
+                let entries =
+                    self.from_arrow_array_with_importers(entries_array, entries_field.as_ref())?;
                 map_from_arrow_parts(
                     entries,
                     &offsets,
@@ -1111,13 +1130,35 @@ impl ArrowExporter<'_> {
                 }
             }
 
+            // The registry can hold an alias, so compare the array with the ID of the dtype plugin
+            // that the extension name resolves to.
+            let named_vortex_id = self
+                .session
+                .ext_dtypes
+                .get(&arrow_ext_id)
+                .map(|dtype_plugin| dtype_plugin.id());
+
             if let Some(ext_dtype) = current
                 .dtype()
                 .as_extension_opt()
-                .filter(|ext_dtype| ext_dtype.id() == arrow_ext_id)
+                .filter(|ext_dtype| {
+                    ext_dtype.id() == arrow_ext_id || Some(ext_dtype.id()) == named_vortex_id
+                })
                 .cloned()
             {
                 return self.execute_arrow_ext_storage(current, &ext_dtype, target_field, ctx);
+            }
+
+            // Only an extension array fails on a target that names another Vortex ID. A plain
+            // array still exports to it, because plugins export their storage to the target that
+            // they receive.
+            if let (Some(ext_dtype), Some(named_vortex_id)) =
+                (current.dtype().as_extension_opt(), named_vortex_id)
+            {
+                vortex_bail!(
+                    "Arrow field {:?} names the extension type {named_vortex_id}, so the array must have that type, got {ext_dtype}",
+                    target_field.name()
+                );
             }
 
             debug!(
@@ -1132,8 +1173,8 @@ impl ArrowExporter<'_> {
         execute_arrow_naive(array, target.map(|field| field.data_type()), self, ctx)
     }
 
-    /// Export the storage of `array` to `target`, whose extension name is the Vortex ID of
-    /// `ext_dtype`. Fails if `target` does not have the metadata of `ext_dtype`.
+    /// Export `array`, whose type is `ext_dtype`, to `target`, whose extension name is the Vortex
+    /// ID of `ext_dtype`. [`ArrowSession`] describes the checks on `target`.
     fn execute_arrow_ext_storage(
         &self,
         array: ArrayRef,
@@ -1141,22 +1182,29 @@ impl ArrowExporter<'_> {
         target: &Field,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        match self
+        let target_metadata = decode_arrow_ext_metadata(target)?;
+        vortex_ensure!(
+            target_metadata == ext_dtype.serialize_metadata()?,
+            "Arrow field {:?} must carry the metadata of {ext_dtype}, got {target_metadata:?}",
+            target.name()
+        );
+
+        let target_dtype = self
             .session
-            .rebuild_ext_dtype_by_vortex_id(target, ext_dtype.storage_dtype())?
-        {
-            Some(target_dtype) => vortex_ensure!(
-                target_dtype == *ext_dtype,
-                "Arrow field {:?} must name {ext_dtype}, got {target_dtype}",
-                target.name()
-            ),
-            None => vortex_ensure!(
-                decode_arrow_ext_metadata(target)? == ext_dtype.serialize_metadata()?,
-                "Arrow field {:?} must carry the metadata of {ext_dtype}, got {:?}",
-                target.name(),
-                target.extension_type_metadata().unwrap_or_default()
-            ),
+            .from_arrow_datatype(target.data_type(), ext_dtype.nullability())?;
+
+        // An Arrow type that already holds the extension type, such as an Arrow timestamp, exports
+        // the array itself, so that the executor of that type checks its own parameters.
+        if target_dtype.eq_ignore_nullability(array.dtype()) {
+            return execute_arrow_naive(array, Some(target.data_type()), self, ctx);
         }
+
+        vortex_ensure!(
+            target_dtype.eq_ignore_nullability(ext_dtype.storage_dtype()),
+            "Arrow field {:?} must have an Arrow type that imports as the storage of {ext_dtype}, got {}",
+            target.name(),
+            target.data_type()
+        );
 
         let storage = array
             .execute::<ExtensionArray>(ctx)?
