@@ -279,7 +279,7 @@ impl VarBinData {
             && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
-            Self::validate_utf8(offsets, bytes.as_ref(), ctx)?;
+            Self::validate_utf8(offsets, bytes.as_ref(), validity, ctx)?;
         } else if offsets.is_host() {
             Self::validate_offsets(offsets, bytes.len(), ctx)?;
         }
@@ -340,23 +340,34 @@ impl VarBinData {
         Ok(())
     }
 
-    /// Validates that every value is valid UTF-8, including the values at null rows.
-    ///
-    /// A cast to a non-nullable dtype can make a null row valid without a new check of the bytes.
-    /// Thus the bytes at null rows must also be valid UTF-8.
+    /// Validates that every non-null value is valid UTF-8.
     fn validate_utf8(
         offsets: &ArrayRef,
         bytes: &[u8],
+        validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         // TODO(joe): update the created VarBin with this decompressed Array.
         let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(ctx)?;
+
+        // Array-backed validity is the only variant that needs an execution context: execute it into
+        // a mask once. The constant variants resolve null-ness without one. Resolving this before
+        // the per-type dispatch keeps the dtype loop simple.
+        let mask = match validity {
+            Validity::Array(_) => {
+                Some(validity.execute_mask(primitive_offsets.len().saturating_sub(1), ctx)?)
+            }
+            _ => None,
+        };
+        let all_invalid = validity.definitely_all_null();
 
         match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
             Self::validate_utf8_offsets(
                 offsets,
                 primitive_offsets.as_slice::<O>(),
                 bytes,
+                mask.as_ref(),
+                all_invalid,
                 ctx,
             )
         })
@@ -366,6 +377,8 @@ impl VarBinData {
         offsets: &ArrayRef,
         offsets_slice: &[O],
         bytes: &[u8],
+        mask: Option<&Mask>,
+        all_invalid: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let last_offset: usize = offsets_slice[offsets_slice.len() - 1].as_();
@@ -390,8 +403,8 @@ impl VarBinData {
             return Ok(());
         }
 
-        // The fast path failed. Check the offsets, then check the strings one by one to
-        // report the index of the string that is not valid.
+        // The fast path proves the offsets are valid. The per-string check below skips null
+        // rows, so it cannot find bad offsets at those rows.
         Self::validate_offsets(offsets, bytes.len(), ctx)?;
 
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
@@ -410,12 +423,16 @@ impl VarBinData {
             Ok(())
         };
 
+        // Invalid bytes at a null row fail the check above, so check valid strings one by one.
         for (i, (start, end)) in offsets_slice
             .windows(2)
             .map(|o| (o[0].as_(), o[1].as_()))
             .enumerate()
         {
-            validate_at(i, start, end)?;
+            let valid = mask.map_or(!all_invalid, |mask| mask.value(i));
+            if valid {
+                validate_at(i, start, end)?;
+            }
         }
         Ok(())
     }

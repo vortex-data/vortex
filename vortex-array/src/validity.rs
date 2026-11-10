@@ -383,8 +383,9 @@ impl Validity {
     /// `false`.
     ///
     /// The result depends on the statistics of the validity array, which can come from untrusted
-    /// input. An encoding must not depend on this result for memory safety: the values at null
-    /// rows must be safe to read.
+    /// input. An encoding must not depend on this result for memory safety. An encoding that does
+    /// not validate the values at null rows, such as `VarBin`, must read the validity values
+    /// itself before it makes those rows valid.
     #[inline]
     pub fn into_non_nullable(self, len: usize, ctx: &mut ExecutionCtx) -> Option<Validity> {
         match self {
