@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
@@ -27,27 +28,63 @@ use crate::segments::SegmentSource;
 /// finished would read the segment again. Neighbouring chunks run close together, so a small
 /// budget is enough to read each such segment once.
 ///
-/// Every segment request of every chunk looks a segment up here, so a hit takes only a shared
-/// lock: it marks the segment used rather than reordering anything. Eviction gives a segment that
-/// was used since it was queued a second chance at the back of the queue, which approximates
-/// least-recently-used order without a hit ever waiting for another.
+/// Every segment request of every chunk looks a segment up here, from many threads at once.
+/// Segments are spread over shards, each behind its own lock, and a hit takes only a shared lock
+/// on its shard: it marks the segment used rather than reordering anything. Eviction gives a
+/// segment that was used since it was queued a second chance at the back of its shard's queue,
+/// which approximates least-recently-used order without a hit ever waiting for another. The
+/// budget is shared: an insert evicts from its own shard until the retained bytes of all shards
+/// fit, and a shard left holding only the inserted segment leaves the rest to later inserts.
 pub(super) struct RetainedSegments {
     budget: u64,
-    state: RwLock<State>,
+    /// The retained bytes of every shard.
+    bytes: AtomicU64,
+    shards: Box<[RwLock<State>]>,
 }
+
+/// The shards a file's retained segments are spread over.
+const SHARDS: usize = 16;
 
 /// The bytes a file's scans retain by default.
 const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
 
 impl Default for RetainedSegments {
     fn default() -> Self {
+        // EXPERIMENT (not for merge): XP_MODE=*_nr retains nothing.
+        #[allow(clippy::disallowed_methods)]
+        if std::env::var("XP_MODE").is_ok_and(|m| m.ends_with("_nr")) {
+            return Self::new(0);
+        }
         Self::new(DEFAULT_RETAINED_BYTES)
+    }
+}
+
+/// EXPERIMENT (not for merge): lock-wait and request timings for the CI A/B.
+#[doc(hidden)]
+#[allow(missing_docs)]
+pub mod xp_layout {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::time::Instant;
+
+    pub static RETAIN_READ_WAIT_NS: AtomicU64 = AtomicU64::new(0);
+    pub static RETAIN_WRITE_WAIT_NS: AtomicU64 = AtomicU64::new(0);
+    pub static REQUEST_NS: AtomicU64 = AtomicU64::new(0);
+    pub static REQUESTS: AtomicU64 = AtomicU64::new(0);
+
+    pub fn add(c: &AtomicU64, since: Instant) {
+        c.fetch_add(u64::try_from(since.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
+    }
+
+    pub fn reset() {
+        for c in [&RETAIN_READ_WAIT_NS, &RETAIN_WRITE_WAIT_NS, &REQUEST_NS, &REQUESTS] {
+            c.store(0, Relaxed);
+        }
     }
 }
 
 #[derive(Default)]
 struct State {
-    bytes: u64,
     segments: FxHashMap<SegmentId, Retained>,
     /// Retained segments in the order they were queued, oldest first.
     queue: VecDeque<SegmentId>,
@@ -61,14 +98,25 @@ struct Retained {
 
 impl RetainedSegments {
     pub(super) fn new(budget: u64) -> Self {
+        Self::with_shards(budget, SHARDS)
+    }
+
+    fn with_shards(budget: u64, shards: usize) -> Self {
         Self {
             budget,
-            state: RwLock::default(),
+            bytes: AtomicU64::new(0),
+            shards: (0..shards.max(1)).map(|_| RwLock::default()).collect(),
         }
     }
 
+    fn shard(&self, id: SegmentId) -> &RwLock<State> {
+        &self.shards[*id as usize % self.shards.len()]
+    }
+
     fn get(&self, id: SegmentId) -> Option<BufferHandle> {
-        let state = self.state.read();
+        let t = std::time::Instant::now();
+        let state = self.shard(id).read();
+        xp_layout::add(&xp_layout::RETAIN_READ_WAIT_NS, t);
         let retained = state.segments.get(&id)?;
         // Skip the store when already set, so hits on a shared segment do not keep writing to it.
         if !retained.used.load(Ordering::Relaxed) {
@@ -82,7 +130,9 @@ impl RetainedSegments {
         if !buffer.is_on_host() || len > self.budget / 4 {
             return;
         }
-        let mut state = self.state.write();
+        let t = std::time::Instant::now();
+        let mut state = self.shard(id).write();
+        xp_layout::add(&xp_layout::RETAIN_WRITE_WAIT_NS, t);
         if state.segments.contains_key(&id) {
             return;
         }
@@ -94,8 +144,12 @@ impl RetainedSegments {
             },
         );
         state.queue.push_back(id);
-        state.bytes += len;
-        while state.bytes > self.budget {
+        self.bytes.fetch_add(len, Ordering::Relaxed);
+        // Two passes over the shard's queue clear every mark once, so the loop ends even when
+        // the shard holds only the inserted segment.
+        let mut visits = 2 * state.queue.len();
+        while visits > 0 && self.bytes.load(Ordering::Relaxed) > self.budget {
+            visits -= 1;
             let Some(oldest) = state.queue.pop_front() else {
                 break;
             };
@@ -103,14 +157,14 @@ impl RetainedSegments {
                 continue;
             };
             // The segment being inserted is about to be used, and a segment used since it was
-            // queued goes to the back once, unmarked. Neither loops forever: the inserted segment
-            // fits the budget alone, and every other pass clears a mark.
+            // queued goes to the back once, unmarked.
             if oldest == id || retained.used.swap(false, Ordering::Relaxed) {
                 state.queue.push_back(oldest);
                 continue;
             }
             if let Some(evicted) = state.segments.remove(&oldest) {
-                state.bytes -= evicted.buffer.len() as u64;
+                self.bytes
+                    .fetch_sub(evicted.buffer.len() as u64, Ordering::Relaxed);
             }
         }
     }
@@ -125,14 +179,20 @@ pub(super) struct RetainingSegmentSource {
 
 impl SegmentSource for RetainingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        let t = std::time::Instant::now();
+        xp_layout::REQUESTS.fetch_add(1, Ordering::Relaxed);
         if let Some(buffer) = self.retained.get(id) {
+            xp_layout::add(&xp_layout::REQUEST_NS, t);
             return futures::future::ready(Ok(buffer)).boxed();
         }
         let retained = Arc::clone(&self.retained);
-        self.inner
+        let fut = self
+            .inner
             .request(id)
             .inspect_ok(move |buffer| retained.insert(id, buffer))
-            .boxed()
+            .boxed();
+        xp_layout::add(&xp_layout::REQUEST_NS, t);
+        fut
     }
 }
 
@@ -150,7 +210,7 @@ mod tests {
 
     #[test]
     fn evicts_least_recently_used_past_budget() {
-        let retained = RetainedSegments::new(400);
+        let retained = RetainedSegments::with_shards(400, 1);
         retained.insert(SegmentId::from(0), &buffer(100));
         retained.insert(SegmentId::from(1), &buffer(100));
         retained.insert(SegmentId::from(2), &buffer(100));
@@ -167,7 +227,7 @@ mod tests {
 
     #[test]
     fn evicts_within_budget_when_every_segment_was_used() {
-        let retained = RetainedSegments::new(400);
+        let retained = RetainedSegments::with_shards(400, 1);
         for id in 0..4 {
             retained.insert(SegmentId::from(id), &buffer(100));
         }
@@ -184,8 +244,21 @@ mod tests {
     }
 
     #[test]
+    fn shards_share_one_budget() {
+        let retained = RetainedSegments::with_shards(400, 4);
+        for id in 0..8 {
+            retained.insert(SegmentId::from(id), &buffer(100));
+        }
+        let kept = (0..8)
+            .filter(|id| retained.get(SegmentId::from(*id)).is_some())
+            .count();
+        assert_eq!(kept, 4);
+        assert!(retained.get(SegmentId::from(7)).is_some());
+    }
+
+    #[test]
     fn skips_segments_over_a_quarter_of_the_budget() {
-        let retained = RetainedSegments::new(400);
+        let retained = RetainedSegments::with_shards(400, 1);
         retained.insert(SegmentId::from(0), &buffer(101));
         assert!(retained.get(SegmentId::from(0)).is_none());
     }
