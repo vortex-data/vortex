@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Run-end arrays and their execution into logical values.
+//!
+//! Each end is an exclusive logical index paired with the value for its preceding run. Decoding
+//! **must** apply a slice's logical offset before expanding those values. Specialized decoders
+//! handle common storage types. The generic fallback gathers values to retain their logical dtype.
+
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -52,6 +58,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 mod plugin;
+mod to_dict;
 
 /// A [`RunEnd`]-encoded Vortex array.
 pub type RunEndArray = Array<RunEnd>;
@@ -482,7 +489,7 @@ pub(super) fn run_end_canonicalize(
                 .execute_as::<ListViewArray>("values", ctx)?;
             runend_decode_listview(pends, values, array.offset(), array.len())?.into_array()
         }
-        _ => vortex_bail!("Unsupported RunEnd value type: {}", array.dtype()),
+        _ => array.to_dict(ctx)?.into_array(),
     })
 }
 
