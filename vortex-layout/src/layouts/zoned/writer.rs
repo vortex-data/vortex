@@ -481,8 +481,7 @@ mod tests {
 
     #[test]
     fn default_aggregates_bound_variable_length_min_max() {
-        let aggregate_fns =
-            default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable));
+        let aggregate_fns = default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable));
 
         assert_eq!(
             aggregate_fns[0].as_::<BoundedMax>().max_bytes,

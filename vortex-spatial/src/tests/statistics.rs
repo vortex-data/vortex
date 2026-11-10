@@ -106,7 +106,8 @@ fn zone_bounds_are_opt_in(
                 FlatLayoutStrategy::default(),
                 ZonedLayoutOptions {
                     block_size: NonZeroUsize::new(2).vortex_expect("non-zero zone size"),
-                    aggregate_fns: record_bounds.then(|| Arc::from([GeometryAabb.bind(EmptyOptions)])),
+                    aggregate_fns: record_bounds
+                        .then(|| Arc::from([GeometryAabb.bind(EmptyOptions)])),
                     ..Default::default()
                 },
             ),
@@ -124,7 +125,9 @@ fn zone_bounds_are_opt_in(
             .with_file_statistics(vec![])
             .write(&mut buffer, array.to_array_stream())
             .await?;
-        let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+        let file = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buffer))?;
         assert!(file.file_stats().is_none());
         let zones = file
             .footer()
@@ -168,7 +171,8 @@ fn explicit_file_bounds_span_batches(
             geometry_batch(vec![Some((-10.0, 80.0)), Some((30.0, 40.0))], nested)?,
         ];
         let dtype = batches[0].dtype().clone();
-        let stream = ArrayIteratorAdapter::new(dtype, batches.into_iter().map(Ok)).into_array_stream();
+        let stream =
+            ArrayIteratorAdapter::new(dtype, batches.into_iter().map(Ok)).into_array_stream();
         let mut options = session
             .write_options()
             .include_nested_statistics()
@@ -183,7 +187,9 @@ fn explicit_file_bounds_span_batches(
         }
         let mut buffer = ByteBufferMut::empty();
         let summary = options.write(&mut buffer, stream).await?;
-        let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+        let file = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buffer))?;
         let path = if nested {
             FieldPath::from_name("location").push("geom")
         } else {
@@ -237,7 +243,9 @@ fn file_bounds_enable_spatial_pruning(
             })
             .write(&mut buffer, batch.to_array_stream())
             .await?;
-        let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+        let file = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buffer))?;
         let column = get_item(
             "geom",
             if nested {
@@ -285,7 +293,9 @@ fn file_bounds_enable_spatial_pruning(
 }
 
 #[rstest]
-fn file_statistics_without_geometry_bounds(#[values(false, true)] disabled: bool) -> VortexResult<()> {
+fn file_statistics_without_geometry_bounds(
+    #[values(false, true)] disabled: bool,
+) -> VortexResult<()> {
     block_on(|handle| async move {
         let session = file_session(handle)?;
         crate::initialize(&session);
@@ -302,7 +312,9 @@ fn file_statistics_without_geometry_bounds(#[values(false, true)] disabled: bool
             .with_file_statistics(requested)
             .write(&mut buffer, batch.to_array_stream())
             .await?;
-        let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+        let file = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buffer))?;
         if disabled {
             assert!(file.file_stats().is_none());
         } else {
@@ -336,7 +348,9 @@ fn default_file_statistics_do_not_record_geometry_bounds(
             options
         };
         let summary = options.write(&mut buffer, batch.to_array_stream()).await?;
-        let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+        let file = session
+            .open_options()
+            .open_buffer(ByteBuffer::from(buffer))?;
         for stats in [summary.footer().statistics(), file.file_stats()] {
             let (stats, _) = stats
                 .and_then(|stats| stats.get_by_path(&FieldPath::from_name("geom")))
@@ -375,7 +389,9 @@ fn spatial_initialization_preserves_ordinary_file_statistics(
                 options
             };
             options.write(&mut buffer, batch.to_array_stream()).await?;
-            let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+            let file = session
+                .open_options()
+                .open_buffer(ByteBuffer::from(buffer))?;
             statistics.push(
                 file.file_stats()
                     .ok_or_else(|| vortex_err!("missing file statistics"))?

@@ -263,7 +263,6 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
