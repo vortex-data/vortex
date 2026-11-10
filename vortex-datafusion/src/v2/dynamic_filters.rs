@@ -9,6 +9,8 @@ use datafusion_expr::Operator as DFOperator;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::BinaryExpr;
+use datafusion_physical_expr::expressions::Column;
+use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_generation;
 use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
@@ -116,16 +118,64 @@ impl DynamicExpressionSource for DataFusionDynamicFilter {
     }
 
     fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
-        let converted = snapshot_physical_expr(Arc::clone(&self.expression))
-            .and_then(|snapshot| self.converter.try_convert(&snapshot, &self.schema))
-            .ok()
-            .flatten()
-            .filter(is_infallible);
-        // The producing DataFusion operator retains exact enforcement when conversion fails.
-        let expression = converted.map_or_else(
-            || lit(true),
-            |expr| replace(expr, &root(), self.scope_projection.clone()),
-        );
+        // Unsupported leaves may share an AND with useful bounds. Preserve those bounds;
+        // replacing unsupported OR children with true conservatively disables that branch.
+        let expression = snapshot_physical_expr(Arc::clone(&self.expression))
+            .map(|snapshot| {
+                convert_snapshot(&snapshot, &self.schema, self.converter.as_ref(), true)
+            })
+            .map(|expression| replace(expression, &root(), self.scope_projection.clone()))
+            .unwrap_or_else(|_| lit(true));
         expression.bind(scope)
     }
+}
+
+// A whole convertible snapshot retains the converter's existing behavior. Partial rescue is
+// limited to simple integer comparisons: infallibility alone does not prove equal semantics
+// for other domains, such as floating-point signed zero.
+fn convert_snapshot(
+    expression: &Arc<dyn PhysicalExpr>,
+    schema: &arrow_schema::Schema,
+    converter: &dyn ExpressionConverter,
+    whole: bool,
+) -> Expression {
+    let integer_comparison = expression
+        .downcast_ref::<BinaryExpr>()
+        .is_some_and(|binary| {
+            matches!(
+                binary.op(),
+                DFOperator::Eq
+                    | DFOperator::NotEq
+                    | DFOperator::Lt
+                    | DFOperator::LtEq
+                    | DFOperator::Gt
+                    | DFOperator::GtEq
+            ) && [binary.left(), binary.right()].into_iter().all(|operand| {
+                (operand.is::<Column>() || operand.is::<Literal>())
+                    && operand
+                        .data_type(schema)
+                        .is_ok_and(|dtype| dtype.is_integer())
+            })
+        });
+    if (whole || integer_comparison || expression.is::<Literal>())
+        && let Ok(Some(converted)) = converter.try_convert(expression, schema)
+        && is_infallible(&converted)
+    {
+        return converted;
+    }
+    if let Some(binary_expr) = expression.downcast_ref::<BinaryExpr>() {
+        let operator = match binary_expr.op() {
+            DFOperator::And => Some(Operator::And),
+            DFOperator::Or => Some(Operator::Or),
+            _ => None,
+        };
+        if let Some(operator) = operator {
+            return binary(
+                operator,
+                convert_snapshot(binary_expr.left(), schema, converter, false),
+                convert_snapshot(binary_expr.right(), schema, converter, false),
+            );
+        }
+    }
+    lit(true)
 }
