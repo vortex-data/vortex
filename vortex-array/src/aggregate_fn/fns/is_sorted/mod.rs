@@ -167,7 +167,7 @@ pub fn is_strict_sorted(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResul
 ///
 /// Properties:
 /// - Null handling follows the ascending checks in both directions, nulls sort first,
-/// except that non-strict Boolean batches skip nulls.
+///   except that non-strict Boolean batches skip nulls.
 /// - Empty arrays and arrays of length one are always sorted, including in strict mode.
 /// - Only ascending results use cached sortedness statistics.
 pub fn is_sorted_with_options(
