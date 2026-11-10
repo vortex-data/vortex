@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Export run-end arrays without expanding their logical values.
+//!
+//! Vortex slices retain absolute run ends. Adjusting before narrowing to Arrow's requested integer
+//! width keeps small slices exportable even when their source indices are large. The values field
+//! retains extension metadata so imports recover the same logical type.
+
 use std::sync::Arc;
 
+use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RunArray;
 use arrow_array::cast::AsArray;
+use arrow_array::make_array;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_buffer::ArrowNativeType;
@@ -16,10 +24,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::RunEndArray;
 use vortex_array::arrays::runend::RunEndArrayExt;
 use vortex_array::arrays::runend::RunEndArraySlotsExt;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -44,7 +54,35 @@ impl Matcher for ArrowRunEndExportable {
 pub(super) fn to_arrow_run_end(
     array: ArrayRef,
     ends_type: &DataType,
-    values_type: &Field,
+    values_field: &Field,
+    options: &ArrowExportOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let data_type = DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", ends_type.clone(), false)),
+        Arc::new(values_field.clone()),
+    );
+    if array.is_empty() {
+        return Ok(new_null_array(&data_type, 0));
+    }
+
+    // Arrow's RunArray constructors synthesize a values field without extension metadata.
+    // Retain the caller's field so the array remains consistent with its export schema.
+    let exported = build_run_end_array(array, ends_type, values_field, options, ctx)?;
+
+    Ok(make_array(
+        exported
+            .to_data()
+            .into_builder()
+            .data_type(data_type)
+            .build()?,
+    ))
+}
+
+fn build_run_end_array(
+    array: ArrayRef,
+    ends_type: &DataType,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
@@ -52,118 +90,108 @@ pub(super) fn to_arrow_run_end(
 
     let array = match array.try_downcast::<Constant>() {
         Ok(constant) => {
-            return constant_to_run_end(constant, ends_type, values_type, options, ctx);
+            return constant_to_run_end(constant, ends_type, values_field, options, ctx);
         }
         Err(array) => array,
     };
     let array = match array.try_downcast::<RunEnd>() {
-        Ok(run_end) => return run_end_to_arrow(run_end, ends_type, values_type, options, ctx),
+        Ok(run_end) => return run_end_to_arrow(run_end, ends_type, values_field, options, ctx),
         Err(array) => array,
     };
 
     // Fallback: canonicalize to flat Arrow, then cast to REE.
-    let flat = export_values(array, values_type, options, ctx)?;
+    let flat = array.execute_arrow_with_options(Some(values_field), options, ctx)?;
     let ree_type = DataType::RunEndEncoded(
         Arc::new(Field::new("run_ends", ends_type.clone(), false)),
-        Arc::new(values_type.clone()),
+        Arc::new(values_field.clone()),
     );
     arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
-}
-
-/// Export the values of a run-end array through the session, so extension metadata on the target
-/// values field dispatches to its export plugin instead of the naive Arrow mapping.
-fn export_values(
-    values: ArrayRef,
-    values_type: &Field,
-    options: &ArrowExportOptions,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrowArrayRef> {
-    values.execute_arrow_with_options(Some(values_type), options, ctx)
 }
 
 fn run_end_to_arrow(
     array: RunEndArray,
     ends_type: &DataType,
-    values_type: &Field,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let length = array.len();
-    let offset = array.offset();
+    let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
+    let (runs, ends) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+        let run_ends = ends.as_slice::<E>();
+        let length = E::try_from(array.len())?;
 
-    let arrow_ends = execute_arrow_naive(array.ends().clone(), Some(ends_type), options, ctx)?;
-    let arrow_values = export_values(array.values().clone(), values_type, options, ctx)?;
+        if array.offset() == 0
+            && run_ends.first().is_some_and(|&end| end > 0)
+            && run_ends.last() == Some(&length)
+        {
+            (0..run_ends.len(), ends.clone().into_array())
+        } else {
+            let offset = E::try_from(array.offset())?;
+
+            // A run ending at the offset contributes no rows. Retaining it would give Arrow a
+            // zero end, and retaining trailing runs would give duplicate ends after clamping.
+            let start = run_ends.partition_point(|&end| end <= offset);
+            let end = start + run_ends[start..].partition_point(|&end| end - offset < length);
+            let end = (end + 1).min(run_ends.len());
+            let adjusted = PrimitiveArray::from_iter(
+                run_ends[start..end]
+                    .iter()
+                    .map(|&end| (end - offset).min(length)),
+            )
+            .into_array();
+
+            (start..end, adjusted)
+        }
+    });
+    let values = if runs.start == 0 && runs.end == array.values().len() {
+        array.values().clone()
+    } else {
+        array.values().slice(runs)?
+    };
+
+    // Narrow only the relative ends: absolute indices can exceed the target's range even when
+    // this slice fits. Unadjusted ends and values keep the existing buffer-sharing export path.
+    let arrow_ends = execute_arrow_naive(ends, Some(ends_type), options, ctx)?;
+    let arrow_values = values.execute_arrow_with_options(Some(values_field), options, ctx)?;
 
     match ends_type {
-        DataType::Int16 => build_run_array::<Int16Type>(&arrow_ends, &arrow_values, offset, length),
-        DataType::Int32 => build_run_array::<Int32Type>(&arrow_ends, &arrow_values, offset, length),
-        DataType::Int64 => build_run_array::<Int64Type>(&arrow_ends, &arrow_values, offset, length),
+        DataType::Int16 => Ok(Arc::new(RunArray::<Int16Type>::try_new(
+            arrow_ends.as_primitive::<Int16Type>(),
+            &arrow_values,
+        )?)),
+        DataType::Int32 => Ok(Arc::new(RunArray::<Int32Type>::try_new(
+            arrow_ends.as_primitive::<Int32Type>(),
+            &arrow_values,
+        )?)),
+        DataType::Int64 => Ok(Arc::new(RunArray::<Int64Type>::try_new(
+            arrow_ends.as_primitive::<Int64Type>(),
+            &arrow_values,
+        )?)),
         _ => vortex_bail!("Unsupported run-end index type: {:?}", ends_type),
     }
-}
-
-fn build_run_array<R: RunEndIndexType>(
-    ends: &ArrowArrayRef,
-    values: &ArrowArrayRef,
-    offset: usize,
-    length: usize,
-) -> VortexResult<ArrowArrayRef>
-where
-    R::Native: std::ops::Sub<Output = R::Native> + Ord,
-{
-    let offset_native = R::Native::from_usize(offset)
-        .ok_or_else(|| vortex_err!("Offset {offset} exceeds run-end index capacity"))?;
-    let length_native = R::Native::from_usize(length)
-        .ok_or_else(|| vortex_err!("Length {length} exceeds run-end index capacity"))?;
-
-    let ends_prim = ends.as_primitive::<R>();
-    if offset == 0 && ends_prim.values().last() == Some(&length_native) {
-        // Fast path: no trimming or adjustment needed.
-        return Ok(Arc::new(RunArray::<R>::try_new(ends_prim, values)?) as ArrowArrayRef);
-    }
-
-    // Trim to only include runs covering the [offset, offset+length) range.
-    // Runs beyond this would produce duplicate adjusted ends, violating
-    // Arrow's strict-ordering requirement for RunArray.
-    // Run ends are strictly increasing, so we can binary search.
-    let num_runs = (ends_prim
-        .values()
-        .partition_point(|&e| e - offset_native < length_native)
-        + 1)
-    .min(ends_prim.len());
-
-    let trimmed_ends = ends.slice(0, num_runs);
-    let trimmed_values = values.slice(0, num_runs);
-
-    let adjusted = trimmed_ends
-        .as_primitive::<R>()
-        .unary(|end| (end - offset_native).min(length_native));
-
-    Ok(Arc::new(RunArray::<R>::try_new(&adjusted, &trimmed_values)?) as ArrowArrayRef)
 }
 
 /// Convert a constant array to a run-end encoded array with a single run.
 fn constant_to_run_end(
     array: ConstantArray,
     ends_type: &DataType,
-    values_type: &Field,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
     let scalar = array.scalar();
 
-    if scalar.is_null() || len == 0 {
+    if scalar.is_null() {
         let ree_type = DataType::RunEndEncoded(
             Arc::new(Field::new("run_ends", ends_type.clone(), false)),
-            Arc::new(values_type.clone()),
+            Arc::new(values_field.clone()),
         );
         return Ok(new_null_array(&ree_type, len));
     }
 
-    let values = export_values(
-        ConstantArray::new(scalar.clone(), 1).into_array(),
-        values_type,
+    let values = ConstantArray::new(scalar.clone(), 1).execute_arrow_with_options(
+        Some(values_field),
         options,
         ctx,
     )?;
@@ -201,13 +229,18 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
+    use vortex_array::extension::datetime::Date;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -215,9 +248,54 @@ mod tests {
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
+    use crate::ArrowSessionExt;
     use crate::ExecuteArrowExt;
     use crate::executor::run_end::ConstantArray;
     use crate::executor::run_end::RunEnd;
+
+    #[track_caller]
+    fn check_temporal_run_end_round_trip(len: usize, sliced: bool) -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let arrow = session.arrow();
+        let mut ctx = session.create_execution_ctx();
+        let dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
+        let values = ExtensionArray::try_new(
+            dtype,
+            PrimitiveArray::from_iter((0..i32::try_from(len)?).map(|i| 7 + i * 4)).into_array(),
+        )?
+        .into_array();
+        let source = RunEnd::try_new(
+            PrimitiveArray::from_iter((1..=u32::try_from(len)?).map(|i| i * 2)).into_array(),
+            values.clone(),
+            &mut ctx,
+        )?
+        .into_array();
+        let source = if sliced && !source.is_empty() {
+            source.slice(1..source.len())?
+        } else {
+            source
+        };
+
+        let start = u32::from(sliced && len > 0);
+        let expected = values.take(
+            PrimitiveArray::from_iter((start..u32::try_from(len * 2)?).map(|i| i / 2)).into_array(),
+        )?;
+        let values_field = arrow.to_arrow_field("dates", source.dtype())?;
+        let field = Field::new(
+            "dates",
+            DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", DataType::Int32, false)),
+                Arc::new(values_field),
+            ),
+            false,
+        );
+        let exported = source.execute_arrow(Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, expected, &mut ctx);
+
+        Ok(())
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -228,10 +306,7 @@ mod tests {
         )
     }
 
-    fn execute(
-        array: vortex_array::ArrayRef,
-        dt: &DataType,
-    ) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
         let field = Field::new("", dt.clone(), array.dtype().is_nullable());
         array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())
     }
@@ -284,7 +359,7 @@ mod tests {
         ),
     )]
     fn constant_to_ree(
-        #[case] input: vortex_array::ArrayRef,
+        #[case] input: ArrayRef,
         #[case] target_type: DataType,
         #[case] expected: arrow_array::ArrayRef,
     ) -> VortexResult<()> {
@@ -344,37 +419,47 @@ mod tests {
         Ok(())
     }
 
-    /// Regression: build_run_array must trim excess trailing runs and
-    /// respect the `length` parameter. This happens when a vortex
-    /// RunEndArray is sliced to fewer rows than the physical run_ends cover.
     #[rstest]
-    #[case::offset_zero(0, 5, &[3, 5], &[100, 200])]
-    #[case::nonzero_offset(2, 3, &[1, 3], &[100, 200])]
-    #[case::all_runs_needed_but_last_exceeds(0, 8, &[3, 5, 8], &[100, 200, 300])]
-    fn build_run_array_trims_excess_runs(
+    #[case::offset_zero(        &[3, 5, 10],      0,     5, &[3, 5],    &[100, 200])]
+    #[case::nonzero_offset(     &[3, 5, 10],      2,     3, &[1, 3],    &[100, 200])]
+    #[case::clipped_last_run(   &[3, 5, 10],      0,     8, &[3, 5, 8], &[100, 200, 300])]
+    #[case::run_boundary(       &[3, 5, 10],      3,     4, &[2, 4],    &[200, 300])]
+    #[case::large_absolute_ends(&[40000, 40002], 39999, 3, &[1, 3],    &[100, 200])]
+    #[case::empty_retained_runs(&[3, 5, 10],      11,    0, &[],        &[])]
+    fn run_end_export_trims_runs(
+        #[case] ends: &[u32],
         #[case] offset: usize,
         #[case] length: usize,
-        #[case] expected_ends: &[i32],
+        #[case] expected_ends: &[i16],
         #[case] expected_values: &[i64],
     ) -> VortexResult<()> {
-        // 3 runs covering 10 rows: [0..3), [3..5), [5..10)
-        let ends: arrow_array::ArrayRef = Arc::new(Int32Array::from(vec![3i32, 5, 10]));
-        let values: arrow_array::ArrayRef = Arc::new(Int64Array::from(vec![100i64, 200, 300]));
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = RunEnd::try_new_offset_length(
+            PrimitiveArray::from_iter(ends.iter().copied()).into_array(),
+            PrimitiveArray::from_iter((0..ends.len()).map(|i| (i as i64 + 1) * 100)).into_array(),
+            offset,
+            length,
+            &mut ctx,
+        )?;
 
-        let result = super::build_run_array::<Int32Type>(&ends, &values, offset, length)?;
+        let result = execute(
+            array.into_array(),
+            &ree_type(DataType::Int16, DataType::Int64),
+        )?;
         assert_eq!(result.len(), length);
+        let expected = RunArray::<Int16Type>::try_new(
+            &Int16Array::from(expected_ends.to_vec()),
+            &Int64Array::from(expected_values.to_vec()),
+        )?;
+        assert_eq!(result.as_ref(), &expected);
 
-        let ree = result
-            .as_any()
-            .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
-        assert_eq!(ree.run_ends().values(), expected_ends);
-        let values = ree
-            .values()
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
-        assert_eq!(values.values(), expected_values);
         Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(0, false)]
+    #[case::sliced(3, true)]
+    fn temporal_run_end_round_trip(#[case] len: usize, #[case] sliced: bool) -> VortexResult<()> {
+        check_temporal_run_end_round_trip(len, sliced)
     }
 }

@@ -20,7 +20,7 @@ use crate::arrays::dict::TakeExecute;
 use crate::arrays::runend::RunEnd;
 use crate::arrays::runend::array::RunEndArrayExt;
 use crate::arrays::runend::array::RunEndArraySlotsExt;
-use crate::arrays::runend::iter::trimmed_ends_iter;
+use crate::arrays::runend::iter::slice_relative_ends;
 use crate::dtype::UnsignedPType;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
@@ -378,7 +378,7 @@ where
 {
     let mut table = BufferMut::with_capacity(len);
     let mut run_start = 0;
-    for (run_idx, run_end) in trimmed_ends_iter(ends, offset, len).enumerate() {
+    for (run_idx, run_end) in slice_relative_ends(ends, offset, len).enumerate() {
         table.push_n(run_idx.as_(), run_end - run_start);
         run_start = run_end;
     }
