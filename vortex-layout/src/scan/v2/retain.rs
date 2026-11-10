@@ -3,12 +3,14 @@
 
 //! Keeps recently read segments so the chunks of a scan that share a segment read it once.
 
-use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use vortex_array::buffer::BufferHandle;
 
@@ -16,16 +18,22 @@ use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// The host bytes of recently read segments, evicting the least recently used past a budget.
+/// The host bytes of recently read segments, evicting segments that have gone unused the longest
+/// once past a budget.
 ///
 /// A V2 scan cuts its rows into chunks that each read through a session of their own, and a
 /// stored segment that spans a chunk boundary is read by every chunk it overlaps. The file's segment
 /// source shares a read only while it is in flight, so a chunk that starts after its neighbour
 /// finished would read the segment again. Neighbouring chunks run close together, so a small
 /// budget is enough to read each such segment once.
+///
+/// Every segment request of every chunk looks a segment up here, so a hit takes only a shared
+/// lock: it marks the segment used rather than reordering anything. Eviction gives a segment that
+/// was used since it was queued a second chance at the back of the queue, which approximates
+/// least-recently-used order without a hit ever waiting for another.
 pub(super) struct RetainedSegments {
     budget: u64,
-    state: Mutex<State>,
+    state: RwLock<State>,
 }
 
 /// The bytes a file's scans retain by default.
@@ -40,31 +48,33 @@ impl Default for RetainedSegments {
 #[derive(Default)]
 struct State {
     bytes: u64,
-    tick: u64,
-    /// Each retained segment and the tick of its last use.
-    segments: FxHashMap<SegmentId, (BufferHandle, u64)>,
-    /// Retained segments by the tick of their last use, oldest first.
-    by_use: BTreeMap<u64, SegmentId>,
+    segments: FxHashMap<SegmentId, Retained>,
+    /// Retained segments in the order they were queued, oldest first.
+    queue: VecDeque<SegmentId>,
+}
+
+struct Retained {
+    buffer: BufferHandle,
+    /// Whether the segment was used since it was last queued.
+    used: AtomicBool,
 }
 
 impl RetainedSegments {
     pub(super) fn new(budget: u64) -> Self {
         Self {
             budget,
-            state: Mutex::default(),
+            state: RwLock::default(),
         }
     }
 
     fn get(&self, id: SegmentId) -> Option<BufferHandle> {
-        let mut state = self.state.lock();
-        state.tick += 1;
-        let tick = state.tick;
-        let (buffer, used) = state.segments.get_mut(&id)?;
-        let buffer = buffer.clone();
-        let previous = std::mem::replace(used, tick);
-        state.by_use.remove(&previous);
-        state.by_use.insert(tick, id);
-        Some(buffer)
+        let state = self.state.read();
+        let retained = state.segments.get(&id)?;
+        // Skip the store when already set, so hits on a shared segment do not keep writing to it.
+        if !retained.used.load(Ordering::Relaxed) {
+            retained.used.store(true, Ordering::Relaxed);
+        }
+        Some(retained.buffer.clone())
     }
 
     fn insert(&self, id: SegmentId, buffer: &BufferHandle) {
@@ -72,21 +82,35 @@ impl RetainedSegments {
         if !buffer.is_on_host() || len > self.budget / 4 {
             return;
         }
-        let mut state = self.state.lock();
+        let mut state = self.state.write();
         if state.segments.contains_key(&id) {
             return;
         }
-        state.tick += 1;
-        let tick = state.tick;
-        state.segments.insert(id, (buffer.clone(), tick));
-        state.by_use.insert(tick, id);
+        state.segments.insert(
+            id,
+            Retained {
+                buffer: buffer.clone(),
+                used: AtomicBool::new(false),
+            },
+        );
+        state.queue.push_back(id);
         state.bytes += len;
         while state.bytes > self.budget {
-            let Some((_, oldest)) = state.by_use.pop_first() else {
+            let Some(oldest) = state.queue.pop_front() else {
                 break;
             };
-            if let Some((evicted, _)) = state.segments.remove(&oldest) {
-                state.bytes -= evicted.len() as u64;
+            let Some(retained) = state.segments.get(&oldest) else {
+                continue;
+            };
+            // The segment being inserted is about to be used, and a segment used since it was
+            // queued goes to the back once, unmarked. Neither loops forever: the inserted segment
+            // fits the budget alone, and every other pass clears a mark.
+            if oldest == id || retained.used.swap(false, Ordering::Relaxed) {
+                state.queue.push_back(oldest);
+                continue;
+            }
+            if let Some(evicted) = state.segments.remove(&oldest) {
+                state.bytes -= evicted.buffer.len() as u64;
             }
         }
     }
@@ -137,6 +161,24 @@ mod tests {
 
         assert!(retained.get(SegmentId::from(1)).is_none());
         for id in [0, 2, 3, 4] {
+            assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
+        }
+    }
+
+    #[test]
+    fn evicts_within_budget_when_every_segment_was_used() {
+        let retained = RetainedSegments::new(400);
+        for id in 0..4 {
+            retained.insert(SegmentId::from(id), &buffer(100));
+        }
+        for id in 0..4 {
+            assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
+        }
+        // Every queued segment was used, so each gets its second chance, and the oldest goes.
+        retained.insert(SegmentId::from(4), &buffer(100));
+
+        assert!(retained.get(SegmentId::from(0)).is_none());
+        for id in 1..5 {
             assert!(retained.get(SegmentId::from(id)).is_some(), "segment {id}");
         }
     }
