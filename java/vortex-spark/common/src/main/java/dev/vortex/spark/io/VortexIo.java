@@ -99,9 +99,7 @@ public final class VortexIo implements Serializable {
     }
 
     private VortexIo(
-            SerializableHadoopConf conf,
-            Broadcast<SerializableHadoopConf> broadcastConf,
-            ReadSettings settings) {
+            SerializableHadoopConf conf, Broadcast<SerializableHadoopConf> broadcastConf, ReadSettings settings) {
         this.conf = conf;
         this.broadcastConf = broadcastConf;
         this.settings = settings;
