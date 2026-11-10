@@ -48,7 +48,7 @@ impl Scheme for VarBinScheme {
         vec![VarBin.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![VarBin.id()]
     }
 

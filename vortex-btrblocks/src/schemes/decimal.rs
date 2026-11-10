@@ -98,7 +98,7 @@ impl Scheme for DecimalScheme {
         }
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         match self.mode {
             DecimalSchemeMode::V1 => vec![Decimal.id(), DecimalByteParts.id()],
             DecimalSchemeMode::V2 => vec![DecimalByteParts.id()],

@@ -105,7 +105,7 @@ impl Scheme for BitPackingScheme {
         encodings
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         let mut encodings = vec![Primitive.id(), BitPacked.id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());

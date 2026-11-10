@@ -42,7 +42,7 @@ impl Scheme for FloatRLEScheme {
         vec![RLE.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![RLE.id()]
     }
 

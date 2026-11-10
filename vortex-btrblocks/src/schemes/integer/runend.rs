@@ -52,7 +52,7 @@ impl Scheme for RunEndScheme {
         vec![RunEnd.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![RunEnd.id()]
     }
 

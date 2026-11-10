@@ -5,21 +5,25 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use rstest::rstest;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
@@ -44,6 +48,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -383,6 +388,92 @@ fn test_no_exclusion_without_history() {
 
     // No history means no exclusions.
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
+}
+
+/// A scheme that always wins and gives a constant array.
+///
+/// When `declares` is true, it declares its top-level encoding, and `compress` panics.
+#[derive(Debug)]
+struct TopLevelEncodingScheme {
+    declares: bool,
+}
+
+static DECLARED_SCHEME: TopLevelEncodingScheme = TopLevelEncodingScheme { declares: true };
+static UNDECLARED_SCHEME: TopLevelEncodingScheme = TopLevelEncodingScheme { declares: false };
+
+impl Scheme for TopLevelEncodingScheme {
+    fn scheme_name(&self) -> &'static str {
+        if self.declares {
+            "test.top_level_declared"
+        } else {
+            "test.top_level_undeclared"
+        }
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        if self.declares {
+            vec![Constant.id()]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        assert!(
+            !self.declares,
+            "a scheme that declares its top-level encodings must not be compressed"
+        );
+
+        Ok(ConstantArray::new(
+            Scalar::primitive(0i32, Nullability::NonNullable),
+            data.array().len(),
+        )
+        .into_array())
+    }
+}
+
+/// `encodings_for` does not run the winner if the winner declares its top-level encodings. It
+/// then also gives the encoding of the uncompressed array, which `compress` can fall back to. If
+/// the winner declares nothing, `encodings_for` compresses and gives the encoding of the result.
+#[rstest]
+#[case::declared(&DECLARED_SCHEME, vec![Constant.id(), Primitive.id()])]
+#[case::undeclared(&UNDECLARED_SCHEME, vec![Constant.id()])]
+fn encodings_for_compresses_only_undeclared_winner(
+    #[case] scheme: &'static TopLevelEncodingScheme,
+    #[case] expected: Vec<ArrayId>,
+) -> VortexResult<()> {
+    let schemes: Vec<&'static dyn Scheme> = vec![scheme];
+    let compressor = CascadingCompressor::new(schemes);
+    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let encodings = compressor.encodings_for(&array, &mut exec_ctx)?;
+
+    assert_eq!(encodings, expected.into_iter().collect::<HashSet<_>>());
+    Ok(())
 }
 
 #[test]

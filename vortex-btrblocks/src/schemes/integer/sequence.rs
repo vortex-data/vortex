@@ -47,7 +47,7 @@ impl Scheme for SequenceScheme {
         vec![Sequence.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![Sequence.id()]
     }
 

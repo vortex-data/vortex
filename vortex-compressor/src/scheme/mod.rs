@@ -141,7 +141,7 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     /// a constant array returned early. The compressor uses this to tell which encodings it can
     /// produce without a full compression. The default is an empty list, which means the scheme
     /// does not declare its encodings, and the compressor compresses to find the encoding.
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 

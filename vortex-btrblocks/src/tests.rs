@@ -51,8 +51,6 @@ use vortex_session::VortexSession;
 use crate::BtrBlocksCompressor;
 use crate::BtrBlocksCompressorBuilder;
 use crate::SESSION;
-use crate::schemes::integer::IntDictScheme;
-use crate::schemes::string::StringDictScheme;
 
 #[track_caller]
 fn assert_roundtrip(compressor: &BtrBlocksCompressor, input: &ArrayRef) -> VortexResult<ArrayRef> {
@@ -203,8 +201,9 @@ fn test_cuda_binary_zstd_follows_editions(
     Ok(())
 }
 
-/// `encodings_for` includes the encoding of the array that `compress` returns, and includes
-/// `Dict` only when that array is a dictionary.
+/// With the real schemes, `encodings_for` agrees with `compress`: the set includes the encoding
+/// of the compressed array, and includes `Dict` only when that array is a dictionary. The dict
+/// layout writer relies on the second property.
 #[rstest]
 #[case::unique_strings(
     VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
@@ -233,30 +232,6 @@ fn test_encodings_for(#[case] input: ArrayRef) -> VortexResult<()> {
         encodings.contains(&vortex_array::VTable::id(&Dict)),
         compressed.is::<Dict>()
     );
-
-    Ok(())
-}
-
-/// A compressor that has only the dictionary schemes produces a dictionary or nothing.
-#[rstest]
-#[case::few_strings(
-    VarBinViewArray::from_iter_str((0..4096).map(|i| ["red", "green", "blue"][i % 3])).into_array(),
-    true,
-)]
-#[case::unique_strings(
-    VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
-    false,
-)]
-fn test_dict_only_encodings_for(#[case] input: ArrayRef, #[case] is_dict: bool) -> VortexResult<()> {
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .with_new_scheme(&StringDictScheme)
-        .with_new_scheme(&IntDictScheme)
-        .build();
-    let mut ctx = SESSION.create_execution_ctx();
-
-    let encodings = compressor.0.encodings_for(&input, &mut ctx)?;
-
-    assert_eq!(encodings.contains(&vortex_array::VTable::id(&Dict)), is_dict);
 
     Ok(())
 }

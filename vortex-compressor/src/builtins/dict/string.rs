@@ -52,7 +52,7 @@ impl Scheme for StringDictScheme {
         vec![Dict.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![Dict.id()]
     }
 

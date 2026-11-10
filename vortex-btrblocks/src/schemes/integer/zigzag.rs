@@ -50,7 +50,7 @@ impl Scheme for ZigZagScheme {
         vec![ZigZag.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![ZigZag.id()]
     }
 

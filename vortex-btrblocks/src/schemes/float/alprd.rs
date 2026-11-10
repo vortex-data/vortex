@@ -44,7 +44,7 @@ impl Scheme for ALPRDScheme {
         vec![vortex_alp::ALPRD.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![vortex_alp::ALPRD.id()]
     }
 

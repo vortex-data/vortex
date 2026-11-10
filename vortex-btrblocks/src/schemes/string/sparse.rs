@@ -47,7 +47,7 @@ impl Scheme for NullDominatedSparseScheme {
         vec![Sparse.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![Sparse.id(), Constant.id()]
     }
 

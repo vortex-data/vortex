@@ -36,7 +36,7 @@ impl Scheme for PcoScheme {
         vec![vortex_pco::Pco.id()]
     }
 
-    fn returned_encodings(&self) -> Vec<ArrayId> {
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         vec![vortex_pco::Pco.id()]
     }
 
