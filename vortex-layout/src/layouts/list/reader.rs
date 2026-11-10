@@ -1298,7 +1298,9 @@ mod tests {
         let list = create_ten_element_list_array(nullable);
         let source = if as_list_view {
             let mut ctx = SESSION.create_execution_ctx();
-            list.clone().execute::<ListViewArray>(&mut ctx)?.into_array()
+            list.clone()
+                .execute::<ListViewArray>(&mut ctx)?
+                .into_array()
         } else {
             list.clone()
         };
