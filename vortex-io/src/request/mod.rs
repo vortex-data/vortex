@@ -8,6 +8,7 @@
 //! Nothing else is a request: anything a stage needs that is not bytes at a range is
 //! construction-time data for that stage.
 
+use std::ops::Deref;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -146,13 +147,37 @@ pub trait IoSource: Send + Sync {
     fn clear(&self);
 }
 
+/// A shared handle to an [`IoSource`].
+///
+/// Cloning a handle is cheap: it shares the source rather than copying it. How the handle counts
+/// its references is private, so it can change without touching callers. Pass `&IoSourceRef` to
+/// let a callee use the source and clone the handle only when it needs one of its own.
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct IoSourceRef(Arc<dyn IoSource>);
+
+impl IoSourceRef {
+    /// Shares `source` behind a new handle.
+    pub fn new(source: impl IoSource + 'static) -> Self {
+        Self(Arc::new(source))
+    }
+}
+
+impl Deref for IoSourceRef {
+    type Target = dyn IoSource;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
 /// A byte source's IO service, shared by everything that reads the source.
 ///
 /// Each registration scope reads through its own [`IoSource`], and the service is free to share
 /// and coalesce the reads of all of them.
 pub trait IoService: Send + Sync {
     /// A fresh source for one registration scope.
-    fn session(&self) -> Arc<dyn IoSource>;
+    fn session(&self) -> IoSourceRef;
 }
 
 /// Receives fulfilled requests. Implementations only store; they never compute here.

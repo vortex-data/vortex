@@ -26,7 +26,7 @@ use vortex::array::ArrayRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoService;
-use vortex::io::request::IoSource;
+use vortex::io::request::IoSourceRef;
 use vortex::io::runtime::Handle;
 use vortex::layout::scan::v2::PreparedScan;
 use vortex::scan::planning::driver::Progress;
@@ -214,13 +214,13 @@ fn chunk_stream(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     map: MapBatch,
 ) -> BoxStream<'static, VortexResult<(u64, RecordBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit(root, scope, io.clone());
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
@@ -232,7 +232,7 @@ fn chunk_stream(
                     }
                 }
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                    run.admit(child, scope, io.clone());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),

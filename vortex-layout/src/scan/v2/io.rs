@@ -26,6 +26,7 @@ use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
+use vortex_io::request::IoSourceRef;
 use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -58,8 +59,8 @@ impl SegmentScanIo {
 }
 
 impl IoService for SegmentScanIo {
-    fn session(&self) -> Arc<dyn IoSource> {
-        Arc::new(SegmentIoSource::new(
+    fn session(&self) -> IoSourceRef {
+        IoSourceRef::new(SegmentIoSource::new(
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
         ))

@@ -31,7 +31,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::request::IoSource;
+use vortex_io::request::IoSourceRef;
 use vortex_io::runtime::Handle;
 use vortex_layout::scan::v2::ChunkPlanner;
 use vortex_layout::scan::v2::PreparedScan;
@@ -211,7 +211,7 @@ struct RunState<A> {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     map_fn: MapFn<A>,
     /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
     inline: bool,
@@ -224,12 +224,12 @@ fn run_stream<A: Send + 'static>(
     handle: Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     map_fn: MapFn<A>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded<A>>> {
     let mut run = Run::new();
-    run.admit(root, scope, Arc::clone(&io));
+    run.admit(root, scope, io.clone());
     let state = RunState {
         handle,
         run: Some(run),
@@ -268,7 +268,7 @@ fn run_stream<A: Send + 'static>(
                     return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
                 Step::Spawn(scope, child) if state.inline => {
-                    run.admit(child, scope, Arc::clone(&state.io));
+                    run.admit(child, scope, state.io.clone());
                 }
                 Step::Spawn(scope, child) => {
                     return Ok(Some((Yielded::Spawn(scope, child), state)));
@@ -289,13 +289,13 @@ fn chunk_stream<A: Send + 'static>(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     map_fn: MapFn<A>,
 ) -> BoxStream<'static, VortexResult<(u64, A)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+        run.admit(root, scope, io.clone());
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
@@ -307,7 +307,7 @@ fn chunk_stream<A: Send + 'static>(
                     }
                 }
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                    run.admit(child, scope, io.clone());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),

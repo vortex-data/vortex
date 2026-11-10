@@ -18,7 +18,6 @@
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
@@ -33,7 +32,7 @@ use vortex_io::request::IoIntent;
 use vortex_io::request::IoOwnerId;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
-use vortex_io::request::IoSource;
+use vortex_io::request::IoSourceRef;
 use vortex_io::request::IoTarget;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -180,7 +179,7 @@ const IO_POLL_INTERVAL: usize = 64;
 
 /// One admitted root: the session its descendants read through, and how many of them are live.
 struct Root {
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     live: usize,
 }
 
@@ -231,7 +230,7 @@ impl Run {
         &mut self,
         root: Box<dyn Planner>,
         scope: WorkScope,
-        io: Arc<dyn IoSource>,
+        io: IoSourceRef,
     ) -> RootId {
         let id = RootId(self.next_root);
         self.next_root += 1;
@@ -326,7 +325,7 @@ impl Run {
         let sources: Vec<_> = self
             .roots
             .values()
-            .map(|root| Arc::clone(&root.io))
+            .map(|root| root.io.clone())
             .collect();
         if sources.is_empty() {
             return Poll::Ready(Err(vortex_err!(
@@ -357,7 +356,7 @@ impl Run {
     fn take_completions(&mut self) -> VortexResult<()> {
         if self.roots.len() == 1 {
             // The common case, without collecting the sessions.
-            let Some(io) = self.roots.values().next().map(|root| Arc::clone(&root.io)) else {
+            let Some(io) = self.roots.values().next().map(|root| root.io.clone()) else {
                 return Ok(());
             };
             while let Some(completion) = io.poll()? {
@@ -368,7 +367,7 @@ impl Run {
         let sources: Vec<_> = self
             .roots
             .values()
-            .map(|root| Arc::clone(&root.io))
+            .map(|root| root.io.clone())
             .collect();
         for io in sources {
             while let Some(completion) = io.poll()? {
@@ -512,13 +511,13 @@ impl Run {
 
 /// Drives one root to completion on the calling thread, blocking while it waits for IO.
 pub struct Driver {
-    io: Arc<dyn IoSource>,
+    io: IoSourceRef,
     step_limit: Option<usize>,
 }
 
 impl Driver {
     /// Creates a driver that submits every request to `io`.
-    pub fn new(io: Arc<dyn IoSource>) -> Self {
+    pub fn new(io: IoSourceRef) -> Self {
         Self {
             io,
             step_limit: None,
@@ -543,13 +542,13 @@ impl Driver {
             file_ordinal: 0,
             rows: 0..0,
         };
-        run.admit(root, scope, Arc::clone(&self.io));
+        run.admit(root, scope, self.io.clone());
         let mut batches = Vec::new();
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
                 Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&self.io));
+                    run.admit(child, scope, self.io.clone());
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),

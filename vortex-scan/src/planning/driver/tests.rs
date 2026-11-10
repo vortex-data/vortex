@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Waker;
@@ -11,6 +12,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::request::IoRequest;
+use vortex_io::request::IoSource;
 
 use super::*;
 use crate::planning::tests::scripted::Log;
@@ -21,6 +23,7 @@ use crate::planning::tests::scripted::ScriptedPlanner;
 use crate::planning::tests::scripted::array_of;
 use crate::planning::tests::scripted::ctx;
 use crate::planning::tests::scripted::scope;
+use crate::planning::tests::scripted::shared_io;
 
 fn request(id: u32, offset: u64) -> IoRequest {
     IoRequest {
@@ -31,7 +34,7 @@ fn request(id: u32, offset: u64) -> IoRequest {
 }
 
 fn driver(source: &Arc<RecordingIoSource>) -> Driver {
-    Driver::new(Arc::clone(source) as Arc<dyn IoSource>).with_step_limit(1_000)
+    Driver::new(shared_io(source)).with_step_limit(1_000)
 }
 
 fn source() -> Arc<RecordingIoSource> {
@@ -389,7 +392,7 @@ fn step_limit_is_enforced() -> VortexResult<()> {
     let mut steps: Vec<_> = (0..100).map(|_| PlannerStep::Continue).collect();
     steps.push(PlannerStep::Done);
     let root = ScriptedPlanner::boxed("root", steps, &log);
-    let driver = Driver::new(source() as Arc<dyn IoSource>).with_step_limit(10);
+    let driver = Driver::new(shared_io(&source())).with_step_limit(10);
     let err = driver.run(root).err().map(|e| e.to_string());
     assert!(
         err.as_deref()
@@ -526,12 +529,12 @@ fn roots_finish_independently() -> VortexResult<()> {
     let reading = run.admit(
         reading_root("reading", &log, 0..2),
         scope(0..2),
-        Arc::clone(&reading_io) as Arc<dyn IoSource>,
+        shared_io(&reading_io),
     );
     let ready = run.admit(
         ready_root("ready", &log, 2..3),
         scope(2..3),
-        Arc::clone(&ready_io) as Arc<dyn IoSource>,
+        shared_io(&ready_io),
     );
     assert_eq!((reading, ready), (RootId(0), RootId(1)));
     assert_eq!(run.live_roots(), 2);
@@ -564,7 +567,7 @@ fn poll_completion_delivers_from_every_waiting_root() -> VortexResult<()> {
         run.admit(
             reading_root("root", &log, rows.clone()),
             scope(rows),
-            Arc::clone(io) as Arc<dyn IoSource>,
+            shared_io(io),
         );
     }
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
@@ -593,12 +596,12 @@ fn cancel_drops_a_roots_work_and_clears_its_session() -> VortexResult<()> {
     let cancelled = run.admit(
         reading_root("cancelled", &log, 0..2),
         scope(0..2),
-        Arc::clone(&cancelled_io) as Arc<dyn IoSource>,
+        shared_io(&cancelled_io),
     );
     run.admit(
         reading_root("kept", &log, 2..4),
         scope(2..4),
-        Arc::clone(&kept_io) as Arc<dyn IoSource>,
+        shared_io(&kept_io),
     );
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
 
@@ -625,7 +628,7 @@ fn dropping_a_run_clears_every_live_session() -> VortexResult<()> {
     run.admit(
         reading_root("root", &log, 0..2),
         scope(0..2),
-        Arc::clone(&io) as Arc<dyn IoSource>,
+        shared_io(&io),
     );
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
     drop(run);
@@ -652,7 +655,7 @@ fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
         &log,
     );
     // Publish and the final compute: the deliveries in between cost no visit.
-    Driver::new(Arc::clone(&io) as Arc<dyn IoSource>)
+    Driver::new(shared_io(&io))
         .with_step_limit(2)
         .run(root)?;
     assert_eq!(io.performed().len(), FETCHES as usize);
@@ -687,7 +690,7 @@ fn waking_subtree_precedes_an_already_discovered_sibling() -> VortexResult<()> {
         &log,
     );
     let mut run = Run::new().with_step_limit(1_000);
-    run.admit(root, scope(0..2), Arc::clone(&io) as Arc<dyn IoSource>);
+    run.admit(root, scope(0..2), shared_io(&io));
     let Progress::Batch(batch) = run.advance()? else {
         panic!("the later sibling should run while the first child waits");
     };
@@ -721,7 +724,7 @@ fn runnable_roots_follow_admission_order() -> VortexResult<()> {
             ],
             &log,
         );
-        run.admit(root, scope(rows), source());
+        run.admit(root, scope(rows), shared_io(&source()));
     }
     assert_eq!(
         drain(&mut run)?,
@@ -784,7 +787,7 @@ impl IoSource for PollingSource {
 #[test]
 fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
     let log = Log::default();
-    let io = Arc::new(PollingSource {
+    let io = IoSourceRef::new(PollingSource {
         inner: source(),
         outstanding: AtomicUsize::new(0),
     });
@@ -798,7 +801,7 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
     run.admit(
         ScriptedPlanner::boxed("later", script, &log),
         scope(1..2),
-        source(),
+        shared_io(&source()),
     );
     let Progress::Batch(batch) = run.advance()? else {
         panic!("ready IO should wake the earlier root before the later root finishes");

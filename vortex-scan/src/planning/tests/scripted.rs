@@ -31,6 +31,7 @@ use vortex_io::request::IoRequest;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
+use vortex_io::request::IoSourceRef;
 use vortex_io::request::IoTarget;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -293,6 +294,40 @@ pub enum Order {
     Fifo,
     /// Newest submission first, so a batch and concurrently parked items complete in reverse.
     Lifo,
+}
+
+/// Hands `source` to the code under test while the test keeps its own handle to inspect it.
+pub fn shared_io<T: IoSource + 'static>(source: &Arc<T>) -> IoSourceRef {
+    IoSourceRef::new(SharedIoSource(Arc::clone(source)))
+}
+
+/// Forwards to a source the test also holds.
+struct SharedIoSource<T>(Arc<T>);
+
+impl<T: IoSource> IoSource for SharedIoSource<T> {
+    fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
+        self.0.submit(owner, batch)
+    }
+
+    fn poll(&self) -> VortexResult<Option<Completion>> {
+        self.0.poll()
+    }
+
+    fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
+        self.0.poll_completion(cx)
+    }
+
+    fn wait(&self) -> VortexResult<Completion> {
+        self.0.wait()
+    }
+
+    fn release(&self, owner: IoOwnerId) {
+        self.0.release(owner);
+    }
+
+    fn clear(&self) {
+        self.0.clear();
+    }
 }
 
 /// An [`IoSource`] answering from canned buffers. Every submission is resolved at once and
