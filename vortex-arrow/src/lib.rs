@@ -32,6 +32,8 @@ mod options;
 mod run_end_import;
 mod scalar;
 mod session;
+#[cfg(feature = "_test-harness")]
+pub mod test_harness;
 #[cfg(test)]
 mod tests;
 

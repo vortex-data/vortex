@@ -21,6 +21,8 @@
 //! [canonical UUID extension]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#uuid
 
 mod arrow;
+#[cfg(test)]
+mod arrow_properties;
 mod metadata;
 mod vtable;
 

@@ -7,6 +7,8 @@
 //! reference system in [`SpatialMetadata`]. Shared metadata handling keeps these properties
 //! consistent across the GeoArrow fields used to import and export each geometry.
 
+#[cfg(test)]
+mod arrow_properties;
 pub(crate) mod coordinate;
 mod linestring;
 mod multilinestring;
