@@ -12032,7 +12032,6 @@ dependencies = [
  "flatbuffers",
  "futures",
  "itertools 0.14.0",
- "libc",
  "mimalloc",
  "moka",
  "object_store 0.13.2",

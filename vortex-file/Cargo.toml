@@ -15,8 +15,6 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
-# EXPERIMENT (not for merge): thread CPU time for the CI A/B diagnostics.
-libc = "0.2"
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-channel = { workspace = true }

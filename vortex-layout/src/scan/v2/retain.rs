@@ -50,36 +50,7 @@ const DEFAULT_RETAINED_BYTES: u64 = 64 << 20;
 
 impl Default for RetainedSegments {
     fn default() -> Self {
-        // EXPERIMENT (not for merge): XP_MODE=*_nr retains nothing.
-        #[allow(clippy::disallowed_methods)]
-        if std::env::var("XP_MODE").is_ok_and(|m| m.ends_with("_nr")) {
-            return Self::new(0);
-        }
         Self::new(DEFAULT_RETAINED_BYTES)
-    }
-}
-
-/// EXPERIMENT (not for merge): lock-wait and request timings for the CI A/B.
-#[doc(hidden)]
-#[allow(missing_docs)]
-pub mod xp_layout {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering::Relaxed;
-    use std::time::Instant;
-
-    pub static RETAIN_READ_WAIT_NS: AtomicU64 = AtomicU64::new(0);
-    pub static RETAIN_WRITE_WAIT_NS: AtomicU64 = AtomicU64::new(0);
-    pub static REQUEST_NS: AtomicU64 = AtomicU64::new(0);
-    pub static REQUESTS: AtomicU64 = AtomicU64::new(0);
-
-    pub fn add(c: &AtomicU64, since: Instant) {
-        c.fetch_add(u64::try_from(since.elapsed().as_nanos()).unwrap_or(u64::MAX), Relaxed);
-    }
-
-    pub fn reset() {
-        for c in [&RETAIN_READ_WAIT_NS, &RETAIN_WRITE_WAIT_NS, &REQUEST_NS, &REQUESTS] {
-            c.store(0, Relaxed);
-        }
     }
 }
 
@@ -114,9 +85,7 @@ impl RetainedSegments {
     }
 
     fn get(&self, id: SegmentId) -> Option<BufferHandle> {
-        let t = std::time::Instant::now();
         let state = self.shard(id).read();
-        xp_layout::add(&xp_layout::RETAIN_READ_WAIT_NS, t);
         let retained = state.segments.get(&id)?;
         // Skip the store when already set, so hits on a shared segment do not keep writing to it.
         if !retained.used.load(Ordering::Relaxed) {
@@ -130,9 +99,7 @@ impl RetainedSegments {
         if !buffer.is_on_host() || len > self.budget / 4 {
             return;
         }
-        let t = std::time::Instant::now();
         let mut state = self.shard(id).write();
-        xp_layout::add(&xp_layout::RETAIN_WRITE_WAIT_NS, t);
         if state.segments.contains_key(&id) {
             return;
         }
@@ -179,20 +146,14 @@ pub(super) struct RetainingSegmentSource {
 
 impl SegmentSource for RetainingSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        let t = std::time::Instant::now();
-        xp_layout::REQUESTS.fetch_add(1, Ordering::Relaxed);
         if let Some(buffer) = self.retained.get(id) {
-            xp_layout::add(&xp_layout::REQUEST_NS, t);
             return futures::future::ready(Ok(buffer)).boxed();
         }
         let retained = Arc::clone(&self.retained);
-        let fut = self
-            .inner
+        self.inner
             .request(id)
             .inspect_ok(move |buffer| retained.insert(id, buffer))
-            .boxed();
-        xp_layout::add(&xp_layout::REQUEST_NS, t);
-        fut
+            .boxed()
     }
 }
 
