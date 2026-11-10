@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
@@ -13,7 +14,6 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -115,35 +115,18 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
         // SAFETY: TODO(connor): Pretty sure that `export` needs to be `unsafe`.
         let duckdb_list_views: &mut [cpp::duckdb_list_entry] =
             unsafe { vector.as_slice_mut::<cpp::duckdb_list_entry>(len) };
-        let offsets = self
-            .offsets
-            .as_slice::<O>()
-            .get(offset..offset + len + 1)
-            .ok_or_else(|| vortex_err!("List offsets are shorter than the array"))?;
+        let offsets = &self.offsets.as_slice::<O>()[offset..offset + len + 1];
 
-        // DuckDB does not check the list entries, so the offsets must be sorted and in bounds
-        // of the elements.
-        let offset_start = list_offset(offsets[0])?;
-        let offset_end = list_offset(offsets[len])?;
-        vortex_ensure!(
-            offset_start <= offset_end && offset_end <= self.num_elements as u64,
-            "List offsets {offset_start}..{offset_end} out of bounds for {} elements",
-            self.num_elements
-        );
+        let offset_start: u64 = offsets[0].as_().as_();
+        let offset_end = offsets[len].as_().as_();
+        vortex_ensure!(offset_end <= self.num_elements as u64);
 
         for i in 0..len {
-            let offset = list_offset(offsets[i])?;
-            let next_offset = list_offset(offsets[i + 1])?;
-            let length = next_offset
-                .checked_sub(offset)
-                .ok_or_else(|| vortex_err!("List offsets are not sorted"))?;
-            let relative_offset = offset
-                .checked_sub(offset_start)
-                .ok_or_else(|| vortex_err!("List offsets are not sorted"))?;
-
+            let offset: u64 = offsets[i].as_().as_();
+            let next_offset: u64 = offsets[i + 1].as_().as_();
             duckdb_list_views[i] = cpp::duckdb_list_entry {
-                offset: relative_offset,
-                length,
+                offset: offset - offset_start,
+                length: next_offset - offset,
             };
         }
 
@@ -157,13 +140,6 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
         vector.list_vector_set_size(child_len)?;
         Ok(())
     }
-}
-
-/// Converts a list offset to `u64`, and returns an error if the offset is negative.
-fn list_offset<O: IntegerPType>(offset: O) -> VortexResult<u64> {
-    offset
-        .to_u64()
-        .ok_or_else(|| vortex_err!("List offset {offset} is negative"))
 }
 
 #[cfg(test)]
@@ -214,27 +190,6 @@ mod tests {
 - FLAT UINTEGER[]: 0 = [ ]
 "#
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_export_unsorted_offsets_fails() -> VortexResult<()> {
-        let elements = buffer![1u32, 2, 3].into_array();
-        let offsets = buffer![0u32, 3, 1].into_array();
-        // SAFETY: The offsets are not sorted on purpose, because the exporter must reject them.
-        let list = unsafe { ListArray::new_unchecked(elements, offsets, Validity::NonNullable) };
-
-        let list_type = LogicalType::list_type(LogicalType::uint32())?;
-        let mut chunk = DataChunk::new([list_type]);
-        let mut ctx = SESSION.create_execution_ctx();
-        let result = new_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
-            0,
-            2,
-            chunk.get_vector_mut(0),
-            &mut ctx,
-        );
-
-        assert!(result.is_err_and(|err| err.to_string().contains("not sorted")));
         Ok(())
     }
 

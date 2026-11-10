@@ -15,8 +15,6 @@ use vortex::encodings::fastlanes::RLEArray;
 use vortex::encodings::fastlanes::RLEArrayExt;
 use vortex::encodings::fastlanes::RLEArraySlotsExt;
 use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 
 use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
@@ -29,7 +27,6 @@ use crate::exporter::canonical;
 
 struct RLEExporter<I: IntegerPType, O: IntegerPType> {
     values: ReusableDict,
-    values_len: usize,
     indices: PrimitiveArray,
     values_idx_offsets: PrimitiveArray,
     /// Offset relative to the first chunk
@@ -58,7 +55,6 @@ pub(crate) fn new_exporter_with_flatten(
 
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = array.values().clone();
-    let values_len = values.len();
     let values_idx_offsets = array
         .values_idx_offsets()
         .clone()
@@ -69,7 +65,6 @@ pub(crate) fn new_exporter_with_flatten(
         match_each_unsigned_integer_ptype!(values_idx_offsets.ptype(), |O| {
             Ok(Box::new(RLEExporter {
                 values,
-                values_len,
                 indices,
                 values_idx_offsets,
                 offset: array.offset(),
@@ -101,40 +96,13 @@ where
         let mut pos = self.offset + offset;
         let end = pos + len;
 
-        let first_idx_offset: usize = values_idx_offsets
-            .first()
-            .ok_or_else(|| vortex_err!("RLE values index offsets are empty"))?
-            .as_();
+        let first_idx_offset = values_idx_offsets[0];
         while pos < end {
             let chunk_idx = pos / FL_CHUNK_SIZE;
-            let chunk_idx_offset: usize = values_idx_offsets
-                .get(chunk_idx)
-                .ok_or_else(|| vortex_err!("RLE chunk {chunk_idx} has no values index offset"))?
-                .as_();
-            let base = chunk_idx_offset
-                .checked_sub(first_idx_offset)
-                .ok_or_else(|| vortex_err!("RLE values index offsets are not sorted"))?;
+            let base: u32 = (values_idx_offsets[chunk_idx] - first_idx_offset).as_();
             let take = ((chunk_idx + 1) * FL_CHUNK_SIZE).min(end) - pos;
-            let chunk_indices = indices
-                .get(pos..pos + take)
-                .ok_or_else(|| vortex_err!("RLE indices are shorter than the array"))?;
 
-            // DuckDB does not check the selection vector of a dictionary vector, so every index
-            // must be in bounds of the values and fit in a u32.
-            let max_idx = chunk_indices
-                .iter()
-                .map(|idx| AsPrimitive::<usize>::as_(*idx))
-                .max()
-                .unwrap_or(0);
-            vortex_ensure!(
-                base.checked_add(max_idx)
-                    .is_some_and(|idx| idx < self.values_len && u32::try_from(idx).is_ok()),
-                "RLE value index out of bounds for {} values",
-                self.values_len
-            );
-
-            let base = u32::try_from(base)?;
-            for (dst, idx) in selection[..take].iter_mut().zip(chunk_indices) {
+            for (dst, idx) in selection[..take].iter_mut().zip(&indices[pos..pos + take]) {
                 let idx: u32 = idx.as_();
                 *dst = base + idx;
             }

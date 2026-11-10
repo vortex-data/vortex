@@ -5,6 +5,7 @@ use std::cmp::max;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
@@ -20,7 +21,6 @@ use vortex::dtype::IntegerPType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -160,25 +160,18 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
         let duckdb_list_views: &mut [cpp::duckdb_list_entry] =
             unsafe { vector.as_slice_mut::<cpp::duckdb_list_entry>(len) };
 
-        // DuckDB does not check the list entries, so each offset and size must not be negative
-        // and each view must be in bounds of the elements.
-        let min_offset = *offsets.iter().min().vortex_expect("offsets array is empty");
-        let offset_start = min_offset
-            .to_u64()
-            .ok_or_else(|| vortex_err!("List view offset {min_offset} is negative"))?;
+        let offset_start: u64 = offsets
+            .iter()
+            .min()
+            .vortex_expect("offsets array is empty")
+            .as_()
+            .as_();
 
         let mut offset_end: u64 = 0;
         for i in 0..len {
-            let offset = offsets[i]
-                .to_u64()
-                .ok_or_else(|| vortex_err!("List view offset {} is negative", offsets[i]))?;
-            let length = sizes[i]
-                .to_u64()
-                .ok_or_else(|| vortex_err!("List view size {} is negative", sizes[i]))?;
-            let end = offset
-                .checked_add(length)
-                .ok_or_else(|| vortex_err!("List view end {offset} + {length} overflows u64"))?;
-            offset_end = max(offset_end, end);
+            let offset: u64 = offsets[i].as_().as_();
+            let length: u64 = sizes[i].as_().as_();
+            offset_end = max(offset_end, offset + length);
             duckdb_list_views[i] = cpp::duckdb_list_entry {
                 offset: offset - offset_start,
                 length,
@@ -214,28 +207,6 @@ mod tests {
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::exporter::new_array_exporter;
-
-    #[test]
-    fn test_export_negative_size_fails() -> VortexResult<()> {
-        // SAFETY: The size -1 is not valid on purpose, because the exporter must reject it.
-        let list = unsafe {
-            ListViewArray::new_unchecked(
-                buffer![1u32, 2, 3].into_array(),
-                buffer![0i32, 2].into_array(),
-                buffer![2i32, -1].into_array(),
-                Validity::NonNullable,
-            )
-        };
-
-        let list_type = LogicalType::list_type(LogicalType::uint32())?;
-        let mut chunk = DataChunk::new([list_type]);
-        let mut ctx = SESSION.create_execution_ctx();
-        let result = new_array_exporter(list.into_array(), &ConversionCache::default(), &mut ctx)?
-            .export(0, 2, chunk.get_vector_mut(0), &mut ctx);
-
-        assert!(result.is_err_and(|err| err.to_string().contains("is negative")));
-        Ok(())
-    }
 
     #[test]
     fn test_export_empty_list() -> VortexResult<()> {

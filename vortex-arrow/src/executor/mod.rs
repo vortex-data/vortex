@@ -23,11 +23,9 @@ mod temporal;
 mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::OffsetSizeTrait;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_array::types::*;
-use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::FieldRef;
@@ -41,10 +39,8 @@ use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrowExporter;
@@ -128,32 +124,6 @@ impl ArrowArrayExecutor for ArrayRef {
 /// some target Arrow physical encoding.
 ///
 /// Public callers should go through the `ArrowSession` instead.
-/// Converts Vortex offsets into an Arrow [`OffsetBuffer`] for `values_len` values.
-///
-/// The offsets can come from a file. The validation of a Vortex array can use the statistics of
-/// the offsets, and the file supplies these statistics. Arrow reads the values with the offsets
-/// and does no bounds check, so this function reads every offset. It returns an error if the
-/// offsets are empty, negative, not sorted, or past the end of the values.
-pub(crate) fn checked_offset_buffer<O: OffsetSizeTrait>(
-    offsets: Buffer<O>,
-    values_len: usize,
-) -> VortexResult<OffsetBuffer<O>> {
-    let (Some(first), Some(last)) = (offsets.first(), offsets.last()) else {
-        vortex_bail!("Offsets must have at least one element");
-    };
-
-    vortex_ensure!(first.to_usize().is_some(), "Offset {first:?} is negative");
-    vortex_ensure!(offsets.is_sorted(), "Offsets must be sorted");
-    vortex_ensure!(
-        last.to_usize().is_some_and(|last| last <= values_len),
-        "Last offset {last:?} is out of bounds for {values_len} values"
-    );
-
-    // SAFETY: The checks above show that the buffer is not empty, the first offset is not
-    // negative, and the offsets are sorted.
-    Ok(unsafe { offsets.into_arrow_offset_buffer_unchecked() })
-}
-
 pub(crate) fn execute_arrow_naive(
     array: ArrayRef,
     data_type: Option<&DataType>,

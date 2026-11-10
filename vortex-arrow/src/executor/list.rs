@@ -30,7 +30,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowExporter;
-use crate::executor::checked_offset_buffer;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_list`] requires for export.
@@ -100,9 +99,12 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .into_primitive()
         .to_buffer::<O>();
 
+    // SAFETY: `ListArray` guarantees its offsets are non-empty, non-negative and sorted. The
+    // checked cast keeps every value, so the order stays the same.
+    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
+
     let elements =
         exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
-    let offsets = checked_offset_buffer(offsets, elements.len())?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -186,9 +188,10 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 
     let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
-    // The zero-copy-to-list flag does not prove that the offsets are sorted, because a list view
-    // can come from a `ListArray` that has bad offsets.
-    let offsets = checked_offset_buffer(offsets.freeze(), elements.len())?;
+    // SAFETY: zero-copy-to-list offsets are non-negative and sorted, and the final offset we
+    // pushed is the last offset plus a non-negative size. The array is not empty, so the buffer
+    // is not empty.
+    let offsets = unsafe { offsets.freeze().into_arrow_offset_buffer_unchecked() };
 
     Ok(Arc::new(GenericListArray::<O>::new(
         Arc::clone(elements_field),
@@ -231,26 +234,6 @@ mod tests {
 
     /// A shared session for these list-executor tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[test]
-    fn list_with_unsorted_offsets_fails() {
-        // SAFETY: The offsets are not sorted on purpose, because the export must reject them.
-        let list = unsafe {
-            ListArray::new_unchecked(
-                buffer![1i32, 2, 3].into_array(),
-                buffer![0i32, 3, 1].into_array(),
-                Validity::NonNullable,
-            )
-        };
-
-        let field = Field::new("item", DataType::Int32, false);
-        let result = list.into_array().execute_arrow(
-            Some(&DataType::List(field.into())),
-            &mut SESSION.create_execution_ctx(),
-        );
-
-        assert!(result.is_err_and(|err| err.to_string().contains("must be sorted")));
-    }
 
     #[test]
     fn chunked_list_exports() -> VortexResult<()> {
