@@ -133,6 +133,8 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
+    // TODO(connor): Add Widen fusion after fixing sign extension of signed narrow BitPacked and
+    // FoR children in dynamic_dispatch.cu. Those paths currently zero-extend to the output width.
     (id == FoR.id() && array.as_::<FoR>().references().is_global())
         || id == ZigZag.id()
         || id == Primitive.id()

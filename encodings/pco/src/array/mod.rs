@@ -604,9 +604,6 @@ impl PcoData {
                     let old_len = decompressed_values.len();
                     let new_len = old_len + page_n_values;
                     decompressed_values.reserve(page_n_values);
-                    unsafe {
-                        decompressed_values.set_len(new_len);
-                    }
                     let page: &[u8] = self
                         .pages
                         .get(page_idx)
@@ -626,8 +623,15 @@ impl PcoData {
                     let mut pd = cd
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)?;
-                    pd.read(&mut decompressed_values[old_len..new_len])
+                    let progress = pd
+                        .read_uninit(&mut decompressed_values.spare_capacity_mut()[..page_n_values])
                         .map_err(vortex_err_from_pco)?;
+                    vortex_ensure_eq!(progress.n_processed, page_n_values);
+                    // SAFETY: `read_uninit` initialized all `page_n_values` spare elements,
+                    // as confirmed by the processed count above.
+                    unsafe {
+                        decompressed_values.set_len(new_len);
+                    }
 
                     chunk_decompressor = Some(cd);
                 } else {
