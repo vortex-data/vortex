@@ -6,12 +6,15 @@
 //! A planner says what it needs: compute, or reads. This driver decides where each runs. It
 //! composes the planners over a [`PreparedScan`], the pruning plans first when the scan has a
 //! filter and the chunks of the rows they keep after, and runs them on planning runs it owns:
-//! the root run stepped on `spawn_cpu` tasks as the stream is polled, each spawned chunk on a
-//! task of its own, up to the concurrency, or on the root run at a concurrency of one. Every
-//! read is a `spawn_io` task of the file's segment source. Batches the caller wants as Arrow are
-//! converted on the task that produced them, beside the scan's other chunks.
+//! the root run stepped on `spawn_cpu` tasks as a task of the runtime polls the stream, each
+//! spawned chunk on a task of its own, up to the concurrency, or on the root run at a concurrency
+//! of one. Every read is a `spawn_io` task of the file's segment source. Batches the caller wants
+//! as Arrow are converted on the task that produced them, beside the scan's other chunks. The
+//! caller only receives the batches, so polling from outside the runtime costs no wake-ups per
+//! chunk.
 
 use std::future;
+use std::pin::pin;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -107,15 +110,36 @@ impl ScanDriver {
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let handle = self.handle.clone();
+        let capacity = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let batches = {
+            let handle = handle.clone();
+            stream::once(async move {
+                handle
+                    .spawn_cpu(move || {
+                        let scan = Arc::new(builder.prepare()?);
+                        VortexResult::Ok(self.execute(scan, map_fn))
+                    })
+                    .await
+            })
+            .try_flatten()
+        };
+        // The scan only launches chunks as its stream is polled, so poll it on a task of the
+        // runtime rather than on the caller's thread, which may be outside the runtime. The task
+        // starts on the first poll and is aborted when the returned stream is dropped.
         stream::once(async move {
-            handle
-                .spawn_cpu(move || {
-                    let scan = Arc::new(builder.prepare()?);
-                    VortexResult::Ok(self.execute(scan, map_fn))
-                })
-                .await
+            let (mut send, recv) = mpsc::channel(capacity);
+            let pump = handle.spawn(async move {
+                let mut batches = pin!(batches);
+                while let Some(batch) = batches.next().await {
+                    let failed = batch.is_err();
+                    if send.send(batch).await.is_err() || failed {
+                        break;
+                    }
+                }
+            });
+            recv.chain(stream::once(pump).filter_map(|()| future::ready(None)))
         })
-        .try_flatten()
+        .flatten()
         .boxed()
     }
 
