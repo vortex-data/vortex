@@ -183,7 +183,9 @@ pub trait DictionaryParts {
     fn values_key(&self) -> usize;
 
     /// Write the codes of rows `offset..offset + codes.len()` into `codes`.
-    fn write_codes(&self, offset: usize, codes: &mut [u32]);
+    ///
+    /// Returns an error if a code is not a valid index into the values.
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) -> VortexResult<()>;
 }
 
 fn new_array_exporter(

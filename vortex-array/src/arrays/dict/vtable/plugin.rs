@@ -7,6 +7,7 @@ use prost::Message;
 use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -83,6 +84,11 @@ impl ArrayPlugin for Dict {
         } = parts;
         let metadata = DictMetadata::decode(metadata)?;
         let codes_ptype = metadata.get_codes_ptype()?;
+        vortex_ensure!(
+            codes_ptype.is_int(),
+            "DictArray codes must be integers, got {codes_ptype}"
+        );
+
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",

@@ -98,18 +98,23 @@ impl ChunkedExporter {
 
     /// Export `pieces` as one dictionary vector, or return `false` if the chunks are not all
     /// dictionaries over the same values.
-    fn export_dictionary(&self, pieces: &[Piece], len: usize, vector: &mut VectorRef) -> bool {
+    fn export_dictionary(
+        &self,
+        pieces: &[Piece],
+        len: usize,
+        vector: &mut VectorRef,
+    ) -> VortexResult<bool> {
         let Some(dicts) = pieces
             .iter()
             .map(|piece| self.chunks[piece.chunk_idx].as_dictionary())
             .collect::<Option<Vec<&dyn DictionaryParts>>>()
         else {
-            return false;
+            return Ok(false);
         };
 
         let first_key = dicts[0].values_key();
         if !dicts.iter().all(|dict| dict.values_key() == first_key) {
-            return false;
+            return Ok(false);
         }
 
         let mut sel_vec = SelectionVector::with_capacity(len);
@@ -118,11 +123,11 @@ impl ChunkedExporter {
         let codes = unsafe { sel_vec.as_slice_mut(len) };
         for (piece, dict) in pieces.iter().zip(&dicts) {
             let target = piece.target_offset..piece.target_offset + piece.len;
-            dict.write_codes(piece.chunk_offset, &mut codes[target]);
+            dict.write_codes(piece.chunk_offset, &mut codes[target])?;
         }
 
         vector.reuse_dictionary(dicts[0].values(), &sel_vec, len);
-        true
+        Ok(true)
     }
 }
 
@@ -143,7 +148,7 @@ impl ColumnExporter for ChunkedExporter {
             return self.chunks[piece.chunk_idx].export(piece.chunk_offset, len, vector, ctx);
         }
 
-        if self.export_dictionary(&pieces, len, vector) {
+        if self.export_dictionary(&pieces, len, vector)? {
             return Ok(());
         }
 

@@ -332,9 +332,11 @@ impl LayoutReader for DictReader {
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: Layout was validated at write time.
+            // SAFETY:
             //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
+            //  * The codes come from the file and are not checked here. Each operation that
+            //    uses a code as an index into the values does its own bounds check.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
             let array = unsafe {
