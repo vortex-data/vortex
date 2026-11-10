@@ -75,10 +75,6 @@ harness = false
 name = "decimal_export"
 harness = false
 
-[[bench]]
-name = "run_end_export"
-harness = false
-
 [lints]
 workspace = true
 
