@@ -225,8 +225,8 @@ mod tests {
     #[case(First.bind(EmptyOptions))]
     #[case(Last.bind(EmptyOptions))]
     #[case(IsConstant.bind(EmptyOptions))]
-    #[case(IsSorted.bind(IsSortedOptions { strict: false }))]
-    #[case(IsSorted.bind(IsSortedOptions { strict: true }))]
+    #[case(IsSorted.bind(IsSortedOptions::default()))]
+    #[case(IsSorted.bind(IsSortedOptions { strict: true, ..Default::default() }))]
     fn aggregate_options_round_trip(#[case] agg_fn: AggregateFnRef) -> VortexResult<()> {
         assert_round_trip(agg_fn)
     }
@@ -248,7 +248,7 @@ mod tests {
 
     #[rstest]
     #[case(IsSorted.id(), vec![])]
-    #[case(IsSorted.id(), vec![2])]
+    #[case(IsSorted.id(), vec![4])]
     #[case(IsSorted.id(), vec![0, 1])]
     #[case(Mean::combined().id(), vec![])]
     #[case(Mean::combined().id(), vec![0])]
