@@ -13,7 +13,8 @@
 //! far. A probe that cannot finish within its budget, and a dictionary too large for the trial,
 //! fall back to the ordinary sample estimator.
 //!
-//! If the trial dictionary wins, the compression phase reuses its completed output.
+//! The trial's completed output is kept. The compression phase reuses it if the dictionary wins,
+//! and the compressor falls back to it if another scheme wins but produces a larger output.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -36,6 +37,7 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CascadingCompressor;
+use crate::compressor::TrialOutput;
 use crate::compressor::estimate_compression_ratio_with_sampling;
 use crate::compressor::exact_uncompressed_size;
 use crate::compressor::sample_slices;
@@ -93,20 +95,6 @@ const MIN_HEAD_PROBE_ROWS: usize = 1024;
 /// can exceed 8× on them, however well it compresses the repetitive input.
 const MAX_VALUES_RATIO: f64 = 8.0;
 
-/// Stores a completed dictionary result for reuse by the compression phase.
-///
-/// The containing [`ArrayAndStats`] exists for one selection and compression call. The cached
-/// result therefore cannot cross compressor configurations or compression contexts.
-#[derive(Debug)]
-pub(super) struct CachedBytesDictionary(ArrayRef);
-
-impl CachedBytesDictionary {
-    /// Returns the completed dictionary result.
-    pub(super) fn array(&self) -> &ArrayRef {
-        &self.0
-    }
-}
-
 /// Returns a deferred estimate that can reuse a completed dictionary result.
 pub(super) fn bytes_dictionary_estimate(scheme: &'static dyn Scheme) -> CompressionEstimate {
     CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
@@ -131,8 +119,10 @@ pub(super) fn compress_bytes_dictionary(
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(candidate) = data.get::<CachedBytesDictionary>() {
-        return Ok(candidate.array().clone());
+    if let Some(trial) = data.get::<TrialOutput>()
+        && trial.scheme == scheme.id()
+    {
+        return Ok(trial.array.clone());
     }
 
     let dict = dict_encode(data.array(), exec_ctx)?;
@@ -229,11 +219,15 @@ fn estimate_bytes_dictionary(
     };
     let compressed = compress_dictionary(scheme, compressor, &dictionary, compress_ctx, exec_ctx)?;
     let score = EstimateScore::from_sample_sizes(profile.uncompressed_nbytes, compressed.nbytes());
+    // Keep the trial even when its ratio loses: the compressor prefers it to a winner whose
+    // actual output turns out larger.
+    data.get_or_insert_with(|| TrialOutput {
+        scheme: scheme.id(),
+        array: compressed,
+    });
     if !score_is_best(score, best_so_far) {
         return Ok(EstimateVerdict::Skip);
     }
-
-    data.get_or_insert_with(|| CachedBytesDictionary(compressed));
     Ok(score_verdict(score))
 }
 

@@ -172,6 +172,12 @@ pub(crate) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         canonical.into_array()
     };
 
+    // A sample of only nulls compresses to almost nothing whatever the scheme, so its ratio says
+    // nothing about how the scheme handles the array's values.
+    if !compress_ctx.is_sample() && sample_array.all_invalid(exec_ctx)? {
+        return Ok(EstimateScore::ZeroBytes);
+    }
+
     let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let error_ctx = trace::enabled_error_context(&compress_ctx);
     let sample_ctx = compress_ctx.with_sampling();

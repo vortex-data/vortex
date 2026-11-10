@@ -43,6 +43,19 @@ use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 use crate::trace;
 
+/// A complete compressed output that a scheme produced while estimating its ratio.
+///
+/// An estimate callback may store one in its [`ArrayAndStats`]. Its size is a measurement, while
+/// the winning scheme was picked on an estimate, so the compressor keeps the trial output
+/// whenever it is smaller than what the winner actually produced.
+#[derive(Debug)]
+pub(crate) struct TrialOutput {
+    /// The scheme that produced the output.
+    pub(crate) scheme: SchemeId,
+    /// The compressed array.
+    pub(crate) array: ArrayRef,
+}
+
 /// The outcome of [`CascadingCompressor::choose_and_compress`].
 enum Selection {
     /// A scheme, or the compressor's own empty, null or constant handling, produced a new array.
@@ -356,6 +369,12 @@ impl CascadingCompressor {
                 // compressor context.
                 trace::scheme_compress_failed(winner.id(), before_nbytes, error_ctx.as_ref(), err);
             })?;
+
+        // The winner was picked on estimates. A trial output is measured, so it wins when smaller.
+        let compressed = match data.get::<TrialOutput>() {
+            Some(trial) if trial.array.nbytes() < compressed.nbytes() => trial.array.clone(),
+            _ => compressed,
+        };
 
         let after_nbytes = compressed.nbytes();
         let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);

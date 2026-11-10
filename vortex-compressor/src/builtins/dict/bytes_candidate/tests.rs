@@ -16,7 +16,6 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use super::Admission;
-use super::CachedBytesDictionary;
 use super::HEAD_PROBE_RANGE_SIZE;
 use super::InputProfile;
 use super::MAX_DICTIONARY_ENTRIES;
@@ -28,6 +27,7 @@ use super::build_candidate;
 use super::bytes_dictionary_estimate;
 use crate::CascadingCompressor;
 use crate::builtins::StringDictScheme;
+use crate::compressor::TrialOutput;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
@@ -241,12 +241,12 @@ fn completed_candidate_is_reused() -> VortexResult<()> {
     let verdict = estimate_dictionary(&compressor, &data, None, &mut exec_ctx)?;
     assert!(matches!(verdict, EstimateVerdict::Ratio(_)));
     let cached = data
-        .get::<CachedBytesDictionary>()
+        .get::<TrialOutput>()
         .ok_or_else(|| vortex_err!("completed candidate was not cached"))?;
     let compressed =
         StringDictScheme.compress(&compressor, &data, CompressorContext::new(), &mut exec_ctx)?;
 
-    assert!(ArrayRef::ptr_eq(cached.array(), &compressed));
+    assert!(ArrayRef::ptr_eq(&cached.array, &compressed));
     Ok(())
 }
 

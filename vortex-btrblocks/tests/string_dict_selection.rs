@@ -20,6 +20,7 @@ use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::schemes::binary::BinaryDictScheme;
 use vortex_btrblocks::schemes::binary::VarBinScheme;
 use vortex_btrblocks::schemes::string::FSSTScheme;
+use vortex_btrblocks::schemes::string::NullDominatedSparseScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -159,5 +160,47 @@ fn test_binary_dict_compressed_with_more_values_than_sample() -> VortexResult<()
         compressed.encoding_id()
     );
     assert_arrays_eq!(&array, &compressed, &mut ctx);
+    Ok(())
+}
+
+/// Sparse keeps every value's bytes, so it must not win a null-dominated column of long values
+/// on the fraction of null rows alone.
+#[test]
+fn test_null_dominated_long_values_not_left_uncompressed() -> VortexResult<()> {
+    let values = (0..65_536)
+        .map(|index| {
+            (index % 25 == 0).then(|| {
+                format!(
+                    "https://example.com/media/{index:08x}/{}",
+                    "photo/".repeat(40)
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let array = VarBinViewArray::from_iter(
+        values.iter().map(|value| value.as_deref()),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let value_bytes = values
+        .iter()
+        .flatten()
+        .map(|value| value.len() as u64)
+        .sum::<u64>();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = BtrBlocksCompressorBuilder::empty()
+        .with_new_scheme(&StringDictScheme)
+        .with_new_scheme(&FSSTScheme)
+        .with_new_scheme(&NullDominatedSparseScheme)
+        .build()
+        .compress(&array, &mut ctx)?;
+
+    assert!(
+        compressed.nbytes() < value_bytes / 2,
+        "{} compressed to {} bytes for {value_bytes} bytes of values",
+        compressed.encoding_id(),
+        compressed.nbytes()
+    );
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
