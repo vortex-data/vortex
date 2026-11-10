@@ -10,21 +10,37 @@ use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
+use num_traits::AsPrimitive;
+use num_traits::Bounded;
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray as VortexPrimitiveArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::matcher::Matcher;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::AllOr;
 
 use crate::ArrowExportOptions;
 use crate::executor::execute_arrow_naive;
+use crate::executor::primitive::canonical_primitive_to_arrow;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
 struct ArrowDictExportable;
@@ -33,7 +49,7 @@ impl Matcher for ArrowDictExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
+        (array.is::<Dict>() || array.is::<Constant>() || array.is::<Chunked>()).then_some(array)
     }
 }
 
@@ -45,6 +61,15 @@ pub(super) fn to_arrow_dictionary(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let array = array.execute_until::<ArrowDictExportable>(ctx)?;
+    let array = match array.try_downcast::<Chunked>() {
+        Ok(chunked) => {
+            if let Some(dict) = chunked_to_dict(&chunked, codes_type, values_type, exporter, ctx)? {
+                return Ok(dict);
+            }
+            chunked.into_array()
+        }
+        Err(array) => array,
+    };
 
     let array = match array.try_downcast::<Dict>() {
         Ok(dict) => return dict_to_dict(dict, codes_type, values_type, options, ctx),
@@ -63,6 +88,142 @@ pub(super) fn to_arrow_dictionary(
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
     )
     .map_err(VortexError::from)
+}
+
+/// Joins the dictionaries of a chunked array into one Arrow dictionary without hashing.
+///
+/// The chunks' values are appended and each chunk's codes are shifted past the values before
+/// it; a constant chunk contributes one value. Values are not deduplicated, which Arrow
+/// dictionaries permit. Returns `None` unless every chunk executes to a dictionary or a
+/// constant and the joined values fit in `codes_type`.
+fn chunked_to_dict(
+    chunked: &ChunkedArray,
+    codes_type: &DataType,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>> {
+    match codes_type {
+        DataType::Int8 => join_dicts::<Int8Type>(chunked, values_type, exporter, ctx),
+        DataType::Int16 => join_dicts::<Int16Type>(chunked, values_type, exporter, ctx),
+        DataType::Int32 => join_dicts::<Int32Type>(chunked, values_type, exporter, ctx),
+        DataType::Int64 => join_dicts::<Int64Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt8 => join_dicts::<UInt8Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt16 => join_dicts::<UInt16Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt32 => join_dicts::<UInt32Type>(chunked, values_type, exporter, ctx),
+        DataType::UInt64 => join_dicts::<UInt64Type>(chunked, values_type, exporter, ctx),
+        _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+    }
+}
+
+/// [`chunked_to_dict`] for Arrow keys of type `K`, written directly so they need no cast.
+fn join_dicts<K: ArrowDictionaryKeyType>(
+    chunked: &ChunkedArray,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>>
+where
+    K::Native: NativePType + Bounded,
+    u8: AsPrimitive<K::Native>,
+    u16: AsPrimitive<K::Native>,
+    u32: AsPrimitive<K::Native>,
+    u64: AsPrimitive<K::Native>,
+    i8: AsPrimitive<K::Native>,
+    i16: AsPrimitive<K::Native>,
+    i32: AsPrimitive<K::Native>,
+    i64: AsPrimitive<K::Native>,
+    usize: AsPrimitive<K::Native>,
+{
+    let max_code = K::Native::max_value().to_u64().unwrap_or(u64::MAX);
+    let dtype = chunked.dtype().clone();
+    let mut codes = BufferMut::<K::Native>::with_capacity(chunked.len());
+    let mut validity = BitBufferMut::with_capacity(chunked.len());
+    let mut values = Vec::with_capacity(chunked.nchunks());
+    let mut offset = 0usize;
+
+    // Chunks of chunks, as from concatenating chunked batches, join like their leaves.
+    fn push_leaves(chunked: &ChunkedArray, leaves: &mut Vec<ArrayRef>) {
+        for chunk in chunked.non_empty_chunks() {
+            match chunk.as_opt::<Chunked>() {
+                Some(inner) => push_leaves(&inner.into_owned(), leaves),
+                None => leaves.push(chunk.clone()),
+            }
+        }
+    }
+    let mut leaves = Vec::with_capacity(chunked.nchunks());
+    push_leaves(chunked, &mut leaves);
+    for chunk in &leaves {
+        let chunk = chunk.clone().execute_until::<ArrowDictExportable>(ctx)?;
+        let chunk_values = if let Some(dict) = chunk.as_opt::<Dict>() {
+            dict.values().cast(dtype.clone())?
+        } else if let Some(constant) = chunk.as_opt::<Constant>() {
+            ConstantArray::new(constant.scalar().clone(), 1).into_array()
+        } else {
+            return Ok(None);
+        };
+        let end = offset + chunk_values.len();
+        if end > 0 && (end - 1) as u64 > max_code {
+            return Ok(None);
+        }
+        let base: K::Native = offset.as_();
+
+        match chunk.as_opt::<Dict>() {
+            Some(dict) => {
+                let chunk_codes = dict.codes().clone().execute::<VortexPrimitiveArray>(ctx)?;
+                let mask = chunk_codes
+                    .as_ref()
+                    .validity()?
+                    .execute_mask(chunk_codes.len(), ctx)?;
+                // Null codes may hold any value, so they point at the first joined value.
+                match_each_integer_ptype!(chunk_codes.ptype(), |P| {
+                    let chunk_codes = chunk_codes.as_slice::<P>();
+                    match mask.bit_buffer() {
+                        AllOr::All => codes.extend(
+                            chunk_codes
+                                .iter()
+                                .map(|&code| AsPrimitive::<K::Native>::as_(code) + base),
+                        ),
+                        AllOr::None => codes.push_n(K::Native::default(), chunk_codes.len()),
+                        AllOr::Some(bits) => codes.extend(chunk_codes.iter().zip(bits.iter()).map(
+                            |(&code, valid)| {
+                                if valid {
+                                    AsPrimitive::<K::Native>::as_(code) + base
+                                } else {
+                                    K::Native::default()
+                                }
+                            },
+                        )),
+                    }
+                });
+                validity.append_buffer(&mask.into_bit_buffer());
+            }
+            None => {
+                let constant = chunk.as_::<Constant>();
+                codes.push_n(base, constant.len());
+                validity.append_n(!constant.scalar().is_null(), constant.len());
+            }
+        }
+        offset = end;
+        values.push(chunk_values);
+    }
+
+    if offset == 0 {
+        return Ok(None);
+    }
+
+    let codes = VortexPrimitiveArray::new(
+        codes.freeze(),
+        Validity::from_bit_buffer(validity.freeze(), Nullability::Nullable),
+    );
+    let codes = canonical_primitive_to_arrow::<K>(codes, ctx)?;
+    let values = ChunkedArray::try_new(values, dtype)?.into_array();
+    let values = execute_arrow_naive(values, Some(values_type), exporter, ctx)?;
+    // SAFETY: every valid code was shifted onto the values its chunk contributed, and null codes
+    // are zero, which the non-empty joined values hold.
+    let dict =
+        unsafe { DictionaryArray::<K>::new_unchecked(codes.as_primitive::<K>().clone(), values) };
+    Ok(Some(Arc::new(dict)))
 }
 
 /// Convert a constant array to a dictionary with a single entry.
@@ -161,6 +322,7 @@ mod tests {
 
     use arrow_array::DictionaryArray as ArrowDictArray;
     use arrow_array::StringArray;
+    use arrow_array::cast::AsArray;
     use arrow_array::types::UInt8Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
@@ -169,6 +331,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
@@ -248,6 +411,73 @@ mod tests {
     ) -> VortexResult<()> {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_dicts_join_without_hashing() -> VortexResult<()> {
+        let dict = |codes: PrimitiveArray, values: [&str; 2]| -> VortexResult<_> {
+            let values = values.into_iter().map(Some).collect::<VarBinViewArray>();
+            Ok(DictArray::try_new(codes.into_array(), values.into_array())?.into_array())
+        };
+        let chunks = vec![
+            dict(PrimitiveArray::from_iter([0u8, 1, 0]), ["a", "b"])?,
+            ConstantArray::new(Scalar::null(DType::Utf8(Nullable)), 2).into_array(),
+            dict(
+                PrimitiveArray::from_option_iter([Some(1u8), None]),
+                ["c", "a"],
+            )?,
+        ];
+        let chunked = ChunkedArray::try_new(chunks, DType::Utf8(Nullable))?.into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt32, DataType::Utf8))?;
+
+        // Two values per dictionary plus one for the constant: appended, not deduplicated.
+        assert_eq!(actual.as_any_dictionary().values().len(), 5);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        let expected = StringArray::from(vec![
+            Some("a"),
+            Some("b"),
+            Some("a"),
+            None,
+            None,
+            Some("a"),
+            None,
+        ]);
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        Ok(())
+    }
+
+    /// A chunk of chunks, as a scan concatenating chunked batches produces, joins like its
+    /// leaves instead of decoding and hashing its values.
+    #[test]
+    fn nested_chunked_dicts_join_without_hashing() -> VortexResult<()> {
+        let dict = |codes: [u8; 2]| -> VortexResult<_> {
+            let values = ["a", "b"]
+                .into_iter()
+                .map(Some)
+                .collect::<VarBinViewArray>();
+            Ok(DictArray::try_new(
+                PrimitiveArray::from_iter(codes).into_array(),
+                values.into_array(),
+            )?
+            .into_array())
+        };
+        let inner =
+            ChunkedArray::try_new(vec![dict([0, 1])?, dict([1, 1])?], DType::Utf8(Nullable))?;
+        let chunked = ChunkedArray::try_new(
+            vec![inner.into_array(), dict([1, 0])?],
+            DType::Utf8(Nullable),
+        )?
+        .into_array();
+
+        let actual = execute(chunked, &dict_type(DataType::UInt32, DataType::Utf8))?;
+
+        // Each leaf's two values are appended, not deduplicated.
+        assert_eq!(actual.as_any_dictionary().values().len(), 6);
+        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
+        let expected = StringArray::from(vec!["a", "b", "b", "b", "b", "a"]);
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
     }
 
