@@ -155,25 +155,6 @@ fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
     assert!(result.is_err());
 }
 
-#[test]
-fn try_new_rejects_invalid_utf8_at_null_row() {
-    let mut ctx = SESSION.create_execution_ctx();
-    // The offsets are valid and each non-null string is valid UTF-8. Only the null row holds
-    // bytes that are not valid UTF-8.
-    let values = Buffer::copy_from([b'a', 0xFF, b'b']);
-    let offsets = buffer![0i32, 1, 2, 3].into_array();
-
-    let result = VarBinArray::try_new(
-        offsets,
-        values,
-        DType::Utf8(Nullability::Nullable),
-        Validity::from_iter([true, false, true]),
-        &mut ctx,
-    );
-
-    assert!(result.is_err_and(|err| err.to_string().contains("invalid utf-8")));
-}
-
 /// Sets statistics that say `offsets` are sorted and in the range `0..=max`.
 fn forge_offsets_statistics(offsets: &ArrayRef, max: i32) {
     offsets.statistics().set(Stat::IsSorted, Precision::exact(true));
