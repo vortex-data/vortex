@@ -214,7 +214,7 @@ parquet = "59.2"
 parquet-variant = "59.2"
 parquet-variant-compute = "59.2"
 paste = "1.0.15"
-pco = "1.0.1"
+pco = "1.1.0"
 percent-encoding = "2.3.2"
 pin-project-lite = "0.2.15"
 primitive-types = { version = "0.14.0" }
