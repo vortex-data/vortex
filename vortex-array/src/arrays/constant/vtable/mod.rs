@@ -25,9 +25,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::unsupported_buffer_replacement;
+use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -130,14 +130,6 @@ impl VTable for Constant {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(constant_canonicalize(
             array.as_view(),
@@ -225,10 +217,12 @@ impl VTable for Constant {
                 // is a constant storage array, which stays constant-encoded in the builder.
                 // Canonicalizing instead would materialize the storage: see the note in
                 // `constant_canonicalize` about `ExtensionConstantRule`.
+                //
+                // Call the Extension vtable directly: `ArrayRef::append_to_builder` would optimize
+                // the array back into this constant and recurse.
                 let storage = ConstantArray::new(scalar.as_extension().to_storage_scalar(), n);
-                ExtensionArray::new(ext_dtype.clone(), storage.into_array())
-                    .into_array()
-                    .append_to_builder(builder, ctx)?
+                let extension = ExtensionArray::new(ext_dtype.clone(), storage.into_array());
+                Extension::append_to_builder(extension.as_view(), builder, ctx)?
             }
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?

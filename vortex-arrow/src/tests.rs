@@ -20,12 +20,14 @@ use vortex_array::assert_arrays_eq;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::ArrowSession;
+use crate::ArrowSessionExt;
 use crate::convert::from_arrow_dyn;
 
 fn import(array: ArrowArrayRef, nullable: bool, use_session: bool) -> VortexResult<ArrayRef> {
     if use_session {
-        ArrowSession::default().from_arrow_array(array, nullable)
+        VortexSession::empty()
+            .arrow()
+            .from_arrow_array(array, nullable)
     } else {
         from_arrow_dyn(array.as_ref(), nullable)
     }

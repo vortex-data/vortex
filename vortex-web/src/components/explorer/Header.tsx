@@ -17,7 +17,7 @@ const X_URL = 'https://x.com/vortexdotdev';
 
 const LINKS = [
   { label: 'Docs', href: 'https://docs.vortex.dev' },
-  { label: 'Bench', href: 'https://bench.vortex.dev' },
+  { label: 'Benchmarks', href: 'https://bench.vortex.dev' },
   { label: 'Explorer', href: import.meta.env.BASE_URL, current: true },
   { label: 'Blog', href: 'https://vortex.dev/blog' },
 ];

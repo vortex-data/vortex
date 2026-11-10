@@ -34,6 +34,7 @@ use crate::dtype::i256;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
@@ -83,7 +84,7 @@ fn test_precision_growth_is_lazy(
     let decimal_dtype = DecimalDType::new(precision, array.decimal_dtype().scale());
     let target = DType::Decimal(decimal_dtype, validity.nullability());
 
-    let casted = array.into_array().cast(target)?;
+    let casted = array.into_array().cast(target)?.optimize_ctx(&*SESSION)?;
 
     assert!(casted.is::<Widen>());
     let widen = casted.as_::<Widen>();
@@ -118,7 +119,7 @@ fn test_precision_growth_sets_child_nullability(
     let target_decimal = DecimalDType::new(4, 0);
     let target = DType::Decimal(target_decimal, nullability);
 
-    let casted = array.into_array().cast(target)?;
+    let casted = array.into_array().cast(target)?.optimize_ctx(&*SESSION)?;
 
     assert!(casted.is::<Widen>());
     assert_eq!(
@@ -232,7 +233,7 @@ fn test_decimal_widen_retargets_child(#[case] precision: u8) -> VortexResult<()>
     let target_decimal = DecimalDType::new(precision, 2);
     let target = DType::Decimal(target_decimal, Nullability::Nullable);
 
-    let casted = array.cast(target)?;
+    let casted = array.cast(target)?.optimize_ctx(&*SESSION)?;
 
     assert!(casted.is::<Widen>());
     assert!(ArrayRef::ptr_eq(casted.as_::<Widen>().values(), &values));
@@ -295,7 +296,7 @@ fn test_repeated_casts_terminate_without_nested_widen() -> VortexResult<()> {
     for precision in [4, 9, 18, 38, 76, 4, 2] {
         let decimal_dtype = DecimalDType::new(precision, 0);
         let target = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        array = array.cast(target)?;
+        array = array.cast(target)?.optimize_ctx(&*SESSION)?;
         if let Some(widen) = array.as_opt::<Widen>() {
             assert!(!widen.values().is::<Widen>());
             assert_eq!(widen.values().dtype(), source.dtype());
@@ -334,7 +335,10 @@ fn test_same_canonical_width(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let source_ptr = array.buffer_handle().as_host().as_ptr();
-    let casted = array.into_array().cast(expected.dtype().clone())?;
+    let casted = array
+        .into_array()
+        .cast(expected.dtype().clone())?
+        .optimize_ctx(&*SESSION)?;
     assert!(!casted.is::<Widen>());
 
     let executed = casted.execute::<DecimalArray>(&mut ctx)?;

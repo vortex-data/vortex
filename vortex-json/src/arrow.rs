@@ -22,7 +22,7 @@ use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
@@ -93,13 +93,8 @@ impl ArrowExportVTable for Json {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
 
-        let storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let storage = storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         Ok(ArrowExport::Exported(storage))
     }
@@ -172,6 +167,7 @@ mod tests {
     use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_arrow::CompactBuffers;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -203,11 +199,7 @@ mod tests {
         assert!(!field.is_nullable());
         ArrowJson::try_new_from_field_metadata(field.data_type(), field.metadata())?;
 
-        let exported = SESSION.arrow().execute_arrow(
-            array,
-            Some(&field),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let exported = array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
 
         assert!(exported.data_type().is_string());
 
@@ -237,11 +229,7 @@ mod tests {
             &vortex_array::dtype::DType::Utf8(Nullability::NonNullable)
         );
 
-        let exported = SESSION.arrow().execute_arrow(
-            imported,
-            Some(&field),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let exported = imported.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())?;
         let strings = exported.as_string::<i32>();
         assert_eq!(
             strings.iter().collect::<Vec<_>>(),
@@ -268,11 +256,9 @@ mod tests {
         let retains_backing = |options: &ArrowExportOptions,
                                ctx: &mut vortex_array::ExecutionCtx|
          -> VortexResult<bool> {
-            let exported = SESSION.arrow().exporter(options).execute_arrow(
-                array.clone(),
-                Some(&field),
-                ctx,
-            )?;
+            let exported = array
+                .clone()
+                .execute_arrow_with_options(Some(&field), options, ctx)?;
             assert_eq!(
                 exported
                     .as_string_view()

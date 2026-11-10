@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
@@ -41,6 +42,10 @@ use crate::delta_compress;
 mod operations;
 mod plugin;
 mod rules;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    rules::register_parent_rules(session);
+}
 mod slice;
 mod validity;
 
@@ -115,14 +120,6 @@ impl VTable for Delta {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

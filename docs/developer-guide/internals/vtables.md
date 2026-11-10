@@ -1,4 +1,4 @@
-# Vtables and Dispatch
+# Vtables and dispatch
 
 Vortex uses custom vtable traits rather than Rust's built-in `dyn Trait` vtables. This design
 gives us capabilities that are not possible with trait objects: colocating instance methods with

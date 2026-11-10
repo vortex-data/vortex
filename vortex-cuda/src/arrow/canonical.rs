@@ -44,15 +44,13 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::match_each_decimal_value_type;
+use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalType;
-use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::i256;
 use vortex::encodings::fsst::FSST;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -61,7 +59,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
@@ -91,6 +88,7 @@ use crate::executor::execute_validity_cuda;
 use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
 use crate::kernel::decode_onpair_varbin;
+use crate::kernel::widen_decimal_values;
 use crate::stream::zero_padding;
 
 const BITMAP_THREADS_PER_BLOCK: u32 = 256;
@@ -474,73 +472,11 @@ async fn export_decimal_values(
             "cannot export decimal values from {values_type} storage to Arrow {target_type}: narrowing would require a device-to-host overflow check",
         );
     }
-    let values = ctx.ensure_on_device(values).await?;
     if values_type == target_type {
-        return Ok(values);
+        return ctx.ensure_on_device(values).await;
     }
 
-    match_each_decimal_value_type!(values_type, |S| {
-        export_decimal_values_from::<S>(values, target_type, len, ctx).await
-    })
-}
-
-/// Dispatch from a concrete storage type `S` to the Arrow-required output width.
-async fn export_decimal_values_from<S>(
-    values: BufferHandle,
-    target_type: DecimalType,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-{
-    match target_type {
-        DecimalType::I32 => decimal_cast::<S, i32>(values, len, ctx).await,
-        DecimalType::I64 => decimal_cast::<S, i64>(values, len, ctx).await,
-        DecimalType::I128 => decimal_cast::<S, i128>(values, len, ctx).await,
-        DecimalType::I256 => decimal_cast::<S, i256>(values, len, ctx).await,
-        target_type => {
-            vortex_bail!("cannot export DecimalArray as Arrow decimal value type {target_type}")
-        }
-    }
-}
-
-/// Launches the CUDA kernel that casts from Vortex storage type `S` to Arrow output type `D`.
-///
-/// The caller must ensure this is not a narrowing cast.
-async fn decimal_cast<S, D>(
-    values: BufferHandle,
-    len: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle>
-where
-    S: NativeDecimalType + DeviceRepr,
-    D: NativeDecimalType + DeviceRepr,
-{
-    if len == 0 {
-        return ctx
-            .ensure_on_device(BufferHandle::new_host(
-                Buffer::<D>::empty().into_byte_buffer(),
-            ))
-            .await;
-    }
-
-    let mut output_buffer = ctx.device_alloc::<D>(len)?;
-
-    let values_view = values.cuda_view::<S>()?;
-    let len_u64 = len as u64;
-    let cuda_function = ctx.load_function_with_suffixes(
-        "decimal_cast",
-        &[&S::DECIMAL_TYPE.to_string(), &D::DECIMAL_TYPE.to_string()],
-    )?;
-
-    ctx.launch_kernel(&cuda_function, len, |args| {
-        args.arg(&values_view).arg(&mut output_buffer).arg(&len_u64);
-    })?;
-
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-        output_buffer,
-    )?)))
+    widen_decimal_values(values, values_type, target_type, len, ctx).await
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
@@ -1187,6 +1123,8 @@ impl ListChildExport {
         elements: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowArray> {
+        let elements = elements.optimize_ctx(ctx.execution_ctx())?;
+
         let (elements_child, _) = match self {
             ListChildExport::PreserveConcreteLayout => export_array(elements, ctx).await?,
             ListChildExport::RebuiltListViewChild if elements.as_opt::<Dict>().is_some() => {
@@ -1490,6 +1428,7 @@ mod tests {
     use vortex::array::arrays::varbinview::BinaryView;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
+    use vortex::array::optimizer::ArrayOptimizer;
     use vortex::array::validity::Validity;
     use vortex::buffer::BitBuffer;
     use vortex::buffer::Buffer;
@@ -1560,6 +1499,7 @@ mod tests {
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
         let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        vortex::file::register_default_encodings(&session);
         CudaSession::create_execution_ctx(&session)
     }
 
@@ -2843,7 +2783,7 @@ mod tests {
             Some(&b"echo"[..]),
         ];
         let fsst = fsst_array_from(values, DType::Utf8(Nullability::Nullable), &mut ctx)?;
-        let sliced = fsst.slice(1..4)?;
+        let sliced = fsst.slice(1..4)?.optimize_ctx(ctx.execution_ctx())?;
         assert!(sliced.as_opt::<FSST>().is_some());
 
         let mut exported = sliced.export_device_array_with_schema(&mut ctx).await?;

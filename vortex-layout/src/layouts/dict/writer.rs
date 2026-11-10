@@ -36,6 +36,7 @@ use vortex_array::builders::dict::dict_encoder_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -584,15 +585,23 @@ fn encode_chunk(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<EncodingState> {
     let encoded = encoder.encode(chunk, ctx)?.into_array();
-    match remainder(chunk, encoded.len())? {
+    match remainder(chunk, encoded.len(), ctx.session())? {
         None => Ok(EncodingState::Continue((encoder, encoded))),
         Some(unencoded) => Ok(EncodingState::Done((encoder.reset(), encoded, unencoded))),
     }
 }
 
-fn remainder(array: &ArrayRef, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
+fn remainder(
+    array: &ArrayRef,
+    encoded_len: usize,
+    session: &VortexSession,
+) -> VortexResult<Option<ArrayRef>> {
     if encoded_len < array.len() {
-        Ok(Some(array.slice(encoded_len..array.len())?))
+        Ok(Some(
+            array
+                .slice(encoded_len..array.len())?
+                .optimize_ctx(session)?,
+        ))
     } else {
         Ok(None)
     }
@@ -623,6 +632,7 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -841,7 +851,9 @@ mod tests {
         let (mut sequence_id, eof) = SequenceId::root().split();
         let chunks = (0..nchunks)
             .map(|i| {
-                let chunk = values.slice(i * chunk_len..(i + 1) * chunk_len)?;
+                let chunk = values
+                    .slice(i * chunk_len..(i + 1) * chunk_len)?
+                    .optimize_ctx(&SESSION)?;
                 Ok((sequence_id.advance(), chunk))
             })
             .collect::<Vec<VortexResult<_>>>();

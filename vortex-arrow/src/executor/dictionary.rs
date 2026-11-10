@@ -23,7 +23,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
 use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
@@ -41,23 +41,23 @@ pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
     values_type: &DataType,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let array = array.execute_until::<ArrowDictExportable>(ctx)?;
 
     let array = match array.try_downcast::<Dict>() {
-        Ok(dict) => return dict_to_dict(dict, codes_type, values_type, exporter, ctx),
+        Ok(dict) => return dict_to_dict(dict, codes_type, values_type, options, ctx),
         Err(array) => array,
     };
     let array = match array.try_downcast::<Constant>() {
-        Ok(constant) => return constant_to_dict(constant, codes_type, values_type, exporter, ctx),
+        Ok(constant) => return constant_to_dict(constant, codes_type, values_type, options, ctx),
         Err(array) => array,
     };
 
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
-    let array = execute_arrow_naive(array, Some(values_type), exporter, ctx)?;
+    let array = execute_arrow_naive(array, Some(values_type), options, ctx)?;
     arrow_cast::cast(
         &array,
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
@@ -70,7 +70,7 @@ fn constant_to_dict(
     array: ConstantArray,
     codes_type: &DataType,
     values_type: &DataType,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -84,7 +84,7 @@ fn constant_to_dict(
     let values = execute_arrow_naive(
         ConstantArray::new(scalar.clone(), 1).into_array(),
         Some(values_type),
-        exporter,
+        options,
         ctx,
     )?;
     let codes = zeroed_codes_array(codes_type, len)?;
@@ -96,11 +96,11 @@ fn dict_to_dict(
     array: DictArray,
     codes_type: &DataType,
     values_type: &DataType,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let codes = execute_arrow_naive(array.codes().clone(), Some(codes_type), exporter, ctx)?;
-    let values = execute_arrow_naive(array.values().clone(), Some(values_type), exporter, ctx)?;
+    let codes = execute_arrow_naive(array.codes().clone(), Some(codes_type), options, ctx)?;
+    let values = execute_arrow_naive(array.values().clone(), Some(values_type), options, ctx)?;
     make_dict_array(codes_type, codes, values)
 }
 
@@ -164,6 +164,7 @@ mod tests {
     use arrow_array::types::UInt8Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -178,7 +179,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrowArrayExecutor;
+    use crate::ExecuteArrowExt;
     use crate::executor::dictionary::ConstantArray;
     use crate::executor::dictionary::DictArray;
 
@@ -192,7 +193,8 @@ mod tests {
         array: vortex_array::ArrayRef,
         dt: &DataType,
     ) -> VortexResult<arrow_array::ArrayRef> {
-        array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
+        let field = Field::new("", dt.clone(), array.dtype().is_nullable());
+        array.execute_arrow(Some(&field), &mut SESSION.create_execution_ctx())
     }
 
     fn dict_basic_input() -> vortex_array::ArrayRef {

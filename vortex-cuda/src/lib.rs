@@ -54,6 +54,7 @@ use kernel::OnPairExecutor;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 pub use kernel::TracingLaunchStrategy;
+use kernel::WidenExecutor;
 use kernel::ZigZagExecutor;
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
@@ -80,6 +81,7 @@ use vortex::array::arrays::Filter;
 use vortex::array::arrays::List;
 use vortex::array::arrays::Masked;
 use vortex::array::arrays::Slice;
+use vortex::array::arrays::Widen;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
@@ -124,6 +126,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(OnPair.id(), &OnPairExecutor);
     session.register_kernel(RunEnd.id(), &RunEndExecutor);
     session.register_kernel(Sequence.id(), &SequenceExecutor);
+    session.register_kernel(Widen.id(), &WidenExecutor);
     session.register_kernel(ZigZag.id(), &ZigZagExecutor);
     session.register_kernel(Zstd.id(), &ZstdExecutor);
     session.register_kernel(ZstdBuffers.id(), &ZstdBuffersExecutor);
@@ -137,6 +140,9 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// [`CudaSession`] for CUDA tests and benchmarks. Array session variables are initialized
 /// with their defaults on first use.
 ///
+/// The session registers the default file encodings, so the optimizer has their parent-reduce
+/// rules.
+///
 /// Each call returns an independent session with its own kernel registry and stream pool.
 /// Live default sessions share a CUDA context and its device memory pool. Tests requiring isolated
 /// context-level state must use [`CudaContext::new_non_primary`] with [`CudaSession::with_context`].
@@ -146,5 +152,7 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
 #[cfg(any(test, feature = "_test-harness"))]
 pub fn cuda_session() -> vortex::session::VortexSession {
-    vortex::session::VortexSession::empty().with::<CudaSession>()
+    let session = vortex::session::VortexSession::empty().with::<CudaSession>();
+    vortex::file::register_default_encodings(&session);
+    session
 }

@@ -57,7 +57,11 @@ mod tests {
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
