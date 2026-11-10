@@ -25,6 +25,8 @@
 mod cache;
 pub(crate) mod io;
 mod retain;
+#[doc(hidden)]
+pub use retain::xp_layout;
 #[cfg(test)]
 mod tests;
 

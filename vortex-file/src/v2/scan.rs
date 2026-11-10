@@ -467,6 +467,7 @@ pub mod xp {
         ] {
             c.store(0, Relaxed);
         }
+        vortex_layout::scan::v2::xp_layout::reset();
     }
 
     /// Per-scan averages, microseconds unless counted.
@@ -476,7 +477,7 @@ pub mod xp {
         let chunks = g(&STATS.chunks).max(1.0);
         let steps = g(&STATS.root_steps).max(1.0);
         format!(
-            "scans={} scan_us={:.1} root_steps={:.1} root_cpu_us/step={:.2} root_rtt_us/step={:.2} chunks={:.1} chunk_wait_us={:.2} chunk_run_us={:.1} first_spawn_us={:.1} last_spawn_us={:.1} chunk_cpu_us={:.1} chunk_map_us={:.1} chunk_send_us={:.1} chunk_io_us={:.1} chunk_waits={:.2} chunk_tcpu_us={:.1}",
+            "scans={} scan_us={:.1} root_steps={:.1} root_cpu_us/step={:.2} root_rtt_us/step={:.2} chunks={:.1} chunk_wait_us={:.2} chunk_run_us={:.1} first_spawn_us={:.1} last_spawn_us={:.1} chunk_cpu_us={:.1} chunk_map_us={:.1} chunk_send_us={:.1} chunk_io_us={:.1} chunk_waits={:.2} chunk_tcpu_us={:.1} requests={:.1} request_us={:.2} retain_read_wait_us={:.2} retain_write_wait_us={:.2}",
             g(&STATS.scans),
             g(&STATS.scan_ns) / scans / 1e3,
             g(&STATS.root_steps) / scans,
@@ -493,6 +494,16 @@ pub mod xp {
             g(&STATS.chunk_io_ns) / chunks / 1e3,
             g(&STATS.chunk_waits) / chunks,
             g(&STATS.chunk_tcpu_ns) / chunks / 1e3,
+            {
+                use vortex_layout::scan::v2::xp_layout as l;
+                g(&l::REQUESTS) / scans
+            },
+            {
+                use vortex_layout::scan::v2::xp_layout as l;
+                g(&l::REQUEST_NS) / g(&l::REQUESTS).max(1.0) / 1e3
+            },
+            g(&vortex_layout::scan::v2::xp_layout::RETAIN_READ_WAIT_NS) / scans / 1e3,
+            g(&vortex_layout::scan::v2::xp_layout::RETAIN_WRITE_WAIT_NS) / scans / 1e3,
         )
     }
 }
