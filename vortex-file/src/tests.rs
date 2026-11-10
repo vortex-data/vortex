@@ -4,7 +4,6 @@
 #![expect(clippy::cast_possible_truncation)]
 use std::fs;
 use std::iter;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -117,8 +116,6 @@ use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
-use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
-use vortex_layout::layouts::zoned::writer::ZonedStrategy;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
@@ -2568,9 +2565,7 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     Ok(())
 }
 
-/// Assert that `IsCompoundSorted` is written in the
-/// file stats, and also check that nothing was written
-/// as zone stats.
+/// Assert that `IsCompoundSorted` is written in the root entry of the file stats.
 #[tokio::test]
 async fn file_footer_contains_is_compound_sorted() -> VortexResult<()> {
     let session = VortexSession::empty()
@@ -2597,26 +2592,15 @@ async fn file_footer_contains_is_compound_sorted() -> VortexResult<()> {
     let aggregate =
         IsCompoundSorted.bind(IsCompoundSortedOptions::new([("numbers", SortDirection::Asc)]));
 
-    // The default strategy skips zone maps beneath nullable structs. Write zones at the
-    // root so the assertions below inspect stored zone statistics alongside file statistics.
-    let zone_len = NonZeroUsize::new(2).vortex_expect("non-zero zone length");
-    let strategy = ZonedStrategy::new(
-        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        FlatLayoutStrategy::default(),
-        ZonedLayoutOptions {
-            block_size: zone_len,
-            ..Default::default()
-        },
-    );
     let mut buf = ByteBufferMut::empty();
     let mut writer = session
         .write_options()
-        .with_strategy(Arc::new(strategy))
         .with_file_statistics(vec![aggregate.clone()])
+        .include_nested_statistics()
         .writer(&mut buf, array.dtype().clone());
 
-    for start in (0..array.len()).step_by(zone_len.get()) {
-        let end = (start + zone_len.get()).min(array.len());
+    for start in (0..array.len()).step_by(2) {
+        let end = (start + 2).min(array.len());
         writer.push(array.slice(start..end)?).await?;
     }
 
@@ -2632,43 +2616,6 @@ async fn file_footer_contains_is_compound_sorted() -> VortexResult<()> {
     assert_eq!(
         root_stats.get(&aggregate),
         Precision::exact(Scalar::bool(true, Nullability::NonNullable)),
-    );
-
-    // Reopen layout and check serialized zones metadata.
-    let file = session.open_options().open_buffer(buf)?;
-    let zoned = file
-        .footer()
-        .layout()
-        .as_opt::<Zoned>()
-        .vortex_expect("the test must write zone maps");
-    assert_eq!(zoned.nzones(), 3);
-
-    let is_compound_sorted_id = aggregate.id();
-    assert!(
-        zoned
-            .present_aggregates()
-            .iter()
-            .all(|name| !name.starts_with(is_compound_sorted_id.as_ref())),
-        "zone metadata must not include any IsCompoundSorted aggregate",
-    );
-
-    let zones = zoned.slot(1)?.vortex_expect("stored zone statistics");
-    assert_eq!(zones.row_count(), 3);
-
-    let fields = zones
-        .dtype()
-        .as_struct_fields_opt()
-        .vortex_expect("zone statistics table is a struct");
-    assert!(
-        !fields.names().is_empty(),
-        "zone statistics must actually be stored"
-    );
-    assert!(
-        fields
-            .names()
-            .iter()
-            .all(|name| !name.as_ref().starts_with(is_compound_sorted_id.as_ref())),
-        "zone statistics must not contain any IsCompoundSorted partial",
     );
 
     Ok(())

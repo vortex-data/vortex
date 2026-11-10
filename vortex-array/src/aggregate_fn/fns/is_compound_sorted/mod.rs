@@ -141,6 +141,7 @@ impl IsCompoundSortedOptions {
     ///
     /// Dtypes must be supported by [`IsSorted`] (not strict).
     pub fn validate(&self, dtype: &DType) -> VortexResult<()> {
+        // Ideally this should be checked once during new
         self.validate_fields()?;
 
         let fields = dtype
@@ -387,6 +388,13 @@ fn check_chunk_sortedness(sort_fields: &[ArrayRef], ctx: &mut ExecutionCtx) -> V
 ///
 /// It is not `strict`, so equal row keys are allowed. Only `ASC` is supported for now,
 /// DESC remains reserved in the options.
+///
+/// # Note
+///
+/// As a file statistic, it requires `VortexWriteOptions::include_nested_statistics` to be
+/// enabled and a nullable root struct. This is because the result is stored in the root
+/// entry, and only nested statistics over a nullable root have one. Legacy statistics have
+/// one slot per top-level field and no slot for the root struct.
 #[derive(Clone, Debug)]
 pub struct IsCompoundSorted;
 
