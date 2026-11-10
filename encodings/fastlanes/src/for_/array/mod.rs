@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
@@ -38,6 +39,9 @@ pub struct FoRSlots {
 /// references, it decodes as `encoded[i] + blocked_references[(offset + i) / FL_CHUNK_SIZE]`,
 /// where `offset` is the position of the first element within the first chunk. Both use wrapping
 /// arithmetic.
+///
+/// Each reference must be less than or equal to all valid values that decode against it. Thus,
+/// each encoded value is the exact unsigned distance from its reference to the decoded value.
 #[derive(Clone, Debug)]
 pub struct FoRData {
     pub(super) offset: u16,
@@ -86,6 +90,60 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
 }
 
 impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
+
+/// The owned references of a FoR array.
+pub(crate) enum FoROwnedReferences {
+    /// One reference for every element.
+    Global(Scalar),
+    /// One reference per [`FL_CHUNK_SIZE`]-element chunk.
+    Blocked(ArrayRef),
+}
+
+impl From<FoRReferences<'_>> for FoROwnedReferences {
+    fn from(references: FoRReferences<'_>) -> Self {
+        match references {
+            FoRReferences::Global(reference) => Self::Global(reference.clone()),
+            FoRReferences::Blocked(references) => Self::Blocked(references.clone()),
+        }
+    }
+}
+
+/// The owned children, references and offset of a FoR array.
+pub(crate) struct FoRParts {
+    pub(crate) encoded: ArrayRef,
+    pub(crate) references: FoROwnedReferences,
+    pub(crate) offset: u16,
+}
+
+pub(crate) trait FoRArrayOwnedExt {
+    /// Take the children of the array without a clone when this handle is the unique owner.
+    fn into_parts(self) -> FoRParts;
+}
+
+impl FoRArrayOwnedExt for Array<crate::FoR> {
+    fn into_parts(self) -> FoRParts {
+        match self.try_into_parts() {
+            Ok(parts) => {
+                let slots = FoRSlots::from_slots(parts.slots);
+                let references = match (parts.data.global_reference, slots.blocked_references) {
+                    (Some(reference), None) => FoROwnedReferences::Global(reference),
+                    (None, Some(references)) => FoROwnedReferences::Blocked(references),
+                    _ => vortex_panic!("FoR array must have either a global or blocked references"),
+                };
+                FoRParts {
+                    encoded: slots.encoded,
+                    references,
+                    offset: parts.data.offset,
+                }
+            }
+            Err(array) => FoRParts {
+                encoded: array.encoded().clone(),
+                references: array.references().into(),
+                offset: array.offset(),
+            },
+        }
+    }
+}
 
 impl Display for FoRData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

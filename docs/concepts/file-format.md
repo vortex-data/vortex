@@ -1,4 +1,4 @@
-# File Format
+# File format
 
 The Vortex file format is an opinionated implementation of the concepts we have seen thus far.
 The writer accepts a stream of Vortex arrays, applies a layout strategy to organize them into a layout tree,

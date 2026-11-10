@@ -18,7 +18,6 @@ use vortex::array::match_each_native_simd_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
@@ -70,7 +69,7 @@ impl CudaExecute for ConstantNumericExecutor {
             DType::Decimal(decimal_dtype, nullability) => {
                 let decimal_dtype = *decimal_dtype;
                 let validity: Validity = nullability.into();
-                let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+                let values_type = decimal_dtype.canonical_values_type();
                 match_each_decimal_value_type!(values_type, |D| {
                     materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx).await
                 })
@@ -120,7 +119,7 @@ where
     })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
+    let device_buffer = CudaDeviceBuffer::new(output_buffer)?;
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -176,7 +175,7 @@ where
     })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
+    let device_buffer = CudaDeviceBuffer::new(output_buffer)?;
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(

@@ -21,6 +21,7 @@ use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -44,7 +45,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_expr::stats::bind::StatBinder;
 use vortex_expr::stats::bind::bind_stats;
 use vortex_mask::Mask;
-use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;

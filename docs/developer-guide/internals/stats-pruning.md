@@ -1,4 +1,4 @@
-# Stats Pruning
+# Stats pruning
 
 Vortex uses statistics to prove when a filter cannot match a row group, zone, or
 file. The proof expression returns `true` when the input can be skipped. It

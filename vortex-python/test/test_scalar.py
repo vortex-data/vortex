@@ -219,6 +219,8 @@ def test_timestamp_scalar_rejects_precision_loss() -> None:
         ("-0.001", 3, 3),
         ("12E+2", 4, 0),
         ("0", 1, 0),
+        ("9" * 19, 19, 0),
+        ("-" + "9" * 19, 19, 0),
         ("9" * 38, 38, 0),
     ],
 )
@@ -230,6 +232,7 @@ def test_decimal_scalar_infers_precision_and_scale(value: str, precision: int, s
 
 def test_decimal_scalar_rescales_to_dtype() -> None:
     scalar = vx.scalar(decimal.Decimal("1.5"), dtype=vx.decimal(precision=10, scale=3))
+    assert isinstance(scalar, vx.DecimalScalar)
     assert scalar.dtype == vx.decimal(precision=10, scale=3)
     value = scalar.as_py()
     assert isinstance(value, decimal.Decimal)
@@ -293,3 +296,21 @@ def test_timestamp_scalar_keeps_pandas_nanoseconds() -> None:
 def test_decimal_scalar_rejects_unrepresentable_scale() -> None:
     with pytest.raises(ValueError, match="cannot be represented as a Vortex decimal"):
         _ = vx.scalar(decimal.Decimal("1E-100"))
+
+
+def test_datetime_scalar_rejects_unknown_timezone():
+    class InvalidTimezone(datetime.tzinfo):
+        key = "Not/A/Timezone"
+
+        def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
+            return datetime.timedelta(0)
+
+        def dst(self, dt: datetime.datetime | None) -> datetime.timedelta:
+            return datetime.timedelta(0)
+
+        def tzname(self, dt: datetime.datetime | None) -> str:
+            return self.key
+
+    value = datetime.datetime(1970, 1, 1, tzinfo=InvalidTimezone())
+    with pytest.raises(RuntimeError, match="Not/A/Timezone"):
+        vx.scalar(value)

@@ -28,9 +28,6 @@ pub enum VectorMetric {
     Cosine,
     /// `sum((a - b)^2)`.
     L2,
-    // TODO(connor): Do we even need this?
-    /// `dot(a, b)`.
-    InnerProduct,
 }
 
 /// A specific train layout published for a dataset, plus the shard count when partitioned

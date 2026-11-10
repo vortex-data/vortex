@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
+
 use crate::arrays::PrimitiveArray;
-use crate::dtype::NativePType;
-use crate::dtype::half::f16;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 
 cfg_if::cfg_if! {
     if #[cfg(target_feature = "avx2")] {
@@ -14,9 +14,11 @@ cfg_if::cfg_if! {
     }
 }
 
-/// Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
-/// Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.
-pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> bool {
+/// Checks whether every value equals the first value, comparing in groups of `WIDTH`.
+///
+/// Callers that require bitwise equality must pass byte records or integer bit representations.
+/// The slice must be nonempty and `WIDTH` must be nonzero.
+pub fn compute_is_constant<T: Copy + PartialEq, const WIDTH: usize>(values: &[T]) -> bool {
     let first_value = values[0];
     let first_vec = &[first_value; WIDTH];
 
@@ -28,7 +30,7 @@ pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> 
     }
 
     for value in remainder {
-        if !value.is_eq(first_value) {
+        if *value != first_value {
             return false;
         }
     }
@@ -36,24 +38,43 @@ pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> 
     true
 }
 
-trait EqFloat {
-    type IntType;
-}
-
-impl EqFloat for f16 {
-    type IntType = u16;
-}
-impl EqFloat for f32 {
-    type IntType = u32;
-}
-impl EqFloat for f64 {
-    type IntType = u64;
-}
-
 pub(super) fn check_primitive_constant(array: &PrimitiveArray) -> bool {
-    match_each_native_ptype!(array.ptype(), integral: |P| {
-        compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<P>()}>(array.as_slice::<P>())
-    }, floating: |P| {
-        compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<P>()}>(unsafe { std::mem::transmute::<&[P], &[<P as EqFloat>::IntType]>(array.as_slice::<P>()) })
-    })
+    let values = array
+        .buffer_handle()
+        .as_host_opt()
+        .vortex_expect("is_constant requires host values");
+
+    match_each_ptype_width!(
+        array.ptype(),
+        |W| {
+            compute_is_constant::<_, { IS_CONST_LANE_WIDTH / W }>(
+                values.as_slice().as_chunks::<W>().0,
+            )
+        },
+        _ => { unreachable!("primitive widths are specialized") },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::check_primitive_constant;
+    use crate::arrays::PrimitiveArray;
+
+    #[rstest]
+    #[case::zero(&[0], true)]
+    #[case::signed_zero(&[0, 0x80000000], false)]
+    #[case::infinity(&[0x7f800000], true)]
+    #[case::same_nan(&[0x7fc00001], true)]
+    #[case::different_nan(&[0x7fc00001, 0x7fc00002], false)]
+    fn compares_stored_bits(
+        #[case] bits: &[u32],
+        #[case] expected: bool,
+        #[values(2, 16, 17, 65)] len: usize,
+    ) {
+        let values = bits.iter().copied().cycle().take(len).map(f32::from_bits);
+        let array = PrimitiveArray::from_iter(values);
+        assert_eq!(check_primitive_constant(&array), expected);
+    }
 }

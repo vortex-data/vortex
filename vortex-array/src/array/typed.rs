@@ -28,6 +28,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::optimizer::OptimizedState;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
@@ -48,6 +49,7 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) dtype: DType,
     pub(crate) slots: ArraySlots,
     pub(crate) stats: ArrayStats,
+    pub(crate) optimized: OptimizedState,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -173,6 +175,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
                     dtype,
                     slots,
                     stats,
+                    optimized: OptimizedState::default(),
                     data: ArrayData { vtable, data },
                 });
             uninit.assume_init()

@@ -45,6 +45,7 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -104,12 +105,21 @@ pub(crate) fn linestring_storage_dtype(dim: Dimension, nullability: Nullability)
     DType::List(Arc::new(coords), nullability)
 }
 
-/// Validate `dtype` is `List<coordinate-struct>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`linestring_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn linestring_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = dtype else {
         vortex_bail!("linestring storage must be a List of coordinates, was {dtype}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        linestring_storage_dtype(dimension, dtype.nullability()),
+        "linestring storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 /// Return one coordinate ordinate, filling an ordinate absent from the point dimension with zero.
@@ -215,8 +225,7 @@ fn linestring_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         &SpatialMetadata::default(),
         linestring_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     LineStringArray::try_from((arrow.as_ref(), linestring_type))
         .map_err(|e| vortex_err!("failed to construct LineStringArray: {e}"))
 }
@@ -302,12 +311,8 @@ impl ArrowExportVTable for LineString {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's line-string array; `into_arrow` is concrete, so wrap in `Arc`.
         let linestrings = LineStringArray::try_from((arrow_storage.as_ref(), linestring_meta))

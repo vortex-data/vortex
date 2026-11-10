@@ -97,7 +97,11 @@ mod tests {
     use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
         bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()

@@ -43,10 +43,12 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -100,7 +102,8 @@ pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) ->
     DType::List(Arc::new(ring), nullability)
 }
 
-/// Validate `dtype` is `List<List<coordinate-struct>>` and return its [`Dimension`].
+/// Validate that `dtype` equals [`polygon_storage_dtype`] for its [`Dimension`] and top-level
+/// nullability, and return that dimension. As in GeoArrow, only the outer `List` can be nullable.
 pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(ring, _) = dtype else {
         vortex_bail!("polygon storage must be a List of rings, was {dtype}");
@@ -108,7 +111,15 @@ pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
     let DType::List(coords, _) = ring.as_ref() else {
         vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
     };
-    coordinate_dimension(coords)
+    let dimension = coordinate_dimension(coords)?;
+
+    vortex_ensure_eq!(
+        *dtype,
+        polygon_storage_dtype(dimension, dtype.nullability()),
+        "polygon storage can be nullable only at its outer List"
+    );
+
+    Ok(dimension)
 }
 
 static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
@@ -203,8 +214,7 @@ fn polygon_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Pol
         &SpatialMetadata::default(),
         polygon_dimension(storage.dtype())?,
     );
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    let arrow = storage.clone().execute_arrow(None, ctx)?;
     PolygonArray::try_from((arrow.as_ref(), polygon_type))
         .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))
 }
@@ -290,12 +300,8 @@ impl ArrowExportVTable for Polygon {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
         let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))

@@ -9,6 +9,7 @@ pub mod integer;
 pub mod string;
 
 pub mod decimal;
+pub mod fixed_size_list;
 pub mod temporal;
 
 pub(crate) mod patches;

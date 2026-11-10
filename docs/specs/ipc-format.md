@@ -1,4 +1,4 @@
-# IPC Format
+# IPC format
 
 The IPC format streams Vortex arrays between processes as a sequence of self-delimiting messages.
 Arrays keep their encodings on the wire, so compressed data crosses the process boundary without

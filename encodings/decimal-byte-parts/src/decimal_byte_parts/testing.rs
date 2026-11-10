@@ -17,7 +17,11 @@ use vortex_session::VortexSession;
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 /// An `i128`-backed decimal array, encoded as byte parts with one lower part.
 pub(crate) fn i128_parts(values: Vec<i128>, validity: Validity) -> DecimalBytePartsArray {

@@ -38,7 +38,7 @@ use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_arrow::nulls;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -185,12 +185,7 @@ fn try_fsl_to_fsb(
         storage.dtype().is_nullable(),
     );
 
-    let session = ctx.session().clone();
-    let arrow_storage =
-        session
-            .arrow()
-            .exporter(options)
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+    let arrow_storage = storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();
     let bytes = fsl
@@ -231,11 +226,13 @@ mod tests {
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::StructFields;
     use vortex_array::iter::ArrayIterator;
     use vortex_arrow::ArrowArrayStreamAdapter;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -259,6 +256,37 @@ mod tests {
                 .expect("uuid ext dtype")
                 .erased(),
         )
+    }
+
+    /// A session that only [`crate::initialize`] sets up imports an `arrow.uuid` field through the
+    /// UUID plugin, and a field that names the Vortex ID of the UUID type through the dtype
+    /// registry.
+    #[test]
+    fn uuid_session_imports_by_plugin_and_by_vortex_id() -> VortexResult<()> {
+        let vortex_session = uuid_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
+        let dtype = uuid_dtype(false);
+
+        let mut plugin_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        plugin_field.try_with_extension_type(ArrowUuid)?;
+        assert_eq!(session.from_arrow_field(&plugin_field)?, dtype);
+
+        let vortex_id_field = session.to_arrow_storage_field("id", dtype.as_extension())?;
+        assert_eq!(session.from_arrow_field(&vortex_id_field)?, dtype);
+
+        let array = uuid_array(&session)?;
+        let exported = array
+            .clone()
+            .execute_arrow(Some(&vortex_id_field), &mut ctx)?;
+        assert_eq!(exported.data_type(), vortex_id_field.data_type());
+        assert_arrays_eq!(
+            session.from_arrow_array(exported, &vortex_id_field)?,
+            array,
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[test]
@@ -455,7 +483,7 @@ mod tests {
         let vortex_ext = vortex_array.dtype().as_extension();
         assert!(vortex_ext.is::<Uuid>());
 
-        let exported = session.execute_arrow(vortex_array, None, &mut ctx)?;
+        let exported = vortex_array.execute_arrow(None, &mut ctx)?;
         assert_eq!(exported.data_type(), &DataType::FixedSizeBinary(16));
         let fsb = exported.as_fixed_size_binary();
         assert_eq!(fsb.len(), 2);
@@ -492,7 +520,7 @@ mod tests {
         )?
         .into_array();
 
-        let exported = session.execute_arrow(struct_array, None, &mut ctx)?;
+        let exported = struct_array.execute_arrow(None, &mut ctx)?;
         let DataType::Struct(fields) = exported.data_type() else {
             panic!("expected Struct, got {:?}", exported.data_type());
         };
@@ -521,7 +549,7 @@ mod tests {
         )?
         .into_array();
 
-        let exported = session.execute_arrow(list, None, &mut ctx)?;
+        let exported = list.execute_arrow(None, &mut ctx)?;
         let DataType::List(elem) = exported.data_type() else {
             panic!("expected List, got {:?}", exported.data_type());
         };
@@ -574,7 +602,7 @@ mod tests {
         assert_eq!(vortex_array.dtype(), &dtype);
 
         // And the values must round-trip back out through the export plugin.
-        let exported = session.execute_arrow(vortex_array, Some(&field), &mut ctx)?;
+        let exported = vortex_array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.len(), 5);
         let ree = exported
             .as_any()
@@ -636,7 +664,7 @@ mod tests {
         // Arrow's dictionary values data type does carry the nested element field, so the
         // extension survives the export as well.
         let mut ctx = vortex_session.create_execution_ctx();
-        let exported = session.execute_arrow(array, Some(&field), &mut ctx)?;
+        let exported = array.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
         assert_eq!(exported.to_data(), expected);
         let values = exported.as_any_dictionary().values().as_list::<i32>();
@@ -665,8 +693,7 @@ mod tests {
         assert_eq!(array.dtype(), &session.from_arrow_schema(&schema)?);
         let ids = array.as_::<Struct>().unmasked_field_by_name("id")?.clone();
         assert_eq!(ids.dtype(), &uuid_dtype(false));
-        let exported = session.execute_arrow(
-            ids,
+        let exported = ids.execute_arrow(
             Some(&uuid_field),
             &mut vortex_session.create_execution_ctx(),
         )?;
@@ -718,7 +745,7 @@ mod tests {
         assert_eq!(by_nullability.dtype(), array.dtype());
         let mut ctx = vortex_session.create_execution_ctx();
         for imported in [array, by_nullability] {
-            let exported = session.execute_arrow(imported, None, &mut ctx)?;
+            let exported = imported.execute_arrow(None, &mut ctx)?;
             assert_eq!(exported.to_data(), arrow_struct.to_data());
         }
         Ok(())
@@ -767,9 +794,7 @@ mod tests {
         );
         assert_eq!(array.len(), 2);
         let mut ctx = vortex_session.create_execution_ctx();
-        let exported = vortex_session
-            .arrow()
-            .execute_arrow(array, None, &mut ctx)?;
+        let exported = array.execute_arrow(None, &mut ctx)?;
         let ids = exported.as_struct().column(0).as_fixed_size_binary();
         assert_eq!(ids.len(), 2);
         assert_eq!(ids.null_count(), 0);
@@ -826,7 +851,7 @@ mod tests {
         assert!(map_dtype.key_dtype().is_extension());
         assert!(map_dtype.value_dtype().is_extension());
 
-        let exported = session.execute_arrow(vortex, Some(&field), &mut ctx)?;
+        let exported = vortex.execute_arrow(Some(&field), &mut ctx)?;
         assert_eq!(exported.data_type(), field.data_type());
         assert_eq!(exported.as_map().value_offsets(), &[0, 2]);
         assert_eq!(exported.to_data(), expected);

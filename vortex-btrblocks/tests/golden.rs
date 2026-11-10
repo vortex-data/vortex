@@ -48,8 +48,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TimeUnit;
-#[cfg(feature = "pco")]
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -436,7 +434,7 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
     use vortex_btrblocks::SchemeExt;
     use vortex_btrblocks::schemes::string::OnPairScheme;
 
-    builder.exclude_schemes([OnPairScheme.id()])
+    builder.exclude_schemes([OnPairScheme::default().id()])
 }
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
@@ -448,12 +446,11 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     vortex_fastlanes::initialize(&session);
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
-    vortex_runend::initialize(&session);
     vortex_sequence::initialize(&session);
     vortex_sparse::initialize(&session);
     vortex_zigzag::initialize(&session);
     #[cfg(feature = "pco")]
-    session.arrays().register(vortex_pco::Pco);
+    vortex_pco::initialize(&session);
     for family in EDITION_FAMILIES {
         session.editions().declare_family(family)?;
     }

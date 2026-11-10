@@ -39,7 +39,6 @@ vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }
 vortex-mask = { workspace = true }
 vortex-row = { workspace = true }
-vortex-runend = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 

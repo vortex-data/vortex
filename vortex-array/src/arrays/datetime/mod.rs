@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(test)]
-mod test;
+//! Typed wrappers for temporal extension arrays.
+//!
+//! [`TemporalData`] gives date, time, and timestamp arrays a shared storage interface. The extension
+//! dtype retains each type's unit and metadata while the underlying array stores numeric values.
 
 use std::sync::Arc;
 
@@ -100,14 +102,12 @@ impl TemporalData {
         }
     }
 
-    /// Create a new `TemporalData` holding Arrow spec compliant Timestamp data, with an
-    /// optional timezone.
+    /// Creates a timestamp array with the given unit and optional time zone.
     ///
     /// # Panics
     ///
-    /// If `array` does not hold Primitive i64 data, the function will panic.
-    ///
-    /// If the time_unit is days, the function will panic.
+    /// Panics if `array` does not have primitive i64 storage, or if
+    /// [`Timestamp::try_new_with_tz`] rejects the unit or time zone.
     pub fn new_timestamp(
         array: ArrayRef,
         time_unit: TimeUnit,
@@ -215,3 +215,6 @@ impl TryFrom<ExtensionArray> for TemporalData {
         Ok(Self { ext })
     }
 }
+
+#[cfg(test)]
+mod tests;

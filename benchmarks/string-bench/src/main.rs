@@ -12,8 +12,10 @@ use clap::ValueEnum;
 use indicatif::ProgressBar;
 use mimalloc::MiMalloc;
 use regex::Regex;
+use string_bench::Candidate;
 use string_bench::ColumnResult;
-use string_bench::DirectCandidate;
+use string_bench::HF_COLUMNS;
+use string_bench::HfColumn;
 use string_bench::SESSION;
 use string_bench::SerializedResult;
 use string_bench::StringColumn;
@@ -21,6 +23,7 @@ use string_bench::StringEncoder;
 use string_bench::bench_column;
 use string_bench::bench_serialized_with_session;
 use string_bench::load_clickbench_url;
+use string_bench::load_hf_column;
 use string_bench::load_tpch_l_comment;
 use tabled::builder::Builder;
 use tabled::settings::Style;
@@ -44,7 +47,8 @@ const BENCHMARK_ID: &str = "string";
 /// Repo-relative path of the suite explainer linked from CI benchmark PR comments.
 const DOC_PATH: &str = "benchmarks/string-bench/README.md";
 
-const CODEC_ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
+/// OnPair dictionary budgets (in bits) both suites sweep.
+const ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
 
 /// The configured benchmark inputs. Add a variant to extend the catalog.
 enum Input {
@@ -52,6 +56,8 @@ enum Input {
     ClickBenchUrl(u32),
     /// The TPC-H SF1 `lineitem.l_comment` column.
     TpchLComment,
+    /// A column of a pinned Hugging Face parquet file.
+    Hf(&'static HfColumn),
 }
 
 impl Input {
@@ -60,6 +66,7 @@ impl Input {
         match self {
             Self::ClickBenchUrl(_) => "URL",
             Self::TpchLComment => "l_comment",
+            Self::Hf(source) => source.name,
         }
     }
 
@@ -67,6 +74,7 @@ impl Input {
         match *self {
             Self::ClickBenchUrl(shard) => load_clickbench_url(shard, ctx).await,
             Self::TpchLComment => load_tpch_l_comment(ctx).await,
+            Self::Hf(source) => load_hf_column(source, ctx).await,
         }
     }
 }
@@ -120,6 +128,10 @@ struct Args {
     /// Write output to this file instead of stdout.
     #[arg(short, long)]
     output_path: Option<PathBuf>,
+    /// Also write the Vortex file suite results as JSONL ingest records for the
+    /// benchmarks database to this path.
+    #[arg(long)]
+    ingest_jsonl: Option<PathBuf>,
     /// Enable verbose (debug-level) logging.
     #[arg(short, long)]
     verbose: bool,
@@ -129,6 +141,12 @@ struct Args {
     /// Format for the primary stderr log sink.
     #[arg(long, value_enum, default_value_t = LogFormat::Text)]
     log_format: LogFormat,
+    /// Download or generate the selected input columns and exit without benchmarking.
+    ///
+    /// CI runs this as its own step so that preparing data is not interleaved with the timed
+    /// runs in the logs.
+    #[arg(long)]
+    prepare_data: bool,
 }
 
 fn contains_duplicates<T: PartialEq>(values: &[T]) -> bool {
@@ -162,18 +180,14 @@ async fn run(args: Args) -> Result<()> {
     if contains_duplicates(&args.encoders) {
         bail!("--encoders must not contain duplicates");
     }
-    // The codec suite sweeps OnPair dictionary budgets; the file suite cannot,
-    // since btrblocks picks the budget it compresses with.
-    let mut candidates: Vec<DirectCandidate> = Vec::new();
-    if run_codec {
-        if args.encoders.contains(&StringEncoder::OnPair) {
-            for bits in CODEC_ONPAIR_DICT_BITS {
-                candidates.push(DirectCandidate::on_pair(bits)?);
-            }
+    let mut candidates: Vec<Candidate> = Vec::new();
+    if args.encoders.contains(&StringEncoder::OnPair) {
+        for bits in ONPAIR_DICT_BITS {
+            candidates.push(Candidate::on_pair(bits)?);
         }
-        if args.encoders.contains(&StringEncoder::Fsst) {
-            candidates.push(DirectCandidate::Fsst);
-        }
+    }
+    if args.encoders.contains(&StringEncoder::Fsst) {
+        candidates.push(Candidate::Fsst);
     }
 
     let filter = args.columns.as_deref().map(Regex::new).transpose()?;
@@ -184,6 +198,7 @@ async fn run(args: Args) -> Result<()> {
         Input::TpchLComment,
     ]
     .into_iter()
+    .chain(HF_COLUMNS.iter().map(Input::Hf))
     .filter(|input| filter.as_ref().is_none_or(|f| f.is_match(input.name())))
     {
         columns.push(input.load(&mut ctx).await?);
@@ -191,11 +206,16 @@ async fn run(args: Args) -> Result<()> {
     if columns.is_empty() {
         bail!("no input columns matched the --columns filter");
     }
+    if args.prepare_data {
+        for column in &columns {
+            println!("{}", column.name);
+        }
+        return Ok(());
+    }
 
     let verify = !args.no_verify;
 
-    // `candidates` is empty unless the codec suite runs.
-    let steps_per_column = candidates.len() + if run_vortex { args.encoders.len() } else { 0 };
+    let steps_per_column = candidates.len() * (usize::from(run_codec) + usize::from(run_vortex));
     let progress = ProgressBar::new((columns.len() * steps_per_column) as u64);
 
     let mut column_results: Vec<ColumnResult> = Vec::new();
@@ -219,12 +239,20 @@ async fn run(args: Args) -> Result<()> {
                 iterations,
                 args.warmup,
                 verify,
-                &args.encoders,
+                &candidates,
                 &progress,
             )?);
         }
     }
     progress.finish();
+
+    if let Some(path) = &args.ingest_jsonl {
+        let records: Vec<_> = serialized_results
+            .iter()
+            .flat_map(SerializedResult::v3_records)
+            .collect();
+        vortex_bench::v3::write_jsonl_to_path(path, &records)?;
+    }
 
     let mut writer = create_output_writer(&args.display_format, args.output_path, BENCHMARK_ID)?;
     match args.display_format {
@@ -256,7 +284,7 @@ fn run_codec_column(
     iterations: usize,
     warmup: usize,
     verify: bool,
-    candidates: &[DirectCandidate],
+    candidates: &[Candidate],
     progress: &ProgressBar,
 ) -> Result<Vec<ColumnResult>> {
     let mut results = Vec::with_capacity(candidates.len());
@@ -282,15 +310,15 @@ fn run_vortex_column(
     iterations: usize,
     warmup: usize,
     verify: bool,
-    encoders: &[StringEncoder],
+    candidates: &[Candidate],
     progress: &ProgressBar,
 ) -> Result<Vec<SerializedResult>> {
     let runtime = CurrentThreadRuntime::new();
     let session = VortexSession::default().with_handle(runtime.handle());
-    let mut results = Vec::with_capacity(encoders.len());
-    for &encoder in encoders {
+    let mut results = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
         let result = runtime.block_on(bench_serialized_with_session(
-            &session, column, iterations, warmup, verify, encoder,
+            &session, column, iterations, warmup, verify, candidate,
         ))?;
         tracing::info!(
             "{} [{}]: size {:.2}% | write {:.2} MB/s | read {:.2} MB/s",

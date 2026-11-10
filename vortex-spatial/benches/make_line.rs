@@ -28,7 +28,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::session::DTypeSession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_arrow::ArrowSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_edition::EditionSession;
 use vortex_edition::EnabledEditions;
 use vortex_expr::stats::session::StatsSession;
@@ -48,7 +48,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<DTypeSession>()
         .with::<ScalarFnSession>()
         .with::<AggregateFnSession>()
-        .with::<ArrowSession>()
         .with::<StatsSession>()
         .with::<EditionSession>()
         .with::<EnabledEditions>();
@@ -115,6 +114,9 @@ fn make_lines(starts: &ArrayRef, ends: &ArrayRef, ctx: &mut ExecutionCtx) -> Arr
 fn column_x_column(bencher: Bencher) {
     let starts = points(0);
     let ends = points(97);
+    mark_optimized(&starts, &SESSION).unwrap();
+    mark_optimized(&ends, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))
@@ -126,6 +128,9 @@ fn column_x_constant(bencher: Bencher) {
     let starts = points(0);
     let mut ctx = SESSION.create_execution_ctx();
     let end = point_constant(&mut ctx);
+    mark_optimized(&starts, &SESSION).unwrap();
+    mark_optimized(&end, &SESSION).unwrap();
+
     bencher
         .counter(ItemsCount::new(ROWS))
         .bench_local(|| make_lines(&starts, &end, &mut ctx));
@@ -135,6 +140,9 @@ fn column_x_constant(bencher: Bencher) {
 fn nullable_columns(bencher: Bencher) {
     let starts = nullable_points(0, 8);
     let ends = nullable_points(97, 11);
+    mark_optimized(&starts, &SESSION).unwrap();
+    mark_optimized(&ends, &SESSION).unwrap();
+
     let mut ctx = SESSION.create_execution_ctx();
     bencher
         .counter(ItemsCount::new(ROWS))

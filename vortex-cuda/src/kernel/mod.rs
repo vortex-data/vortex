@@ -257,8 +257,8 @@ impl KernelLoader {
             vortex_err!("CUDA module {module_name} was not embedded at build time")
         })?;
 
-        cuda_context
-            .load_module(fatbin)
+        // SAFETY: The build embeds complete fatbins produced by nvcc.
+        unsafe { cuda_context.load_module(fatbin) }
             .map_err(|e| vortex_err!("Failed to load embedded CUDA module {module_name}: {e}"))
     }
 }

@@ -248,36 +248,36 @@ logical_opt [
                                                 "name": "READ_VORTEX",
                                                 "children": [],
                                                 "extra_info": {
-                                                    "Filters": "($.i_manager_id = 28i32)",
+                                                    "Filters": [
+                                                        "($.d_moy = 11i32)",
+                                                        "($.d_year = 1999i32)",
+                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
+                                                    ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "400"
+                                                    "Estimated Cardinality": "14609"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "(ss_item_sk = i_item_sk)",
-                                            "Estimated Cardinality": "48097"
+                                            "Conditions": "(ss_sold_date_sk = d_date_sk)",
+                                            "Estimated Cardinality": "48094"
                                         }
                                     },
                                     {
                                         "name": "READ_VORTEX",
                                         "children": [],
                                         "extra_info": {
-                                            "Filters": [
-                                                "($.d_moy = 11i32)",
-                                                "($.d_year = 1999i32)",
-                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
-                                            ],
+                                            "Filters": "($.i_manager_id = 28i32)",
                                             "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "14609"
+                                            "Estimated Cardinality": "400"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                    "Estimated Cardinality": "48097"
+                                    "Conditions": "(ss_item_sk = i_item_sk)",
+                                    "Estimated Cardinality": "9618"
                                 }
                             }
                         ],
@@ -287,7 +287,7 @@ logical_opt [
                                 "i_brand_id"
                             ],
                             "Expressions": "sum(ss_ext_sales_price)",
-                            "Estimated Cardinality": "41230"
+                            "Estimated Cardinality": "9557"
                         }
                     }
                 ],
@@ -297,7 +297,7 @@ logical_opt [
                         "brand",
                         "ext_price"
                     ],
-                    "Estimated Cardinality": "41230"
+                    "Estimated Cardinality": "9557"
                 }
             }
         ],
@@ -344,20 +344,20 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
-                                                            "Filters": "($.i_manager_id = 28i32)",
-                                                            "Projections": [
-                                                                "i_item_sk",
-                                                                "i_brand_id",
-                                                                "i_brand"
+                                                            "Filters": [
+                                                                "($.d_moy = 11i32)",
+                                                                "($.d_year = 1999i32)",
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
-                                                            "Estimated Cardinality": "400"
+                                                            "Projections": "d_date_sk",
+                                                            "Estimated Cardinality": "14609"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "ss_item_sk = i_item_sk",
-                                                    "Estimated Cardinality": "48097"
+                                                    "Conditions": "ss_sold_date_sk = d_date_sk",
+                                                    "Estimated Cardinality": "48094"
                                                 }
                                             },
                                             {
@@ -365,20 +365,20 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
-                                                    "Filters": [
-                                                        "($.d_moy = 11i32)",
-                                                        "($.d_year = 1999i32)",
-                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
+                                                    "Filters": "($.i_manager_id = 28i32)",
+                                                    "Projections": [
+                                                        "i_item_sk",
+                                                        "i_brand_id",
+                                                        "i_brand"
                                                     ],
-                                                    "Projections": "d_date_sk",
-                                                    "Estimated Cardinality": "14609"
+                                                    "Estimated Cardinality": "400"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "ss_sold_date_sk = d_date_sk",
-                                            "Estimated Cardinality": "48097"
+                                            "Conditions": "ss_item_sk = i_item_sk",
+                                            "Estimated Cardinality": "9618"
                                         }
                                     }
                                 ],
@@ -388,7 +388,7 @@ physical_plan [
                                         "i_brand_id",
                                         "ss_ext_sales_price"
                                     ],
-                                    "Estimated Cardinality": "48097"
+                                    "Estimated Cardinality": "9618"
                                 }
                             }
                         ],
@@ -398,7 +398,7 @@ physical_plan [
                                 "#1"
                             ],
                             "Aggregates": "sum(#2)",
-                            "Estimated Cardinality": "41230"
+                            "Estimated Cardinality": "9557"
                         }
                     }
                 ],
@@ -408,7 +408,7 @@ physical_plan [
                         "brand",
                         "ext_price"
                     ],
-                    "Estimated Cardinality": "41230"
+                    "Estimated Cardinality": "9557"
                 }
             }
         ],

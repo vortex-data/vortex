@@ -12,10 +12,10 @@ use vortex_session::VortexSession;
 use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
-use crate::LayoutChildren;
-use crate::LayoutEncoding;
-use crate::LayoutEncodingId;
-use crate::LayoutEncodingRef;
+use crate::LayoutDeserialization;
+use crate::LayoutId;
+use crate::LayoutPlugin;
+use crate::LayoutPluginRef;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
@@ -24,43 +24,39 @@ use crate::segments::SegmentSource;
 /// Placeholder layout encoding used when deserializing an unknown layout encoding ID.
 #[derive(Clone, Debug)]
 pub(crate) struct ForeignLayoutEncoding {
-    id: LayoutEncodingId,
+    id: LayoutId,
 }
 
 impl ForeignLayoutEncoding {
-    pub(crate) fn new(id: LayoutEncodingId) -> Self {
+    pub(crate) fn new(id: LayoutId) -> Self {
         Self { id }
     }
 }
 
-impl LayoutEncoding for ForeignLayoutEncoding {
+impl LayoutPlugin for ForeignLayoutEncoding {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn id(&self) -> LayoutEncodingId {
+    fn id(&self) -> LayoutId {
         self.id
     }
 
-    fn build(
+    fn deserialize(
         &self,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &[u8],
-        segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        _build_ctx: &LayoutBuildContext<'_>,
+        parts: LayoutDeserialization<'_>,
+        _ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
-        let child_layouts = (0..children.nchildren())
-            .map(|idx| children.child(idx, dtype))
+        let child_layouts = (0..parts.children.nchildren())
+            .map(|idx| parts.children.child(idx, parts.dtype))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(new_foreign_layout(
             self.id,
-            dtype.clone(),
-            row_count,
-            metadata.to_vec(),
-            segment_ids,
+            parts.dtype.clone(),
+            parts.row_count,
+            parts.metadata.to_vec(),
+            parts.segment_ids,
             child_layouts,
         ))
     }
@@ -69,7 +65,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
 /// Placeholder layout used when deserializing an unknown layout encoding ID.
 #[derive(Clone, Debug)]
 pub(crate) struct ForeignLayout {
-    encoding: LayoutEncodingRef,
+    encoding: LayoutPluginRef,
     dtype: DType,
     row_count: u64,
     metadata: Vec<u8>,
@@ -79,15 +75,14 @@ pub(crate) struct ForeignLayout {
 
 impl ForeignLayout {
     pub(crate) fn new(
-        encoding_id: LayoutEncodingId,
+        encoding_id: LayoutId,
         dtype: DType,
         row_count: u64,
         metadata: Vec<u8>,
         segment_ids: Vec<SegmentId>,
         children: Vec<LayoutRef>,
     ) -> Self {
-        let encoding =
-            LayoutEncodingRef::new_arc(Arc::new(ForeignLayoutEncoding::new(encoding_id)));
+        let encoding = LayoutPluginRef::new_arc(Arc::new(ForeignLayoutEncoding::new(encoding_id)));
 
         Self {
             encoding,
@@ -101,7 +96,7 @@ impl ForeignLayout {
 }
 
 pub(crate) fn new_foreign_layout(
-    encoding_id: LayoutEncodingId,
+    encoding_id: LayoutId,
     dtype: DType,
     row_count: u64,
     metadata: Vec<u8>,
@@ -127,7 +122,7 @@ impl DynLayout for ForeignLayout {
         Arc::new(self.clone())
     }
 
-    fn dyn_encoding_id(&self) -> LayoutEncodingId {
+    fn dyn_encoding_id(&self) -> LayoutId {
         self.encoding.id()
     }
 

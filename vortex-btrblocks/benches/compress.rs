@@ -26,6 +26,7 @@ mod benchmarks {
     use vortex_array::memory::MemorySession;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::session::ArraySession;
+    use vortex_array::test_harness::mark_optimized;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_btrblocks::CompressionSession;
@@ -58,7 +59,6 @@ mod benchmarks {
         vortex_fastlanes::initialize(&session);
         vortex_fsst::initialize(&session);
         vortex_onpair::initialize(&session);
-        vortex_runend::initialize(&session);
         vortex_sequence::initialize(&session);
         vortex_sparse::initialize(&session);
         vortex_zigzag::initialize(&session);
@@ -94,21 +94,23 @@ mod benchmarks {
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = make_clickbench_window_name()
+        let values = make_clickbench_window_name()
             .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+            .unwrap()
+            .to_buffer::<i32>();
         let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .unrestricted()
             .build();
         bencher
-            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .with_inputs(|| {
+                let array = PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array();
+                mark_optimized(&array, &SESSION).unwrap();
+
+                (array, SESSION.create_execution_ctx())
+            })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|(array, ctx)| {
-                compressor
-                    .compress(&array.clone().into_array(), ctx)
-                    .unwrap()
-            });
+            .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 
     /// Compresses a canonical `Decimal(12, 2)` column whose values are drawn like those of the
@@ -125,15 +127,15 @@ mod benchmarks {
         let compressor = BtrBlocksCompressorBuilder::from_session(&WRITE_SESSION).build();
         bencher
             .with_inputs(|| {
-                (
-                    DecimalArray::new(
-                        values.clone(),
-                        DecimalDType::new(12, 2),
-                        Validity::NonNullable,
-                    )
-                    .into_array(),
-                    WRITE_SESSION.create_execution_ctx(),
+                let array = DecimalArray::new(
+                    values.clone(),
+                    DecimalDType::new(12, 2),
+                    Validity::NonNullable,
                 )
+                .into_array();
+                mark_optimized(&array, &WRITE_SESSION).unwrap();
+
+                (array, WRITE_SESSION.create_execution_ctx())
             })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i64>(array.len()))

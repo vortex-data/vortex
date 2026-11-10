@@ -585,8 +585,8 @@ pub(super) fn dtype_timestamp<'py>(
     unit: &str,
     tz: Option<&str>,
     nullable: bool,
-) -> PyResult<Bound<'py, PyDType>> {
+) -> PyVortexResult<Bound<'py, PyDType>> {
     let time_unit = parse_time_unit(unit)?;
-    let ext = Timestamp::new_with_tz(time_unit, tz.map(Arc::from), nullable.into());
-    PyDType::init(py, DType::Extension(ext.erased()))
+    let ext = Timestamp::try_new_with_tz(time_unit, tz.map(Arc::from), nullable.into())?;
+    Ok(PyDType::init(py, DType::Extension(ext.erased()))?)
 }

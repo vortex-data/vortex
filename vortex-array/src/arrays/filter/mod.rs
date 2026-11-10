@@ -24,10 +24,12 @@ pub use kernel::FilterReduce;
 pub use kernel::FilterReduceAdaptor;
 
 mod rules;
+mod slice;
 
 mod vtable;
 pub use vtable::Filter;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     kernel::initialize(session);
+    rules::register_parent_rules(session);
 }

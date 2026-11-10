@@ -154,7 +154,7 @@ fn i64_stats(offset: i64) -> StatsSet {
 #[divan::bench]
 fn stats_get_min(bencher: Bencher) {
     let array = (0..1024i64).collect::<Buffer<i64>>().into_array();
-    array.statistics().set_iter(i64_stats(0).into_iter());
+    array.statistics().set_all(i64_stats(0));
     bencher.counter(ItemsCount::new(N)).bench_local(|| {
         for _ in 0..N {
             black_box(black_box(&array).statistics().get(Stat::Min));
@@ -165,7 +165,7 @@ fn stats_get_min(bencher: Bencher) {
 #[divan::bench]
 fn stats_compute_is_constant_cached(bencher: Bencher) {
     let array = (0..1024i64).collect::<Buffer<i64>>().into_array();
-    array.statistics().set_iter(i64_stats(0).into_iter());
+    array.statistics().set_all(i64_stats(0));
     let mut ctx = SESSION.create_execution_ctx();
     bencher.counter(ItemsCount::new(N)).bench_local(|| {
         for _ in 0..N {

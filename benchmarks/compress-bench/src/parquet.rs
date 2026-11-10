@@ -39,7 +39,7 @@ use vortex_bench::compress::Compressor;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 
-/// Compressor implementation for Parquet format with ZSTD compression.
+/// Compressor implementation for Parquet format with ZSTD level 3 compression.
 pub struct ParquetCompressor {
     compression: Compression,
 }
@@ -47,7 +47,9 @@ pub struct ParquetCompressor {
 impl ParquetCompressor {
     pub fn new() -> Self {
         Self {
-            compression: Compression::ZSTD(ZstdLevel::default()),
+            compression: Compression::ZSTD(
+                ZstdLevel::try_new(3).unwrap_or_else(|_| unreachable!("3 is a valid zstd level")),
+            ),
         }
     }
 
@@ -476,7 +478,7 @@ mod tests {
             batch(0, 7)?,
         ];
         let schema = batches[0].schema();
-        let compression = Compression::ZSTD(ZstdLevel::default());
+        let compression = Compression::ZSTD(ZstdLevel::try_new(3)?);
 
         let mut parallel = Vec::new();
         parquet_compress_write(

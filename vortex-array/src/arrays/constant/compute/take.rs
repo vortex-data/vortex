@@ -10,8 +10,6 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::dict::TakeReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -51,11 +49,6 @@ impl TakeReduce for Constant {
         };
         Ok(Some(result))
     }
-}
-
-impl Constant {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

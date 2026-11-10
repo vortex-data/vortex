@@ -40,7 +40,6 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
@@ -75,6 +74,8 @@ use crate::ConstantArray;
 use crate::Sparse;
 use crate::SparseExt;
 use crate::SparseParts;
+
+mod lists;
 
 /// The pieces every string decode of a sparse array starts from: the offset-resolved patch
 /// indices and canonical patch values, plus the fill value's bytes (`None` for a null fill).
@@ -242,11 +243,6 @@ where
     let mut previous = 0usize;
     for (patch, row) in indices.iter().enumerate() {
         let row = AsPrimitive::<usize>::as_(*row);
-        // The canonical decode scatters the patches in order, so of duplicate indices the
-        // last one wins; skip a patch that the next one lands on top of.
-        if patch + 1 < indices.len() && AsPrimitive::<usize>::as_(indices[patch + 1]) == row {
-            continue;
-        }
         vortex_ensure!(
             previous <= row && row < len,
             "Sparse patch indices must be ascending within the array length {len}"
@@ -314,8 +310,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             })
         }
         DType::Decimal(decimal_dtype, nullability) => {
-            let canonical_decimal_value_type =
-                DecimalType::smallest_decimal_value_type(decimal_dtype);
+            let canonical_decimal_value_type = decimal_dtype.canonical_values_type();
             let fill_decimal = fill_value.as_decimal();
             match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
                 execute_sparse_decimal::<D>(
@@ -383,14 +378,24 @@ fn execute_sparse_lists(
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let fill_list = fill_value.as_list();
 
-    // Flatten the patch views up front so that runs of them can be appended as slices below. An
-    // exact layout also trims `elements` to exactly what the patches reference, so the patch half
-    // of the count below is what the builder will actually hold rather than an over-estimate.
-    let values = resolved
-        .values()
-        .clone()
-        .downcast::<ListView>()
-        .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+    let values = resolved.values().clone().downcast::<ListView>();
+
+    // Keep the builder for at most one valid list: there is no repeated element gather to
+    // avoid, and constructing run-end offsets would add setup work.
+    let patch_validity = values.listview_validity().execute_mask(values.len(), ctx)?;
+    let use_shared_elements = patch_validity.true_count() > 1;
+
+    // Null lists also have no elements, so null and empty fills take the same path. Its output
+    // shares the patch elements, so drop the ones only null lists hold: exports and element-wise
+    // functions would otherwise read elements that no valid row shows.
+    if fill_list.is_empty() && use_shared_elements {
+        let values = values.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, ctx)?;
+        return lists::empty_fill(resolved, values, fill_value, len, nullability, ctx);
+    }
+
+    // Trim the patch elements to those the views reference, so the element count below is what
+    // the builder will hold rather than an over-estimate.
+    let values = values.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
 
     // Each gap between patches is appended as one constant array, whose canonical form points
     // every view at a single copy of the fill value, so a gap costs the fill value's elements once
@@ -405,6 +410,7 @@ fn execute_sparse_lists(
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
+                &patch_validity,
                 fill_value,
                 values_dtype,
                 len,
@@ -420,6 +426,7 @@ fn execute_sparse_lists(
 fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
+    patch_validity: &Mask,
     fill_value: &Scalar,
     values_dtype: Arc<DType>,
     len: usize,
@@ -439,12 +446,6 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     // The fill's elements become an array once, up front. Every gap then appends that same array,
     // so the fill's elements are stored once for the whole result however many gaps reference them.
     let fill_elements = list_scalar_elements_array(fill_value.as_list(), ctx.allocator());
-
-    // One mask for the whole patch array rather than a validity lookup per patch.
-    let patch_validity = patch_values
-        .listview_validity()
-        .execute_mask(patch_values.len(), ctx)
-        .vortex_expect("sparse list validity mask failed to execute");
 
     let mut next_index = 0;
 
@@ -909,6 +910,7 @@ mod test {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_arrow::ExecuteArrowExt;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
@@ -1135,33 +1137,23 @@ mod test {
         let sparse_struct =
             Sparse::try_new(indices, patch_values, len, fill_scalar, &mut ctx).unwrap();
 
-        let expected = SESSION
-            .arrow()
-            .execute_arrow(
-                DecimalArray::new(
-                    buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
-                    decimal_dtype,
-                    // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
-                    Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
-                )
-                .into_array(),
-                None,
-                &mut ctx,
-            )
-            .unwrap();
+        let expected = DecimalArray::new(
+            buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
+            decimal_dtype,
+            // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
+            Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
+        )
+        .into_array()
+        .execute_arrow(None, &mut ctx)
+        .unwrap();
 
-        let actual = SESSION
-            .arrow()
-            .execute_arrow(
-                sparse_struct
-                    .as_array()
-                    .clone()
-                    .execute::<DecimalArray>(&mut ctx)
-                    .unwrap()
-                    .into_array(),
-                None,
-                &mut ctx,
-            )
+        let actual = sparse_struct
+            .as_array()
+            .clone()
+            .execute::<DecimalArray>(&mut ctx)
+            .unwrap()
+            .into_array()
+            .execute_arrow(None, &mut ctx)
             .unwrap();
 
         assert_eq!(expected.data_type(), actual.data_type());
@@ -1930,12 +1922,8 @@ mod test {
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
         let arrow_dtype = SESSION.arrow().to_arrow_field("", expected.dtype())?;
-        let actual = SESSION
-            .arrow()
-            .execute_arrow(actual, Some(&arrow_dtype), &mut ctx)?;
-        let expected = SESSION
-            .arrow()
-            .execute_arrow(expected, Some(&arrow_dtype), &mut ctx)?;
+        let actual = actual.execute_arrow(Some(&arrow_dtype), &mut ctx)?;
+        let expected = expected.execute_arrow(Some(&arrow_dtype), &mut ctx)?;
 
         assert_eq!(actual.data_type(), expected.data_type());
         Ok(())

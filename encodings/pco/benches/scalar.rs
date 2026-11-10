@@ -15,6 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_pco::Pco;
@@ -55,9 +56,12 @@ fn pco(nullable: bool) -> ArrayRef {
         validity,
     );
     let mut ctx = SESSION.create_execution_ctx();
-    Pco::from_primitive(input.as_view(), 8, 1024, &mut ctx)
+    let array = Pco::from_primitive(input.as_view(), 8, 1024, &mut ctx)
         .vortex_expect("PCO compression")
-        .into_array()
+        .into_array();
+    mark_optimized(&array, &SESSION).vortex_expect("mark the PCO array as optimized");
+
+    array
 }
 
 fn indices(count: usize, scattered: bool) -> Vec<usize> {

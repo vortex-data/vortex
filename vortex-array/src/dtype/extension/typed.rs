@@ -12,7 +12,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::dtype::DType;
@@ -88,14 +87,16 @@ impl<V: ExtVTable> ExtDType<V> {
     }
 
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
+    ///
+    /// This does not validate the dtype again, because [`ExtVTable::validate_dtype`] must not
+    /// depend on the top-level nullability of the storage dtype.
     pub fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
-        let storage_dtype = self.storage_dtype.with_nullability(nullability);
-        ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.metadata.clone(), storage_dtype)
-            .vortex_expect(
-                "Extension DType should not fail validation with the same storage type \
-                 but different nullability",
-            )
-            .erased()
+        Self {
+            vtable: self.vtable.clone(),
+            metadata: self.metadata.clone(),
+            storage_dtype: self.storage_dtype.with_nullability(nullability),
+        }
+        .erased()
     }
 
     /// Serializes the metadata into a byte vector.

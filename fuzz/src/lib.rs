@@ -38,14 +38,22 @@ pub use row::run_row_encode;
 pub const FUZZ_ARRAY_MAX_LEN: usize = 2048;
 pub const FUZZ_FILE_ARRAY_MAX_LEN: usize = 16_384;
 
-fn enable_latest_core_edition(session: &vortex_session::VortexSession) {
-    use vortex::editions::CORE_2026_08_3;
+/// Editions the fuzz session enables, so the fuzzers also cover preview and unstable components.
+const FUZZ_EDITIONS: [vortex::editions::EditionId; 3] = [
+    vortex::editions::DEFAULT_CORE_EDITION,
+    vortex::editions::DEFAULT_PREVIEW_EDITION,
+    vortex::editions::UNSTABLE,
+];
+
+fn enable_fuzz_editions(session: &vortex_session::VortexSession) {
     use vortex::editions::EditionSessionExt;
     use vortex_error::VortexExpect;
 
-    session
-        .enable_edition(CORE_2026_08_3)
-        .vortex_expect("latest core edition is registered");
+    for edition in FUZZ_EDITIONS {
+        session
+            .enable_edition(edition)
+            .vortex_expect("fuzz edition is registered");
+    }
 }
 
 // Runtime initialization - platform-specific
@@ -71,7 +79,7 @@ mod native_runtime {
             session = session.with::<vortex_cuda::CudaSession>();
             vortex_cuda::initialize_cuda(&session.cuda_session());
         }
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
@@ -94,7 +102,7 @@ mod wasm_runtime {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::default().with_handle(WasmRuntime::handle());
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
@@ -113,7 +121,7 @@ mod wasi_runtime {
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::default();
-        super::enable_latest_core_edition(&session);
+        super::enable_fuzz_editions(&session);
         session
     });
 }
@@ -123,18 +131,17 @@ pub use wasi_runtime::SESSION;
 
 #[cfg(test)]
 mod tests {
-    use vortex::editions::CORE_2026_08_3;
     use vortex::editions::EditionSessionExt;
 
+    use super::FUZZ_EDITIONS;
     use super::SESSION;
 
     #[test]
-    fn fuzz_session_uses_latest_core_edition() {
-        assert!(
-            SESSION
-                .enabled_editions()
-                .editions()
-                .contains(&CORE_2026_08_3)
-        );
+    fn fuzz_session_enables_fuzz_editions() {
+        let enabled = SESSION.enabled_editions().editions();
+
+        for edition in FUZZ_EDITIONS {
+            assert!(enabled.contains(&edition), "{edition:?} is not enabled");
+        }
     }
 }
