@@ -56,7 +56,15 @@ fn main() {
 const ROWS_PER_CHUNK: usize = 1024;
 
 /// (columns, chunks) configurations.
-const CONFIGS: &[(usize, usize)] = &[(16, 64), (256, 64)];
+const CONFIGS: &[(usize, usize)] = &[
+    (16, 8),
+    (32, 4),
+    // Keep the larger scaling cases for local runs without lengthening CPU simulation.
+    #[cfg(not(codspeed))]
+    (16, 64),
+    #[cfg(not(codspeed))]
+    (256, 64),
+];
 
 static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
     tokio::runtime::Builder::new_current_thread()
