@@ -80,9 +80,12 @@ fn measure_batches(bencher: Bencher, batch_rows: usize, make_array: impl Fn() ->
         .counter(ItemsCount::new(ROWS))
         .with_inputs(|| {
             let array = make_array();
-            let accumulator =
-                Accumulator::try_new(IsCompoundSorted, order_line_options(), array.dtype().clone())
-                    .unwrap();
+            let accumulator = Accumulator::try_new(
+                IsCompoundSorted,
+                order_line_options(),
+                array.dtype().clone(),
+            )
+            .unwrap();
             let batches = (0..array.len())
                 .step_by(batch_rows)
                 .map(|start| {
