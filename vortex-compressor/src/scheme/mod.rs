@@ -139,11 +139,8 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
     ///
     /// The list must include every return path, such as a canonical input returned unchanged or
     /// a constant array returned early. The compressor uses this to tell which encodings it can
-    /// produce without a full compression. The default is an empty list, which means the scheme
-    /// does not declare its encodings, and the compressor compresses to find the encoding.
-    fn top_level_encodings(&self) -> Vec<ArrayId> {
-        Vec::new()
-    }
+    /// produce without a full compression.
+    fn top_level_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the variant of this scheme to use given which serialized IDs are `allowed`.
     ///

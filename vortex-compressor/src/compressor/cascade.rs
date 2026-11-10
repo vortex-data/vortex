@@ -329,12 +329,11 @@ impl CascadingCompressor {
     /// have.
     ///
     /// For a leaf array, this runs the same scheme selection as `compress`, with the statistics
-    /// and the sample compressions that the selection needs. If the winning scheme declares its
-    /// [`top_level_encodings`](Scheme::top_level_encodings), the full compression does not occur.
-    /// The result is then the encodings of the winner and the encoding of the uncompressed array,
-    /// because `compress` returns the uncompressed array if the output of the winner is not
-    /// smaller. If the winner does not declare its encodings, or if `array` is not a leaf array,
-    /// this compresses `array` and returns the one encoding of the result.
+    /// and the sample compressions that the selection needs. The winning scheme does not run. The
+    /// result is the [`top_level_encodings`](Scheme::top_level_encodings) of the winner and the
+    /// encoding of the uncompressed array, because `compress` returns the uncompressed array if
+    /// the output of the winner is not smaller. If `array` is not a leaf array, this compresses
+    /// `array` and returns the one encoding of the result.
     ///
     /// # Errors
     ///
@@ -367,13 +366,8 @@ impl CascadingCompressor {
             Choice::Scheme(winner) => winner,
         };
 
-        let declared = winner.scheme.top_level_encodings();
-        if declared.is_empty() {
-            let compressed = self.compress_with_winner(winner, exec_ctx)?.into_array();
-            return Ok([compressed.encoding_id()].into_iter().collect());
-        }
-
-        let mut encodings: HashSet<ArrayId> = declared.into_iter().collect();
+        let mut encodings: HashSet<ArrayId> =
+            winner.scheme.top_level_encodings().into_iter().collect();
         encodings.insert(winner.data.array().encoding_id());
 
         Ok(encodings)
@@ -478,10 +472,9 @@ impl CascadingCompressor {
             })?;
 
         debug_assert!(
-            {
-                let declared = scheme.top_level_encodings();
-                declared.is_empty() || declared.contains(&compressed.encoding_id())
-            },
+            scheme
+                .top_level_encodings()
+                .contains(&compressed.encoding_id()),
             "scheme {} returned encoding {}, which is not in its top_level_encodings",
             scheme.id(),
             compressed.encoding_id(),

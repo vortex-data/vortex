@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
@@ -51,6 +52,10 @@ impl Scheme for FixedSizeListSparseScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Sparse.id()]
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id(), FixedSizeList.id()]
     }
 
     /// Children: values=0, indices=1.
