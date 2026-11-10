@@ -233,7 +233,6 @@ mod tests {
     use vortex_array::iter::ArrayIterator;
     use vortex_arrow::ArrowArrayStreamAdapter;
     use vortex_arrow::ArrowSessionExt;
-    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -595,7 +594,11 @@ mod tests {
             &values,
         )?);
 
-        let expected = run_array.to_data();
+        let expected = run_array
+            .to_data()
+            .into_builder()
+            .data_type(field.data_type().clone())
+            .build()?;
         let vortex_array = session.from_arrow_array(run_array, &field)?;
         assert_eq!(vortex_array.len(), 5);
         // The array conversion must agree with the dtype conversion.
@@ -603,20 +606,8 @@ mod tests {
 
         // And the values must round-trip back out through the export plugin.
         let exported = vortex_array.execute_arrow(Some(&field), &mut ctx)?;
-        assert_eq!(exported.len(), 5);
-        let ree = exported
-            .as_any()
-            .downcast_ref::<RunArray<Int32Type>>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "expected an Int32 run-end array, got {}",
-                    exported.data_type()
-                )
-            })?;
         assert_eq!(exported.to_data(), expected);
-        let values = ree.values().as_fixed_size_binary();
-        assert_eq!(values.value(0), b"0123456789abcdef");
-        assert_eq!(values.value(1), b"fedcba9876543210");
+
         Ok(())
     }
 
