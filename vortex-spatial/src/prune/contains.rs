@@ -176,7 +176,9 @@ mod tests {
     }
 
     #[rstest]
-    fn equal_points_are_not_pruned(#[values(false, true)] column_contains: bool) -> VortexResult<()> {
+    fn equal_points_are_not_pruned(
+        #[values(false, true)] column_contains: bool,
+    ) -> VortexResult<()> {
         let session = spatial_session();
         let query = point_column(vec![0.0], vec![0.0])?
             .execute_scalar(0, &mut session.create_execution_ctx())?;
@@ -306,13 +308,19 @@ mod tests {
                 })
                 .write(&mut buffer, batch.to_array_stream())
                 .await?;
-            let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+            let file = session
+                .open_options()
+                .open_buffer(ByteBuffer::from(buffer))?;
             let mut ctx = session.create_execution_ctx();
-            let far = nullable_point_column(vec![Some((10.0, 10.0))])?.execute_scalar(0, &mut ctx)?;
-            let near = nullable_point_column(vec![Some((0.0, 0.0))])?.execute_scalar(0, &mut ctx)?;
-            let enclosing = rect_column(vec![(-1.0, -1.0, 2.0, 2.0)])?.execute_scalar(0, &mut ctx)?;
+            let far =
+                nullable_point_column(vec![Some((10.0, 10.0))])?.execute_scalar(0, &mut ctx)?;
+            let near =
+                nullable_point_column(vec![Some((0.0, 0.0))])?.execute_scalar(0, &mut ctx)?;
+            let enclosing =
+                rect_column(vec![(-1.0, -1.0, 2.0, 2.0)])?.execute_scalar(0, &mut ctx)?;
 
-            for (query, cannot_match) in [(far, true), (near, false), (enclosing, column_contains)] {
+            for (query, cannot_match) in [(far, true), (near, false), (enclosing, column_contains)]
+            {
                 let predicate = contains(column.clone(), query, column_contains);
                 let matches = batch
                     .clone()
@@ -377,10 +385,13 @@ mod tests {
                 .with_file_statistics(vec![])
                 .write(&mut buffer, array.to_array_stream())
                 .await?;
-            let file = session.open_options().open_buffer(ByteBuffer::from(buffer))?;
+            let file = session
+                .open_options()
+                .open_buffer(ByteBuffer::from(buffer))?;
             assert!(file.file_stats().is_none());
             let mut ctx = session.create_execution_ctx();
-            let query = nullable_point_column(vec![Some((10.0, 10.0))])?.execute_scalar(0, &mut ctx)?;
+            let query =
+                nullable_point_column(vec![Some((10.0, 10.0))])?.execute_scalar(0, &mut ctx)?;
             let predicate = contains(root(), query, column_contains);
             let matches = array
                 .clone()
