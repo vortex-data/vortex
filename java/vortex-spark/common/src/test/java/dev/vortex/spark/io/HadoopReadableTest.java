@@ -52,6 +52,8 @@ final class HadoopReadableTest {
         Path file = write("data.vortex", content);
 
         try (NativeReadable readable = HadoopReadable.open(conf, file.toString())) {
+            assertEquals(NativeReadable.DEFAULT_COALESCE_DISTANCE, readable.coalesceDistance());
+            assertEquals(NativeReadable.DEFAULT_COALESCE_MAX_SIZE, readable.coalesceMaxSize());
             assertEquals(SIZE, readable.length());
             assertEquals(file.toString(), readable.name());
 

@@ -22,6 +22,8 @@ import org.apache.hadoop.util.functional.FutureIO;
 public final class HadoopReadable extends PooledReadable {
     private final Path path;
     private final FileSystem fs;
+    private final int coalesceDistance;
+    private final int coalesceMaxSize;
 
     /** Opens a readable over {@code path}, stating the file for its length. */
     public static HadoopReadable open(Configuration conf, String path) {
@@ -33,20 +35,42 @@ public final class HadoopReadable extends PooledReadable {
      * stats every file when it plans the scan, so executors need not stat them again.
      */
     public static HadoopReadable open(Configuration conf, String path, long length) {
+        return open(conf, path, length, DEFAULT_COALESCE_DISTANCE, DEFAULT_COALESCE_MAX_SIZE);
+    }
+
+    /**
+     * Opens a readable with the given coalescing gap and maximum merged size, both in bytes. Native code rejects a
+     * negative gap or non-positive size when the source is registered.
+     */
+    public static HadoopReadable open(
+            Configuration conf, String path, long length, int coalesceDistance, int coalesceMaxSize) {
         Path file = new Path(path);
         try {
             FileSystem fs = file.getFileSystem(conf);
             long resolved = length >= 0 ? length : fs.getFileStatus(file).getLen();
-            return new HadoopReadable(path, file, fs, resolved);
+            return new HadoopReadable(path, file, fs, resolved, coalesceDistance, coalesceMaxSize);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to open " + path, e);
         }
     }
 
-    private HadoopReadable(String name, Path path, FileSystem fs, long length) {
+    private HadoopReadable(
+            String name, Path path, FileSystem fs, long length, int coalesceDistance, int coalesceMaxSize) {
         super(name, length);
         this.path = path;
         this.fs = fs;
+        this.coalesceDistance = coalesceDistance;
+        this.coalesceMaxSize = coalesceMaxSize;
+    }
+
+    @Override
+    public int coalesceDistance() {
+        return coalesceDistance;
+    }
+
+    @Override
+    public int coalesceMaxSize() {
+        return coalesceMaxSize;
     }
 
     @Override

@@ -19,6 +19,31 @@ import java.nio.ByteBuffer;
  * source or scan built on top of it has been closed.
  */
 public interface NativeReadable extends Closeable {
+    /** Default maximum gap between coalesced reads, in bytes (1 MiB), matching the native object-storage policy. */
+    int DEFAULT_COALESCE_DISTANCE = 1024 * 1024;
+
+    /** Default maximum span of a coalesced read, in bytes (16 MiB). */
+    int DEFAULT_COALESCE_MAX_SIZE = 16 * 1024 * 1024;
+
+    /**
+     * Maximum gap in bytes between reads that native code may merge. Must be non-negative; zero merges only adjacent or
+     * overlapping reads. Captured once when the source is registered.
+     *
+     * <p>Larger gaps reduce storage requests but may re-read segments already held in the file's segment cache.
+     */
+    default int coalesceDistance() {
+        return DEFAULT_COALESCE_DISTANCE;
+    }
+
+    /**
+     * Maximum payload span in bytes of a merged read, excluding leading alignment padding. Must be positive. Individual
+     * reads may exceed this size. Captured once when the source is registered. Native code caps values near
+     * Integer.MAX_VALUE to reserve alignment headroom within the Java ByteBuffer limit.
+     */
+    default int coalesceMaxSize() {
+        return DEFAULT_COALESCE_MAX_SIZE;
+    }
+
     /**
      * Unique name of this source, typically its original location (URI or file path). Used to key per-session caches
      * and in native error messages, so it must be stable and unique across sources; it must not contain glob characters
