@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use super::IsSortedIteratorExt;
+use super::IsSortedOptions;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::fns::fixed_size_bytes::FixedSizeBytes;
 use crate::arrays::FixedSizeListArray;
@@ -11,7 +11,7 @@ use crate::arrays::FixedSizeListArray;
 /// Check whether a fixed-size list of bytes is sorted by byte, with nulls first.
 pub(super) fn check_fixed_size_bytes_sorted(
     array: &FixedSizeListArray,
-    strict: bool,
+    options: &IsSortedOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<bool> {
     let mask = array
@@ -24,9 +24,5 @@ pub(super) fn check_fixed_size_bytes_sorted(
         .values()
         .zip(mask.iter())
         .map(|(value, valid)| valid.then_some(value));
-    Ok(if strict {
-        iter.is_strict_sorted()
-    } else {
-        iter.is_sorted()
-    })
+    Ok(options.is_nullable_sorted(iter))
 }
