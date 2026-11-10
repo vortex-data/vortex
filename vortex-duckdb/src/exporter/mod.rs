@@ -175,6 +175,9 @@ pub trait ColumnExporter: 'static {
 }
 
 /// The values and codes of an exporter that emits DuckDB dictionary vectors.
+///
+/// Codes can be generated per request rather than stored for the whole array. This capability also
+/// applies when the exporter uses a constant vector for a request contained in one run.
 pub trait DictionaryParts {
     /// The DuckDB vector of the dictionary values.
     fn values(&self) -> &ReusableDict;
@@ -183,6 +186,9 @@ pub trait DictionaryParts {
     fn values_key(&self) -> usize;
 
     /// Write the codes of rows `offset..offset + codes.len()` into `codes`.
+    ///
+    /// The offset is relative to the exported array, including any slice. The range must lie within
+    /// that array, and every code must index [`Self::values`], including codes for null rows.
     fn write_codes(&self, offset: usize, codes: &mut [u32]);
 }
 

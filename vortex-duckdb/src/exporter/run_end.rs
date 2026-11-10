@@ -3,7 +3,9 @@
 
 //! Batch-sized run selections over a cached DuckDB values dictionary.
 //!
-//! Codes remain local to each request because the generic dictionary exporter executes all codes.
+//! [`DictionaryParts`] lets the chunked exporter join run-end and dictionary chunks that share
+//! values without flattening them. Codes are expanded only for the requested batch. Routing through
+//! [`RunEndArray::to_dict`] would make the generic dictionary exporter materialize all codes at setup.
 
 use std::marker::PhantomData;
 
@@ -36,6 +38,7 @@ struct RunEndExporter<E: IntegerPType> {
     ends_type: PhantomData<E>,
     values: ArrayRef,
     values_dict: ReusableDict,
+    /// Added to request offsets because sliced run ends retain their source coordinates.
     run_end_offset: usize,
 }
 
@@ -72,6 +75,9 @@ pub(crate) fn new_exporter_with_flatten(
 }
 
 impl<E: IntegerPType> RunEndExporter<E> {
+    /// Finds the run containing an absolute row offset. Run ends are exclusive.
+    ///
+    /// The offset must refer to an existing row, rather than the end of an empty request.
     fn first_run(&self, offset: usize) -> usize {
         let offset =
             E::from_usize(offset).vortex_expect("the request offset fits the run-end type");
@@ -80,6 +86,9 @@ impl<E: IntegerPType> RunEndExporter<E> {
             .partition_point(|&end| end <= offset)
     }
 
+    /// Fills a non-empty request with indices into the original values child.
+    ///
+    /// `offset` is absolute, and `first_run` must be the index returned by [`Self::first_run`].
     fn write_run_codes(&self, offset: usize, first_run: usize, codes: &mut [u32]) {
         let mut position =
             E::from_usize(offset).vortex_expect("the request offset fits the run-end type");
@@ -147,6 +156,8 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         let first_run = self.first_run(offset);
         let end =
             E::from_usize(offset + len).vortex_expect("the request end fits the run-end type");
+
+        // The request end is exclusive, so equality still leaves every row inside this run.
         if end <= self.ends.as_slice::<E>()[first_run] {
             let constant = self.values.execute_scalar(first_run, ctx)?;
             let value = constant.try_to_duckdb_scalar()?;
