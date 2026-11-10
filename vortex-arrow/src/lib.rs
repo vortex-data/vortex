@@ -20,6 +20,11 @@ pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;
+
+mod extension;
+pub use extension::ArrowExtVTable;
+pub use extension::ArrowMetadataPolicy;
+
 pub mod ext_metadata;
 mod iter;
 mod null_buffer;

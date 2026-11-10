@@ -173,6 +173,11 @@ fn execute_arrow_array(
         }
     };
 
+    if let DataType::Dictionary(codes, values) = target_field.data_type() {
+        let values_field = target_field.clone().with_data_type(values.as_ref().clone());
+        return to_arrow_dictionary(array, codes, &values_field, options, ctx);
+    }
+
     if let Some(arrow_ext_name) = target_field.extension_type_name() {
         return execute_arrow_extension(array, arrow_ext_name, target_field, options, ctx);
     }
@@ -297,9 +302,9 @@ fn execute_arrow_ext_storage(
 /// ignoring nullability, after every nested extension type is replaced by its storage type. The
 /// types at the top level are compared as they are.
 ///
-/// An export compares the type that its target imports as with the storage type this way, because
-/// an import can lose the metadata of a nested extension type, such as the version of a UUID, or
-/// not know its Vortex ID. The export of each nested field checks that field when it reaches it.
+/// An explicit target may omit nested extension metadata or name an unregistered Vortex ID, so
+/// export compares its inferred type with the storage layout. Each nested field is checked when
+/// it is exported.
 fn eq_storage_layout(lhs: &DType, rhs: &DType) -> bool {
     match (lhs, rhs) {
         (DType::List(lhs, _), DType::List(rhs, _)) => eq_nested_storage_layout(lhs, rhs),
@@ -402,9 +407,17 @@ pub(crate) fn execute_arrow_naive(
             to_arrow_struct(array, fields, options, ctx)
         }
         // TODO(joe): pass down preferred
-        DataType::Dictionary(codes_type, values_type) => {
-            to_arrow_dictionary(array, codes_type, values_type, options, ctx)
-        }
+        DataType::Dictionary(codes_type, values_type) => to_arrow_dictionary(
+            array.clone(),
+            codes_type,
+            &Field::new(
+                "",
+                values_type.as_ref().clone(),
+                array.dtype().is_nullable(),
+            ),
+            options,
+            ctx,
+        ),
         dt @ DataType::Decimal32(..) => to_arrow_decimal(array, dt, ctx),
         dt @ DataType::Decimal64(..) => to_arrow_decimal(array, dt, ctx),
         dt @ DataType::Decimal128(..) => to_arrow_decimal(array, dt, ctx),

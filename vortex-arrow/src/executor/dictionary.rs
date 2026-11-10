@@ -10,9 +10,9 @@ use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
+use arrow_schema::Field;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrowExportOptions;
+use crate::ExecuteArrowExt;
 use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_dictionary`] requires for export.
@@ -40,27 +41,36 @@ impl Matcher for ArrowDictExportable {
 pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
-    values_type: &DataType,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = array.execute_until::<ArrowDictExportable>(ctx)?;
+    // Keep an existing empty dictionary: canonicalization can discard its codes, and Arrow
+    // cannot repack every extension's storage type into a dictionary.
+    let array = if array.is::<Dict>() || array.is::<Constant>() {
+        array
+    } else {
+        array.execute_until::<ArrowDictExportable>(ctx)?
+    };
 
     let array = match array.try_downcast::<Dict>() {
-        Ok(dict) => return dict_to_dict(dict, codes_type, values_type, options, ctx),
+        Ok(dict) => return dict_to_dict(dict, codes_type, values_field, options, ctx),
         Err(array) => array,
     };
     let array = match array.try_downcast::<Constant>() {
-        Ok(constant) => return constant_to_dict(constant, codes_type, values_type, options, ctx),
+        Ok(constant) => return constant_to_dict(constant, codes_type, values_field, options, ctx),
         Err(array) => array,
     };
 
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
-    let array = execute_arrow_naive(array, Some(values_type), options, ctx)?;
+    let array = array.execute_arrow_with_options(Some(values_field), options, ctx)?;
     arrow_cast::cast(
         &array,
-        &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
+        &DataType::Dictionary(
+            Box::new(codes_type.clone()),
+            Box::new(values_field.data_type().clone()),
+        ),
     )
     .map_err(VortexError::from)
 }
@@ -69,21 +79,22 @@ pub(super) fn to_arrow_dictionary(
 fn constant_to_dict(
     array: ConstantArray,
     codes_type: &DataType,
-    values_type: &DataType,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
     let scalar = array.scalar();
     if scalar.is_null() {
-        let dict_type =
-            DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone()));
+        let dict_type = DataType::Dictionary(
+            Box::new(codes_type.clone()),
+            Box::new(values_field.data_type().clone()),
+        );
         return Ok(new_null_array(&dict_type, len));
     }
 
-    let values = execute_arrow_naive(
-        ConstantArray::new(scalar.clone(), 1).into_array(),
-        Some(values_type),
+    let values = ConstantArray::new(scalar.clone(), 1).execute_arrow_with_options(
+        Some(values_field),
         options,
         ctx,
     )?;
@@ -95,12 +106,17 @@ fn constant_to_dict(
 fn dict_to_dict(
     array: DictArray,
     codes_type: &DataType,
-    values_type: &DataType,
+    values_field: &Field,
     options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let codes = execute_arrow_naive(array.codes().clone(), Some(codes_type), options, ctx)?;
-    let values = execute_arrow_naive(array.values().clone(), Some(values_type), options, ctx)?;
+    let values =
+        array
+            .values()
+            .clone()
+            .execute_arrow_with_options(Some(values_field), options, ctx)?;
+
     make_dict_array(codes_type, codes, values)
 }
 
@@ -169,19 +185,53 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::mask::Mask;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrowSessionExt;
     use crate::ExecuteArrowExt;
     use crate::executor::dictionary::ConstantArray;
     use crate::executor::dictionary::DictArray;
+
+    #[track_caller]
+    fn check_fixed_size_list_dictionary_round_trip(len: usize) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0..i32::try_from(len * 2)?).into_array(),
+            2,
+            Validity::NonNullable,
+            len,
+        )?
+        .into_array();
+        let source = DictArray::try_new(
+            PrimitiveArray::from_iter(0..u32::try_from(len)?).into_array(),
+            values,
+        )?
+        .into_array();
+        let arrow = SESSION.arrow();
+        let values_field = arrow.to_arrow_field("item", source.dtype())?;
+        let field = Field::new(
+            "dict",
+            dict_type(DataType::Int32, values_field.data_type().clone()),
+            false,
+        );
+
+        let exported = source.clone().execute_arrow(Some(&field), &mut ctx)?;
+        assert_eq!(exported.data_type(), field.data_type());
+        let imported = arrow.from_arrow_array(exported, &field)?;
+        vortex_array::assert_arrays_eq!(imported, source, &mut ctx);
+
+        Ok(())
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -268,5 +318,12 @@ mod tests {
         let expected = StringArray::from(vec![Some("a"), None, Some("a")]);
         assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(0)]
+    #[case::nonempty(3)]
+    fn fixed_size_list_values_round_trip(#[case] len: usize) -> VortexResult<()> {
+        check_fixed_size_list_dictionary_round_trip(len)
     }
 }

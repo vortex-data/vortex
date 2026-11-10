@@ -170,14 +170,12 @@ fn create_from_fields(
                 arrow_arrays.push(arrow_field);
             }
 
-            Ok(Arc::new(unsafe {
-                ArrowStructArray::new_unchecked_with_length(
-                    fields.clone(),
-                    arrow_arrays,
-                    null_buffer,
-                    len,
-                )
-            }))
+            Ok(Arc::new(ArrowStructArray::try_new_with_length(
+                fields.clone(),
+                arrow_arrays,
+                null_buffer,
+                len,
+            )?))
         }
         Err(names) => {
             // No target fields specified - use preferred types for each child. The inferred field
@@ -213,14 +211,12 @@ fn create_from_fields(
             }
             let arrow_fields = Fields::from(arrow_fields);
 
-            Ok(Arc::new(unsafe {
-                ArrowStructArray::new_unchecked_with_length(
-                    arrow_fields,
-                    arrow_arrays,
-                    null_buffer,
-                    len,
-                )
-            }))
+            Ok(Arc::new(ArrowStructArray::try_new_with_length(
+                arrow_fields,
+                arrow_arrays,
+                null_buffer,
+                len,
+            )?))
         }
     }
 }

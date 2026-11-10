@@ -28,7 +28,7 @@ impl ExtVTable for FixedShapeTensor {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(proto::serialize(metadata))
+        proto::serialize(metadata)
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
@@ -118,5 +118,14 @@ mod tests {
         #[case] metadata: VortexResult<FixedShapeTensorMetadata>,
     ) -> VortexResult<()> {
         assert_roundtrip(&metadata?)
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn unrepresentable_dimension_returns_error() -> VortexResult<()> {
+        let metadata = FixedShapeTensorMetadata::new(vec![0, u32::MAX as usize + 1]);
+        assert!(FixedShapeTensor.serialize_metadata(&metadata).is_err());
+
+        Ok(())
     }
 }
