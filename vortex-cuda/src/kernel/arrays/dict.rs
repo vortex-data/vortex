@@ -1257,9 +1257,9 @@ mod tests {
         assert_gpu_matches(codes, sane, values.into_array()).await
     }
 
-    /// The shape the `compress_gpu` fuzzer found (input `f6 88 10 00 00 00 00 02 41 f8 02 26 2d 0a ec
-    /// fe`): a one-value dictionary whose null code is 3,960,089,894. An unchecked gather reads about
-    /// 4 GB past the dictionary and fails with `CUDA_ERROR_ILLEGAL_ADDRESS`.
+    /// The shape the `compress_gpu` fuzzer found: a one-value dictionary whose null code is
+    /// 3,960,089,894. An unchecked gather reads about 4 GB past the dictionary and fails with
+    /// `CUDA_ERROR_ILLEGAL_ADDRESS`.
     #[crate::test]
     async fn test_cuda_dict_fuzz_garbage_null_code() -> VortexResult<()> {
         let values = PrimitiveArray::new(Buffer::from(vec![0u8]), NonNullable);
