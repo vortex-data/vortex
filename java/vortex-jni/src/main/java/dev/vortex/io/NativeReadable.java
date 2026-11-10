@@ -19,9 +19,7 @@ import java.nio.ByteBuffer;
  * source or scan built on top of it has been closed.
  */
 public interface NativeReadable extends Closeable {
-    /**
-     * Default maximum gap between coalesced reads, in bytes (1 MiB), matching the native object-storage policy.
-     */
+    /** Default maximum gap between coalesced reads, in bytes (1 MiB), matching the native object-storage policy. */
     int DEFAULT_COALESCE_DISTANCE = 1024 * 1024;
 
     /** Default maximum span of a coalesced read, in bytes (16 MiB). */
