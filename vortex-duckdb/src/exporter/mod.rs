@@ -157,7 +157,7 @@ impl ArrayExporter {
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
 pub trait ColumnExporter: 'static {
-    /// The dictionary parts of this exporter, if it exports DuckDB dictionary vectors.
+    /// The dictionary parts of this exporter, if it can export DuckDB dictionary vectors.
     ///
     /// A chunked exporter uses them to export a range across chunks as one dictionary vector.
     fn as_dictionary(&self) -> Option<&dyn DictionaryParts> {
