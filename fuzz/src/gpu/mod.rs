@@ -13,9 +13,17 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
+use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::arrays::dict::ArbitraryDictArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_error::vortex_err;
 
 use crate::SESSION;
@@ -28,13 +36,16 @@ use crate::error::VortexFuzzResult;
 pub enum GpuEncodingKind {
     /// Dictionary encoding with GPU take support.
     Dict,
+    /// Dictionary whose nullable codes hold arbitrary values, possibly outside the dictionary,
+    /// under null positions.
+    DictGarbageNullCodes,
 }
 
 impl<'a> Arbitrary<'a> for GpuEncodingKind {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        // Currently only Dict is supported
-        match u.int_in_range(0..=0)? {
+        match u.int_in_range(0..=1)? {
             0 => Ok(GpuEncodingKind::Dict),
+            1 => Ok(GpuEncodingKind::DictGarbageNullCodes),
             _ => unreachable!(),
         }
     }
@@ -58,14 +69,83 @@ impl<'a> Arbitrary<'a> for FuzzCompressGpu {
                     .0
                     .into_array()
             }
+            GpuEncodingKind::DictGarbageNullCodes => arbitrary_dict_with_garbage_null_codes(u)?,
         };
 
         Ok(FuzzCompressGpu { array })
     }
 }
 
+/// Generate a random UTF-8 or binary DType.
+fn arbitrary_gpu_string_dtype(u: &mut Unstructured) -> Result<DType> {
+    let nullability: Nullability = u.arbitrary()?;
+    Ok(if u.arbitrary()? {
+        DType::Utf8(nullability)
+    } else {
+        DType::Binary(nullability)
+    })
+}
+
+/// Generate a dictionary whose codes are in range at valid positions and arbitrary, including far
+/// outside the dictionary, at null positions.
+fn arbitrary_dict_with_garbage_null_codes(u: &mut Unstructured) -> Result<ArrayRef> {
+    let dtype = if u.arbitrary()? {
+        arbitrary_gpu_string_dtype(u)?
+    } else {
+        arbitrary_gpu_primitive_dtype(u)?
+    };
+    let values_len = u.int_in_range(1..=20)?;
+    let values = ArbitraryArray::arbitrary_with_config(
+        u,
+        &ArbitraryArrayConfig {
+            dtype: Some(dtype),
+            len: values_len..=values_len,
+        },
+    )?
+    .0;
+    let len = u.int_in_range(0..=200)?;
+    let valid: Vec<bool> = (0..len).map(|_| u.arbitrary()).collect::<Result<_>>()?;
+    let values_len = u32::try_from(values_len).map_err(|_| arbitrary::Error::IncorrectFormat)?;
+    let validity: Validity = valid.iter().copied().collect();
+    let codes = match u.int_in_range(0..=2)? {
+        0 => PrimitiveArray::new(
+            Buffer::from(garbage_codes::<u8>(u, &valid, values_len)?),
+            validity,
+        ),
+        1 => PrimitiveArray::new(
+            Buffer::from(garbage_codes::<u16>(u, &valid, values_len)?),
+            validity,
+        ),
+        _ => PrimitiveArray::new(
+            Buffer::from(garbage_codes::<u32>(u, &valid, values_len)?),
+            validity,
+        ),
+    };
+    let dict = DictArray::try_new(codes.into_array(), values)
+        .map_err(|_| arbitrary::Error::IncorrectFormat)?;
+    Ok(dict.into_array())
+}
+
+/// Codes in `0..values_len` at valid positions and any value of `T` at null positions.
+fn garbage_codes<'a, T>(u: &mut Unstructured<'a>, valid: &[bool], values_len: u32) -> Result<Vec<T>>
+where
+    T: Arbitrary<'a> + TryFrom<u32>,
+{
+    valid
+        .iter()
+        .map(|&is_valid| {
+            if is_valid {
+                T::try_from(u.int_in_range(0..=values_len - 1)?)
+                    .map_err(|_| arbitrary::Error::IncorrectFormat)
+            } else {
+                u.arbitrary::<T>()
+            }
+        })
+        .collect()
+}
+
 /// Generate a random primitive DType suitable for GPU operations.
-fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_array::dtype::DType> {
+fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<DType> {
     let nullability: Nullability = u.arbitrary()?;
     let ptype = match u.int_in_range(0..=9)? {
         0 => PType::U8,
@@ -80,7 +160,7 @@ fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_array::d
         9 => PType::F64,
         _ => unreachable!(),
     };
-    Ok(vortex_array::dtype::DType::Primitive(ptype, nullability))
+    Ok(DType::Primitive(ptype, nullability))
 }
 
 /// Run the GPU decompression fuzzer.
