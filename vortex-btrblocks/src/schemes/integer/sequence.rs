@@ -47,6 +47,10 @@ impl Scheme for SequenceScheme {
         vec![Sequence.id()]
     }
 
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![Sequence.id()]
+    }
+
     /// Sequence encoding on dictionary codes just adds a layer of indirection without compressing
     /// the data. Dict codes are compact integers that benefit from BitPacking or FoR, not from
     /// sequence detection.

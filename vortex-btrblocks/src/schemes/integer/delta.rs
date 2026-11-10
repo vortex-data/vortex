@@ -101,6 +101,10 @@ impl Scheme for DeltaScheme {
         vec![Delta.id()]
     }
 
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![Delta.id()]
+    }
+
     fn num_children(&self) -> usize {
         2
     }

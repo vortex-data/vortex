@@ -203,7 +203,8 @@ fn test_cuda_binary_zstd_follows_editions(
     Ok(())
 }
 
-/// `encoding_for` gives the encoding of the array that `compress` returns.
+/// `encodings_for` includes the encoding of the array that `compress` returns, and includes
+/// `Dict` only when that array is a dictionary.
 #[rstest]
 #[case::unique_strings(
     VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
@@ -218,16 +219,20 @@ fn test_cuda_binary_zstd_follows_editions(
 )]
 #[case::few_integers(PrimitiveArray::from_iter((0..4096i64).map(|i| (i % 3) * 1_000_000)).into_array())]
 #[case::unique_integers(PrimitiveArray::from_iter(0..4096i64).into_array())]
-fn test_encoding_for(#[case] input: ArrayRef) -> VortexResult<()> {
+fn test_encodings_for(#[case] input: ArrayRef) -> VortexResult<()> {
     let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
         .unrestricted()
         .build();
     let mut ctx = SESSION.create_execution_ctx();
 
-    let encoding = compressor.0.encoding_for(&input, &mut ctx)?;
+    let encodings = compressor.0.encodings_for(&input, &mut ctx)?;
     let compressed = compressor.compress(&input, &mut ctx)?;
 
-    assert_eq!(encoding, compressed.encoding_id());
+    assert!(encodings.contains(&compressed.encoding_id()));
+    assert_eq!(
+        encodings.contains(&vortex_array::VTable::id(&Dict)),
+        compressed.is::<Dict>()
+    );
 
     Ok(())
 }
@@ -242,16 +247,16 @@ fn test_encoding_for(#[case] input: ArrayRef) -> VortexResult<()> {
     VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
     false,
 )]
-fn test_dict_only_encoding_for(#[case] input: ArrayRef, #[case] is_dict: bool) -> VortexResult<()> {
+fn test_dict_only_encodings_for(#[case] input: ArrayRef, #[case] is_dict: bool) -> VortexResult<()> {
     let compressor = BtrBlocksCompressorBuilder::empty()
         .with_new_scheme(&StringDictScheme)
         .with_new_scheme(&IntDictScheme)
         .build();
     let mut ctx = SESSION.create_execution_ctx();
 
-    let encoding = compressor.0.encoding_for(&input, &mut ctx)?;
+    let encodings = compressor.0.encodings_for(&input, &mut ctx)?;
 
-    assert_eq!(encoding == vortex_array::VTable::id(&Dict), is_dict);
+    assert_eq!(encodings.contains(&vortex_array::VTable::id(&Dict)), is_dict);
 
     Ok(())
 }

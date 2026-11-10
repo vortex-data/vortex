@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::ChildSelection;
@@ -44,6 +45,10 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![Sparse.id()]
+    }
+
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id(), Constant.id()]
     }
 
     /// Children: indices=0.

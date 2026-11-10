@@ -53,8 +53,8 @@ impl Scheme for IntDictScheme {
         vec![Dict.id()]
     }
 
-    fn root_encoding(&self) -> Option<ArrayId> {
-        Some(Dict.id())
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
     }
 
     fn stats_options(&self) -> GenerateStatsOptions {

@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -83,6 +84,10 @@ impl Scheme for OnPairScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         vec![OnPair.id()]
+    }
+
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![OnPair.id(), Constant.id()]
     }
 
     /// 4 primitive slot children flow through the cascading compressor:

@@ -42,6 +42,10 @@ impl Scheme for FloatRLEScheme {
         vec![RLE.id()]
     }
 
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![RLE.id()]
+    }
+
     /// Children: values=0, indices=1, offsets=2.
     fn num_children(&self) -> usize {
         3

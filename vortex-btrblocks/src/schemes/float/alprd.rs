@@ -44,8 +44,8 @@ impl Scheme for ALPRDScheme {
         vec![vortex_alp::ALPRD.id()]
     }
 
-    fn root_encoding(&self) -> Option<ArrayId> {
-        Some(vortex_alp::ALPRD.id())
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_alp::ALPRD.id()]
     }
 
     fn expected_compression_ratio(

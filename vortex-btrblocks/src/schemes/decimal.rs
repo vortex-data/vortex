@@ -8,6 +8,8 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
@@ -93,6 +95,13 @@ impl Scheme for DecimalScheme {
             DecimalSchemeMode::V2 => {
                 vec![decimal_byte_parts_v1_id(), decimal_byte_parts_v2_id()]
             }
+        }
+    }
+
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        match self.mode {
+            DecimalSchemeMode::V1 => vec![Decimal.id(), DecimalByteParts.id()],
+            DecimalSchemeMode::V2 => vec![DecimalByteParts.id()],
         }
     }
 

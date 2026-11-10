@@ -50,6 +50,10 @@ impl Scheme for SparseScheme {
         vec![Sparse.id(), Constant.id()]
     }
 
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id(), Constant.id()]
+    }
+
     fn stats_options(&self) -> GenerateStatsOptions {
         GenerateStatsOptions {
             count_distinct_values: true,

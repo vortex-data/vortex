@@ -35,6 +35,10 @@ impl Scheme for ZstdBuffersScheme {
         vec![vortex_zstd::ZstdBuffers.id()]
     }
 
+    fn returned_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_zstd::ZstdBuffers.id()]
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,

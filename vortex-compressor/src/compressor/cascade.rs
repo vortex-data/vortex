@@ -33,6 +33,7 @@ use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::constant;
@@ -298,25 +299,25 @@ impl CascadingCompressor {
         }
     }
 
-    /// Returns the encoding of the array that [`compress`](Self::compress) returns for `array`.
+    /// Returns the encodings that the array [`compress`](Self::compress) returns for `array` can
+    /// have.
     ///
     /// For a leaf array, this runs the same scheme selection as `compress`, with the statistics
     /// and the sample compressions that the selection needs. If the winning scheme declares its
-    /// [`root_encoding`](Scheme::root_encoding), the full compression does not occur. If it does
-    /// not, or if `array` is not a leaf array, this compresses `array`.
-    ///
-    /// Without the full compression, the check that the winner's output is smaller than `array`
-    /// cannot occur. Thus, if the output of the winner is not smaller, `compress` returns the
-    /// uncompressed array, but this method returns the encoding of the winner.
+    /// [`returned_encodings`](Scheme::returned_encodings), the full compression does not occur.
+    /// The result is then the encodings of the winner and the encoding of the uncompressed array,
+    /// because `compress` returns the uncompressed array if the output of the winner is not
+    /// smaller. If the winner does not declare its encodings, or if `array` is not a leaf array,
+    /// this compresses `array` and returns the one encoding of the result.
     ///
     /// # Errors
     ///
     /// Returns an error if canonicalization or compression fails.
-    pub fn encoding_for(
+    pub fn encodings_for(
         &self,
         array: &ArrayRef,
         exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayId> {
+    ) -> VortexResult<HashSet<ArrayId>> {
         let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
         let compact = canonical.compact(exec_ctx)?;
 
@@ -329,21 +330,27 @@ impl CascadingCompressor {
         );
 
         if !is_leaf {
-            return Ok(self
-                .compress_canonical(compact, CompressorContext::new(), exec_ctx)?
-                .encoding_id());
+            let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+            return Ok([compressed.encoding_id()].into_iter().collect());
         }
 
-        match self.choose(compact, CompressorContext::new(), exec_ctx)? {
-            Choice::Decided(selection) => Ok(selection.into_array().encoding_id()),
-            Choice::Scheme(winner) => match winner.scheme.root_encoding() {
-                Some(encoding) => Ok(encoding),
-                None => Ok(self
-                    .compress_with_winner(winner, exec_ctx)?
-                    .into_array()
-                    .encoding_id()),
-            },
+        let winner = match self.choose(compact, CompressorContext::new(), exec_ctx)? {
+            Choice::Decided(selection) => {
+                return Ok([selection.into_array().encoding_id()].into_iter().collect());
+            }
+            Choice::Scheme(winner) => winner,
+        };
+
+        let declared = winner.scheme.returned_encodings();
+        if declared.is_empty() {
+            let compressed = self.compress_with_winner(winner, exec_ctx)?.into_array();
+            return Ok([compressed.encoding_id()].into_iter().collect());
         }
+
+        let mut encodings: HashSet<ArrayId> = declared.into_iter().collect();
+        encodings.insert(winner.data.array().encoding_id());
+
+        Ok(encodings)
     }
 
     /// Chooses how to compress a single leaf array, but does not run the winning scheme.
@@ -443,6 +450,16 @@ impl CascadingCompressor {
                 // compressor context.
                 trace::scheme_compress_failed(scheme.id(), before_nbytes, error_ctx.as_ref(), err);
             })?;
+
+        debug_assert!(
+            {
+                let declared = scheme.returned_encodings();
+                declared.is_empty() || declared.contains(&compressed.encoding_id())
+            },
+            "scheme {} returned encoding {}, which is not in its returned_encodings",
+            scheme.id(),
+            compressed.encoding_id(),
+        );
 
         let after_nbytes = compressed.nbytes();
         let actual_ratio = (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);

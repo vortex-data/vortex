@@ -16,6 +16,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
@@ -33,13 +34,20 @@ use crate::sequence::SequentialStreamExt;
 pub trait CompressorPlugin: Send + Sync + 'static {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Returns the encoding of the array that [`compress_chunk`](Self::compress_chunk) returns
-    /// for `chunk`.
+    /// Returns the encodings that the array [`compress_chunk`](Self::compress_chunk) returns for
+    /// `chunk` can have.
     ///
-    /// A writer can use this to choose a layout from the encoding the plugin produces. The default
-    /// compresses `chunk`. A plugin can override it to give the answer without a full compression.
-    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
-        Ok(self.compress_chunk(chunk, ctx)?.encoding_id())
+    /// A writer can use this to choose a layout from the encodings the plugin can produce. The
+    /// default compresses `chunk` and returns the one encoding of the result. A plugin can
+    /// override it to give the answer without a full compression.
+    fn encodings_for(
+        &self,
+        chunk: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<HashSet<ArrayId>> {
+        Ok([self.compress_chunk(chunk, ctx)?.encoding_id()]
+            .into_iter()
+            .collect())
     }
 }
 
@@ -48,8 +56,12 @@ impl CompressorPlugin for Arc<dyn CompressorPlugin> {
         self.as_ref().compress_chunk(chunk, ctx)
     }
 
-    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
-        self.as_ref().encoding_for(chunk, ctx)
+    fn encodings_for(
+        &self,
+        chunk: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<HashSet<ArrayId>> {
+        self.as_ref().encodings_for(chunk, ctx)
     }
 }
 
@@ -67,8 +79,12 @@ impl CompressorPlugin for BtrBlocksCompressor {
         self.compress(chunk, ctx)
     }
 
-    fn encoding_for(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayId> {
-        self.0.encoding_for(chunk, ctx)
+    fn encodings_for(
+        &self,
+        chunk: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<HashSet<ArrayId>> {
+        self.0.encodings_for(chunk, ctx)
     }
 }
 

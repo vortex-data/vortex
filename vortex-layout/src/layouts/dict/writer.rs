@@ -174,7 +174,10 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                self.probe_compressor.encoding_for(&sample, &mut exec_ctx)? != Dict.id()
+                !self
+                    .probe_compressor
+                    .encodings_for(&sample, &mut exec_ctx)?
+                    .contains(&Dict.id())
             }
         };
         if should_fallback {
