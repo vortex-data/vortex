@@ -21,7 +21,7 @@ PARTS_DIR = Path("parts")
 # EXPERIMENT (not for merge): same-machine A/B of the V2 scan driver modes, Vortex only.
 DATASETS = ["taxi", "nested-structs"]
 FORMATS = ["vortex"]
-XP_MODES = ["base", "inline", "inline16"]
+XP_MODES = ["base", "root", "inline"]
 XP_ROUNDS = 3
 # Only this mode's first round feeds the results the PR comment compares.
 XP_REPORTED_MODE = "inline"
