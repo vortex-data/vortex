@@ -336,6 +336,12 @@ impl DefaultExpressionConverter {
             let boolean_operator = matches!(operator, Operator::And | Operator::Or);
             let left_type = binary_expr.left().data_type(schema)?;
             let right_type = binary_expr.right().data_type(schema)?;
+            // Vortex orders floating-point signed zeros distinctly; DataFusion treats them equally.
+            if operator.is_comparison() && (floating_type(&left_type) || floating_type(&right_type))
+            {
+                return Err(Unconverted::Unsupported);
+            }
+
             if boolean_operator {
                 if left_type != DataType::Boolean || right_type != DataType::Boolean {
                     return Err(exec_datafusion_err!(
@@ -1017,6 +1023,13 @@ fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {
         | DFOperator::QuestionAnd
         | DFOperator::QuestionPipe
         | DFOperator::Colon => None,
+    }
+}
+
+fn floating_type(data_type: &DataType) -> bool {
+    match data_type {
+        DataType::Dictionary(_, values) => floating_type(values),
+        data_type => data_type.is_floating(),
     }
 }
 
