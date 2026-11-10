@@ -44,6 +44,10 @@ impl Scheme for ALPRDScheme {
         vec![vortex_alp::ALPRD.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_alp::ALPRD.id()]
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,

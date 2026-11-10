@@ -208,6 +208,11 @@ impl WriteStrategyBuilder {
     }
 
     /// Override the compressor used to probe whether a column is dict-eligible.
+    ///
+    /// A column gets a dictionary layout if the probe compressor produces a dictionary for its
+    /// first rows. By default, a dictionary must beat all other schemes. To use a dictionary
+    /// whenever it beats the uncompressed data, give a compressor that has only dictionary
+    /// schemes.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
         self

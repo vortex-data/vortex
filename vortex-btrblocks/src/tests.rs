@@ -21,6 +21,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -241,6 +242,41 @@ fn test_cuda_binary_zstd_follows_editions(
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert_eq!(compressed.encoding_id(), expected);
+
+    Ok(())
+}
+
+/// With the real schemes, `encodings_for` agrees with `compress`: the set includes the encoding
+/// of the compressed array, and includes `Dict` only when that array is a dictionary. The dict
+/// layout writer relies on the second property.
+#[rstest]
+#[case::unique_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| format!("{i:04} is a unique story"))).into_array(),
+)]
+#[case::few_strings(
+    VarBinViewArray::from_iter_str((0..4096).map(|i| ["red", "green", "blue"][i % 3])).into_array(),
+)]
+#[case::constant_strings(VarBinViewArray::from_iter_str(iter::repeat_n("same", 4096)).into_array())]
+#[case::null_strings(
+    VarBinViewArray::from_iter(iter::repeat_n(None::<&str>, 4096), DType::Utf8(Nullability::Nullable))
+        .into_array(),
+)]
+#[case::few_integers(PrimitiveArray::from_iter((0..4096i64).map(|i| (i % 3) * 1_000_000)).into_array())]
+#[case::unique_integers(PrimitiveArray::from_iter(0..4096i64).into_array())]
+fn test_encodings_for(#[case] input: ArrayRef) -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let encodings = compressor.0.encodings_for(&input, &mut ctx)?;
+    let compressed = compressor.compress(&input, &mut ctx)?;
+
+    assert!(encodings.contains(&compressed.encoding_id()));
+    assert_eq!(
+        encodings.contains(&vortex_array::VTable::id(&Dict)),
+        compressed.is::<Dict>()
+    );
 
     Ok(())
 }

@@ -54,6 +54,10 @@ impl Scheme for FSSTScheme {
         vec![FSST.id(), VarBin.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![FSST.id()]
+    }
+
     /// Children: lengths=0, code_offsets=1.
     fn num_children(&self) -> usize {
         2

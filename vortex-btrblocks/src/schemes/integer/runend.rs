@@ -52,6 +52,10 @@ impl Scheme for RunEndScheme {
         vec![RunEnd.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![RunEnd.id()]
+    }
+
     /// Children: values=0, ends=1.
     fn num_children(&self) -> usize {
         2

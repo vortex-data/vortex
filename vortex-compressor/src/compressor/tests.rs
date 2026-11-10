@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
@@ -19,7 +20,9 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Map;
+use vortex_array::arrays::Null;
 use vortex_array::arrays::NullArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
@@ -44,6 +47,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
@@ -94,6 +98,10 @@ impl Scheme for DirectRatioScheme {
         Vec::new()
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -130,6 +138,10 @@ impl Scheme for ImmediateAlwaysUseScheme {
         Vec::new()
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -163,6 +175,10 @@ impl Scheme for CallbackAlwaysUseScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -204,6 +220,10 @@ impl Scheme for CallbackSkipScheme {
         Vec::new()
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -239,6 +259,10 @@ impl Scheme for CallbackRatioScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 
@@ -280,6 +304,10 @@ impl Scheme for HugeRatioScheme {
         Vec::new()
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -314,6 +342,10 @@ impl Scheme for ZeroBytesSamplingScheme {
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![Null.id()]
     }
 
     fn expected_compression_ratio(
@@ -383,6 +415,62 @@ fn test_no_exclusion_without_history() {
 
     // No history means no exclusions.
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
+}
+
+/// A scheme that always wins and declares a constant array. Its `compress` panics.
+#[derive(Debug)]
+struct TopLevelEncodingScheme;
+
+impl Scheme for TopLevelEncodingScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.top_level_encoding"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![Constant.id()]
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unreachable!("`encodings_for` must not compress")
+    }
+}
+
+/// `encodings_for` does not run the winner. It gives the top-level encodings of the winner and
+/// the encoding of the uncompressed array, which `compress` can fall back to.
+#[test]
+fn encodings_for_does_not_compress() -> VortexResult<()> {
+    let compressor = CascadingCompressor::new(vec![&TopLevelEncodingScheme]);
+    let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let encodings = compressor.encodings_for(&array, &mut exec_ctx)?;
+
+    let expected: HashSet<ArrayId> = [Constant.id(), Primitive.id()].into_iter().collect();
+    assert_eq!(encodings, expected);
+    Ok(())
 }
 
 #[test]
@@ -511,6 +599,10 @@ impl Scheme for ThresholdObservingScheme {
         Vec::new()
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -549,6 +641,10 @@ impl Scheme for CallbackMatchingRatioScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
         Vec::new()
     }
 

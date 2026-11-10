@@ -52,6 +52,10 @@ impl Scheme for BinaryDictScheme {
         vec![Dict.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![Dict.id()]
+    }
+
     fn stats_options(&self) -> GenerateStatsOptions {
         GenerateStatsOptions {
             count_distinct_values: true,

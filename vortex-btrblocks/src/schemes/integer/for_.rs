@@ -8,6 +8,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -117,6 +118,10 @@ impl Scheme for FoRScheme {
         };
         encodings.extend(self.bitpacking.produced_encodings());
         encodings
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![FoR.id()]
     }
 
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {

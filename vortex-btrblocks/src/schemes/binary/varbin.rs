@@ -48,6 +48,10 @@ impl Scheme for VarBinScheme {
         vec![VarBin.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![VarBin.id()]
+    }
+
     fn num_children(&self) -> usize {
         1
     }

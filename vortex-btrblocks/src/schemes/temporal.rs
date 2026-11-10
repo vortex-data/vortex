@@ -59,6 +59,10 @@ impl Scheme for TemporalScheme {
         vec![DateTimeParts.id()]
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        vec![DateTimeParts.id()]
+    }
+
     /// Children: days=0, seconds=1, subseconds=2.
     fn num_children(&self) -> usize {
         3

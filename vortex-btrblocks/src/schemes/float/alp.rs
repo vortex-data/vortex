@@ -50,6 +50,14 @@ impl Scheme for ALPScheme {
         encodings
     }
 
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        let mut encodings = vec![ALP.id()];
+        if use_experimental_patches() {
+            encodings.push(Patched.id());
+        }
+        encodings
+    }
+
     /// Children: encoded_ints=0.
     fn num_children(&self) -> usize {
         1

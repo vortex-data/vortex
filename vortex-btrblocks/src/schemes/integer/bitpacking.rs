@@ -11,6 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Patched;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -98,6 +99,14 @@ impl Scheme for BitPackingScheme {
             BitPackingSchemeMode::V1 => vec![bitpacked_v1_id()],
             BitPackingSchemeMode::V2 => vec![bitpacked_v1_id(), bitpacked_v2_id()],
         };
+        if use_experimental_patches() {
+            encodings.push(Patched.id());
+        }
+        encodings
+    }
+
+    fn top_level_encodings(&self) -> Vec<ArrayId> {
+        let mut encodings = vec![Primitive.id(), BitPacked.id()];
         if use_experimental_patches() {
             encodings.push(Patched.id());
         }
