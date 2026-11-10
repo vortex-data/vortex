@@ -81,6 +81,9 @@ public final class VortexPartitionReader implements PartitionReader<ColumnarBatc
 
             List<Field> fileColumns = dataSource.arrowSchema(allocator).getFields();
             var options = ScanOptions.builder();
+            if (io.splitConcurrency() > 0) {
+                options.splitConcurrency(io.splitConcurrency());
+            }
             // Always project, an empty read schema included: a query that needs only partition columns or only a
             // row count must not pull every data column off storage. Struct columns that Spark pruned read only the
             // nested fields the query uses.

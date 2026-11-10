@@ -30,7 +30,7 @@ use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
-use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ExecuteArrowExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -220,12 +220,8 @@ impl ArrowExportVTable for WellKnownBinary {
             target.data_type().clone(),
             target.is_nullable(),
         );
-        let session = ctx.session().clone();
         let arrow_storage =
-            session
-                .arrow()
-                .exporter(options)
-                .execute_arrow(storage, Some(&storage_field), ctx)?;
+            storage.execute_arrow_with_options(Some(&storage_field), options, ctx)?;
 
         // Round-trip through the GeoArrow WKB array types: this validates that the storage
         // is a binary-family Arrow array and produces the canonical physical representation

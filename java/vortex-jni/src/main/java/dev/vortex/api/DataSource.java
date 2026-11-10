@@ -238,6 +238,7 @@ public final class DataSource {
         byte[] selectionRoaringBitmap = selectionRoaringBitmap(options);
         long limit = options.limit().orElse(0L);
         boolean ordered = options.ordered();
+        int splitConcurrency = options.splitConcurrency().orElse(0);
 
         long scanPtr = dev.vortex.jni.NativeScan.create(
                 pointer,
@@ -249,7 +250,8 @@ public final class DataSource {
                 selectionRoaringBitmap,
                 selectionMode.code(),
                 limit,
-                ordered);
+                ordered,
+                splitConcurrency);
         return Scan.fromPointer(session, scanPtr);
     }
 

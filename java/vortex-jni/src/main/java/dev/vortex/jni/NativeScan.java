@@ -27,6 +27,7 @@ public final class NativeScan {
      *     {@code selectionRoaringBitmap})
      * @param limit max rows to return, or {@code 0} for "no limit"
      * @param ordered true to preserve row order across partitions
+     * @param splitConcurrency the most splits of each partition read at once, or {@code 0} for the native default
      */
     public static native long create(
             long dataSourcePointer,
@@ -38,7 +39,8 @@ public final class NativeScan {
             byte[] selectionRoaringBitmap,
             byte selectionInclude,
             long limit,
-            boolean ordered);
+            boolean ordered,
+            int splitConcurrency);
 
     /** Free a scan pointer. */
     public static native void free(long pointer);

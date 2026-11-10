@@ -14,14 +14,15 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrowExporter;
+use crate::ArrowExportOptions;
+use crate::ExecuteArrowExt;
 use crate::executor::validity::to_arrow_null_buffer;
 
 pub(super) fn to_arrow_fixed_list(
     array: ArrayRef,
     list_size: i32,
     elements_field: &FieldRef,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -32,25 +33,19 @@ pub(super) fn to_arrow_fixed_list(
 
     // Check for Vortex FixedSizeListArray and convert directly.
     if let Some(array) = array.as_opt::<FixedSizeList>() {
-        return list_to_list(
-            &array.into_owned(),
-            elements_field,
-            list_size,
-            exporter,
-            ctx,
-        );
+        return list_to_list(&array.into_owned(), elements_field, list_size, options, ctx);
     }
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
     let fixed_size_list = array.execute::<FixedSizeListArray>(ctx)?;
-    list_to_list(&fixed_size_list, elements_field, list_size, exporter, ctx)
+    list_to_list(&fixed_size_list, elements_field, list_size, options, ctx)
 }
 
 fn list_to_list(
     array: &FixedSizeListArray,
     elements_field: &FieldRef,
     list_size: i32,
-    exporter: &ArrowExporter<'_>,
+    options: &ArrowExportOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -60,8 +55,11 @@ fn list_to_list(
         list_size
     );
 
-    let elements =
-        exporter.execute_arrow(array.elements().clone(), Some(elements_field.as_ref()), ctx)?;
+    let elements = array.elements().clone().execute_arrow_with_options(
+        Some(elements_field.as_ref()),
+        options,
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
