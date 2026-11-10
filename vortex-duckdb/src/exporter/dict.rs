@@ -4,7 +4,6 @@
 use std::marker::PhantomData;
 
 use num_traits::AsPrimitive;
-use num_traits::ToPrimitive;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -32,6 +31,7 @@ use crate::exporter::new_array_exporter;
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values: ReusableDict,
+    values_len: usize,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
 }
@@ -97,37 +97,16 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_len = values.len();
-    match_each_integer_ptype!(codes.ptype(), |I| {
-        check_codes(codes.as_slice::<I>(), values_len)
-    })?;
-
     let reusable_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values: reusable_dict,
+            values_len,
             codes,
             codes_type: PhantomData::<I>,
         }))
     })
-}
-
-/// Checks that every code is a valid index into `values_len` dictionary values.
-///
-/// DuckDB does not check the selection vector of a dictionary vector, so a code that is out of
-/// bounds causes an out-of-bounds read in DuckDB.
-fn check_codes<I: IntegerPType>(codes: &[I], values_len: usize) -> VortexResult<()> {
-    let in_bounds = codes.iter().all(|code| {
-        code.to_u32()
-            .and_then(|code| usize::try_from(code).ok())
-            .is_some_and(|code| code < values_len)
-    });
-    vortex_ensure!(
-        in_bounds,
-        "Dictionary code out of bounds for {values_len} values"
-    );
-
-    Ok(())
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
@@ -141,13 +120,22 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
-        for (dst, src) in mut_sel_vec.iter_mut().zip(
-            self.codes.as_slice::<I>()[offset..offset + len]
-                .iter()
-                .map(|v| v.as_()),
-        ) {
-            *dst = src
+        let codes = &self.codes.as_slice::<I>()[offset..offset + len];
+
+        // A negative code becomes `usize::MAX`, so the bounds check below rejects it.
+        let mut max_code = 0;
+        for (dst, code) in mut_sel_vec.iter_mut().zip(codes) {
+            max_code = max_code.max(code.to_usize().unwrap_or(usize::MAX));
+            *dst = code.as_();
         }
+
+        // DuckDB does not check the selection vector of a dictionary vector, so every code must
+        // be in bounds of the values and fit in a u32.
+        vortex_ensure!(
+            len == 0 || (max_code < self.values_len && u32::try_from(max_code).is_ok()),
+            "Dictionary code {max_code} out of bounds for {} values",
+            self.values_len
+        );
 
         vector.reuse_dictionary(&self.values, &sel_vec, len);
 
@@ -185,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn test_out_of_bounds_codes_fail() {
+    fn test_out_of_bounds_codes_fail() -> VortexResult<()> {
         // SAFETY: The code 5 is out of bounds on purpose, because the exporter must reject it.
         let arr = unsafe {
             DictArray::new_unchecked(
@@ -194,9 +182,16 @@ mod tests {
             )
         };
 
-        let result = new_exporter(&arr, &ConversionCache::default());
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let result = new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        );
 
-        assert!(result.is_err_and(|err| err.to_string().contains("out of bounds")));
+        assert!(result.is_err_and(|err| err.to_string().contains("out of bounds for 2 values")));
+        Ok(())
     }
 
     #[test]

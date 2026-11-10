@@ -32,6 +32,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::executor::checked_offset_buffer;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_byte_array`] requires for export.
@@ -110,18 +111,15 @@ where
         .into_primitive()
         .to_buffer::<T::Offset>();
 
-    // SAFETY: `VarBinArray` guarantees its offsets are non-empty, non-negative and
-    // monotonically non-decreasing. The checked cast keeps every value, so the order stays the
-    // same.
-    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
-
     let data = array.bytes().clone().into_arrow_buffer();
+    let offsets = checked_offset_buffer(offsets, data.len())?;
 
     let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
     if validate_utf8 {
         validate_live_values_utf8::<T>(&offsets, &data, null_buffer.as_ref())?;
     }
-    // SAFETY: `T::DATA_TYPE` is a `Utf8` variant only when the source dtype already guarantees the
+    // SAFETY: `checked_offset_buffer` showed that the offsets are in bounds of the data.
+    // `T::DATA_TYPE` is a `Utf8` variant only when the source dtype already guarantees the
     // bytes are UTF-8, or when `validate_utf8` made us prove it above.
     Ok(Arc::new(unsafe {
         GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
@@ -218,6 +216,28 @@ mod tests {
     use crate::ArrowSessionExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn varbin_with_unsorted_offsets_fails() {
+        // SAFETY: The offsets are not sorted on purpose, because the export must reject them.
+        let varbin = unsafe {
+            VarBinArray::new_unchecked(
+                buffer![0i32, 3, 1].into_array(),
+                ByteBuffer::copy_from(b"abc".as_slice()),
+                DType::Binary(Nullability::NonNullable),
+                Validity::NonNullable,
+            )
+        };
+
+        let field = Field::new("b", DataType::Binary, false);
+        let result = SESSION.arrow().execute_arrow(
+            varbin.into_array(),
+            Some(&field),
+            &mut SESSION.create_execution_ctx(),
+        );
+
+        assert!(result.is_err_and(|err| err.to_string().contains("must be sorted")));
+    }
 
     #[test]
     fn mask_wrapped_varbin_exports() -> VortexResult<()> {

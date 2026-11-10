@@ -15,7 +15,6 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -329,22 +328,22 @@ impl LayoutReader for DictReader {
             self.values_array()
         };
         let all_values_referenced = self.layout.has_all_values_referenced();
-        let session = self.session.clone();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: The codes dtype is an integer type from the layout, and the codes child
-            // reader ensures the correct dtype. The codes come from the file, so
-            // `validate_codes` checks them against the values below before the array is used.
-            // The layout stores `all_values_referenced`, and if this is malicious then it must
-            // only affect correctness, not memory safety.
+            // SAFETY:
+            //  * The codes dtype is guaranteed to be an integer type from the layout
+            //  * The codes child reader ensures the correct dtype.
+            //  * The codes come from the file and are not checked here. Each operation that
+            //    uses a code as an index into the values does its own bounds check.
+            //  * The layout stores `all_values_referenced` and if this is malicious then it must
+            //    only affect correctness not memory safety.
             let array = unsafe {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
-            };
-            array.validate_codes(&mut session.create_execution_ctx())?;
-
-            let array = array.into_array().optimize()?;
+            }
+            .into_array()
+            .optimize()?;
 
             array.apply_bound(&expr_outer)
         }

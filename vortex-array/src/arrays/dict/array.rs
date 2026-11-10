@@ -16,11 +16,7 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -130,9 +126,8 @@ impl DictData {
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     ///
-    /// This constructor does not read the codes, because `ArrayRef::take` uses it to build lazy
-    /// arrays. A code that is not a valid index into `values` causes an error when the array
-    /// executes. Use [`DictArrayExt::validate_codes`] to check codes from an untrusted source.
+    /// This constructor does not read the codes. Each operation that uses a code as an index
+    /// into `values` must do its own bounds check, because the codes can come from a file.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
             vortex_bail!("expected type: int but instead got {}", codes_dtype);
@@ -161,14 +156,6 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         }
 
         Ok(())
-    }
-
-    /// Checks that every valid code is a valid index into the values.
-    ///
-    /// This reads all the codes. It does not use the cached statistics of the codes, because a
-    /// file can supply false statistics. Codes that are not in host memory are not checked.
-    fn validate_codes(&self, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        check_codes_in_bounds(self.codes(), self.values().len(), ctx)
     }
 
     fn compute_referenced_values_mask(
@@ -205,48 +192,6 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
-
-/// Checks that every valid code in `codes` is not negative and is less than `values_len`.
-///
-/// The extrema come from a scan of the executed codes, not from the cached statistics.
-pub(super) fn check_codes_in_bounds(
-    codes: &ArrayRef,
-    values_len: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    if codes.is_empty() || !codes.is_host() {
-        return Ok(());
-    }
-
-    let columnar = codes.clone().execute::<Columnar>(ctx)?;
-    let Some(MinMaxResult { min, max }) =
-        columnar_min_max(&columnar, NumericalAggregateOpts::default(), ctx)?
-    else {
-        // All the codes are null.
-        return Ok(());
-    };
-
-    let min_in_bounds = min
-        .as_primitive()
-        .pvalue()
-        .is_some_and(|min| usize::try_from(min).is_ok());
-    vortex_ensure!(
-        min_in_bounds,
-        "DictArray code {min} is negative or does not fit in usize"
-    );
-
-    let max_in_bounds = max
-        .as_primitive()
-        .pvalue()
-        .and_then(|max| usize::try_from(max).ok())
-        .is_some_and(|max| max < values_len);
-    vortex_ensure!(
-        max_in_bounds,
-        "DictArray code {max} is out of bounds for {values_len} values"
-    );
-
-    Ok(())
-}
 
 /// Number of codes visited between checks for whether every dictionary value is referenced.
 const EARLY_EXIT_CHUNK: usize = 2048;
@@ -458,7 +403,6 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::NativePType;
     use crate::dtype::Nullability::NonNullable;
-    use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::UnsignedPType;
     use crate::validity::Validity;
@@ -684,77 +628,6 @@ mod test {
         assert_eq!(known.get_codes_ptype()?, PType::U32);
 
         Ok(())
-    }
-
-    #[rstest::rstest]
-    #[case::code_past_end(buffer![0i32, 7, 1].into_array(), "out of bounds for 2 values")]
-    #[case::negative_code(buffer![0i32, -1, 1].into_array(), "is negative")]
-    fn test_deserialize_rejects_out_of_bounds_codes(
-        #[case] codes: ArrayRef,
-        #[case] message: &str,
-    ) {
-        let metadata = DictMetadata {
-            codes_ptype: PType::I32 as i32,
-            values_len: 2,
-            is_nullable_codes: Some(false),
-            all_values_referenced: None,
-        }
-        .encode_to_vec();
-        let children = vec![codes, buffer![10i32, 20].into_array()];
-
-        let result = Dict.deserialize(
-            &DType::Primitive(PType::I32, NonNullable),
-            3,
-            &metadata,
-            &[],
-            &children,
-            &SESSION,
-        );
-
-        assert!(result.is_err_and(|err| err.to_string().contains(message)));
-    }
-
-    #[test]
-    fn test_deserialize_ignores_null_codes() -> VortexResult<()> {
-        let codes = PrimitiveArray::new(
-            buffer![0i32, 99, 1],
-            Validity::from(BitBuffer::from(vec![true, false, true])),
-        )
-        .into_array();
-        let values = PrimitiveArray::new(buffer![10i32, 20], Validity::AllValid).into_array();
-        let metadata = DictMetadata {
-            codes_ptype: PType::I32 as i32,
-            values_len: 2,
-            is_nullable_codes: Some(true),
-            all_values_referenced: None,
-        }
-        .encode_to_vec();
-        let children = vec![codes, values];
-
-        Dict.deserialize(
-            &DType::Primitive(PType::I32, Nullable),
-            3,
-            &metadata,
-            &[],
-            &children,
-            &SESSION,
-        )?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_validate_codes_rejects_out_of_bounds_codes() {
-        let dict = unsafe {
-            DictArray::new_unchecked(
-                buffer![0u8, 2].into_array(),
-                buffer![10i32, 20].into_array(),
-            )
-        };
-
-        let result = dict.validate_codes(&mut SESSION.create_execution_ctx());
-
-        assert!(result.is_err_and(|err| err.to_string().contains("out of bounds for 2 values")));
     }
 
     /// Covers the early exit taken once every value is referenced, including when that happens

@@ -88,7 +88,7 @@ fn constant_to_dict(
         ctx,
     )?;
     let codes = zeroed_codes_array(codes_type, len)?;
-    make_dict_array(codes_type, codes, values)
+    make_dict_array(codes_type, codes, values, DictKeys::InBounds)
 }
 
 /// Convert a Vortex dictionary array to an Arrow dictionary array.
@@ -101,7 +101,7 @@ fn dict_to_dict(
 ) -> VortexResult<ArrowArrayRef> {
     let codes = execute_arrow_naive(array.codes().clone(), Some(codes_type), exporter, ctx)?;
     let values = execute_arrow_naive(array.values().clone(), Some(values_type), exporter, ctx)?;
-    make_dict_array(codes_type, codes, values)
+    make_dict_array(codes_type, codes, values, DictKeys::Untrusted)
 }
 
 /// Construct a zeroed Arrow primitive array directly.
@@ -119,38 +119,48 @@ fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowAr
     })
 }
 
+/// Tells [`make_dict_array`] if the codes are known to be valid indices into the values.
+#[derive(Clone, Copy)]
+enum DictKeys {
+    /// The codes come from a Vortex array, which can come from a file. Arrow must check them.
+    Untrusted,
+    /// This module made the codes, and they are all in bounds of the values.
+    InBounds,
+}
+
 /// Construct an Arrow `DictionaryArray` from pre-built codes and values arrays.
 fn make_dict_array(
     codes_type: &DataType,
     codes: ArrowArrayRef,
     values: ArrowArrayRef,
+    keys: DictKeys,
 ) -> VortexResult<ArrowArrayRef> {
-    Ok(match codes_type {
-        DataType::Int8 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int8Type>().clone(), values)
-        }),
-        DataType::Int16 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int16Type>().clone(), values)
-        }),
-        DataType::Int32 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int32Type>().clone(), values)
-        }),
-        DataType::Int64 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int64Type>().clone(), values)
-        }),
-        DataType::UInt8 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt8Type>().clone(), values)
-        }),
-        DataType::UInt16 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt16Type>().clone(), values)
-        }),
-        DataType::UInt32 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt32Type>().clone(), values)
-        }),
-        DataType::UInt64 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt64Type>().clone(), values)
-        }),
+    match codes_type {
+        DataType::Int8 => typed_dict_array::<Int8Type>(&codes, values, keys),
+        DataType::Int16 => typed_dict_array::<Int16Type>(&codes, values, keys),
+        DataType::Int32 => typed_dict_array::<Int32Type>(&codes, values, keys),
+        DataType::Int64 => typed_dict_array::<Int64Type>(&codes, values, keys),
+        DataType::UInt8 => typed_dict_array::<UInt8Type>(&codes, values, keys),
+        DataType::UInt16 => typed_dict_array::<UInt16Type>(&codes, values, keys),
+        DataType::UInt32 => typed_dict_array::<UInt32Type>(&codes, values, keys),
+        DataType::UInt64 => typed_dict_array::<UInt64Type>(&codes, values, keys),
         _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
+    }
+}
+
+fn typed_dict_array<K: ArrowDictionaryKeyType>(
+    codes: &ArrowArrayRef,
+    values: ArrowArrayRef,
+    keys: DictKeys,
+) -> VortexResult<ArrowArrayRef> {
+    let codes = codes.as_primitive::<K>().clone();
+
+    Ok(match keys {
+        // Arrow kernels read the values with the codes and do no bounds check, so a code that
+        // is negative or not less than the values length must cause an error here.
+        DictKeys::Untrusted => Arc::new(DictionaryArray::try_new(codes, values)?),
+        // SAFETY: The caller made the codes, and every code is in bounds of the values.
+        DictKeys::InBounds => Arc::new(unsafe { DictionaryArray::new_unchecked(codes, values) }),
     })
 }
 
@@ -247,6 +257,24 @@ mod tests {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
         Ok(())
+    }
+
+    #[test]
+    fn dict_with_out_of_bounds_code_fails() {
+        // SAFETY: The code 5 is out of bounds on purpose, because the export must reject it.
+        let dict = unsafe {
+            DictArray::new_unchecked(
+                buffer![0u8, 5].into_array(),
+                VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
+            )
+        };
+
+        let result = execute(
+            dict.into_array(),
+            &dict_type(DataType::UInt8, DataType::Utf8),
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

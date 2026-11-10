@@ -16,6 +16,7 @@ use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::ReusableDict;
@@ -100,6 +101,14 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             return Ok(());
         }
 
+        // DuckDB does not check the selection vector of a dictionary vector, so every run index
+        // must be in bounds of the values.
+        vortex_ensure!(
+            end_run_idx < self.values.len(),
+            "Run index {end_run_idx} out of bounds for {} values",
+            self.values.len()
+        );
+
         // Build up a selection vector
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut sel_vec_slice = unsafe { sel_vec.as_slice_mut(len) };
@@ -117,7 +126,11 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
             offset = next_end;
         }
-        debug_assert!(sel_vec_slice.is_empty());
+        // Ends that are not sorted can leave a part of the selection vector without a value.
+        vortex_ensure!(
+            sel_vec_slice.is_empty(),
+            "Run ends do not cover the exported range"
+        );
 
         vector.reuse_dictionary(&self.values_dict, &sel_vec, len);
         Ok(())
