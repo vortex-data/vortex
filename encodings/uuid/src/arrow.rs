@@ -44,6 +44,7 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -112,9 +113,7 @@ impl ArrowImportVTable for Uuid {
         field: &Field,
         _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        if !field.has_valid_extension_type::<ArrowUuid>() {
-            return Ok(None);
-        }
+        field.try_extension_type::<ArrowUuid>()?;
 
         let storage_dtype = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
@@ -134,14 +133,14 @@ impl ArrowImportVTable for Uuid {
         dtype: &DType,
         _session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let DType::Extension(dtype) = dtype else {
+        let Some(dtype) = dtype.as_extension_opt().filter(|ext| ext.is::<Uuid>()) else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN))
-            || !dtype.is::<Uuid>()
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
+        vortex_ensure!(
+            matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN)),
+            "Arrow UUID storage must be FixedSizeBinary({UUID_BYTE_LEN}), got {}",
+            array.data_type()
+        );
 
         let fsb = array.as_fixed_size_binary();
         let buffer = Buffer::from_arrow_buffer(fsb.values().clone(), Alignment::none());
@@ -160,7 +159,7 @@ impl ArrowImportVTable for Uuid {
         )
         .into_array();
         Ok(ArrowImport::Imported(
-            ExtensionArray::new(dtype.clone(), storage).into_array(),
+            ExtensionArray::try_new(dtype.clone(), storage)?.into_array(),
         ))
     }
 }
@@ -220,6 +219,8 @@ mod tests {
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::Fields;
     use arrow_schema::Schema;
+    use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+    use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ListArray;
@@ -413,6 +414,35 @@ mod tests {
             DType::List(Arc::new(uuid_dtype(false)), Nullability::NonNullable)
         );
         Ok(())
+    }
+
+    /// A field that names `arrow.uuid` but breaks its canonical spec fails to import instead of
+    /// importing as plain storage.
+    #[rstest]
+    #[case::fixed_size_binary_8(DataType::FixedSizeBinary(8), "")]
+    #[case::metadata(DataType::FixedSizeBinary(16), "v4")]
+    fn from_arrow_field_rejects_invalid_uuid(#[case] data_type: DataType, #[case] metadata: &str) {
+        let field = Field::new("id", data_type, false).with_metadata(
+            [
+                (
+                    EXTENSION_TYPE_NAME_KEY.to_string(),
+                    ArrowUuid::NAME.to_string(),
+                ),
+                (
+                    EXTENSION_TYPE_METADATA_KEY.to_string(),
+                    metadata.to_string(),
+                ),
+            ]
+            .into(),
+        );
+        let err = uuid_session()
+            .arrow()
+            .from_arrow_field(&field)
+            .expect_err("a field outside the arrow.uuid spec must fail to import");
+        assert!(
+            err.to_string().contains("as arrow.uuid"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

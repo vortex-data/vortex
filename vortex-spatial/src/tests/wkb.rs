@@ -181,6 +181,21 @@ fn import_field_without_crs() -> VortexResult<()> {
     Ok(())
 }
 
+/// A `geoarrow.wkb` field over a string type fails to import instead of importing as plain
+/// storage.
+#[test]
+fn import_string_field_fails() {
+    let field = wkb_field("geom", DataType::Binary, false, None).with_data_type(DataType::Utf8);
+    let err = SESSION
+        .arrow()
+        .from_arrow_field(&field)
+        .expect_err("a string field must fail to import as WKB");
+    assert!(
+        err.to_string().contains("as geoarrow.wkb"),
+        "unexpected error: {err}"
+    );
+}
+
 /// Import wraps the binary-family Arrow array's WKB values unchanged.
 #[test]
 fn imports_from_binary() -> VortexResult<()> {

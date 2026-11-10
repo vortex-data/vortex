@@ -533,6 +533,9 @@ impl DefaultExpressionConverter {
     }
 
     /// Imports one scalar through the session's Arrow plugins, preserving `field`'s metadata.
+    ///
+    /// A literal that the plugins reject stays in DataFusion. A plugin can accept the field and
+    /// still reject the value, for example a vector literal with a null element.
     fn import_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Scalar> {
         let array = literal.value().to_array()?;
         if array.len() != 1 {
@@ -548,7 +551,8 @@ impl DefaultExpressionConverter {
         self.session
             .arrow()
             .from_arrow_array(array, field)
-            .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
+            .map_err(|_| Unconverted::Unsupported)?
+            .execute_scalar(0, &mut self.session.create_execution_ctx())
             .map_err(|error| {
                 Unconverted::Failed(DataFusionError::External(Box::new(
                     error.with_context(format!("Failed to convert literal {literal}")),

@@ -12,7 +12,6 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -275,36 +274,17 @@ impl ArrowImportVTable for Rect {
     }
 
     /// Import a `geoarrow.box` field as the [`Rect`] dtype. Keyed off the standard GeoArrow name,
-    /// so any producer resolves here. Accepts the full `BoxType` extension, or — for a
-    /// metadata-less literal — the name alone, inferring the dimension from the field names.
+    /// so any producer resolves here.
     fn from_arrow_field(
         &self,
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) = if let Ok(box_meta) = field.try_extension_type::<BoxType>() {
-            (
-                box_meta.dimension().into(),
-                spatial_metadata_from_arrow(box_meta.metadata()),
-            )
-        } else {
-            if field.extension_type_name() != Some(BoxType::NAME) {
-                return Ok(None);
-            }
-            // Infer from field names, not the strict `box_dimension` check: a literal's fields may
-            // be nullable, which that check rejects.
-            let Ok(DType::Struct(fields, _)) =
-                session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-            else {
-                return Ok(None);
-            };
-            let Some(dimension) = box_dimension_from_names(fields.names()) else {
-                return Ok(None);
-            };
-            (dimension, SpatialMetadata::default())
-        };
+        let box_meta = field.try_extension_type::<BoxType>()?;
 
-        let storage_dtype = box_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype =
+            box_storage_dtype(box_meta.dimension().into(), field.is_nullable().into());
+        let metadata = spatial_metadata_from_arrow(box_meta.metadata());
         Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(Rect, metadata, storage_dtype)?.erased(),
         )))
@@ -313,24 +293,16 @@ impl ArrowImportVTable for Rect {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
+        let Some(ext_dtype) = dtype.as_extension_opt().filter(|ext| ext.is::<Rect>()) else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !ext_dtype.is::<Rect>()
-            || field.try_extension_type::<BoxType>().is_err()
-            || !matches!(array.data_type(), DataType::Struct(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, ext_dtype)
+            .map(ArrowImport::Imported)
     }
 }
 

@@ -8,7 +8,6 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
@@ -328,46 +327,24 @@ impl ArrowImportVTable for LineString {
     }
 
     /// Import a `geoarrow.linestring` field as the [`LineString`] dtype. Keyed off the standard
-    /// GeoArrow name, so any producer resolves here. Accepts the full `LineStringType` extension, or
-    /// — for a metadata-less geometry literal — the name alone, inferring the dimension from the
-    /// coordinate field names.
+    /// GeoArrow name, so any producer resolves here.
     fn from_arrow_field(
         &self,
         field: &Field,
-        session: &ArrowSession,
+        _session: &ArrowSession,
     ) -> VortexResult<Option<DType>> {
-        let (dimension, metadata) =
-            if let Ok(linestring_meta) = field.try_extension_type::<LineStringType>() {
-                vortex_ensure!(
-                    linestring_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.linestring with interleaved coordinates is not supported; \
+        let linestring_meta = field.try_extension_type::<LineStringType>()?;
+        vortex_ensure!(
+            linestring_meta.coord_type() == CoordType::Separated,
+            "geoarrow.linestring with interleaved coordinates is not supported; \
              re-encode with separated (struct) coordinates"
-                );
-                (
-                    linestring_meta.dimension().into(),
-                    spatial_metadata_from_arrow(linestring_meta.metadata()),
-                )
-            } else {
-                // Literal: peel the `List` layer to the coordinate struct and read its dimension from
-                // the field names (the canonical check rejects nullable coordinates).
-                if field.extension_type_name() != Some(LineStringType::NAME) {
-                    return Ok(None);
-                }
-                let Ok(DType::List(coords, _)) =
-                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
-                else {
-                    return Ok(None);
-                };
-                let DType::Struct(fields, _) = coords.as_ref() else {
-                    return Ok(None);
-                };
-                let Ok(dimension) = Dimension::from_field_names(fields.names()) else {
-                    return Ok(None);
-                };
-                (dimension, SpatialMetadata::default())
-            };
+        );
 
-        let storage_dtype = linestring_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype = linestring_storage_dtype(
+            linestring_meta.dimension().into(),
+            field.is_nullable().into(),
+        );
+        let metadata = spatial_metadata_from_arrow(linestring_meta.metadata());
         Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(LineString, metadata, storage_dtype)?.erased(),
         )))
@@ -376,24 +353,19 @@ impl ArrowImportVTable for LineString {
     fn from_arrow_array(
         &self,
         array: ArrowArrayRef,
-        field: &Field,
+        _field: &Field,
         dtype: &DType,
         session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
-        let Some(ext_dtype) = dtype.as_extension_opt() else {
+        let Some(ext_dtype) = dtype
+            .as_extension_opt()
+            .filter(|ext| ext.is::<LineString>())
+        else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !ext_dtype.is::<LineString>()
-            || field.try_extension_type::<LineStringType>().is_err()
-            || !matches!(array.data_type(), DataType::List(_))
-        {
-            return Ok(ArrowImport::Unsupported(array));
-        }
-
-        let storage = session.from_arrow_array(array, field.is_nullable())?;
-        Ok(ArrowImport::Imported(
-            ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
-        ))
+        session
+            .from_arrow_storage(array, ext_dtype)
+            .map(ArrowImport::Imported)
     }
 }
 
