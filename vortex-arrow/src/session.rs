@@ -158,8 +158,12 @@ impl<'a> IntoArrowField<'a> for Nullability {
 
 /// Plugin layer for exporting a Vortex array to an Arrow extension type.
 ///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
+/// satisfy the dtype round-trip contract checked by [`ArrowSession`].
+///
 /// This is purely an implementation trait, its methods should not be called directly. Instead,
-/// use [`ExecuteArrowExt`] to export an array, and the methods on [`ArrowSession`] to convert a dtype.
+/// use [`ExecuteArrowExt`] to export an array, and the methods on [`ArrowSession`] to convert a
+/// dtype.
 ///
 /// [`ExecuteArrowExt`]: crate::ExecuteArrowExt
 pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
@@ -198,6 +202,9 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 }
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex array.
+///
+/// Prefer [`crate::ArrowExtVTable`] for automatic Vortex metadata transport. Both interfaces must
+/// return arrays with the dtype inferred from their fields, as checked by [`ArrowSession`].
 ///
 /// Plugins are dispatched by `arrow_ext_id`. The session peels Arrow dictionaries before it
 /// dispatches, so a plugin never sees a [`DataType::Dictionary`] field or array. It sees the value
@@ -257,6 +264,15 @@ type VortexExporterRegistry = ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>;
 type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
+///
+/// All plugins **must** preserve the complete dtype across [`Self::to_arrow_field`] and
+/// [`Self::from_arrow_field`]. This includes extension IDs, metadata, storage, and nullability at
+/// every nesting level. Exporting an array to that field and importing it with the same field must
+/// preserve its dtype and logical values. The owning dtype and Arrow plugins must be registered in
+/// the importing session.
+///
+/// The session checks inferred fields and successful plugin imports, including raw plugins.
+/// Explicit export targets may request a different dtype. Unknown Vortex IDs import as storage.
 ///
 /// A plugin converts one Vortex extension type to and from an Arrow extension type. The crate that
 /// owns the type registers its plugin, as `vortex-uuid` does. Temporal types need no plugin,
@@ -485,6 +501,15 @@ impl ArrowSession {
 
         for plugin in self.exporters_by_vortex(&ext_dtype.id()).iter() {
             if let Some(field) = plugin.to_arrow_field(name, &dtype, self)? {
+                // Check the completed field through normal routing because another importer can
+                // take precedence over the exporter that inferred it.
+                vortex_ensure_eq!(
+                    self.from_arrow_field(&field)?,
+                    dtype,
+                    "Arrow field {:?} must preserve its Vortex dtype",
+                    name
+                );
+
                 return Ok(Some(field));
             }
         }
@@ -804,6 +829,12 @@ impl ArrowSession {
                                 arr.len(),
                                 len
                             );
+                            vortex_ensure_eq!(
+                                arr.dtype(),
+                                &dtype,
+                                "Arrow importer must preserve the dtype inferred from its field"
+                            );
+
                             return Ok(arr);
                         }
                         ArrowImport::Unsupported(arr) => {
