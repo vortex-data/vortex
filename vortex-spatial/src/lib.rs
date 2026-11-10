@@ -84,17 +84,15 @@ pub fn initialize(session: &VortexSession) {
     session.scalar_fns().register(SpatialMakeLine);
     session.scalar_fns().register(SpatialLength);
 
-    // The axis-aligned bounding-box (AABB) aggregate; self-declares as a per-chunk zone stat for
-    // geometry columns.
+    // Writers select the AABB aggregate explicitly for file or zone statistics.
     session.aggregate_fns().register(GeometryAabb);
 
     // Register the spatial pruning rules that use that AABB.
     session.stats().register_rewrite(SpatialDistancePrune);
     session.stats().register_rewrite(SpatialIntersectsPrune);
 
-    // Spatial members belong to their own edition family, enabled here so the writer may emit
-    // the AABB zone stat this session just registered. `initialize` is idempotent, so a
-    // repeated call must not re-declare the edition.
+    // Spatial dtypes and statistics belong to their own edition family. Initialization is
+    // idempotent, so repeated calls must not re-declare the edition.
     if session
         .editions()
         .find(&editions::SPATIAL_2026_08)

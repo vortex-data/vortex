@@ -12,7 +12,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
-use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::ExtensionStoragePushdown;
 use crate::aggregate_fn::fns::all_nan::AllNan;
@@ -57,7 +56,6 @@ use crate::arrays::runend::compute::is_sorted::RunEndIsSortedKernel;
 use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
 use crate::arrays::runend::compute::sum::RunEndSumKernel;
 use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
-use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
@@ -195,22 +193,6 @@ impl AggregateFnSession {
     pub fn register_storage_ordered<E: ExtVTable>(&self, ext: E) {
         self.register(ExtensionStoragePushdown::new(IsSorted, ext.clone()));
         self.register(ExtensionStoragePushdown::new(MinMax, ext));
-    }
-
-    /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every
-    /// registered aggregate's `zone_stat_default`.
-    ///
-    /// Each call scans the whole plugin registry, so this is intended to be called once per
-    /// column when a zoned writer is opened, not per chunk or per row.
-    pub fn zone_stat_defaults(&self, input_dtype: &DType) -> Vec<AggregateFnRef> {
-        self.registry.read(|registry| {
-            let mut fns: Vec<AggregateFnRef> = registry
-                .values()
-                .filter_map(|plugin| plugin.zone_stat_default(input_dtype))
-                .collect();
-            fns.sort_by_key(|f| f.id());
-            fns
-        })
     }
 
     /// Returns the aggregate kernel registered for `array_id` and `agg_fn_id`, if any.

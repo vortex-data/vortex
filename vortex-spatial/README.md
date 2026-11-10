@@ -56,17 +56,61 @@ Most functions that need a general geometry algorithm use the row-function adapt
 
 Avoid per-row `scalar_at` or validity lookups in either path. Materialize coordinates, offsets, and validity once for the batch.
 
-## Chunk pruning
+## File statistics and chunk pruning
 
-`GeometryAabb` computes the two-dimensional axis-aligned bounding box (AABB) of a geometry column. The writer stores it as the default zone statistic for native geometry columns.
+`GeometryAabb` computes the two-dimensional axis-aligned bounding box (AABB) of a geometry column. Spatial initialization registers the aggregate and pruning rules. Writers explicitly choose whether to record AABB statistics at the file level, in zone maps, or both; neither records them by default.
 
-The current rules can prune:
+To record file-wide bounds, enable nested statistics and include `GeometryAabb` in the requested aggregates:
+
+```rust
+use vortex_array::aggregate_fn::{AggregateFnVTableExt, EmptyOptions};
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_spatial::aggregate_fn::GeometryAabb;
+# let session = vortex_session::VortexSession::empty();
+
+vortex_spatial::initialize(&session);
+let options = session
+    .write_options()
+    .include_nested_statistics()
+    .with_file_statistics(vec![
+        GeometryAabb.bind(EmptyOptions),
+        NullCount.bind(EmptyOptions),
+    ]);
+```
+
+`with_file_statistics` replaces the default list, so include any other aggregates the application needs. File statistics accumulate the box across incoming batches and store it in the footer independently of zone maps. Consumers select the column with `FileStatistics::get_by_path` and request `GeometryAabb.bind(EmptyOptions)` from its `AggregateStats`. The value is a native `geoarrow.box`; null or empty geometries contribute no extent. The legacy file statistics format cannot store geometry bounds, so `include_nested_statistics()` is required.
+
+For zone bounds, explicitly configure `ZonedLayoutOptions::aggregate_fns`:
+
+```rust
+use std::sync::Arc;
+
+use vortex_array::aggregate_fn::{AggregateFnVTableExt, EmptyOptions};
+use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
+use vortex_spatial::aggregate_fn::GeometryAabb;
+
+let options = ZonedLayoutOptions {
+    aggregate_fns: Some(Arc::from([
+        GeometryAabb.bind(EmptyOptions),
+        NullCount.bind(EmptyOptions),
+    ])),
+    ..Default::default()
+};
+```
+
+Pass these options to `ZonedStrategy::new`. Its input must have one chunk per zone, matching `block_size` except for the final chunk; use `RepartitionStrategy` to establish these boundaries. For a geometry field in a table, attach that strategy with `WriteStrategyBuilder::with_field_writer` and pass the built strategy to `with_strategy`. This aggregate list also replaces the zone defaults. The [statistics tests](src/tests/statistics.rs) show a complete write/read round trip and verify that explicitly requested zone bounds enable pruning.
+
+On reads, initialize the spatial extension on the reader's session as well. Filters passed to `VortexFile::scan` automatically use the registered pruning rules and available file or zone statistics. Registering a compute function does not give it a pruning rule. The current spatial rules support:
 
 - positive `ST_Intersects(geometry_column, constant_geometry)` filters when the boxes are disjoint;
 - `<`, `<=`, `>`, and `>=` comparisons on
   `ST_Distance(geometry_column, constant_geometry)` using box-distance bounds.
 
-These proofs are conservative. If the expression has a different shape, the constant is null or empty, or the file has no AABB statistic, the chunk is kept. Box overlap alone never proves that two geometries intersect.
+These rules accept a native geometry column at the scope root or through a nested field path, with the constant on either side of the spatial function. They do not infer bounds through arbitrary function calls or support spatial joins. `ST_Contains` has compute support but no pruning rule yet.
+
+These proofs are conservative: only a proof that no row can match skips a file or zone. Missing AABB statistics supply no such proof, and box overlap alone never proves that two geometries intersect.
 
 ## Interoperability and limits
 
@@ -80,7 +124,7 @@ Some important limits:
 - Geometry calculations use `x` and `y`. Structural operations can preserve `z` and `m`: `ST_Collect` reuses the input storage, and `ST_MakeLine` preserves and promotes point dimensions.
 - There is no native `GeometryCollection` or mixed-geometry union type so far.
 - WKB columns cannot be passed to the native compute functions or AABB pruning.
-- AABB statistics prune chunks; they are not a spatial index or spatial-join implementation.
+- AABB statistics prune files and zones; they are not a spatial index or spatial-join implementation.
 
 When adding a serialized dtype or statistic, register it in `initialize` and add it to `src/editions.rs`.
 

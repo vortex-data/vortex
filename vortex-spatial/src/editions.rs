@@ -4,7 +4,7 @@
 //! The `spatial` edition family.
 //!
 //! Spatial support is opt-in. [`crate::initialize`] registers and enables the edition so the
-//! writer can serialize spatial dtypes and the AABB zone stat registered by the crate.
+//! writer can serialize spatial dtypes and explicitly requested AABB statistics.
 
 use vortex_edition::Edition;
 use vortex_edition::EditionDeclaration;
@@ -12,11 +12,11 @@ use vortex_edition::EditionFamily;
 use vortex_edition::EditionId;
 use vortex_edition::EditionMember;
 
-/// The `spatial` family: the geometry dtypes and the AABB zone aggregate.
+/// The `spatial` family: the geometry dtypes and the AABB aggregate.
 pub static FAMILY: EditionFamily = EditionFamily {
     name: "spatial",
     origin: "vortex-spatial",
-    doc: "The geometry extension dtypes and the axis-aligned bounding-box zone aggregate. \
+    doc: "The geometry extension dtypes and the axis-aligned bounding-box aggregate. \
 Spatial support is opt-in: a reader built without `vortex-spatial` cannot resolve \
 `vortex.st.*`, so these members are versioned independently of `core` and a session enables \
 this family only by initializing the crate.",
@@ -28,7 +28,7 @@ pub const SPATIAL_2026_08: EditionId = EditionId::new("spatial", 2026, 8, 0);
 /// The declaration of [`SPATIAL_2026_08`] and the components that join the family at it.
 ///
 /// A draft: no Vortex release yet guarantees these members forever. The dtype members appear in
-/// file schemas, and the AABB aggregate is recorded in the zone maps of geometry columns.
+/// file schemas, and the AABB aggregate can be recorded in file statistics and zone maps.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: SPATIAL_2026_08,
@@ -63,10 +63,9 @@ mod tests {
         validate_edition(&session.editions(), &SPATIAL_2026_08)
     }
 
-    /// A spatial session must permit the AABB zone stat it registers, or writing a geometry
-    /// column fails on the aggregate the session itself asked for.
+    /// A spatial session permits writers to explicitly request the AABB statistic.
     #[test]
-    fn initialize_permits_the_aabb_zone_stat() {
+    fn initialize_permits_the_aabb_stat() {
         let session = crate::test_harness::spatial_session();
         let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
         assert!(
