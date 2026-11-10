@@ -1,4 +1,4 @@
-C++ Quickstart
+C++ quickstart
 ==============
 
 The C++ API reads and writes ``.vortex`` files, with optional Arrow interoperability

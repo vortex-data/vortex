@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Vortex documentation."
 authors = []
 dependencies = [
-    "accessible-pygments>=0.0.5",
     "hawkmoth>=0.20.0",
     "myst-parser>=4.0.0",
     "rcssmin>=1.1.2",

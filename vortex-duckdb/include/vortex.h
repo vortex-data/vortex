@@ -146,9 +146,14 @@ extern duckdb_vx_data duckdb_copy_function_prepare_batch_new(void);
 
 extern
 void duckdb_copy_function_prepare_batch_push(const void *bind,
+                                             const void *global,
                                              void *batch,
                                              duckdb_data_chunk chunk,
                                              duckdb_vx_error *error);
+
+extern size_t duckdb_copy_function_request_tasks(const void *global, size_t count);
+
+extern void duckdb_copy_function_run_tasks(const void *global);
 
 extern
 void duckdb_copy_function_flush_batch(const void *global,

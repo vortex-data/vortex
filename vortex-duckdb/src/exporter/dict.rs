@@ -22,6 +22,7 @@ use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
+use crate::exporter::DictionaryParts;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::cached_values_dict;
@@ -31,6 +32,7 @@ use crate::exporter::new_array_exporter;
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values: ReusableDict,
+    values_key: usize,
     values_len: usize,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
@@ -69,6 +71,25 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = values.addr();
+
+    // A filtered chunk can keep far fewer rows than its dictionary has values. Exporting the whole
+    // dictionary then decodes values no row uses, so take the used values instead, unless an
+    // earlier export of the same values already paid for them.
+    if codes_len < values.len()
+        && !cache.dict_cache.contains_key(&values_key)
+        && !cache.canonical_cache.contains_key(&values_key)
+    {
+        return new_array_exporter(
+            array
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array(),
+            cache,
+            ctx,
+        );
+    }
+
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     if flatten {
@@ -102,6 +123,7 @@ pub(crate) fn new_exporter_with_flatten(
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values: reusable_dict,
+            values_key,
             values_len,
             codes,
             codes_type: PhantomData::<I>,
@@ -109,7 +131,42 @@ pub(crate) fn new_exporter_with_flatten(
     })
 }
 
+impl<I: IntegerPType + AsPrimitive<u32>> DictionaryParts for DictExporter<I> {
+    fn values(&self) -> &ReusableDict {
+        &self.values
+    }
+
+    fn values_key(&self) -> usize {
+        self.values_key
+    }
+
+    fn write_codes(&self, offset: usize, codes: &mut [u32]) -> VortexResult<()> {
+        let src = &self.codes.as_slice::<I>()[offset..offset + codes.len()];
+
+        // A negative code becomes `usize::MAX`, so the bounds check below rejects it.
+        let mut max_code = 0;
+        for (dst, src) in codes.iter_mut().zip(src) {
+            max_code = max_code.max(src.to_usize().unwrap_or(usize::MAX));
+            *dst = src.as_();
+        }
+
+        // DuckDB does not check the selection vector of a dictionary vector, so every code must
+        // be in bounds of the values and fit in a u32.
+        vortex_ensure!(
+            codes.is_empty() || (max_code < self.values_len && u32::try_from(max_code).is_ok()),
+            "Dictionary code {max_code} out of bounds for {} values",
+            self.values_len
+        );
+
+        Ok(())
+    }
+}
+
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
+    fn as_dictionary(&self) -> Option<&dyn DictionaryParts> {
+        Some(self)
+    }
+
     fn export(
         &self,
         offset: usize,
@@ -117,25 +174,9 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
-        let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
-        let codes = &self.codes.as_slice::<I>()[offset..offset + len];
-
-        // A negative code becomes `usize::MAX`, so the bounds check below rejects it.
-        let mut max_code = 0;
-        for (dst, code) in mut_sel_vec.iter_mut().zip(codes) {
-            max_code = max_code.max(code.to_usize().unwrap_or(usize::MAX));
-            *dst = code.as_();
-        }
-
-        // DuckDB does not check the selection vector of a dictionary vector, so every code must
-        // be in bounds of the values and fit in a u32.
-        vortex_ensure!(
-            len == 0 || (max_code < self.values_len && u32::try_from(max_code).is_ok()),
-            "Dictionary code {max_code} out of bounds for {} values",
-            self.values_len
-        );
+        // SAFETY: the selection vector has capacity for `len` entries, and all of them are written.
+        self.write_codes(offset, unsafe { sel_vec.as_slice_mut(len) })?;
 
         vector.reuse_dictionary(&self.values, &sel_vec, len);
 
@@ -151,6 +192,7 @@ mod tests {
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexResult;
@@ -274,6 +316,32 @@ mod tests {
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn sparse_dict_exports_only_used_values() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(["a", "b", "c", "d"]).into_array();
+        let arr = DictArray::try_new(buffer![3u8, 1].into_array(), values)?;
+
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let cache = ConversionCache::default();
+        new_exporter(&arr, &cache)?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        chunk.set_len(2);
+
+        assert_eq!(
+            String::try_from(&*chunk)?,
+            r#"Chunk - [1 Columns]
+- FLAT VARCHAR: 2 = [ d, b]
+"#
+        );
+        assert!(cache.dict_cache.is_empty());
 
         Ok(())
     }

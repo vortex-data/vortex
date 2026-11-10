@@ -23,6 +23,7 @@ use crate::extension::Point;
 use crate::extension::Polygon;
 use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
+use crate::prune::SpatialContainsPrune;
 use crate::prune::SpatialDistancePrune;
 use crate::prune::SpatialIntersectsPrune;
 use crate::scalar_fn::area::SpatialArea;
@@ -89,6 +90,7 @@ pub fn initialize(session: &VortexSession) {
     session.aggregate_fns().register(GeometryAabb);
 
     // Register the spatial pruning rules that use that AABB.
+    session.stats().register_rewrite(SpatialContainsPrune);
     session.stats().register_rewrite(SpatialDistancePrune);
     session.stats().register_rewrite(SpatialIntersectsPrune);
 

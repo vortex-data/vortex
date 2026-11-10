@@ -1,4 +1,4 @@
-# Language Bindings
+# Language bindings
 
 Vortex provides bindings for multiple languages at varying levels of API depth. This page
 documents the **tier model** that governs what each language binding exposes, the current state of

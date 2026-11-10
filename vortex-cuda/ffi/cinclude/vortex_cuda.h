@@ -110,6 +110,22 @@ void vx_cuda_release_file_mappings(void);
 vx_session *vx_cuda_session_new(vx_error **error_out);
 
 /**
+ * Borrow the session's existing CUDA memory pool as a `CUmemoryPool` / `cudaMemPool_t`.
+ *
+ * Hosts may allocate from this pool to share Vortex's reserve of device memory. Null means
+ * Vortex is using the device allocator fallback. Errors also return null and set `error_out`;
+ * a successful call clears `error_out`.
+ *
+ * # Safety
+ *
+ * `session` must be a live borrowed `vortex-ffi` handle. Keep it alive until all host allocations
+ * from the pool have been freed and their GPU work, including asynchronous frees, has completed.
+ * The returned pool is borrowed and must not be destroyed by the caller. Non-null `error_out`
+ * must be writable for one error pointer.
+ */
+void *vx_cuda_session_mem_pool(const vx_session *session, vx_error **error_out);
+
+/**
  * Open a Vortex file sink configured to produce CUDA-readable files.
  *
  * Push host arrays and close/abort with `vx_array_sink_*`. Only on-disk encodings and layouts
@@ -128,8 +144,8 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
 /**
  * Open a CUDA-readable Vortex file sink with a fixed row block size.
  *
- * Zero `block_rows` uses default writer sizing. Nonzero values disable byte-size coalescing and
- * outer layout dictionaries, but retain per-block dictionary compression.
+ * Zero `block_rows` selects the GPU default of 8,388,608 rows. Blocks are not byte-size coalesced
+ * and have no outer layout dictionaries, but retain per-block dictionary compression.
  * Write sizing is independent of scan `batch_rows`; see `vx_cuda_scan_options`.
  *
  * # Safety

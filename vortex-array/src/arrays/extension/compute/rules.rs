@@ -2,25 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::Dict;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
+use crate::arrays::Slice;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
@@ -48,14 +53,19 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
     }
 }
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Extension)),
-]);
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter, Extension, const { &ExtensionFilterPushDownRule });
+    kernels.register_reduce_parent_rule(Cast, Extension, const { &CastReduceAdaptor(Extension) });
+    kernels.register_reduce_parent_rule(
+        Filter,
+        Extension,
+        const { &FilterReduceAdaptor(Extension) },
+    );
+    kernels.register_reduce_parent_rule(MaskFn, Extension, const { &MaskReduceAdaptor(Extension) });
+    kernels.register_reduce_parent_rule(Slice, Extension, const { &SliceReduceAdaptor(Extension) });
+    kernels.register_reduce_parent_rule(Dict, Extension, const { &TakeReduceAdaptor(Extension) });
+}
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]
@@ -169,7 +179,7 @@ mod tests {
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
         // Optimize should push the filter into the storage
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimize_ctx(&SESSION).unwrap();
 
         // The result should be an ExtensionArray, not a FilterArray
         assert!(
@@ -207,7 +217,7 @@ mod tests {
         let mask = Mask::from_iter([true, true, false, false, true]);
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimize_ctx(&SESSION).unwrap();
 
         assert!(optimized.as_opt::<Extension>().is_some());
         let ext_result = optimized.as_::<Extension>();
@@ -264,7 +274,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimize_ctx(&SESSION).unwrap();
 
         // No pushdown should happen because sibling is not a constant
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();

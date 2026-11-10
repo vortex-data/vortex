@@ -3,31 +3,32 @@
 
 //! Apache Arrow interoperability for Vortex.
 //!
-//! This crate owns every conversion between Vortex and Arrow. The authoritative entry point is
-//! the [`ArrowSession`]: importing Arrow schemas, fields, and data types into Vortex
-//! ([`ArrowSession::from_arrow_schema`], [`ArrowSession::from_arrow_field`],
+//! This crate owns every conversion between Vortex and Arrow. Exporting a Vortex array to Arrow goes
+//! through [`ExecuteArrowExt`], which uses the [`ArrowSession`] of its execution context. Every other
+//! conversion goes through the [`ArrowSession`] itself: importing Arrow schemas, fields, and data
+//! types into Vortex ([`ArrowSession::from_arrow_schema`], [`ArrowSession::from_arrow_field`],
 //! [`ArrowSession::from_arrow_datatype`]), importing Arrow arrays and record batches
-//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_record_batch`]),
-//! exporting Vortex dtypes to Arrow
-//! ([`ArrowSession::to_arrow_schema`], [`ArrowSession::to_arrow_field`],
-//! [`ArrowSession::to_arrow_datatype`]), and executing Vortex arrays into Arrow
-//! ([`ArrowSession::execute_arrow`] and the [`ArrowArrayExecutor`] convenience trait).
+//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_record_batch`]), and exporting
+//! Vortex dtypes to Arrow ([`ArrowSession::to_arrow_schema`], [`ArrowSession::to_arrow_field`],
+//! [`ArrowSession::to_arrow_datatype`]).
 //!
-//! The [`ArrowSession`] session variable is created lazily on first use of
-//! [`ArrowSessionExt::arrow`], so no explicit registration is required for plain conversions.
-
-use vortex_session::VortexSession;
+//! The [`ArrowSession`] session variable is created on first use of [`ArrowSessionExt::arrow`], so
+//! no explicit registration is required. It can look up the extension types of its Vortex session
+//! by their Vortex IDs (see [`ArrowSession`]).
 
 pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;
+pub mod ext_metadata;
 mod iter;
 mod null_buffer;
 mod options;
 mod run_end_import;
 mod scalar;
 mod session;
+#[cfg(test)]
+mod tests;
 
 pub use convert::IntoVortexArray;
 pub use convert::nulls;
@@ -39,10 +40,3 @@ pub use null_buffer::to_null_buffer;
 pub use options::*;
 pub use scalar::ToArrowDatum;
 pub use session::*;
-
-/// Register vortex-arrow's session extensions into `session`.
-///
-/// This eagerly registers the [`ArrowSession`], which is otherwise created lazily on first use.
-pub fn initialize(session: &VortexSession) {
-    session.register(ArrowSession::default());
-}

@@ -36,10 +36,10 @@ REGULAR_IDS = (
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
-DEVELOP_IDS = (*REGULAR_IDS[:-1], "job-nvme", "vortex-queries")
+DEVELOP_IDS = (*REGULAR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
 # TPC-DS SF=10 on NVMe runs in the PR presets and nightly, not on every develop commit.
 PR_IDS = (*REGULAR_IDS[:7], "tpcds-nvme-10", *REGULAR_IDS[7:])
-PR_FULL_IDS = (*PR_IDS[:-1], "job-nvme", "vortex-queries")
+PR_FULL_IDS = (*PR_IDS[:-1], "job-nvme", "tpch-nested-nvme", "vortex-queries")
 EXPECTED_IDS = {
     "develop": DEVELOP_IDS,
     "pr": tuple(
@@ -68,6 +68,8 @@ EXPECTED_IDS = {
             for storage in ("nvme", "s3")
             for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
         ),
+        "tpch-nested-nvme",
+        "tpch-nested-s3",
     ),
 }
 
