@@ -143,6 +143,7 @@ impl ScanDriver {
         clock: Arc<xp::ScanClock>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let in_flight = if xp::mode() == "inline16" { in_flight.min(16) } else { in_flight };
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
@@ -289,7 +290,7 @@ fn run_stream<A: Send + 'static>(
                     xp::add(&xp::STATS.root_cpu_ns, cpu.elapsed());
                     (run, step)
                 };
-            let (run, step) = if xp::mode() == "inline" {
+            let (run, step) = if xp::mode().starts_with("inline") {
                 step_fn()
             } else {
                 state.handle.spawn_cpu(step_fn).await
@@ -372,6 +373,21 @@ pub mod xp {
         pub chunk_run_ns: AtomicU64,
         pub first_spawn_ns: AtomicU64,
         pub last_spawn_ns: AtomicU64,
+        pub chunk_cpu_ns: AtomicU64,
+        pub chunk_map_ns: AtomicU64,
+        pub chunk_send_ns: AtomicU64,
+        pub chunk_io_ns: AtomicU64,
+        pub chunk_waits: AtomicU64,
+        pub chunk_tcpu_ns: AtomicU64,
+    }
+
+    /// This thread's CPU time in nanoseconds.
+    #[allow(unsafe_code)]
+    pub fn thread_cpu_ns() -> u64 {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: `ts` is a valid, writable timespec.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        u64::try_from(ts.tv_sec).unwrap_or(0) * 1_000_000_000 + u64::try_from(ts.tv_nsec).unwrap_or(0)
     }
 
     pub static STATS: Stats = Stats {
@@ -385,6 +401,12 @@ pub mod xp {
         chunk_run_ns: AtomicU64::new(0),
         first_spawn_ns: AtomicU64::new(0),
         last_spawn_ns: AtomicU64::new(0),
+        chunk_cpu_ns: AtomicU64::new(0),
+        chunk_map_ns: AtomicU64::new(0),
+        chunk_send_ns: AtomicU64::new(0),
+        chunk_io_ns: AtomicU64::new(0),
+        chunk_waits: AtomicU64::new(0),
+        chunk_tcpu_ns: AtomicU64::new(0),
     };
 
     pub fn add(counter: &AtomicU64, d: Duration) {
@@ -439,7 +461,9 @@ pub mod xp {
         for c in [
             &STATS.scans, &STATS.scan_ns, &STATS.root_steps, &STATS.root_cpu_ns,
             &STATS.root_rtt_ns, &STATS.chunks, &STATS.chunk_wait_ns, &STATS.chunk_run_ns,
-            &STATS.first_spawn_ns, &STATS.last_spawn_ns,
+            &STATS.first_spawn_ns, &STATS.last_spawn_ns, &STATS.chunk_cpu_ns,
+            &STATS.chunk_map_ns, &STATS.chunk_send_ns, &STATS.chunk_io_ns, &STATS.chunk_waits,
+            &STATS.chunk_tcpu_ns,
         ] {
             c.store(0, Relaxed);
         }
@@ -452,7 +476,7 @@ pub mod xp {
         let chunks = g(&STATS.chunks).max(1.0);
         let steps = g(&STATS.root_steps).max(1.0);
         format!(
-            "scans={} scan_us={:.1} root_steps={:.1} root_cpu_us/step={:.2} root_rtt_us/step={:.2} chunks={:.1} chunk_wait_us={:.2} chunk_run_us={:.1} first_spawn_us={:.1} last_spawn_us={:.1}",
+            "scans={} scan_us={:.1} root_steps={:.1} root_cpu_us/step={:.2} root_rtt_us/step={:.2} chunks={:.1} chunk_wait_us={:.2} chunk_run_us={:.1} first_spawn_us={:.1} last_spawn_us={:.1} chunk_cpu_us={:.1} chunk_map_us={:.1} chunk_send_us={:.1} chunk_io_us={:.1} chunk_waits={:.2} chunk_tcpu_us={:.1}",
             g(&STATS.scans),
             g(&STATS.scan_ns) / scans / 1e3,
             g(&STATS.root_steps) / scans,
@@ -463,6 +487,12 @@ pub mod xp {
             g(&STATS.chunk_run_ns) / chunks / 1e3,
             g(&STATS.first_spawn_ns) / scans / 1e3,
             g(&STATS.last_spawn_ns) / scans / 1e3,
+            g(&STATS.chunk_cpu_ns) / chunks / 1e3,
+            g(&STATS.chunk_map_ns) / chunks / 1e3,
+            g(&STATS.chunk_send_ns) / chunks / 1e3,
+            g(&STATS.chunk_io_ns) / chunks / 1e3,
+            g(&STATS.chunk_waits) / chunks,
+            g(&STATS.chunk_tcpu_ns) / chunks / 1e3,
         )
     }
 }
@@ -486,12 +516,22 @@ fn chunk_stream<A: Send + 'static>(
         let mut run = Run::new();
         run.admit(root, scope, Arc::clone(&io));
         loop {
-            match run.advance()? {
+            let t = std::time::Instant::now();
+            let c = xp::thread_cpu_ns();
+            let progress = run.advance()?;
+            xp::add(&xp::STATS.chunk_cpu_ns, t.elapsed());
+            xp::STATS.chunk_tcpu_ns.fetch_add(xp::thread_cpu_ns().saturating_sub(c), std::sync::atomic::Ordering::Relaxed);
+            match progress {
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
+                    let t = std::time::Instant::now();
                     let batch = map_fn(batch.array);
+                    xp::add(&xp::STATS.chunk_map_ns, t.elapsed());
                     let failed = batch.is_err();
-                    if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
+                    let t = std::time::Instant::now();
+                    let sent = send.send(batch.map(|batch| (start, batch))).await;
+                    xp::add(&xp::STATS.chunk_send_ns, t.elapsed());
+                    if sent.is_err() || failed {
                         return Ok(());
                     }
                 }
@@ -500,7 +540,12 @@ fn chunk_stream<A: Send + 'static>(
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
-                Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
+                Progress::Waiting => {
+                    let t = std::time::Instant::now();
+                    future::poll_fn(|cx| run.poll_completion(cx)).await?;
+                    xp::add(&xp::STATS.chunk_io_ns, t.elapsed());
+                    xp::STATS.chunk_waits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
             }
         }
     });
