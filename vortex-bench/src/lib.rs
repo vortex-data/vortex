@@ -83,6 +83,9 @@ use vortex::editions::EditionId;
 use vortex::editions::EditionMember;
 use vortex::editions::EditionSessionExt;
 pub use vortex::error::vortex_panic;
+/// EXPERIMENT: V2 scan driver diagnostics for the CI A/B. Not for merge.
+#[doc(hidden)]
+pub use vortex::file::v2::xp as xp_diag;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 

@@ -6,3 +6,5 @@ mod scan;
 
 pub use file_stats_reader::*;
 pub use scan::ScanDriver;
+#[doc(hidden)]
+pub use scan::xp;

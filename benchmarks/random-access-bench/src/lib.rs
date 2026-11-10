@@ -204,6 +204,7 @@ async fn time_accessor_takes(
         }
     }
 
+    vortex_bench::xp_diag::reset();
     let overall_start = Instant::now();
 
     loop {
@@ -222,6 +223,22 @@ async fn time_accessor_takes(
         if overall_start.elapsed() >= time_limit {
             break;
         }
+    }
+
+    // EXPERIMENT: per-take driver diagnostics for the CI A/B. Not for merge.
+    {
+        let mut sorted = runs.clone();
+        sorted.sort();
+        let median = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
+        #[allow(clippy::disallowed_methods)]
+        let mode = std::env::var("XP_MODE").unwrap_or_else(|_| "base".to_string());
+        eprintln!(
+            "XPDIAG mode={mode} dataset={} format={format:?} reopen={reopen} takes={} median_us={:.1} {}",
+            dataset.name(),
+            runs.len(),
+            median.as_secs_f64() * 1e6,
+            vortex_bench::xp_diag::summary()
+        );
     }
 
     Ok(runs)

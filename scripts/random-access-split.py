@@ -18,8 +18,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BINARY = "target/release_debug/random-access-bench"
 PARTS_DIR = Path("parts")
 
-DATASETS = ["taxi", "feature-vectors", "nested-lists", "nested-structs"]
-FORMATS = ["arrow-ipc", "parquet", "lance", "litdata", "vortex"]
+# EXPERIMENT (not for merge): same-machine A/B of the V2 scan driver modes, Vortex only.
+DATASETS = ["taxi", "nested-structs"]
+FORMATS = ["vortex"]
+XP_MODES = ["base", "pump", "root", "inline"]
+XP_ROUNDS = 3
+# Only this mode's first round feeds the results the PR comment compares.
+XP_REPORTED_MODE = "inline"
 # Formats only benchmarked from local disk. A remote run would silently read them from local disk.
 LOCAL_ONLY_FORMATS = {"arrow-ipc", "litdata"}
 PATTERNS = ["correlated", "uniform"]
@@ -78,14 +83,25 @@ def prepare_data(remote_data_dir: str | None) -> None:
 
 
 def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> None:
+    import os
+    import random
+
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     formats = benchmark_formats(remote_data_dir)
-    total = len(DATASETS) * len(formats) * len(PATTERNS) * len(OPEN_MODES)
+    total = len(DATASETS) * len(formats) * len(PATTERNS) * len(OPEN_MODES) * len(XP_MODES) * XP_ROUNDS
     i = 0
-    for dataset in DATASETS:
+    n = 0
+    for rnd in range(XP_ROUNDS):
+      for dataset in DATASETS:
         for fmt in formats:
             for pattern in PATTERNS:
                 for open_mode in OPEN_MODES:
+                  modes = list(XP_MODES)
+                  random.shuffle(modes)
+                  for xp_mode in modes:
+                    n += 1
+                    report = rnd == 0 and xp_mode == XP_REPORTED_MODE
+                    os.environ["XP_MODE"] = xp_mode
                     drop_os_caches()
 
                     args = [
@@ -105,16 +121,17 @@ def run_combinations(emit_ingest_records: bool, remote_data_dir: str | None) -> 
                         "-d",
                         "gh-json",
                         "-o",
-                        str(PARTS_DIR / f"{i}.gh.json"),
+                        str(PARTS_DIR / (f"{i}.gh.json" if report else f"xp{n}.gh.json.skip")),
                     ]
                     if remote_data_dir:
                         args += ["--remote-data-dir", remote_data_dir]
-                    if emit_ingest_records:
+                    if emit_ingest_records and report:
                         args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
-                    with log_group(f"Benchmark [{i + 1}/{total}] {dataset} / {fmt} / {pattern} / {open_mode}"):
-                        print("+", " ".join(args), flush=True)
+                    with log_group(f"Benchmark [{n}/{total}] round {rnd} {xp_mode} {dataset} / {fmt} / {pattern} / {open_mode}"):
+                        print("+", f"XP_MODE={xp_mode}", " ".join(args), flush=True)
                         subprocess.run(args, check=True)
-                    i += 1
+                    if report:
+                        i += 1
 
 
 """

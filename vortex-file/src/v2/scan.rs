@@ -107,22 +107,40 @@ impl ScanDriver {
         map_fn: MapFn<A>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let handle = self.handle.clone();
-        stream::once(async move {
+        let pump_handle = self.handle.clone();
+        let capacity = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let started = Arc::new(xp::ScanClock::default());
+        let clock = Arc::clone(&started);
+        let inner = stream::once(async move {
+            clock.start();
+            let clock2 = Arc::clone(&clock);
             handle
                 .spawn_cpu(move || {
                     let scan = Arc::new(builder.prepare()?);
-                    VortexResult::Ok(self.execute(scan, map_fn))
+                    VortexResult::Ok(self.execute(scan, map_fn, clock2))
                 })
                 .await
         })
         .try_flatten()
-        .boxed()
+        .boxed();
+        let inner = if xp::mode() == "pump" {
+            on_runtime(&pump_handle, inner, capacity)
+        } else {
+            inner
+        };
+        inner
+            .chain(stream::poll_fn(move |_| {
+                started.finish();
+                Poll::Ready(None)
+            }))
+            .boxed()
     }
 
     fn execute<A: Send + 'static>(
         self,
         scan: Arc<PreparedScan>,
         map_fn: MapFn<A>,
+        clock: Arc<xp::ScanClock>,
     ) -> BoxStream<'static, VortexResult<A>> {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
@@ -135,18 +153,26 @@ impl ScanDriver {
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map_fn));
         let root = run_stream(self.handle.clone(), root, scope, io.session(), map_fn, inline);
-        let batches = on_runtime(&self.handle, root, in_flight)
+        let root = if xp::mode() == "root" {
+            on_runtime(&self.handle, root, in_flight)
+        } else {
+            root
+        };
+        let batches = root
             .map_ok(move |yielded| match yielded {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
                 }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
+                Yielded::Spawn(scope, chunk) => {
+                    clock.chunk_spawned();
+                    chunk_stream(
                     &chunk_handle,
                     chunk,
                     scope,
                     chunk_io.session(),
                     Arc::clone(&chunk_map),
-                ),
+                )
+                }
             })
             .try_flatten_unordered(in_flight);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
@@ -245,9 +271,9 @@ fn run_stream<A: Send + 'static>(
                 .take()
                 .ok_or_else(|| vortex_err!("the scan's run is missing"))?;
             let map_fn = Arc::clone(&state.map_fn);
-            let (run, step) = state
-                .handle
-                .spawn_cpu(move || {
+            let rtt = std::time::Instant::now();
+            let step_fn = move || {
+                    let cpu = std::time::Instant::now();
                     let mut run = run;
                     let step = run.advance().and_then(|progress| {
                         Ok(match progress {
@@ -260,9 +286,16 @@ fn run_stream<A: Send + 'static>(
                             Progress::Waiting => Step::Waiting,
                         })
                     });
+                    xp::add(&xp::STATS.root_cpu_ns, cpu.elapsed());
                     (run, step)
-                })
-                .await;
+                };
+            let (run, step) = if xp::mode() == "inline" {
+                step_fn()
+            } else {
+                state.handle.spawn_cpu(step_fn).await
+            };
+            xp::STATS.root_steps.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            xp::add(&xp::STATS.root_rtt_ns, rtt.elapsed());
             let run = state.run.insert(run);
             match step? {
                 Step::Batch(start, batch) => {
@@ -314,6 +347,126 @@ fn on_runtime<T: Send + 'static>(
     .boxed()
 }
 
+/// EXPERIMENT: diagnostics for the CI A/B. Not for merge.
+#[doc(hidden)]
+#[allow(clippy::disallowed_methods, missing_docs)]
+pub mod xp {
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering::Relaxed;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    pub fn mode() -> String {
+        std::env::var("XP_MODE").unwrap_or_else(|_| "base".to_string())
+    }
+
+    #[derive(Default)]
+    pub struct Stats {
+        pub scans: AtomicU64,
+        pub scan_ns: AtomicU64,
+        pub root_steps: AtomicU64,
+        pub root_cpu_ns: AtomicU64,
+        pub root_rtt_ns: AtomicU64,
+        pub chunks: AtomicU64,
+        pub chunk_wait_ns: AtomicU64,
+        pub chunk_run_ns: AtomicU64,
+        pub first_spawn_ns: AtomicU64,
+        pub last_spawn_ns: AtomicU64,
+    }
+
+    pub static STATS: Stats = Stats {
+        scans: AtomicU64::new(0),
+        scan_ns: AtomicU64::new(0),
+        root_steps: AtomicU64::new(0),
+        root_cpu_ns: AtomicU64::new(0),
+        root_rtt_ns: AtomicU64::new(0),
+        chunks: AtomicU64::new(0),
+        chunk_wait_ns: AtomicU64::new(0),
+        chunk_run_ns: AtomicU64::new(0),
+        first_spawn_ns: AtomicU64::new(0),
+        last_spawn_ns: AtomicU64::new(0),
+    };
+
+    pub fn add(counter: &AtomicU64, d: Duration) {
+        counter.fetch_add(u64::try_from(d.as_nanos()).unwrap_or(u64::MAX), Relaxed);
+    }
+
+    pub struct Timer<'a>(&'a AtomicU64, Instant);
+    impl<'a> Timer<'a> {
+        pub fn new(c: &'a AtomicU64) -> Self {
+            Self(c, Instant::now())
+        }
+    }
+    impl Drop for Timer<'_> {
+        fn drop(&mut self) {
+            add(self.0, self.1.elapsed());
+        }
+    }
+
+    /// One scan's start, and its first and last chunk launch offsets.
+    #[derive(Default)]
+    pub struct ScanClock {
+        start: parking_lot::Mutex<Option<Instant>>,
+        first: AtomicU64,
+        last: AtomicU64,
+        done: std::sync::atomic::AtomicBool,
+    }
+    impl ScanClock {
+        pub fn start(&self) {
+            *self.start.lock() = Some(Instant::now());
+        }
+        pub fn chunk_spawned(&self) {
+            if let Some(s) = *self.start.lock() {
+                let ns = u64::try_from(s.elapsed().as_nanos()).unwrap_or(u64::MAX);
+                let _ = self.first.compare_exchange(0, ns, Relaxed, Relaxed);
+                self.last.store(ns, Relaxed);
+            }
+        }
+        pub fn finish(&self) {
+            if self.done.swap(true, Relaxed) {
+                return;
+            }
+            if let Some(s) = *self.start.lock() {
+                STATS.scans.fetch_add(1, Relaxed);
+                add(&STATS.scan_ns, s.elapsed());
+                STATS.first_spawn_ns.fetch_add(self.first.load(Relaxed), Relaxed);
+                STATS.last_spawn_ns.fetch_add(self.last.load(Relaxed), Relaxed);
+            }
+        }
+    }
+
+    pub fn reset() {
+        for c in [
+            &STATS.scans, &STATS.scan_ns, &STATS.root_steps, &STATS.root_cpu_ns,
+            &STATS.root_rtt_ns, &STATS.chunks, &STATS.chunk_wait_ns, &STATS.chunk_run_ns,
+            &STATS.first_spawn_ns, &STATS.last_spawn_ns,
+        ] {
+            c.store(0, Relaxed);
+        }
+    }
+
+    /// Per-scan averages, microseconds unless counted.
+    pub fn summary() -> String {
+        let g = |c: &AtomicU64| c.load(Relaxed) as f64;
+        let scans = g(&STATS.scans).max(1.0);
+        let chunks = g(&STATS.chunks).max(1.0);
+        let steps = g(&STATS.root_steps).max(1.0);
+        format!(
+            "scans={} scan_us={:.1} root_steps={:.1} root_cpu_us/step={:.2} root_rtt_us/step={:.2} chunks={:.1} chunk_wait_us={:.2} chunk_run_us={:.1} first_spawn_us={:.1} last_spawn_us={:.1}",
+            g(&STATS.scans),
+            g(&STATS.scan_ns) / scans / 1e3,
+            g(&STATS.root_steps) / scans,
+            g(&STATS.root_cpu_ns) / steps / 1e3,
+            g(&STATS.root_rtt_ns) / steps / 1e3,
+            g(&STATS.chunks) / scans,
+            g(&STATS.chunk_wait_ns) / chunks / 1e3,
+            g(&STATS.chunk_run_ns) / chunks / 1e3,
+            g(&STATS.first_spawn_ns) / scans / 1e3,
+            g(&STATS.last_spawn_ns) / scans / 1e3,
+        )
+    }
+}
+
 /// Runs a spawned chunk's `root` over `scope` on a planning run of its own, on one task that
 /// drives the run to its end and awaits only its reads, and yields its mapped batches with the
 /// row each starts at. A planner the chunk spawns in turn runs as another root of the same run.
@@ -325,7 +478,11 @@ fn chunk_stream<A: Send + 'static>(
     map_fn: MapFn<A>,
 ) -> BoxStream<'static, VortexResult<(u64, A)>> {
     let (mut send, recv) = mpsc::channel(1);
+    let spawned = std::time::Instant::now();
     let task = handle.spawn(async move {
+        xp::add(&xp::STATS.chunk_wait_ns, spawned.elapsed());
+        xp::STATS.chunks.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _run_timer = xp::Timer::new(&xp::STATS.chunk_run_ns);
         let mut run = Run::new();
         run.admit(root, scope, Arc::clone(&io));
         loop {
