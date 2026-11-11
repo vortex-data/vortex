@@ -190,7 +190,7 @@ impl Planner for PrunePlanner {
             .then(|| std::mem::replace(&mut self.mask, Mask::new_true(0)));
         Ok(PlannerOutput::Planner(
             WorkScope {
-                file_ordinal: 0,
+                file_ordinal: self.scan.file_ordinal(),
                 rows: self.rows.clone(),
             },
             next(kept),

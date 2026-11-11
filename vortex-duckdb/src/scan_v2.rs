@@ -24,6 +24,7 @@ use parking_lot::Mutex;
 use vortex::array::ArrayRef;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::io::request::IoConsumer;
 use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
@@ -36,6 +37,7 @@ use vortex::layout::scan::v2::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
 use vortex::scan::planning::driver::Run;
+use vortex::scan::planning::driver::Spawned;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
@@ -100,7 +102,15 @@ impl FileScan {
         loop {
             match root.advance()? {
                 Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
-                Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
+                Progress::Spawn(Spawned {
+                    scope,
+                    planner,
+                    io: None,
+                    ..
+                }) => queue.push_back(Work::Chunk(scope, planner)),
+                Progress::Spawn(Spawned { scope, .. }) => {
+                    vortex_bail!("a one-file scan spawned {scope:?} over another file")
+                }
                 Progress::RootDone(_) if root.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => {
@@ -148,8 +158,9 @@ impl FileScan {
             }
             match run.advance()? {
                 Progress::Batch(batch) => return Ok(Some(batch.array)),
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, self.io.session());
+                Progress::Spawn(spawned) => {
+                    let session = spawned.session_or(|| self.io.session());
+                    run.admit(spawned.planner, spawned.scope, session);
                 }
                 Progress::RootDone(_) => {}
                 Progress::Idle => return Ok(None),

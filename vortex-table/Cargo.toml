@@ -1,0 +1,46 @@
+[package]
+name = "vortex-table"
+description = "A minimal multi-file table format over Vortex files: a manifest, planners, and indexes"
+version = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+# Out-of-file indexes over a table's files, from `vortex-index`.
+index = ["dep:vortex-index"]
+
+[dependencies]
+futures = { workspace = true, features = ["std", "executor"] }
+parking_lot = { workspace = true }
+twox-hash = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-file = { workspace = true }
+vortex-index = { workspace = true, optional = true }
+vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-scan = { workspace = true }
+vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+vortex = { workspace = true, default-features = false, features = ["files"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-io = { workspace = true, features = ["tokio"] }
+
+[lints]
+workspace = true

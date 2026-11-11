@@ -6156,12 +6156,18 @@ dependencies = [
  "glob",
  "lance",
  "lance-file",
+ "lance-index",
+ "lance-linalg",
  "mimalloc",
  "parquet 58.4.1",
+ "rand 0.10.3",
  "tempfile",
  "tokio",
  "tracing",
+ "vortex",
  "vortex-bench",
+ "vortex-index",
+ "vortex-table",
 ]
 
 [[package]]
@@ -12452,6 +12458,7 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async-trait",
  "futures",
  "parking_lot",
@@ -12563,6 +12570,29 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",
+]
+
+[[package]]
+name = "vortex-table"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "parking_lot",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "twox-hash",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-file",
+ "vortex-index",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

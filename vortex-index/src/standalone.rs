@@ -65,6 +65,8 @@ use vortex_session::VortexSession;
 
 use crate::rows::Hit;
 use crate::rows::IndexRows;
+use crate::rows::IndexStep;
+use crate::rows::Located;
 use crate::rows::collect;
 
 /// Key of the metadata segment describing a standalone index file.
@@ -556,7 +558,7 @@ pub struct FileHit {
 /// An opened standalone index file.
 pub struct IndexFile<V: IndexVTable> {
     info: IndexFileInfo,
-    rows: IndexRows<V>,
+    rows: Arc<IndexRows<V>>,
     /// Start of each covered file in the combined row space, plus the end of the last.
     offsets: Vec<u64>,
 }
@@ -591,7 +593,7 @@ impl<V: IndexVTable> IndexFile<V> {
         let offsets = file_offsets(info.files.iter().map(|f| f.row_count));
         let total = offsets.last().copied().unwrap_or(0);
 
-        let rows = IndexRows {
+        let rows = Arc::new(IndexRows {
             vtable: Arc::new(vtable),
             options,
             source_dtype: info.source_dtype.clone(),
@@ -600,7 +602,7 @@ impl<V: IndexVTable> IndexFile<V> {
             file: with_cache(file.scan_file()),
             session: file.session().clone(),
             memo: Default::default(),
-        };
+        });
         Ok(Self {
             info,
             rows,
@@ -609,7 +611,7 @@ impl<V: IndexVTable> IndexFile<V> {
     }
 
     /// The index content, for lookups and ranked search in the combined row space.
-    pub fn rows(&self) -> &IndexRows<V> {
+    pub fn rows(&self) -> &Arc<IndexRows<V>> {
         &self.rows
     }
 
@@ -631,21 +633,33 @@ impl<V: IndexVTable> IndexFile<V> {
         &self,
         expr: &Expression,
     ) -> VortexResult<Option<(IndexExactness, Vec<FileSelection>)>> {
-        let Some((exactness, locator)) = self.rows.locate(expr).await? else {
-            return Ok(None);
-        };
-        let mut selections = Vec::new();
-        for (file, covered) in self.info.files.iter().enumerate() {
-            let start = self.offsets[file];
-            let rows = local_rows(&locator, start..start + covered.row_count)?;
-            if !rows.is_empty() {
-                selections.push(FileSelection {
-                    file,
-                    selection: Selection::IncludeRoaring(rows),
-                });
+        self.locate_files_steps(expr)?.run().await
+    }
+
+    /// [`locate_files`](Self::locate_files) as steps.
+    pub fn locate_files_steps(
+        &self,
+        expr: &Expression,
+    ) -> VortexResult<IndexStep<Located<Vec<FileSelection>>>> {
+        let files: Vec<u64> = self.info.files.iter().map(|f| f.row_count).collect();
+        let offsets = self.offsets.clone();
+        self.rows.locate_steps(expr)?.map(move |located| {
+            let Some((exactness, locator)) = located else {
+                return Ok(None);
+            };
+            let mut selections = Vec::new();
+            for (file, row_count) in files.into_iter().enumerate() {
+                let start = offsets[file];
+                let rows = local_rows(&locator, start..start + row_count)?;
+                if !rows.is_empty() {
+                    selections.push(FileSelection {
+                        file,
+                        selection: Selection::IncludeRoaring(rows),
+                    });
+                }
             }
-        }
-        Ok(Some((exactness, selections)))
+            Ok(Some((exactness, selections)))
+        })
     }
 
     /// Map hits in the combined row space to their data files.

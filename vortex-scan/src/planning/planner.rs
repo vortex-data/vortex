@@ -5,10 +5,12 @@
 
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_io::request::IoBatch;
 use vortex_io::request::IoConsumer;
+use vortex_io::request::IoService;
 
 use crate::planning::morsel::Morsel;
 
@@ -56,6 +58,10 @@ pub enum PlannerOutput {
     /// running it: the owner may run it anywhere, including on another thread, and this planner
     /// continues at once.
     Spawn(WorkScope, Box<dyn Planner>),
+    /// An independent child planner that reads a different byte source than this one, such as
+    /// another file of a table. It is handed to the owner like [`Spawn`](Self::Spawn), with the
+    /// service the owner opens the child's IO session from.
+    Open(WorkScope, Box<dyn Planner>, Arc<dyn IoService>),
     /// A morsel authorised to produce arrays for the scope.
     Morsel(WorkScope, Box<dyn Morsel>),
 }
@@ -81,6 +87,7 @@ impl fmt::Debug for PlannerOutput {
             Self::NeedsIO(batch) => f.debug_tuple("NeedsIO").field(batch).finish(),
             Self::Planner(scope, _) => f.debug_tuple("Planner").field(scope).finish(),
             Self::Spawn(scope, _) => f.debug_tuple("Spawn").field(scope).finish(),
+            Self::Open(scope, ..) => f.debug_tuple("Open").field(scope).finish(),
             Self::Morsel(scope, _) => f.debug_tuple("Morsel").field(scope).finish(),
         }
     }

@@ -29,6 +29,7 @@ use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
@@ -37,8 +38,14 @@ use vortex_layout::scan::v2::PreparedScan;
 use vortex_layout::scan::v2::PrunePlanner;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_mask::Mask;
+use vortex_scan::planning::drive::PlanDriver;
+use vortex_scan::planning::drive::PlanRoot;
+use vortex_scan::planning::drive::SequentialDriver;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
+use vortex_scan::planning::driver::Spawned;
+use vortex_scan::planning::gather::GatherPlanner;
+use vortex_scan::planning::gather::Then;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -128,7 +135,7 @@ impl ScanDriver {
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
         let inline = in_flight <= 1;
         let scope = WorkScope {
-            file_ordinal: 0,
+            file_ordinal: scan.file_ordinal(),
             rows: scan.rows().clone(),
         };
         let io = scan.io();
@@ -169,9 +176,53 @@ impl ScanDriver {
     }
 }
 
+/// Runs `builder` to its end on the calling task, collecting its batches in row order.
+///
+/// For small reads, such as index content or a table manifest, that need no runtime of their own.
+/// The sequential driver lets a chunk waiting for a read be overtaken by a later one, so the
+/// batches are put back in row order before they are returned.
+pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
+    let scan = Arc::new(builder.prepare()?);
+    let scope = WorkScope {
+        file_ordinal: scan.file_ordinal(),
+        rows: scan.rows().clone(),
+    };
+    let mut batches: Vec<(u64, ArrayRef)> = SequentialDriver::new()
+        .execute(PlanRoot::new(scope, compose(&scan), scan.io()))
+        .map_ok(|batch| (batch.scope.rows.start, batch.batch))
+        .try_collect()
+        .await?;
+    // Stable, so batches of one chunk keep the order they were produced in.
+    batches.sort_by_key(|(start, _)| *start);
+    Ok(batches.into_iter().map(|(_, batch)| batch).collect())
+}
+
+/// A plan that runs `builder` through its own reads and hands its batches, in row order, to
+/// `then`, which decides what to plan next, such as the data files an index points at.
+///
+/// The scan's batches are not part of the plan's output. Emit the result as an
+/// [`Open`](vortex_scan::planning::planner::PlannerOutput::Open) of its fields, or admit it as a
+/// root: either way the reads go through the driver like any other, over the scan's own service.
+pub fn gather(scope: WorkScope, builder: ScanBuilder, then: Then) -> VortexResult<PlanRoot> {
+    let scan = Arc::new(builder.prepare()?);
+    let inner = WorkScope {
+        file_ordinal: scan.file_ordinal(),
+        rows: scan.rows().clone(),
+    };
+    Ok(PlanRoot::new(
+        scope,
+        Box::new(GatherPlanner::new(inner, compose(&scan), then)),
+        scan.io(),
+    ))
+}
+
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,
 /// continuing into the chunks of the rows they keep; without, the chunks directly.
-fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
+///
+/// The returned planner reads through sessions of [`PreparedScan::io`], and emits each chunk as
+/// an independent child, so any [`PlanDriver`](vortex_scan::planning::drive::PlanDriver) can run
+/// it.
+pub fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let chunks = {
         let scan = Arc::clone(scan);
@@ -254,7 +305,15 @@ fn run_stream<A: Send + 'static>(
                             Progress::Batch(batch) => {
                                 Step::Batch(batch.scope.rows.start, map_fn(batch.array)?)
                             }
-                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::Spawn(Spawned {
+                                scope,
+                                planner,
+                                io: None,
+                                ..
+                            }) => Step::Spawn(scope, planner),
+                            Progress::Spawn(Spawned { scope, .. }) => {
+                                vortex_bail!("a one-file scan spawned {scope:?} over another file")
+                            }
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
                             Progress::Waiting => Step::Waiting,
@@ -307,8 +366,9 @@ fn chunk_stream<A: Send + 'static>(
                         return Ok(());
                     }
                 }
-                Progress::Spawn(scope, child) => {
-                    run.admit(child, scope, Arc::clone(&io));
+                Progress::Spawn(spawned) => {
+                    let session = spawned.session_or(|| Arc::clone(&io));
+                    run.admit(spawned.planner, spawned.scope, session);
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),

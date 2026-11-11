@@ -17,6 +17,8 @@ publish = false
 # `aws` registers Lance's s3:// object store provider, needed to benchmark against remote data.
 lance = { version = "13", default-features = false, features = ["aws"] }
 lance-file = { version = "13", default-features = false }
+lance-index = { version = "13", default-features = false }
+lance-linalg = { version = "13", default-features = false }
 
 anyhow = { workspace = true }
 arrow-cast = { version = "58" }
@@ -29,13 +31,22 @@ parquet = { version = "58" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+rand = { workspace = true }
+vortex = { workspace = true, features = ["files", "tokio"] }
 vortex-bench = { workspace = true }
+vortex-index = { workspace = true }
+vortex-table = { workspace = true, features = ["index"] }
 
 [lib]
 test = false
 
 [[bin]]
 name = "lance-bench"
+test = false
+
+[[bin]]
+name = "table-bench"
+path = "src/bin/table_bench.rs"
 test = false
 
 [lints]

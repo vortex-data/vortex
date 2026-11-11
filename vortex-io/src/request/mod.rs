@@ -17,8 +17,10 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+mod service;
 mod source;
 
+pub use service::ReadAtIoService;
 pub use source::ReadAtIoSource;
 
 /// Consumer-chosen label for one request, unique within the issuing object.

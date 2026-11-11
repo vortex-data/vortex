@@ -65,6 +65,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::postings::IndexRowsChunk;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
+use crate::rows::IndexStep;
 use crate::rows::top_k;
 use crate::text_match::TextMatch;
 use crate::tokenize::tokenize;
@@ -488,83 +489,106 @@ fn kth_best(scored: &[(u32, f32)], k: usize) -> Option<f32> {
 }
 
 impl IndexRows<InvertedIndex> {
-    /// The corpus statistics, read from the corpus entry on first use and then kept.
-    async fn corpus(&self) -> VortexResult<Arc<Corpus>> {
-        if let Some(corpus) = self.memo_get::<Corpus>() {
-            return Ok(corpus);
-        }
-        let chunks = self.chunks_for_keys(&[CORPUS_TERM.to_string()]).await?;
-        let mut ctx = self.session.create_execution_ctx();
-        let lengths = find(&chunks, CORPUS_TERM, &mut ctx)?
-            .ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
-        let corpus = Arc::new(Corpus::new(&lengths.rows, &lengths.tfs));
-        self.memo_set(Arc::clone(&corpus));
-        Ok(corpus)
-    }
-
     /// The `k` rows that score best for `query` under BM25, best first.
     ///
     /// A row scores if it holds any query token. Only the entries for the query's tokens are
     /// read. Terms are scored in order of the most they can add to a row; once the terms left
     /// could not lift a row the earlier terms missed into the top `k`, they only add to the rows
     /// already found, looking each one up instead of walking their postings.
-    pub async fn search_bm25(&self, query: &str, k: usize) -> VortexResult<Vec<Hit>> {
+    pub async fn search_bm25(self: &Arc<Self>, query: &str, k: usize) -> VortexResult<Vec<Hit>> {
+        self.search_bm25_steps(query, k)?.run().await
+    }
+
+    /// [`search_bm25`](Self::search_bm25) as steps: the key column on the first search, then the
+    /// query's terms, with the corpus entry on the first search.
+    pub fn search_bm25_steps(
+        self: &Arc<Self>,
+        query: &str,
+        k: usize,
+    ) -> VortexResult<IndexStep<Vec<Hit>>> {
         let terms = query_terms(query);
         if terms.is_empty() || k == 0 {
-            return Ok(Vec::new());
+            return Ok(IndexStep::Done(Vec::new()));
         }
-        let corpus = self.corpus().await?;
-        let chunks = self.chunks_for_keys(&terms).await?;
-        let mut ctx = self.session.create_execution_ctx();
-        let mut lists = Vec::with_capacity(terms.len());
-        for term in &terms {
-            if let Some(posting) = find(&chunks, term, &mut ctx)? {
-                lists.push(Scoring::new(posting, &corpus));
-            }
+        let corpus = self.memo_get::<Corpus>();
+        let mut keys = terms.clone();
+        if corpus.is_none() {
+            keys.push(CORPUS_TERM.to_string());
         }
-        lists.sort_by(|a, b| b.max_score.total_cmp(&a.max_score));
-        // What the terms from each position on can add to one row at most. Summed in f64 with
-        // some slack, so f32 rounding of a row's own sum never exceeds it.
-        let mut remaining = vec![0f64; lists.len() + 1];
-        for idx in (0..lists.len()).rev() {
-            remaining[idx] = remaining[idx + 1] + f64::from(lists[idx].max_score);
-        }
-        let bound = |idx: usize| remaining[idx] * (1.0 + 1e-5) + 1e-6;
-
-        let mut scored: Vec<(u32, f32)> = Vec::new();
-        let mut walked = 0;
-        while walked < lists.len() {
-            if kth_best(&scored, k).is_some_and(|kth| bound(walked) < f64::from(kth)) {
-                break;
-            }
-            scored = merge(scored, lists[walked].scored(&corpus));
-            walked += 1;
-        }
-        if walked < lists.len() {
-            let floor = kth_best(&scored, k).map_or(f64::NEG_INFINITY, f64::from);
-            let rest = bound(walked);
-            scored.retain_mut(|(row, score)| {
-                if f64::from(*score) + rest < floor {
-                    return false;
+        let this = Arc::clone(self);
+        self.chunks_for_keys_step(keys)?.map(move |chunks| {
+            let mut ctx = this.session.create_execution_ctx();
+            let corpus = match corpus {
+                Some(corpus) => corpus,
+                None => {
+                    let lengths = find(&chunks, CORPUS_TERM, &mut ctx)?
+                        .ok_or_else(|| vortex_err!("Inverted index has no row lengths"))?;
+                    let corpus = Arc::new(Corpus::new(&lengths.rows, &lengths.tfs));
+                    this.memo_set(Arc::clone(&corpus));
+                    corpus
                 }
-                for list in &lists[walked..] {
-                    if let Some(extra) = list.score_of(*row, &corpus) {
-                        *score += extra;
-                    }
-                }
-                true
-            });
-        }
-
-        let hits = scored
-            .into_iter()
-            .map(|(row, score)| Hit {
-                row: u64::from(row),
-                score,
-            })
-            .collect();
-        Ok(top_k(hits, k))
+            };
+            bm25_top(&chunks, &terms, k, &corpus, &mut ctx)
+        })
     }
+}
+
+/// The `k` rows of `chunks` that score best for `terms` under BM25, best first.
+fn bm25_top(
+    chunks: &[Arc<InvertedEntries>],
+    terms: &[String],
+    k: usize,
+    corpus: &Corpus,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Hit>> {
+    let mut lists = Vec::with_capacity(terms.len());
+    for term in terms {
+        if let Some(posting) = find(chunks, term, ctx)? {
+            lists.push(Scoring::new(posting, corpus));
+        }
+    }
+    lists.sort_by(|a, b| b.max_score.total_cmp(&a.max_score));
+    // What the terms from each position on can add to one row at most. Summed in f64 with some
+    // slack, so f32 rounding of a row's own sum never exceeds it.
+    let mut remaining = vec![0f64; lists.len() + 1];
+    for idx in (0..lists.len()).rev() {
+        remaining[idx] = remaining[idx + 1] + f64::from(lists[idx].max_score);
+    }
+    let bound = |idx: usize| remaining[idx] * (1.0 + 1e-5) + 1e-6;
+
+    let mut scored: Vec<(u32, f32)> = Vec::new();
+    let mut walked = 0;
+    while walked < lists.len() {
+        if kth_best(&scored, k).is_some_and(|kth| bound(walked) < f64::from(kth)) {
+            break;
+        }
+        scored = merge(scored, lists[walked].scored(corpus));
+        walked += 1;
+    }
+    if walked < lists.len() {
+        let floor = kth_best(&scored, k).map_or(f64::NEG_INFINITY, f64::from);
+        let rest = bound(walked);
+        scored.retain_mut(|(row, score)| {
+            if f64::from(*score) + rest < floor {
+                return false;
+            }
+            for list in &lists[walked..] {
+                if let Some(extra) = list.score_of(*row, corpus) {
+                    *score += extra;
+                }
+            }
+            true
+        });
+    }
+
+    let hits = scored
+        .into_iter()
+        .map(|(row, score)| Hit {
+            row: u64::from(row),
+            score,
+        })
+        .collect();
+    Ok(top_k(hits, k))
 }
 
 /// Builds an [`InvertedIndex`] while the column streams past.
