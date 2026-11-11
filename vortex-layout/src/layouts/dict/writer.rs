@@ -29,10 +29,8 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
-use vortex_array::builders::dict::dict_encode_with_constraints;
 use vortex_array::builders::dict::dict_encoder_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -175,12 +173,13 @@ impl LayoutStrategy for DictStrategy {
 
         let should_fallback = match sample {
             None => true, // empty stream
-            Some(sample) => !probe_prefers_dict(
-                self.probe_compressor.as_ref(),
-                &sample,
-                &options.constraints.clone().into(),
-                &mut session.create_execution_ctx(),
-            )?,
+            Some(sample) => {
+                let mut exec_ctx = session.create_execution_ctx();
+                let compressed = self
+                    .probe_compressor
+                    .compress_chunk(&sample, &mut exec_ctx)?;
+                !compressed.is::<Dict>()
+            }
         };
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
@@ -563,38 +562,6 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
         dtype,
         DType::Primitive(..) | DType::Decimal(..) | DType::Utf8(_) | DType::Binary(_)
     )
-}
-
-/// Decides from a probe sample whether the column should be dictionary encoded.
-///
-/// For most dtypes the probe compressor decides: the column is eligible when it compresses the
-/// sample to a dictionary. The compressor has no top-level dictionary scheme for decimals, which it
-/// splits into byte parts instead, so for decimals the sample is dictionary encoded directly. It is
-/// kept when at most half of its values are distinct and its compressed codes and values are no
-/// larger than the compressed sample. Ties go to
-/// the dictionary because a dictionary layout lets readers evaluate expressions on its values.
-fn probe_prefers_dict(
-    probe_compressor: &dyn CompressorPlugin,
-    sample: &ArrayRef,
-    constraints: &DictConstraints,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<bool> {
-    if !matches!(sample.dtype(), DType::Decimal(..)) {
-        return Ok(probe_compressor.compress_chunk(sample, ctx)?.is::<Dict>());
-    }
-
-    let dict = dict_encode_with_constraints(sample, constraints, ctx)?;
-    // Skip samples that exceed the dictionary constraints on their own, and, like the integer
-    // dictionary scheme, samples where more than half of the values are distinct.
-    if dict.len() < sample.len() || dict.values().len() > sample.len() / 2 {
-        return Ok(false);
-    }
-    let dict_nbytes = probe_compressor.compress_chunk(dict.codes(), ctx)?.nbytes()
-        + probe_compressor
-            .compress_chunk(dict.values(), ctx)?
-            .nbytes();
-    let plain_nbytes = probe_compressor.compress_chunk(sample, ctx)?.nbytes();
-    Ok(dict_nbytes <= plain_nbytes)
 }
 
 enum EncodingState {
