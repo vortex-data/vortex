@@ -1,0 +1,41 @@
+[package]
+name = "omnigraph-bench"
+description = "Compare Omnigraph's Lance-backed graph tables against Vortex: file size and query runtime"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+# Omnigraph stores every node and edge table as a Lance dataset. Lance 14 reads the
+# V2_2 datasets Omnigraph 0.15 (Lance 13) writes, and re-exports its own DataFusion 54.
+lance = { version = "14", default-features = false }
+lance-file = { version = "14", default-features = false }
+# Arrow 58 Parquet, matching Lance, is the interchange into Vortex (which uses Arrow 59).
+parquet = { version = "58" }
+
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+datafusion = { workspace = true }
+datafusion-bench = { path = "../datafusion-bench" }
+futures = { workspace = true }
+mimalloc = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true }
+vortex-bench = { workspace = true }
+
+[[bin]]
+name = "omnigraph-bench"
+test = false
+
+[lints]
+workspace = true

@@ -69,6 +69,7 @@ members = [
     "benchmarks/compress-bench",
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
+    "benchmarks/omnigraph-bench",
     "benchmarks/random-access-bench",
     "benchmarks/string-bench",
     "vortex-spatial",

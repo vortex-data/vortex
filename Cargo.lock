@@ -7627,6 +7627,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnigraph-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "datafusion 55.2.0",
+ "datafusion-bench",
+ "futures",
+ "lance",
+ "lance-file",
+ "mimalloc",
+ "parquet 58.4.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "vortex-bench",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

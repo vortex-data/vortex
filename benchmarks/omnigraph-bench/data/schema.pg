@@ -1,0 +1,8 @@
+node Person {
+    name: String @key
+    age: I64
+    team: String
+    bio: String
+    embedding: Vector(32)
+}
+edge Knows: Person -> Person
