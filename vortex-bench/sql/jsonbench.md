@@ -61,10 +61,15 @@ function down. For a shredded Vortex file, the scan therefore merges the typed f
 into the binary Variant value before DataFusion reads it, which makes the shredded layouts
 slower than `none` on Vortex.
 
+An unshredded Variant value is an opaque binary blob, which the default Vortex preset stores
+without general-purpose compression. Vortex Compact compresses it with zstd, which roughly
+halves the file and brings it level with zstd Parquet, so include `vortex-compact` when
+comparing sizes or scan times against Parquet.
+
 ## Running locally
 
 ```bash
-vx-bench run jsonbench --engine datafusion --format parquet,vortex
+vx-bench run jsonbench --engine datafusion --format parquet,vortex,vortex-compact
 vx-bench run jsonbench --engine datafusion --format parquet,vortex --opt shredding=query-fields
 vx-bench run jsonbench --engine duckdb --format parquet,duckdb
 ```
