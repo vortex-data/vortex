@@ -58,7 +58,7 @@ const ROWS_PER_CHUNK: usize = 1024;
 /// (columns, chunks) configurations.
 const CONFIGS: &[(usize, usize)] = &[
     (16, 8),
-    (32, 4),
+    (24, 4),
     // Keep the larger scaling cases for local runs without lengthening CPU simulation.
     #[cfg(not(codspeed))]
     (16, 64),
