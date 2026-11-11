@@ -130,9 +130,10 @@ impl ScalarFnVTable for Mask {
             .vortex_expect("Mask must be non-nullable");
 
         if mask_lit {
-            // Mask is all true, so the output is just the input, widened to the nullable dtype
-            // that `mask` always returns.
-            Ok(Some(expr.child(0).clone().cast_if_needed(expr.dtype())))
+            // Mask is all true, so the output is just the input. `mask` always returns a
+            // nullable dtype, so this only holds for an input that is already nullable.
+            let input = expr.child(0);
+            Ok((input.dtype() == expr.dtype()).then(|| input.clone()))
         } else {
             // Mask is all false, so the output is all nulls.
             let input_dtype = expr.child(0).dtype();
@@ -200,6 +201,7 @@ fn execute_canonical(
 mod test {
     use vortex_error::VortexExpect;
 
+    use super::Mask;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
@@ -219,9 +221,18 @@ mod test {
             .bind(&DType::Null)
             .and_then(|expr| expr.optimize())
             .vortex_expect("Simplification");
-        // `mask` always returns a nullable dtype, so the input is widened to it.
-        let expected_true_expr = bound::lit(Scalar::primitive(42u32, Nullable));
-        assert_eq!(&simplified_true, &expected_true_expr);
+        // `mask` always returns a nullable dtype, so a non-nullable input stays masked.
+        assert!(simplified_true.is::<Mask>(), "{simplified_true}");
+
+        let nullable_input_expr = lit(Scalar::primitive(42u32, Nullable));
+        let simplified_nullable_true = mask(nullable_input_expr.clone(), lit(true))
+            .bind(&DType::Null)
+            .and_then(|expr| expr.optimize())
+            .vortex_expect("Simplification");
+        assert_eq!(
+            &simplified_nullable_true,
+            &nullable_input_expr.bind(&DType::Null).vortex_expect("bind")
+        );
 
         let mask_false_expr = mask(input_expr, false_mask_expr);
         let simplified_false = mask_false_expr

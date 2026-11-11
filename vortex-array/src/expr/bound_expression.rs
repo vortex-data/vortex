@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::bound;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::expression::unbound_variable;
 use crate::expr::scope::Scope;
@@ -169,18 +168,6 @@ impl BoundExpression {
     pub fn dtype(&self) -> &DType {
         match self {
             Self::Scalar { dtype, .. } | Self::Root { dtype } => dtype,
-        }
-    }
-
-    /// Return this expression, wrapped in a cast if its dtype differs from `target`.
-    ///
-    /// Rewrite rules use this to keep the dtype binding inferred for the node they replace, for
-    /// example when the replacement is less nullable than the original.
-    pub(crate) fn cast_if_needed(self, target: &DType) -> Self {
-        if self.dtype() == target {
-            self
-        } else {
-            bound::cast(self, target.clone())
         }
     }
 

@@ -308,25 +308,22 @@ impl ScalarFnVTable for CaseWhen {
         };
 
         // `CASE WHEN` unions the nullability of its branches, which `x` and `fill_null` alone
-        // need not match, so keep the dtype binding inferred.
+        // need not match. Neither rewrite fires unless it keeps the dtype binding inferred.
         if scalar.is_null() {
             // Filling the nulls of `x` with NULL is a no-op
-            return Ok(Some(x.clone().cast_if_needed(expr.dtype())));
+            return Ok((x.dtype() == expr.dtype()).then(|| x.clone()));
         }
 
         if !FillNull::supports_dtype(x.dtype()) {
             return Ok(None);
         }
 
-        // `fill_null` takes its result nullability from the fill, so give the fill the
-        // nullability of the `CASE WHEN`. A cast remains only if nested nullability differs.
+        // `fill_null` takes its result nullability from the fill, so give the fill literal the
+        // nullability of the `CASE WHEN`.
         let fill =
             bound::lit(scalar.cast(&scalar.dtype().with_nullability(expr.dtype().nullability()))?);
-        Ok(Some(
-            FillNull
-                .try_new_bound_expr(EmptyOptions, [x.clone(), fill])?
-                .cast_if_needed(expr.dtype()),
-        ))
+        let fill_null = FillNull.try_new_bound_expr(EmptyOptions, [x.clone(), fill])?;
+        Ok((fill_null.dtype() == expr.dtype()).then_some(fill_null))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
