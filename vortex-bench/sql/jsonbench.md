@@ -86,24 +86,24 @@ and the V2 scan (lower is better):
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 | Vortex file | Parquet file |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `none` | 0.62 | 0.44 | 0.29 | 0.28 | 0.31 | 126.5 MB | 128.6 MB |
-| `query-fields` | 0.07 | 0.25 | 0.14 | 0.08 | 0.10 | 126.3 MB | 118.6 MB |
-| `inferred` | 0.04 | 0.11 | 0.04 | 0.03 | 0.03 | 163.2 MB | 128.6 MB |
+| `none` | 0.51 | 0.42 | 0.29 | 0.30 | 0.30 | 126.5 MB | 128.6 MB |
+| `query-fields` | 0.08 | 0.25 | 0.13 | 0.10 | 0.10 | 126.6 MB | 118.6 MB |
+| `inferred` | 0.05 | 0.10 | 0.04 | 0.03 | 0.02 | 164.6 MB | 128.6 MB |
 
-In absolute terms, the `inferred` Vortex file answers the five queries in 12, 70, 32, 19 and
-22 ms, where the `none` Vortex file takes 173, 283, 240, 228 and 226 ms.
+In absolute terms, the `inferred` Vortex file answers the five queries in 13, 68, 30, 21 and
+21 ms, where the `none` Vortex file takes 173, 304, 255, 223 and 230 ms.
 
 The ratio holds as the dataset grows. With `inferred`, Vortex time relative to Parquet:
 
 | Rows | Q0 | Q1 | Q2 | Q3 | Q4 | Vortex file | Parquet file |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 million | 0.04 | 0.09 | 0.03 | 0.03 | 0.02 | 163 MB | 129 MB |
+| 1 million | 0.05 | 0.10 | 0.04 | 0.03 | 0.02 | 165 MB | 129 MB |
 | 5 million | 0.03 | 0.08 | 0.03 | 0.01 | 0.02 | 782 MB | 614 MB |
 | 20 million | 0.03 | 0.10 | 0.03 | 0.02 | 0.02 | 3.1 GB | 2.4 GB |
 
 The `inferred` file is larger because the default preset has no zstd for the shredded string
 columns, which hold content hashes and record keys that the lightweight encodings barely
-compress. Vortex Compact writes the same shredding in 133.1 MB, and answers the queries in 14,
+compress. Vortex Compact writes the same shredding in 134.4 MB, and answers the queries in 14,
 70, 37, 33 and 30 ms.
 
 The suite runs on the V2 scan, which `vx-bench` selects for it. `datafusion-bench` defaults

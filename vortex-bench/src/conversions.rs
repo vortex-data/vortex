@@ -161,11 +161,6 @@ pub async fn parquet_to_vortex_chunks_with_batch_size(
 fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     let schema = batch.schema();
     let chunk = SESSION.arrow().from_arrow_record_batch(batch, &schema)?;
-    // There is no Variant builder to canonicalize into. The import is already in the layout the
-    // writer compresses.
-    if contains_variant(chunk.dtype()) {
-        return Ok(chunk);
-    }
     let mut ctx = VortexSession::default().create_execution_ctx();
     let mut builder = builder_with_capacity_in(chunk.dtype(), chunk.len(), ctx.allocator());
 
@@ -173,16 +168,6 @@ fn record_batch_to_vortex(batch: RecordBatch) -> VortexResult<ArrayRef> {
     chunk.append_to_builder(builder.as_mut(), &mut ctx)?;
 
     Ok(builder.finish())
-}
-
-/// Whether `dtype` is a Variant or nests one.
-fn contains_variant(dtype: &DType) -> bool {
-    match dtype {
-        DType::Variant(_) => true,
-        DType::Struct(fields, _) => fields.fields().any(|field| contains_variant(&field)),
-        DType::List(element, _) | DType::FixedSizeList(element, ..) => contains_variant(element),
-        _ => false,
-    }
 }
 
 /// Create a streaming Vortex array from a Parquet reader.
@@ -230,7 +215,6 @@ fn parquet_row_groups_to_vortex_stream(
     parquet_path: PathBuf,
     metadata: ArrowReaderMetadata,
     concurrency: usize,
-    batch_size: Option<usize>,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     let num_row_groups = metadata.metadata().num_row_groups();
     futures::stream::iter(0..num_row_groups)
@@ -241,13 +225,10 @@ fn parquet_row_groups_to_vortex_stream(
                 let file = File::open(parquet_path)
                     .await
                     .map_err(|e| vortex_err!(External: e))?;
-                let mut builder =
-                    ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata)
-                        .with_row_groups(vec![row_group]);
-                if let Some(batch_size) = batch_size {
-                    builder = builder.with_batch_size(batch_size);
-                }
-                let reader = builder.build().map_err(|e| vortex_err!(External: e))?;
+                let reader = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata)
+                    .with_row_groups(vec![row_group])
+                    .build()
+                    .map_err(|e| vortex_err!(External: e))?;
                 parquet_to_vortex_stream(reader)
                     .try_collect::<Vec<_>>()
                     .await
@@ -280,32 +261,15 @@ pub async fn convert_parquet_file_to_vortex(
         &spatial_columns,
     )?;
     let concurrency = row_group_decode_concurrency(metadata.metadata());
-    // A Variant chunk is written as it is read, without a builder to merge batches into. Read
-    // each row group as one batch, or the file holds a separately compressed Variant for every
-    // 1,024 rows, the reader's default.
-    let batch_size = contains_variant(&dtype).then(|| {
-        metadata
-            .metadata()
-            .row_groups()
-            .iter()
-            .map(|row_group| usize::try_from(row_group.num_rows()).unwrap_or(usize::MAX))
-            .max()
-            .unwrap_or(1)
-            .max(1)
-    });
     let stream = if concurrency > 1 {
         StreamExt::boxed(parquet_row_groups_to_vortex_stream(
             parquet_path.to_path_buf(),
             metadata,
             concurrency,
-            batch_size,
         ))
     } else {
-        let mut builder = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata);
-        if let Some(batch_size) = batch_size {
-            builder = builder.with_batch_size(batch_size);
-        }
-        StreamExt::boxed(parquet_to_vortex_stream(builder.build()?))
+        let reader = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata).build()?;
+        StreamExt::boxed(parquet_to_vortex_stream(reader))
     }
     .map(move |chunk| chunk.and_then(|chunk| tag_spatial_array(chunk, &spatial_columns)));
 

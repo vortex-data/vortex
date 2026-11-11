@@ -26,6 +26,7 @@
 
 mod array;
 mod arrow;
+mod builder;
 mod compute;
 mod extract;
 #[cfg(test)]

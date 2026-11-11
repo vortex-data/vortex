@@ -22,7 +22,6 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
@@ -30,7 +29,6 @@ use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -65,7 +63,6 @@ use vortex_session::VortexSession;
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
-use crate::arrow::merge_storage_chunks;
 use crate::compute::AllNonDistinctParquetVariant;
 use crate::extract::extract;
 
@@ -87,7 +84,6 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
-    kernels.register_execute_parent_kernel(Chunked.id(), ParquetVariant, ChunkedStorageKernel);
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -99,38 +95,6 @@ pub(crate) fn initialize(session: &VortexSession) {
         Some(AllNonDistinct.id()),
         &AllNonDistinctParquetVariant,
     );
-}
-
-/// Executes chunks of Parquet Variant storage to one storage array with chunked children.
-///
-/// A chunked Variant otherwise canonicalizes to a Variant over chunked storage, which keeps every
-/// chunk a separate array: to compress on its own, and to deserialize as its own subtree.
-#[derive(Default, Debug)]
-struct ChunkedStorageKernel;
-
-impl ExecuteParentKernel<ParquetVariant> for ChunkedStorageKernel {
-    type Parent = Chunked;
-
-    fn execute_parent(
-        &self,
-        array: ArrayView<'_, ParquetVariant>,
-        parent: ArrayView<'_, Chunked>,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // Only plain storage merges. A shredded child has to be made canonical chunk by chunk,
-        // which rebuilds it from the layout of its own chunk, so those chunks stay apart, as do
-        // chunks of other encodings and chunks that disagree on having a value.
-        let mergeable = parent.iter_chunks().all(|chunk| {
-            chunk.as_opt::<ParquetVariant>().is_some_and(|chunk| {
-                chunk.typed_value().is_none() && chunk.value().is_some() == array.value().is_some()
-            })
-        });
-        if !mergeable {
-            return Ok(None);
-        }
-        merge_storage_chunks(&parent.chunks(), parent.dtype().nullability()).map(Some)
-    }
 }
 
 #[derive(Default, Debug)]
@@ -1296,8 +1260,8 @@ mod tests {
         Ok(())
     }
 
-    /// Chunks of storage execute to one storage array, so that a chunked Variant compresses and
-    /// deserializes as a single array.
+    /// A chunked Variant builds one storage array, so that it compresses and deserializes as a
+    /// single array.
     #[test]
     fn test_chunked_storage_executes_to_one_storage_array() -> VortexResult<()> {
         let first = make_unshredded_json_array(vec![Some(r#"{"a":1}"#), Some(r#"{"a":2}"#)])?;
@@ -1314,6 +1278,53 @@ mod tests {
         let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
         assert_arrays_eq!(
             execute_variant_get(chunked, "$.a", Some(requested))?,
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Chunks of shredded storage build one storage array beside one shredded child, and keep
+    /// every value.
+    #[test]
+    fn test_chunked_shredded_storage_builds_one_storage_array() -> VortexResult<()> {
+        let json: ArrowArrayRef = Arc::new(StringArray::from(vec![
+            r#"{"kind":"commit","n":1}"#,
+            r#"{"kind":"identity","n":2}"#,
+            r#"{"kind":"commit","n":3}"#,
+        ]));
+        let shredding = ShreddedSchemaBuilder::new()
+            .with_path("kind", &DataType::Utf8)?
+            .build();
+        let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
+        let storage = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
+        let dtype = storage.dtype().clone();
+        let chunked = ChunkedArray::try_new([storage.slice(0..2)?, storage.slice(2..3)?], dtype)?
+            .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let Canonical::Variant(canonical) = chunked.clone().execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        assert!(canonical.core_storage().is::<ParquetVariant>());
+        assert!(canonical.shredded().is_some());
+
+        assert_arrays_eq!(
+            execute_variant_get(
+                chunked.clone(),
+                "$.kind",
+                Some(VortexDType::Utf8(Nullability::Nullable))
+            )?,
+            VarBinViewArray::from_iter_nullable_str([
+                Some("commit"),
+                Some("identity"),
+                Some("commit")
+            ]),
+            &mut ctx
+        );
+        let requested = VortexDType::Primitive(PType::I64, Nullability::Nullable);
+        assert_arrays_eq!(
+            execute_variant_get(chunked, "$.n", Some(requested))?,
             PrimitiveArray::from_option_iter([Some(1i64), Some(2), Some(3)]),
             &mut ctx
         );

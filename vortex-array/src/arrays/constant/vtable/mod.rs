@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
@@ -38,6 +39,7 @@ use crate::builders::ListViewBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
@@ -226,6 +228,12 @@ impl VTable for Constant {
             }
             DType::FixedSizeList(..) => {
                 append_constant_fixed_size_list_run(array, n, builder, ctx)?
+            }
+            DType::Variant(_) => {
+                let Some(builder) = builder.as_any_mut().downcast_mut::<VariantBuilder>() else {
+                    vortex_bail!("append_to_builder for a Variant requires a VariantBuilder");
+                };
+                builder.append_n_scalars(scalar, n)?
             }
             // The remaining dtypes canonicalize cheaply: a constant struct canonicalizes to
             // constant fields, and a constant map to views sharing one copy of the entries, so

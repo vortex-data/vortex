@@ -4,9 +4,6 @@
 use itertools::Itertools as _;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -24,7 +21,6 @@ use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -68,7 +64,6 @@ pub(super) fn _canonicalize(
                 ctx,
             )?)
         }
-        DType::Variant(_) => Canonical::Variant(pack_variant_chunks(owned_chunks, ctx)?),
         _ => {
             let mut builder = builder_with_capacity_in(array.dtype(), array.len(), ctx.allocator());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
@@ -86,65 +81,6 @@ fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexRe
         .into_iter()
         .map(|c| c.execute::<StructArray>(ctx))
         .process_results(|iter| StructArray::try_concat(iter))?
-}
-
-/// Packs many [`VariantArray`]s into one [`VariantArray`] with chunked children.
-///
-/// The caller guarantees there are at least 2 chunks.
-fn pack_variant_chunks(
-    chunks: Vec<ArrayRef>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<VariantArray> {
-    let variant_chunks: Vec<VariantArray> = chunks
-        .into_iter()
-        .map(|chunk| chunk.execute::<VariantArray>(ctx))
-        .try_collect()?;
-
-    let outer_dtype = variant_chunks[0].dtype().clone();
-    let core_storage = ChunkedArray::try_new(
-        variant_chunks
-            .iter()
-            .map(|chunk| chunk.core_storage().clone()),
-        outer_dtype,
-    )?
-    .into_array();
-
-    let shredded = match variant_chunks[0].shredded() {
-        None => {
-            for chunk in &variant_chunks[1..] {
-                vortex_ensure!(
-                    chunk.shredded().is_none(),
-                    "cannot canonicalize ChunkedArray<Variant>: chunks disagree on shredded presence"
-                );
-            }
-            None
-        }
-        Some(first_shredded) => {
-            let shredded_dtype = first_shredded.dtype().clone();
-            for chunk in &variant_chunks[1..] {
-                let shredded = chunk.shredded().ok_or_else(|| {
-                    vortex_err!(
-                        "cannot canonicalize ChunkedArray<Variant>: chunks disagree on shredded presence"
-                    )
-                })?;
-                vortex_ensure_eq!(
-                    shredded.dtype(),
-                    &shredded_dtype,
-                    "cannot canonicalize ChunkedArray<Variant>: shredded dtype mismatch",
-                );
-            }
-
-            let shredded_chunks = variant_chunks.iter().map(|chunk| {
-                chunk
-                    .shredded()
-                    .vortex_expect("validated shredded presence")
-                    .clone()
-            });
-            Some(ChunkedArray::try_new(shredded_chunks, shredded_dtype)?.into_array())
-        }
-    };
-
-    VariantArray::try_new(core_storage, shredded)
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
@@ -391,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_variant_chunks_without_shredded() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_without_shredded() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
@@ -410,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_variant_chunks_all_shredded_same_dtype() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_all_shredded_same_dtype() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
@@ -449,8 +385,10 @@ mod tests {
         Ok(())
     }
 
+    /// The rows of a chunk without a shredded child are null in the shredded child, so that
+    /// their values come from the core storage.
     #[test]
-    fn pack_variant_chunks_mixed_shredded_presence_errors() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_mixed_shredded_presence() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
@@ -462,16 +400,21 @@ mod tests {
         )?
         .into_array();
 
-        let err = chunked.execute::<Canonical>(&mut ctx).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("chunks disagree on shredded presence")
+        let variant = into_variant(chunked.execute::<Canonical>(&mut ctx)?)?;
+        let shredded = variant
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected shredded child"))?;
+
+        assert_arrays_eq!(
+            shredded,
+            PrimitiveArray::from_option_iter([Some(10i32), None]),
+            &mut ctx
         );
-        Ok(())
+        assert_variant_values(&variant, &[10, 2])
     }
 
     #[test]
-    fn pack_variant_chunks_mismatched_shredded_dtype_errors() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_mismatched_shredded_dtype_errors() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
@@ -485,12 +428,15 @@ mod tests {
         .into_array();
 
         let err = chunked.execute::<Canonical>(&mut ctx).unwrap_err();
-        assert!(err.to_string().contains("shredded dtype mismatch"));
+        assert!(
+            err.to_string()
+                .contains("cannot build a Variant from Variants shredded as")
+        );
         Ok(())
     }
 
     #[test]
-    fn pack_variant_chunks_empty() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_empty() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(vec![], VariantDType(NonNullable))?.into_array();
 
@@ -502,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_variant_chunks_single_chunk() -> VortexResult<()> {
+    fn canonicalize_variant_chunks_single_chunk() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![

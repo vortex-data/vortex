@@ -179,8 +179,8 @@ impl VTable for Chunked {
                      and every sparse child along identical chunk boundaries"
                 )
             }
-            // Struct, List, FixedSizeList, and Variant need child swizzling that the builder path
-            // cannot express.
+            // Struct, List, and FixedSizeList need child swizzling that the builder path cannot
+            // express. An empty Variant has no canonical form for the builder path to start from.
             DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Variant(..) => {
                 // TODO(joe)[#7674]: iterative execution here too
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))

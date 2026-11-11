@@ -6,7 +6,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use itertools::Itertools;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -20,13 +19,13 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::builders::VariantBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -211,19 +210,12 @@ impl ScalarFnVTable for VariantGet {
             return Ok(builder.finish());
         }
 
-        // TODO(variant): replace this with a Variant builder once one exists.
-        // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
-        let chunks = (0..input.len()).map(|idx| -> VortexResult<_> {
+        let mut builder = VariantBuilder::new(dtype.nullability());
+        for idx in 0..input.len() {
             let scalar = input.execute_scalar(idx, ctx)?;
-            let output = variant_get_scalar(&scalar, options, &dtype)?;
-            Ok(ConstantArray::new(output, 1).into_array())
-        });
-        let array = chunks.process_results(|chunks| {
-            // SAFETY: each output scalar is constructed with the requested variant dtype.
-            unsafe { ChunkedArray::new_unchecked_sized(chunks, dtype.clone(), input.len()) }
-                .into_array()
-        })?;
-        VariantArray::try_new(array, None).map(|array| array.into_array())
+            builder.append_n_scalars(&variant_get_scalar(&scalar, options, &dtype)?, 1)?;
+        }
+        builder.finish_into_variant().map(IntoArray::into_array)
     }
 
     /// Reads a shredded path from the shredded child of a [`VariantPack`] input, leaving its

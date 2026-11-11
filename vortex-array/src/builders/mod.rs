@@ -70,6 +70,7 @@ mod primitive;
 mod struct_;
 mod validity;
 mod varbinview;
+mod variant;
 
 pub use bool::*;
 pub(crate) use child::ChildBuilder;
@@ -84,6 +85,7 @@ pub use primitive::*;
 pub use struct_::*;
 pub(crate) use validity::ValidityBuilder;
 pub use varbinview::*;
+pub use variant::*;
 
 pub use crate::arrays::varbin::builder::VarBinBuilder;
 
@@ -460,9 +462,7 @@ pub fn builder_with_capacity_in(
             allocator,
         )),
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => {
-            vortex_panic!("Variant builders are not implemented")
-        }
+        DType::Variant(n) => Box::new(VariantBuilder::new(*n)),
         DType::Extension(ext_dtype) => Box::new(ExtensionBuilder::with_capacity_in(
             ext_dtype.clone(),
             capacity,

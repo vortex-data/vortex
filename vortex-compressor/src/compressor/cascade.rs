@@ -10,7 +10,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
@@ -60,10 +59,6 @@ impl Selection {
         }
     }
 }
-
-/// How many lazy layers the compressor unwraps from a Variant's core storage: chunks, canonical
-/// Variants around the chunks' storage, slices.
-const MAX_STORAGE_DEPTH: usize = 4;
 
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
@@ -257,28 +252,17 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                // Core storage that is chunked would compress chunk by chunk, and storage under
-                // a lazy array, such as a slice, would be written with it. Executing it yields
-                // the storage encoding itself, whose children span the chunks or are the sliced
-                // ones. Each execution unwraps one level, as the chunks can be canonical
-                // Variants around that encoding.
-                let mut core_storage = variant_array.core_storage().clone();
-                for _ in 0..MAX_STORAGE_DEPTH {
-                    let executed = core_storage.clone().execute::<VariantArray>(exec_ctx)?;
-                    // The storage encoding executes to a Variant over itself.
-                    let settled = executed.core_storage().encoding_id()
-                        == core_storage.encoding_id()
-                        && !core_storage.is::<Chunked>();
-                    if settled || executed.shredded().is_some() {
-                        break;
-                    }
-                    core_storage = executed.core_storage().clone();
-                }
-                // Storage that stays chunked compresses as the chunks it came in.
-                let core_storage = if core_storage.is::<Chunked>() {
-                    variant_array.core_storage().clone()
+                // Storage under a lazy array, such as a slice, would be written with it.
+                // Executing it yields the storage encoding, which executes to a Variant over
+                // itself, and builds chunks of storage into one.
+                let executed = variant_array
+                    .core_storage()
+                    .clone()
+                    .execute::<VariantArray>(exec_ctx)?;
+                let core_storage = if executed.shredded().is_none() {
+                    executed.core_storage().clone()
                 } else {
-                    core_storage
+                    variant_array.core_storage().clone()
                 };
                 let core_storage = self
                     .variant_storage
