@@ -8,6 +8,7 @@
 
 pub mod drive;
 pub mod driver;
+pub mod gather;
 pub mod morsel;
 pub mod next;
 pub mod planner;

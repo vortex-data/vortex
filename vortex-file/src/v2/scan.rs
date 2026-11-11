@@ -44,6 +44,8 @@ use vortex_scan::planning::drive::SequentialDriver;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::driver::Spawned;
+use vortex_scan::planning::gather::GatherPlanner;
+use vortex_scan::planning::gather::Then;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -193,6 +195,25 @@ pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
     // Stable, so batches of one chunk keep the order they were produced in.
     batches.sort_by_key(|(start, _)| *start);
     Ok(batches.into_iter().map(|(_, batch)| batch).collect())
+}
+
+/// A plan that runs `builder` through its own reads and hands its batches, in row order, to
+/// `then`, which decides what to plan next, such as the data files an index points at.
+///
+/// The scan's batches are not part of the plan's output. Emit the result as an
+/// [`Open`](vortex_scan::planning::planner::PlannerOutput::Open) of its fields, or admit it as a
+/// root: either way the reads go through the driver like any other, over the scan's own service.
+pub fn gather(scope: WorkScope, builder: ScanBuilder, then: Then) -> VortexResult<PlanRoot> {
+    let scan = Arc::new(builder.prepare()?);
+    let inner = WorkScope {
+        file_ordinal: scan.file_ordinal(),
+        rows: scan.rows().clone(),
+    };
+    Ok(PlanRoot::new(
+        scope,
+        Box::new(GatherPlanner::new(inner, compose(&scan), then)),
+        scan.io(),
+    ))
 }
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the whole scan,

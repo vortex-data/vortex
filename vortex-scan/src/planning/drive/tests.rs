@@ -33,6 +33,8 @@ use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::current::CurrentThreadRuntime;
 
 use super::*;
+use crate::planning::gather::GatherPlanner;
+use crate::planning::gather::Then;
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
 use crate::planning::planner::PlannerOutput;
@@ -352,4 +354,62 @@ fn read_errors_fail_the_stream(#[case] parallel: bool) {
         error.as_deref().is_some_and(|e| e.contains("read failed")),
         "{error:?}"
     );
+}
+
+/// An index read gathered inside a planner: its reads go through the index's service, its
+/// batches reach only the continuation, in row order, and the continuation opens the files.
+#[rstest]
+#[case::sequential(false)]
+#[case::parallel(true)]
+fn a_gathered_read_decides_which_files_to_open(#[case] parallel: bool) -> VortexResult<()> {
+    let index = Arc::new(InstantService::default());
+    let files = services(3);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let then: Then = {
+        let seen = Arc::clone(&seen);
+        Box::new(move |batches| {
+            // One file per gathered batch.
+            seen.lock().extend(batches.iter().map(|batch| batch.len()));
+            let opens = files
+                .iter()
+                .take(batches.len())
+                .enumerate()
+                .map(|(file, service)| {
+                    let file = file as u64;
+                    let io: Arc<dyn IoService> = Arc::clone(service) as _;
+                    PlannerOutput::Open(scope(file, 0..10), file_planner(file, 10, 4), io)
+                })
+                .collect();
+            Ok(Some(PlannerOutput::Planner(
+                scope(0, 0..0),
+                Box::new(Emit(opens)),
+            )))
+        })
+    };
+    // The index holds 25 rows in chunks of 10: three batches of 10, 10 and 5 rows.
+    let gather = GatherPlanner::new(scope(9, 0..25), file_planner(9, 25, 10), then);
+    let root = PlanRoot::new(scope(9, 0..25), Box::new(gather), Arc::clone(&index) as _);
+
+    let runtime = CurrentThreadRuntime::new();
+    let batches: Vec<ScopedBatch> = if parallel {
+        let pool = runtime.new_pool();
+        pool.set_workers(2);
+        runtime.block_on(
+            ParallelDriver::new(runtime.handle())
+                .with_workers(2)
+                .execute(root)
+                .try_collect(),
+        )?
+    } else {
+        runtime.block_on(SequentialDriver::new().execute(root).try_collect())?
+    };
+
+    assert_eq!(*seen.lock(), vec![10, 10, 5]);
+    // The gathered index read is the planner's own: one session, one fetch per chunk.
+    assert_eq!(index.sessions.load(Ordering::Relaxed), 1);
+    assert_eq!(index.fetches.load(Ordering::Relaxed), 3);
+    let mut shape = shape(&batches);
+    shape.sort();
+    assert_eq!(shape, expected(3, 10, 4));
+    Ok(())
 }

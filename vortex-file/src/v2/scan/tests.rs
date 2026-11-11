@@ -33,10 +33,16 @@ use vortex_io::runtime::tokio::TokioRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::scan::v2::ScanBuilder;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::planning::drive::PlanDriver;
+use vortex_scan::planning::drive::ScopedBatch;
+use vortex_scan::planning::drive::SequentialDriver;
+use vortex_scan::planning::gather::Then;
+use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
 
 use super::ScanDriver;
 use super::collect;
+use super::gather;
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
@@ -206,5 +212,44 @@ async fn collect_returns_rows_in_order_when_reads_finish_out_of_order() -> Vorte
         found.extend_from_slice(n.as_slice::<u64>());
     }
     assert_eq!(found, (0..COUNTED).collect::<Vec<_>>());
+    Ok(())
+}
+
+/// A gathered scan does its reads as the plan's own fetches, through the driver, and hands its
+/// rows, in order, to the continuation rather than to the plan's output.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gathered_scan_hands_its_rows_to_the_continuation() -> VortexResult<()> {
+    let file = SESSION
+        .open_options()
+        .open(Arc::new(SlowStart(counting_file().await?)))
+        .await?;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let then: Then = {
+        let seen = Arc::clone(&seen);
+        Box::new(move |batches| {
+            let mut ctx = SESSION.create_execution_ctx();
+            for batch in batches {
+                let n = batch
+                    .execute::<StructArray>(&mut ctx)?
+                    .unmasked_field_by_name("n")?
+                    .clone()
+                    .execute::<PrimitiveArray>(&mut ctx)?;
+                seen.lock().extend_from_slice(n.as_slice::<u64>());
+            }
+            Ok(None)
+        })
+    };
+    let scope = WorkScope {
+        file_ordinal: 0,
+        rows: 0..0,
+    };
+    let root = gather(
+        scope,
+        ScanBuilder::new(SESSION.clone(), file.scan_file()),
+        then,
+    )?;
+    let output: Vec<ScopedBatch> = SequentialDriver::new().execute(root).try_collect().await?;
+    assert!(output.is_empty());
+    assert_eq!(*seen.lock(), (0..COUNTED).collect::<Vec<_>>());
     Ok(())
 }
