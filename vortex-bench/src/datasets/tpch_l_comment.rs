@@ -18,35 +18,15 @@ use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
 
 use crate::Format;
-use crate::IdempotentPath;
 use crate::SESSION;
 use crate::datasets::Dataset;
-use crate::tpch::tpchgen::TpchGenOptions;
-use crate::tpch::tpchgen::generate_tpch_tables;
-use crate::utils::split;
+use crate::datasets::tpch_sf1::TpchSf1Table;
 
 pub struct TPCHLCommentChunked;
 
 /// Path of TPC-H SF=1 `lineitem` in `format`, generating the TPC-H tables if it is missing.
-///
-/// At SF=1 `lineitem` fits in a single file (see [`split::TARGET_FILE_COMPRESSED_BYTES`]), so this
-/// reads the TPC-H benchmark's own data.
 async fn ensure_lineitem(format: Format) -> Result<PathBuf> {
-    let scale_factor_dir = "tpch".to_data_path().join("1.0");
-    let format_dir = scale_factor_dir.join(format.name());
-    let path = format_dir.join(split::part_file_name("lineitem", 1, format.ext()));
-    if !path.exists() {
-        let options = TpchGenOptions::new("1.0".to_string(), scale_factor_dir).with_format(format);
-        generate_tpch_tables(options).await?;
-    }
-    anyhow::ensure!(path.exists(), "No lineitem {format} file found");
-    anyhow::ensure!(
-        !format_dir
-            .join(split::part_file_name("lineitem", 2, format.ext()))
-            .exists(),
-        "TPC-H SF=1 lineitem is split into several {format} files"
-    );
-    Ok(path)
+    TpchSf1Table::LineItem.path(format).await
 }
 
 #[async_trait]
