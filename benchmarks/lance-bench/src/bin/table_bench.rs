@@ -17,8 +17,17 @@
 //! | `v1` | exact vector top-10 by dot product, no index                   |
 //! | `t1` | substring search for a rare token, no index, rows counted      |
 //!
-//! Index-backed variants of `v1` and `t1` (IVF and inverted indexes on both sides) are added
-//! once the Vortex index crate lands.
+//! With `--indexes`, both systems also build indexes once and answer:
+//!
+//! | id   | workload                                                                 |
+//! |------|--------------------------------------------------------------------------|
+//! | `v2` | approximate cosine top-10 through an IVF index (Lance IVF_SQ, Vortex IVF) |
+//! | `t2` | BM25 top-10 for a two-word query through an inverted index               |
+//! | `t3` | every row holding a term, through an inverted index, rows counted        |
+//!
+//! Vortex reads its indexes from standalone index files bound to the manifest
+//! (`vortex_table::index`), Lance from its dataset's own indexes. Approximate answers are
+//! reported as recall against the exact answer rather than compared.
 
 use std::fs;
 use std::path::PathBuf;
@@ -113,6 +122,15 @@ struct Args {
     /// Only these workloads, such as `a1,d1`.
     #[arg(short, long, value_delimiter = ',')]
     workloads: Option<Vec<String>>,
+    /// Build indexes on both systems and run the indexed workloads.
+    #[arg(long)]
+    indexes: bool,
+    /// IVF lists (Vortex) and partitions (Lance).
+    #[arg(long, default_value_t = 256)]
+    ivf_lists: usize,
+    /// IVF lists searched per query.
+    #[arg(long, default_value_t = 16)]
+    nprobe: usize,
     /// Inline footers into the Vortex manifest.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     inline_footers: bool,
@@ -476,6 +494,10 @@ struct Inputs {
     ts_range: (i64, i64),
     category: u32,
     rare_token: String,
+    /// A term in roughly one row in a thousand.
+    term: String,
+    /// Two mid-frequency terms.
+    bm25_query: String,
 }
 
 fn inputs(args: &Args) -> Inputs {
@@ -510,6 +532,8 @@ fn inputs(args: &Args) -> Inputs {
         ts_range: (start, start + width),
         category: 7,
         rare_token: format!("q{}q", VOCABULARY - 3),
+        term: format!("q{}q", VOCABULARY / 2),
+        bm25_query: format!("q{}q q{}q", VOCABULARY / 4, VOCABULARY / 3),
     }
 }
 
@@ -634,7 +658,14 @@ async fn main() -> anyhow::Result<()> {
         cache: Arc::new(FileCache::new()),
         driver,
     };
-    let dataset = Dataset::open(&args.dir.join("lance").to_string_lossy()).await?;
+    let mut dataset = Dataset::open(&args.dir.join("lance").to_string_lossy()).await?;
+    let indexes = if args.indexes {
+        let indexes = indexed::vortex_indexes(&args, &table).await?;
+        indexed::lance_indexes(&args, &mut dataset).await?;
+        Some(indexes)
+    } else {
+        None
+    };
 
     let inputs = inputs(&args);
     let all = ["a1", "a2", "a3", "a4", "d1", "d2", "v1", "t1"];
@@ -667,5 +698,11 @@ async fn main() -> anyhow::Result<()> {
             },
         );
     }
+    if let Some(indexes) = &indexes {
+        indexed::run(&args, &table, indexes, &dataset, &inputs).await?;
+    }
     Ok(())
 }
+
+#[path = "table_bench/indexed.rs"]
+mod indexed;

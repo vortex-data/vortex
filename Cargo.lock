@@ -6156,6 +6156,7 @@ dependencies = [
  "glob",
  "lance",
  "lance-file",
+ "lance-index",
  "lance-linalg",
  "mimalloc",
  "parquet 58.4.1",
@@ -6165,6 +6166,7 @@ dependencies = [
  "tracing",
  "vortex",
  "vortex-bench",
+ "vortex-index",
  "vortex-table",
 ]
 
@@ -12579,6 +12581,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-file",
+ "vortex-index",
  "vortex-io",
  "vortex-layout",
  "vortex-scan",
