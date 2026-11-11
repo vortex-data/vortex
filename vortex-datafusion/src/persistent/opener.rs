@@ -48,10 +48,13 @@ use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::lit;
+use vortex::expr::transform::replace;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -67,6 +70,10 @@ use vortex::layout::segments::SegmentSource;
 use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -192,6 +199,54 @@ impl VortexOpener {
             .collect();
         (conjunction_opt(exact.into_iter().cloned()), dynamic)
     }
+}
+
+/// Replaces every expression in `projection` that one of `filters` equates to a literal with
+/// that literal.
+///
+/// The scan applies `filters` before `projection`, so in every row it projects such an expression
+/// has the literal's value. DataFusion still asks for it, because it plans the projection before
+/// the scan absorbs the filter. Folding saves computing it again, which for a `variant_get` is a
+/// pass over the Variant.
+///
+/// Only computed expressions of types whose equal values are identical are folded: floats are
+/// left alone because `0.0 = -0.0`, and plain columns because reading them is cheap.
+fn fold_filter_equalities(
+    projection: Expression,
+    filters: &[Expression],
+    scope: &DType,
+) -> Expression {
+    filters.iter().fold(projection, |projection, filter| {
+        if filter.as_opt::<Binary>() != Some(&Operator::Eq) {
+            return projection;
+        }
+        let (expr, literal) = match (
+            filter.child(0).as_opt::<Literal>(),
+            filter.child(1).as_opt::<Literal>(),
+        ) {
+            (None, Some(literal)) => (filter.child(0), literal),
+            (Some(literal), None) => (filter.child(1), literal),
+            _ => return projection,
+        };
+        if literal.is_null() || expr.is::<GetItem>() {
+            return projection;
+        }
+        let Ok(dtype) = expr.return_dtype(scope) else {
+            return projection;
+        };
+        let identical_when_equal = match &dtype {
+            DType::Bool(_) | DType::Utf8(_) | DType::Binary(_) => true,
+            DType::Primitive(ptype, _) => ptype.is_int(),
+            _ => false,
+        };
+        if !identical_when_equal {
+            return projection;
+        }
+        match literal.cast(&dtype) {
+            Ok(value) => replace(projection, expr, lit(value)),
+            Err(_) => projection,
+        }
+    })
 }
 
 impl FileOpener for VortexOpener {
@@ -393,6 +448,8 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            // The scan applies these exactly, unlike the dynamic filters below.
+            let exact_filters = native_filters.clone();
             // The operator that produces a dynamic filter enforces it exactly, so the scan
             // evaluates it only where the file has every column it reads.
             native_filters.extend(
@@ -447,12 +504,15 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .bind(vxf.dtype())
-                .and_then(|projection| projection.optimize_recursive())
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
+            let scan_projection =
+                fold_filter_equalities(scan_projection, &exact_filters, vxf.dtype())
+                    .bind(vxf.dtype())
+                    .and_then(|projection| projection.optimize_recursive())
+                    .map_err(|_e| {
+                        exec_datafusion_err!(
+                            "Couldn't get the dtype for the underlying Vortex scan"
+                        )
+                    })?;
             let scan_dtype = scan_projection.dtype().clone();
 
             let stream_schema =
@@ -2447,5 +2507,67 @@ mod tests {
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fold_tests {
+    use rstest::rstest;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::expr::Expression;
+    use vortex::expr::byte_length;
+    use vortex::expr::eq;
+    use vortex::expr::get_item;
+    use vortex::expr::gt;
+    use vortex::expr::lit;
+    use vortex::expr::lower;
+    use vortex::expr::pack;
+    use vortex::expr::root;
+
+    use super::fold_filter_equalities;
+
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("s", DType::Utf8(Nullability::Nullable)),
+                ("f", DType::Primitive(PType::F64, Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn lowered() -> Expression {
+        lower(get_item("s", root()))
+    }
+
+    fn projection(expr: Expression) -> Expression {
+        pack([("out", expr)], Nullability::NonNullable)
+    }
+
+    #[rstest]
+    #[case::expr_eq_literal(eq(lowered(), lit("a")))]
+    #[case::literal_eq_expr(eq(lit("a"), lowered()))]
+    fn folds_an_expression_the_filter_pins(#[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(lowered()), &[filter], &scope());
+
+        // The literal takes the nullable dtype of the expression it replaces.
+        let literal = lit(vortex::scalar::Scalar::utf8("a", Nullability::Nullable));
+        assert_eq!(folded, projection(literal));
+    }
+
+    #[rstest]
+    // A range does not pin the value.
+    #[case::not_an_equality(byte_length(lowered()), gt(byte_length(lowered()), lit(1u64)))]
+    // Reading a column is cheap, and folding it would leave the scan without an input.
+    #[case::plain_column(get_item("s", root()), eq(get_item("s", root()), lit("a")))]
+    // `0.0 = -0.0`, so an equal float is not necessarily the same value.
+    #[case::float(get_item("f", root()), eq(get_item("f", root()), lit(0.0f64)))]
+    fn keeps_other_expressions(#[case] expr: Expression, #[case] filter: Expression) {
+        let folded = fold_filter_equalities(projection(expr.clone()), &[filter], &scope());
+
+        assert_eq!(folded, projection(expr));
     }
 }
