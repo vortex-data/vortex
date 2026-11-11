@@ -17,6 +17,8 @@
 //! [`TableScan::with_file_selections`].
 
 pub mod footer;
+#[cfg(feature = "index")]
+pub mod index;
 pub mod manifest;
 pub mod scan;
 pub mod stats;

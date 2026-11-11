@@ -15,6 +15,10 @@ categories = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# Out-of-file indexes over a table's files, from `vortex-index`.
+index = ["dep:vortex-index"]
+
 [dependencies]
 futures = { workspace = true, features = ["std", "executor"] }
 parking_lot = { workspace = true }
@@ -25,6 +29,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-file = { workspace = true }
+vortex-index = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }

@@ -12600,6 +12600,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-file",
+ "vortex-index",
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
