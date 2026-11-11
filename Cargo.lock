@@ -12553,6 +12553,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-table"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "parking_lot",
+ "prost 0.14.4",
+ "rstest",
+ "tempfile",
+ "tokio",
+ "twox-hash",
+ "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-io",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-scan",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
