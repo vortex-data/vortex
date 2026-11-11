@@ -29,6 +29,7 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::Struct;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
@@ -39,7 +40,9 @@ use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar::Scalar;
@@ -64,6 +67,7 @@ use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantArraySlotsExt;
 use crate::arrow::merge_storage_chunks;
 use crate::compute::AllNonDistinctParquetVariant;
+use crate::extract::extract;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -162,6 +166,12 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
             ));
         }
 
+        // A string or an integer under object fields of unshredded storage is read from the
+        // encoded bytes in place. Whatever that does not cover falls through to the kernel.
+        if let Some(extracted) = extract_in_place(&array, &parent, ctx)? {
+            return Ok(Some(extracted));
+        }
+
         let arrow_variant = array.to_arrow(&ArrowExportOptions::default(), ctx)?;
         let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
         let session = ctx.session().clone();
@@ -193,6 +203,45 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         );
         Ok(Some(output))
     }
+}
+
+/// Extracts with [`extract`], if it covers the extraction that `parent` asks of `array`.
+fn extract_in_place(
+    array: &ArrayView<'_, ParquetVariant>,
+    parent: &ScalarFnArrayView<'_, VariantGet>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let (Some(dtype), Some(value), None) =
+        (parent.options.dtype(), array.value(), array.typed_value())
+    else {
+        return Ok(None);
+    };
+    if !matches!(dtype, DType::Utf8(_) | DType::Primitive(PType::I64, _)) {
+        return Ok(None);
+    }
+    let Some(path) = parent
+        .options
+        .path()
+        .elements()
+        .iter()
+        .map(|element| match element {
+            VariantPathElement::Field(name) => Some(name.as_ref()),
+            VariantPathElement::Index(_) => None,
+        })
+        .collect::<Option<Vec<&str>>>()
+    else {
+        return Ok(None);
+    };
+
+    let len = array.len();
+    let valid = &array.parquet_variant_validity().execute_mask(len, ctx)?
+        & &value.validity()?.execute_mask(len, ctx)?;
+    let metadata = array.metadata().clone().execute::<VarBinViewArray>(ctx)?;
+    let value = value.clone().execute::<VarBinViewArray>(ctx)?;
+    let Some(extracted) = extract(&metadata, &value, &valid, &path, dtype) else {
+        return Ok(None);
+    };
+    extracted.cast(parent.dtype().clone()).map(Some)
 }
 
 /// Performs the [`JsonToVariant`] conversion (and optional shredding) over JSON string storage.

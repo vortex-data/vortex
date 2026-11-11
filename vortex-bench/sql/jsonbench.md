@@ -79,8 +79,8 @@ and the V2 scan (lower is better):
 
 | Shredding | Q0 | Q1 | Q2 | Q3 | Q4 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | 1.06 | 1.05 | 0.84 | 0.71 | 0.75 |
-| `query-fields` | 0.08 | 0.25 | 0.13 | 0.12 | 0.11 |
+| `none` | 0.82 | 0.79 | 0.63 | 0.51 | 0.53 |
+| `query-fields` | 0.06 | 0.23 | 0.13 | 0.10 | 0.11 |
 
 The file is 126.5 MB against 128.6 MB of Parquet for `none`, and 126.3 MB against 118.6 MB
 for `query-fields`.
@@ -88,14 +88,18 @@ for `query-fields`.
 The suite runs on the V2 scan, which `vx-bench` selects for it. `datafusion-bench` defaults
 to the V1 scan, so pass `--scan-v1 false` when running it directly.
 
-On `none` both formats spend their time in the same `parquet-variant-compute` kernel, which
-parses every Variant once per extracted path. A split decodes the storage of a Variant once,
-however many filters and projections extract from it. What is left in Vortex:
+On `none`, a split decodes the storage of a Variant once, however many filters and
+projections extract from it, and a string or an integer under object fields is read from the
+encoded bytes in place. Parquet goes through the `variant_get` kernel of
+`parquet-variant-compute`, which builds a `Variant` over every row and every object on the
+way down. What is left in Vortex:
 
-1. **One pass per path.** Extracting several paths of an unshredded Variant parses each
-   value once per path. A kernel that extracts them in one pass would speed up `none` for
-   Vortex and Parquet alike.
-2. **Shredded paths the scan cannot prove complete.** The scan reads a shredded column alone
+1. **One pass per path.** Extracting several paths of an unshredded Variant walks each value
+   once per path. Extracting them in one pass would share the walk down to a common object.
+2. **Extractions the in-place reader does not cover.** A path through a list, a value that
+   needs a cast, and a target other than a string or a 64-bit integer go through the general
+   kernel, at Parquet's speed.
+3. **Shredded paths the scan cannot prove complete.** The scan reads a shredded column alone
    only when the writer recorded that no row left a value for it in the core storage. Where
    some row did, as for a field that holds strings in some rows and numbers in others, the
    scan reads the core storage as well.
