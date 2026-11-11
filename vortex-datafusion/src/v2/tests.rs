@@ -315,7 +315,7 @@ async fn floating_filters_keep_signed_zero_matches(#[case] is_dynamic: bool) -> 
     let value = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
     let id = Arc::new(df_expr::Column::new("id", 1)) as Arc<dyn PhysicalExpr>;
     let dynamic = Arc::new(DynamicFilterPhysicalExpr::new(
-        vec![value.clone(), id.clone()],
+        vec![Arc::clone(&value), Arc::clone(&id)],
         df_expr::lit(true),
     ));
     let predicate = Arc::new(df_expr::BinaryExpr::new(
@@ -345,13 +345,13 @@ async fn floating_filters_keep_signed_zero_matches(#[case] is_dynamic: bool) -> 
         )) as Arc<dyn PhysicalExpr>
     };
     let offered = if is_dynamic {
-        dynamic.clone() as Arc<dyn PhysicalExpr>
+        Arc::clone(&dynamic) as Arc<dyn PhysicalExpr>
     } else {
-        predicate.clone()
+        Arc::clone(&predicate)
     };
     let pushed = source.try_pushdown_filters(vec![offered], &ConfigOptions::new())?;
     let source = pushed.updated_node.unwrap_or_else(|| Arc::new(source));
-    dynamic.update(predicate.clone())?;
+    dynamic.update(Arc::clone(&predicate))?;
     let residual = Arc::new(FilterExec::try_new(
         predicate,
         Arc::new(DataSourceExec::new(source)),

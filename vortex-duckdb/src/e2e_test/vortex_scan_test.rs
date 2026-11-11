@@ -403,6 +403,126 @@ fn test_vortex_scan_floats() {
     assert_eq!(count, 2);
 }
 
+/// Counts the rows of `query`, which returns one `BIGINT` count.
+fn query_count(conn: &Connection, query: &str) -> Result<i64> {
+    let result = conn.query(query)?;
+    let mut chunk = result
+        .into_iter()
+        .next()
+        .expect("count query returns a chunk");
+    let vec = chunk.get_vector_mut(0);
+
+    Ok(unsafe { vec.as_slice_mut::<i64>(1) }[0])
+}
+
+/// A pushed float filter gives the same rows as DuckDB gives for a native table. DuckDB makes
+/// `-0.0` equal to `+0.0` and orders all `NaN` values as one value above `+inf`.
+#[rstest]
+#[case::eq_zero("value = 0.0")]
+#[case::eq_neg_zero("value = -0.0")]
+#[case::not_eq_zero("value <> 0.0")]
+#[case::lt_zero("value < 0.0")]
+#[case::lte_neg_zero("value <= -0.0")]
+#[case::gt_zero("value > 0.0")]
+#[case::gte_zero("value >= 0.0")]
+#[case::eq_nan("value = 'NaN'::DOUBLE")]
+#[case::gt_inf("value > 'inf'::DOUBLE")]
+#[case::lt_nan("value < 'NaN'::DOUBLE")]
+#[case::gte_nan("value >= 'NaN'::DOUBLE")]
+#[case::in_list("value IN (0.0, 'NaN'::DOUBLE)")]
+#[case::not_in_list("value NOT IN (0.0, 1.0)")]
+#[case::between_zeros("value BETWEEN -0.0 AND 0.0")]
+#[case::between_one_and_nan("value BETWEEN 1.0 AND 'NaN'::DOUBLE")]
+fn test_vortex_scan_float_filters_match_duckdb(#[case] predicate: &str) -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let values = buffer![
+            -0.0f64,
+            0.0,
+            f64::NAN,
+            -f64::NAN,
+            1.0,
+            -1.0,
+            f64::INFINITY,
+            f64::NEG_INFINITY
+        ];
+        write_single_column_vortex_file("value", values).await
+    });
+    let path = file.path().to_string_lossy();
+    let conn = database_connection();
+    conn.query(&format!("CREATE TABLE native AS SELECT * FROM '{path}'"))?;
+
+    let expected = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM native WHERE {predicate}"),
+    )?;
+    let actual = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM '{path}' WHERE {predicate}"),
+    )?;
+
+    assert_eq!(actual, expected, "{predicate}");
+    Ok(())
+}
+
+/// A pushed filter on nested values gives the same rows as DuckDB gives for a native table.
+/// DuckDB compares the floats in structs and lists with the same semantics as top-level floats.
+#[rstest]
+#[case::struct_eq_zero("s = {'a': 0.0, 'b': 1}")]
+#[case::struct_eq_nan("s = {'a': 'NaN'::DOUBLE, 'b': 1}")]
+#[case::struct_lt_nan("s < {'a': 'NaN'::DOUBLE, 'b': 2}")]
+#[case::struct_gt_inf("s > {'a': 'inf'::DOUBLE, 'b': 1}")]
+#[case::struct_in_list("s IN ({'a': -0.0, 'b': 1}, {'a': 'NaN'::DOUBLE, 'b': 1})")]
+#[case::list_eq_zero("l = [0.0, 1.0]")]
+#[case::list_eq_nan("l = ['NaN'::DOUBLE, 1.0]")]
+#[case::list_gte_nan("l >= ['NaN'::DOUBLE]")]
+#[case::list_not_eq_zero("l <> [-0.0, 1.0]")]
+fn test_vortex_scan_nested_float_filters_match_duckdb(#[case] predicate: &str) -> Result<()> {
+    let conn = database_connection();
+    let tempdir = tempfile::tempdir()?;
+    let path = format!("{}/nested.vortex", tempdir.path().to_string_lossy());
+
+    conn.query(
+        "CREATE TABLE native AS SELECT {'a': value, 'b': 1} AS s, [value, 1.0] AS l FROM \
+         (VALUES (-0.0::DOUBLE), (0.0), ('NaN'::DOUBLE), (-'NaN'::DOUBLE), (1.0), ('inf'), \
+         ('-inf')) t(value)",
+    )?;
+    conn.query(&format!("COPY native TO '{path}' (FORMAT VORTEX)"))?;
+
+    let expected = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM native WHERE {predicate}"),
+    )?;
+    let actual = query_count(
+        &conn,
+        &format!("SELECT COUNT(*) FROM '{path}' WHERE {predicate}"),
+    )?;
+
+    assert_eq!(actual, expected, "{predicate}");
+    Ok(())
+}
+
+/// A top-N dynamic filter keeps every `NaN`, because DuckDB orders all `NaN` values above `+inf`.
+#[test]
+fn test_vortex_scan_float_top_n_keeps_all_nans() -> Result<()> {
+    let file = RUNTIME.block_on(async {
+        let values = buffer![1.0f64, -f64::NAN, 2.0, f64::NAN, -0.0, 0.0];
+        write_single_column_vortex_file("value", values).await
+    });
+    let path = file.path().to_string_lossy();
+    let conn = database_connection();
+
+    let nans = query_count(
+        &conn,
+        &format!(
+            "SELECT COUNT(*) FROM (SELECT value FROM '{path}' ORDER BY value DESC LIMIT 2) \
+             WHERE isnan(value)"
+        ),
+    )?;
+
+    assert_eq!(nans, 2);
+    Ok(())
+}
+
 #[test]
 fn test_vortex_scan_constant() {
     let file = RUNTIME.block_on(async {

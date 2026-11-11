@@ -34,6 +34,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -249,7 +250,8 @@ impl StatsRewriteRule for BloomEqRewrite {
         expr: &BoundExpression,
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
-        if *expr.as_::<Binary>() != Operator::Eq {
+        let options = expr.as_::<Binary>();
+        if options.operator() != Operator::Eq {
             return Ok(None);
         }
 
@@ -266,6 +268,15 @@ impl StatsRewriteRule for BloomEqRewrite {
         // Nulls are not stored in Bloom filters, so it is not possible to determine
         // if it is present or not, so the answer is inconclusive.
         if !is_bloom_valid_dtype(column.dtype()) || literal.as_::<Literal>().is_null() {
+            return Ok(None);
+        }
+
+        // The filter hashes the bits of each value, so it only proves total-order equality.
+        if !options.compare_mode().agrees_with_total_order(
+            CompareOperator::Eq,
+            column.dtype(),
+            Some(literal.as_::<Literal>()),
+        ) {
             return Ok(None);
         }
 

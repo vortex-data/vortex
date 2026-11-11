@@ -65,6 +65,10 @@ use vortex_spatial::scalar_fn::distance::SpatialDistance;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
 use crate::SESSION;
+use crate::convert::compare::compare;
+use crate::convert::compare::float_between;
+use crate::convert::compare::float_in_list;
+use crate::convert::compare::holds_float;
 use crate::convert::dtype::FromLogicalType;
 use crate::convert::table_filter::dynamic_filter_expr;
 use crate::cpp::DUCKDB_TYPE;
@@ -239,7 +243,7 @@ fn try_from_spatial_function(
                 return Ok(None);
             };
             let spatial_distance = SpatialDistance.new_expr(ScalarEmptyOptions, operands);
-            Binary.new_expr(Operator::Lte, [spatial_distance, lit(distance)])
+            Binary.new_expr(Operator::Lte.into(), [spatial_distance, lit(distance)])
         }
         "st_distance" => {
             if children.len() != 2 {
@@ -682,17 +686,18 @@ fn try_from_expression_inner(
             col(name)
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
-        BoundComparison(compare) => {
-            let operator: Operator = compare.op.try_into()?;
+        BoundComparison(comparison) => {
+            let operator: Operator = comparison.op.try_into()?;
+            let dtype = operand_dtype(comparison.left);
 
-            let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
+            let Some(left) = try_from_expression_inner(comparison.left, ctx)? else {
                 return Ok(None);
             };
-            let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
+            let Some(right) = try_from_expression_inner(comparison.right, ctx)? else {
                 return Ok(None);
             };
 
-            Binary.new_expr(operator, [left, right])
+            compare(operator, &dtype, left, right)
         }
         BoundBetween(between) => {
             let Some(array) = try_from_expression_inner(between.input, ctx)? else {
@@ -704,6 +709,18 @@ fn try_from_expression_inner(
             let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
                 return Ok(None);
             };
+
+            let dtype = operand_dtype(between.input);
+            if holds_float(&dtype) {
+                return Ok(Some(float_between(
+                    array,
+                    lower,
+                    between.lower_inclusive,
+                    upper,
+                    between.upper_inclusive,
+                )));
+            }
+
             Between.new_expr(
                 BetweenOptions {
                     lower_strict: if between.lower_inclusive {
@@ -788,6 +805,12 @@ fn try_from_expression_inner(
     }))
 }
 
+/// Returns the dtype of a comparison operand, or [`DType::Null`] when it has no Vortex dtype. The
+/// dtype only selects the float semantics of the comparison.
+fn operand_dtype(operand: &ExpressionRef) -> DType {
+    DType::from_logical_type(operand.return_type(), Nullability::Nullable).unwrap_or(DType::Null)
+}
+
 fn try_from_compare_in(
     operator: BoundOperator,
     ctx: ConvertCtx<'_>,
@@ -814,7 +837,11 @@ fn try_from_compare_in(
         return Ok(None);
     };
     let element_dtype = list_elements[0].dtype().clone();
-    let expr = in_list_of(element, element_dtype, list_elements)?;
+    let expr = if holds_float(&element_dtype) {
+        float_in_list(&element, list_elements)
+    } else {
+        in_list_of(element, element_dtype, list_elements)?
+    };
     Ok(Some(if not_in { not(expr) } else { expr }))
 }
 

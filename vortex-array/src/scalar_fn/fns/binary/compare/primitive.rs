@@ -3,6 +3,8 @@
 
 //! Native comparison of primitive arrays with packed bitmap output.
 
+use std::cmp::Ordering;
+
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
@@ -22,30 +24,187 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_float_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::binary::primitive_operand::PrimitiveOperand;
+use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::NanOrder;
+use crate::scalar_fn::fns::operators::SignedZeros;
 
 /// Compare two primitive arrays of the same [`PType`].
 ///
-/// Floats use a total ordering over their bit patterns, including NaN signs and payloads.
-/// Equality is bitwise, so signed zeros and distinct NaN payloads remain distinct.
+/// In [`CompareMode::TOTAL_ORDER`], floats use a total ordering over their bit patterns, including
+/// NaN signs and payloads. Equality is bitwise, so signed zeros and distinct NaN payloads remain
+/// distinct. Other modes change the order of signed zeros and `NaN` values.
 pub(super) fn compare_primitive(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
+    mode: CompareMode,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let ptype = PType::try_from(lhs.dtype())?;
-    match_each_native_ptype!(ptype, |T| {
-        compare_primitive_typed::<T>(lhs, rhs, op, nullability, ctx)
-    })
+
+    if mode.is_total_order() || !ptype.is_float() {
+        return match_each_native_ptype!(ptype, |T| {
+            compare_primitive_typed::<T, TotalOrderPredicates>(lhs, rhs, op, nullability, ctx)
+        });
+    }
+
+    macro_rules! compare_float {
+        ($zeros_equal:expr, $nan:expr) => {
+            match_each_float_ptype!(ptype, |T| {
+                compare_primitive_typed::<T, ModePredicates<$zeros_equal, $nan>>(
+                    lhs,
+                    rhs,
+                    op,
+                    nullability,
+                    ctx,
+                )
+            })
+        };
+    }
+
+    match (mode.signed_zeros(), mode.nan_order()) {
+        (SignedZeros::Distinct, NanOrder::TotalOrder) => compare_float!(false, NAN_TOTAL_ORDER),
+        (SignedZeros::Distinct, NanOrder::Canonical) => compare_float!(false, NAN_CANONICAL),
+        (SignedZeros::Distinct, NanOrder::Ieee754) => compare_float!(false, NAN_IEEE754),
+        (SignedZeros::Equal, NanOrder::TotalOrder) => compare_float!(true, NAN_TOTAL_ORDER),
+        (SignedZeros::Equal, NanOrder::Canonical) => compare_float!(true, NAN_CANONICAL),
+        (SignedZeros::Equal, NanOrder::Ieee754) => compare_float!(true, NAN_IEEE754),
+    }
 }
 
-fn compare_primitive_typed<T: NativePType>(
+/// The six comparison predicates of a [`CompareMode`] over the native type `T`.
+trait Predicates<T> {
+    fn eq(lhs: T, rhs: T) -> bool;
+    fn ne(lhs: T, rhs: T) -> bool;
+    fn gt(lhs: T, rhs: T) -> bool;
+    fn ge(lhs: T, rhs: T) -> bool;
+    fn lt(lhs: T, rhs: T) -> bool;
+    fn le(lhs: T, rhs: T) -> bool;
+}
+
+/// The predicates of [`CompareMode::TOTAL_ORDER`].
+struct TotalOrderPredicates;
+
+impl<T: NativePType> Predicates<T> for TotalOrderPredicates {
+    #[inline]
+    fn eq(lhs: T, rhs: T) -> bool {
+        lhs.is_eq(rhs)
+    }
+
+    #[inline]
+    fn ne(lhs: T, rhs: T) -> bool {
+        !lhs.is_eq(rhs)
+    }
+
+    #[inline]
+    fn gt(lhs: T, rhs: T) -> bool {
+        lhs.is_gt(rhs)
+    }
+
+    #[inline]
+    fn ge(lhs: T, rhs: T) -> bool {
+        lhs.is_ge(rhs)
+    }
+
+    #[inline]
+    fn lt(lhs: T, rhs: T) -> bool {
+        lhs.is_lt(rhs)
+    }
+
+    #[inline]
+    fn le(lhs: T, rhs: T) -> bool {
+        lhs.is_le(rhs)
+    }
+}
+
+/// [`NanOrder::TotalOrder`] as a const generic parameter.
+pub(super) const NAN_TOTAL_ORDER: u8 = 0;
+/// [`NanOrder::Canonical`] as a const generic parameter.
+pub(super) const NAN_CANONICAL: u8 = 1;
+/// [`NanOrder::Ieee754`] as a const generic parameter.
+pub(super) const NAN_IEEE754: u8 = 2;
+
+/// The predicates of a float [`CompareMode`]. `ZEROS_EQUAL` is [`SignedZeros::Equal`], and `NAN`
+/// is one of the `NAN_*` constants. The const parameters let each mode compile to its own loop.
+pub(super) struct ModePredicates<const ZEROS_EQUAL: bool, const NAN: u8>;
+
+impl<const ZEROS_EQUAL: bool, const NAN: u8> ModePredicates<ZEROS_EQUAL, NAN> {
+    /// Orders two values in this mode, or returns `None` when they are unordered.
+    #[inline]
+    pub(super) fn compare<T: NativePType>(lhs: T, rhs: T) -> Option<Ordering> {
+        let (lhs, rhs) = if ZEROS_EQUAL {
+            (positive_zero(lhs), positive_zero(rhs))
+        } else {
+            (lhs, rhs)
+        };
+
+        match NAN {
+            NAN_CANONICAL => Some(match (lhs.is_nan(), rhs.is_nan()) {
+                (true, true) => Ordering::Equal,
+                (true, false) => Ordering::Greater,
+                (false, true) => Ordering::Less,
+                (false, false) => lhs.total_compare(rhs),
+            }),
+            NAN_IEEE754 => (!lhs.is_nan() && !rhs.is_nan()).then(|| lhs.total_compare(rhs)),
+            _ => Some(lhs.total_compare(rhs)),
+        }
+    }
+}
+
+/// Replaces `-0.0` with `+0.0`. Other values, including `NaN`, are unchanged.
+#[inline]
+fn positive_zero<T: NativePType>(value: T) -> T {
+    if value == T::zero() { T::zero() } else { value }
+}
+
+impl<T: NativePType, const ZEROS_EQUAL: bool, const NAN: u8> Predicates<T>
+    for ModePredicates<ZEROS_EQUAL, NAN>
+{
+    #[inline]
+    fn eq(lhs: T, rhs: T) -> bool {
+        Self::compare(lhs, rhs) == Some(Ordering::Equal)
+    }
+
+    #[inline]
+    fn ne(lhs: T, rhs: T) -> bool {
+        !Self::eq(lhs, rhs)
+    }
+
+    #[inline]
+    fn gt(lhs: T, rhs: T) -> bool {
+        Self::compare(lhs, rhs) == Some(Ordering::Greater)
+    }
+
+    #[inline]
+    fn ge(lhs: T, rhs: T) -> bool {
+        matches!(
+            Self::compare(lhs, rhs),
+            Some(Ordering::Greater | Ordering::Equal)
+        )
+    }
+
+    #[inline]
+    fn lt(lhs: T, rhs: T) -> bool {
+        Self::compare(lhs, rhs) == Some(Ordering::Less)
+    }
+
+    #[inline]
+    fn le(lhs: T, rhs: T) -> bool {
+        matches!(
+            Self::compare(lhs, rhs),
+            Some(Ordering::Less | Ordering::Equal)
+        )
+    }
+}
+
+fn compare_primitive_typed<T: NativePType, P: Predicates<T>>(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     op: CompareOperator,
@@ -69,22 +228,26 @@ fn compare_primitive_typed<T: NativePType>(
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slices(lhs, rhs, op, ctx.allocator()),
+        ) => compare_slices::<T, P>(lhs, rhs, op, ctx.allocator()),
         (
             PrimitiveOperand::Array { values: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
-        ) => compare_slice_constant(lhs, *rhs, op, ctx.allocator()),
+        ) => compare_slice_constant::<T, P>(lhs, *rhs, op, ctx.allocator()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Array { values: rhs, .. },
-        ) => compare_slice_constant(rhs, *lhs, op.swap(), ctx.allocator()),
+        ) => compare_slice_constant::<T, P>(rhs, *lhs, op.swap(), ctx.allocator()),
         (
             PrimitiveOperand::Constant { value: lhs, .. },
             PrimitiveOperand::Constant { value: rhs, .. },
         ) => {
             // Unreachable through `execute_compare` (constant-constant is folded there), but
             // cheap to answer anyway.
-            BitBuffer::full_in(apply_op(*lhs, *rhs, op), len, ctx.allocator().clone())
+            BitBuffer::full_in(
+                apply_op::<T, P>(*lhs, *rhs, op),
+                len,
+                ctx.allocator().clone(),
+            )
         }
         (PrimitiveOperand::Null(_), _) | (_, PrimitiveOperand::Null(_)) => {
             return Ok(
@@ -99,18 +262,18 @@ fn compare_primitive_typed<T: NativePType>(
 
 #[allow(clippy::inline_always)]
 #[inline(always)]
-fn apply_op<T: NativePType>(lhs: T, rhs: T, op: CompareOperator) -> bool {
+fn apply_op<T: NativePType, P: Predicates<T>>(lhs: T, rhs: T, op: CompareOperator) -> bool {
     match op {
-        CompareOperator::Eq => lhs.is_eq(rhs),
-        CompareOperator::NotEq => !lhs.is_eq(rhs),
-        CompareOperator::Gt => lhs.is_gt(rhs),
-        CompareOperator::Gte => lhs.is_ge(rhs),
-        CompareOperator::Lt => lhs.is_lt(rhs),
-        CompareOperator::Lte => lhs.is_le(rhs),
+        CompareOperator::Eq => P::eq(lhs, rhs),
+        CompareOperator::NotEq => P::ne(lhs, rhs),
+        CompareOperator::Gt => P::gt(lhs, rhs),
+        CompareOperator::Gte => P::ge(lhs, rhs),
+        CompareOperator::Lt => P::lt(lhs, rhs),
+        CompareOperator::Lte => P::le(lhs, rhs),
     }
 }
 
-fn compare_slices<T: NativePType>(
+fn compare_slices<T: NativePType, P: Predicates<T>>(
     lhs: &[T],
     rhs: &[T],
     op: CompareOperator,
@@ -119,32 +282,28 @@ fn compare_slices<T: NativePType>(
     // Dispatch the operator outside the lane loop so each instantiation vectorizes a single
     // branch-free predicate.
     match op {
-        CompareOperator::Eq => {
-            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| a.is_eq(b), allocator)
-        }
-        CompareOperator::NotEq => {
-            collect_zip_bits_dispatch(lhs, rhs, |a: T, b: T| !a.is_eq(b), allocator)
-        }
-        CompareOperator::Gt => collect_zip_bits_dispatch(lhs, rhs, T::is_gt, allocator),
-        CompareOperator::Gte => collect_zip_bits_dispatch(lhs, rhs, T::is_ge, allocator),
-        CompareOperator::Lt => collect_zip_bits_dispatch(lhs, rhs, T::is_lt, allocator),
-        CompareOperator::Lte => collect_zip_bits_dispatch(lhs, rhs, T::is_le, allocator),
+        CompareOperator::Eq => collect_zip_bits_dispatch(lhs, rhs, P::eq, allocator),
+        CompareOperator::NotEq => collect_zip_bits_dispatch(lhs, rhs, P::ne, allocator),
+        CompareOperator::Gt => collect_zip_bits_dispatch(lhs, rhs, P::gt, allocator),
+        CompareOperator::Gte => collect_zip_bits_dispatch(lhs, rhs, P::ge, allocator),
+        CompareOperator::Lt => collect_zip_bits_dispatch(lhs, rhs, P::lt, allocator),
+        CompareOperator::Lte => collect_zip_bits_dispatch(lhs, rhs, P::le, allocator),
     }
 }
 
-fn compare_slice_constant<T: NativePType>(
+fn compare_slice_constant<T: NativePType, P: Predicates<T>>(
     lhs: &[T],
     rhs: T,
     op: CompareOperator,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
     match op {
-        CompareOperator::Eq => collect_bits_dispatch(lhs, |a: T| a.is_eq(rhs), allocator),
-        CompareOperator::NotEq => collect_bits_dispatch(lhs, |a: T| !a.is_eq(rhs), allocator),
-        CompareOperator::Gt => collect_bits_dispatch(lhs, |a: T| a.is_gt(rhs), allocator),
-        CompareOperator::Gte => collect_bits_dispatch(lhs, |a: T| a.is_ge(rhs), allocator),
-        CompareOperator::Lt => collect_bits_dispatch(lhs, |a: T| a.is_lt(rhs), allocator),
-        CompareOperator::Lte => collect_bits_dispatch(lhs, |a: T| a.is_le(rhs), allocator),
+        CompareOperator::Eq => collect_bits_dispatch(lhs, |a: T| P::eq(a, rhs), allocator),
+        CompareOperator::NotEq => collect_bits_dispatch(lhs, |a: T| P::ne(a, rhs), allocator),
+        CompareOperator::Gt => collect_bits_dispatch(lhs, |a: T| P::gt(a, rhs), allocator),
+        CompareOperator::Gte => collect_bits_dispatch(lhs, |a: T| P::ge(a, rhs), allocator),
+        CompareOperator::Lt => collect_bits_dispatch(lhs, |a: T| P::lt(a, rhs), allocator),
+        CompareOperator::Lte => collect_bits_dispatch(lhs, |a: T| P::le(a, rhs), allocator),
     }
 }
 

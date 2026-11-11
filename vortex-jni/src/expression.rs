@@ -43,6 +43,7 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::between;
+use vortex::expr::compare_with_mode;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
@@ -73,7 +74,10 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
+use vortex::scalar_fn::fns::operators::CompareMode;
+use vortex::scalar_fn::fns::operators::NanOrder;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::operators::SignedZeros;
 use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
@@ -115,6 +119,26 @@ fn parse_op(op: jbyte) -> Result<Operator, JNIError> {
         11 => Operator::Div,
         other => throw_runtime!("unknown binary operator code: {other}"),
     })
+}
+
+/// Parse a [`CompareMode`] from its wire-encoded byte tags.
+///
+/// See `dev.vortex.api.Expression.SignedZeros` and `NanOrder` on the Java side for the source of
+/// truth.
+fn parse_compare_mode(signed_zeros: jbyte, nan_order: jbyte) -> Result<CompareMode, JNIError> {
+    let signed_zeros = match signed_zeros {
+        0 => SignedZeros::Distinct,
+        1 => SignedZeros::Equal,
+        other => throw_runtime!("unknown signed zeros code: {other}"),
+    };
+    let nan_order = match nan_order {
+        0 => NanOrder::TotalOrder,
+        1 => NanOrder::Canonical,
+        2 => NanOrder::Ieee754,
+        other => throw_runtime!("unknown NaN order code: {other}"),
+    };
+
+    Ok(CompareMode::new(signed_zeros, nan_order))
 }
 
 /// Parse a Vortex [`TimeUnit`] from the wire-encoded byte tag.
@@ -297,7 +321,29 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_binary(
         let operator = parse_op(op)?;
         let lhs = unsafe { expr_ref(lhs) }.clone();
         let rhs = unsafe { expr_ref(rhs) }.clone();
-        Ok(into_raw(Binary.new_expr(operator, [lhs, rhs])))
+        Ok(into_raw(Binary.new_expr(operator.into(), [lhs, rhs])))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_compare(
+    mut env: EnvUnowned,
+    _class: JClass,
+    op: jbyte,
+    signed_zeros: jbyte,
+    nan_order: jbyte,
+    lhs: jlong,
+    rhs: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |_| {
+        let operator = parse_op(op)?;
+        let Some(operator) = operator.to_compare_operator() else {
+            throw_runtime!("{operator} is not a comparison operator");
+        };
+        let mode = parse_compare_mode(signed_zeros, nan_order)?;
+        let lhs = unsafe { expr_ref(lhs) }.clone();
+        let rhs = unsafe { expr_ref(rhs) }.clone();
+        Ok(into_raw(compare_with_mode(operator, mode, lhs, rhs)))
     })
 }
 

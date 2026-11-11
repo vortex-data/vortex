@@ -29,6 +29,8 @@ public final class NativeExpression {
 
     public static native long binary(byte operator, long lhs, long rhs);
 
+    public static native long compare(byte operator, byte signedZeros, byte nanOrder, long lhs, long rhs);
+
     public static native long spatial(byte function, long[] operands);
 
     public static native long not(long childPointer);

@@ -199,7 +199,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let array = ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(Binary, Operator::Add).erased(),
+            TypedScalarFnInstance::new(Binary, Operator::Add.into()).erased(),
             children,
         )?;
         let mask = Mask::from_iter((0..100).map(|index| index % 20 == 0));

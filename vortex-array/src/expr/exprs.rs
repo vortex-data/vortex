@@ -27,6 +27,7 @@ use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::binary::BinaryOptions;
 use crate::scalar_fn::fns::byte_length::ByteLength;
 use crate::scalar_fn::fns::case_when::CaseWhen;
 use crate::scalar_fn::fns::case_when::CaseWhenOptions;
@@ -57,8 +58,10 @@ use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
+use crate::scalar_fn::fns::operators::CompareMode;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::operators::contains_float;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
@@ -320,7 +323,7 @@ pub fn bound_nested_case_when(
 /// Creates a binary expression with the given operator.
 pub fn binary(operator: Operator, lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(operator, [lhs, rhs])
+        .try_new_expr(operator.into(), [lhs, rhs])
         .vortex_expect("Failed to create binary expression")
 }
 
@@ -331,8 +334,49 @@ pub fn bound_binary(
     rhs: BoundExpression,
 ) -> BoundExpression {
     Binary
-        .try_new_bound_expr(operator, [lhs, rhs])
+        .try_new_bound_expr(operator.into(), [lhs, rhs])
         .vortex_expect("binary expressions must have compatible operand dtypes")
+}
+
+/// Creates a comparison that orders floats in the given [`CompareMode`].
+///
+/// [`eq`] and the other comparison builders use [`CompareMode::TOTAL_ORDER`].
+///
+/// A comparison with a literal that does not contain floats cannot compare floats, so it uses
+/// [`CompareMode::TOTAL_ORDER`]. The result is the same, and rewrites that need the total order
+/// still apply to it.
+pub fn compare_with_mode(
+    operator: CompareOperator,
+    compare_mode: CompareMode,
+    lhs: Expression,
+    rhs: Expression,
+) -> Expression {
+    let compares_no_floats = [&lhs, &rhs].into_iter().any(|operand| {
+        operand
+            .as_opt::<Literal>()
+            .is_some_and(|scalar| !contains_float(scalar.dtype()))
+    });
+    let compare_mode = if compares_no_floats {
+        CompareMode::TOTAL_ORDER
+    } else {
+        compare_mode
+    };
+
+    Binary
+        .try_new_expr(BinaryOptions::compare(operator, compare_mode), [lhs, rhs])
+        .vortex_expect("Failed to create comparison expression")
+}
+
+/// Creates a bound comparison that orders floats in the given [`CompareMode`].
+pub fn bound_compare_with_mode(
+    operator: CompareOperator,
+    compare_mode: CompareMode,
+    lhs: BoundExpression,
+    rhs: BoundExpression,
+) -> BoundExpression {
+    Binary
+        .try_new_bound_expr(BinaryOptions::compare(operator, compare_mode), [lhs, rhs])
+        .vortex_expect("comparisons must have matching operand dtypes")
 }
 
 /// Create a new [`Binary`] using the [`Eq`](Operator::Eq) operator.
@@ -359,7 +403,7 @@ pub fn bound_binary(
 /// ```
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Eq, [lhs, rhs])
+        .try_new_expr(Operator::Eq.into(), [lhs, rhs])
         .vortex_expect("Failed to create Eq binary expression")
 }
 
@@ -392,7 +436,7 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// ```
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::NotEq, [lhs, rhs])
+        .try_new_expr(Operator::NotEq.into(), [lhs, rhs])
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
@@ -425,7 +469,7 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 /// ```
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Gte, [lhs, rhs])
+        .try_new_expr(Operator::Gte.into(), [lhs, rhs])
         .vortex_expect("Failed to create Gte binary expression")
 }
 
@@ -458,7 +502,7 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// ```
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Gt, [lhs, rhs])
+        .try_new_expr(Operator::Gt.into(), [lhs, rhs])
         .vortex_expect("Failed to create Gt binary expression")
 }
 
@@ -491,7 +535,7 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// ```
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Lte, [lhs, rhs])
+        .try_new_expr(Operator::Lte.into(), [lhs, rhs])
         .vortex_expect("Failed to create Lte binary expression")
 }
 
@@ -524,7 +568,7 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// ```
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Lt, [lhs, rhs])
+        .try_new_expr(Operator::Lt.into(), [lhs, rhs])
         .vortex_expect("Failed to create Lt binary expression")
 }
 
@@ -555,7 +599,7 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// ```
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Or, [lhs, rhs])
+        .try_new_expr(Operator::Or.into(), [lhs, rhs])
         .vortex_expect("Failed to create Or binary expression")
 }
 
@@ -607,7 +651,7 @@ where
 /// ```
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::And, [lhs, rhs])
+        .try_new_expr(Operator::And.into(), [lhs, rhs])
         .vortex_expect("Failed to create And binary expression")
 }
 
@@ -658,7 +702,7 @@ where
 /// ```
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
     Binary
-        .try_new_expr(Operator::Add, [lhs, rhs])
+        .try_new_expr(Operator::Add.into(), [lhs, rhs])
         .vortex_expect("Failed to create Add binary expression")
 }
 
@@ -1100,9 +1144,28 @@ pub fn bound_dynamic_with_options(
         .vortex_expect("dynamic comparisons require a compatible left-hand dtype")
 }
 
-/// Creates a dynamic comparison expression.
+/// Creates a dynamic comparison expression that orders floats in [`CompareMode::TOTAL_ORDER`].
 pub fn dynamic(
     operator: CompareOperator,
+    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
+    rhs_dtype: DType,
+    default: bool,
+    lhs: Expression,
+) -> Expression {
+    dynamic_with_mode(
+        operator,
+        CompareMode::TOTAL_ORDER,
+        rhs_value,
+        rhs_dtype,
+        default,
+        lhs,
+    )
+}
+
+/// Creates a dynamic comparison expression that orders floats in the given [`CompareMode`].
+pub fn dynamic_with_mode(
+    operator: CompareOperator,
+    compare_mode: CompareMode,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
     rhs_dtype: DType,
     default: bool,
@@ -1111,6 +1174,7 @@ pub fn dynamic(
     dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -1132,6 +1196,7 @@ pub fn bound_dynamic(
     bound_dynamic_with_options(
         DynamicComparisonExpr {
             operator,
+            compare_mode: CompareMode::TOTAL_ORDER,
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
@@ -1505,6 +1570,7 @@ pub mod bound {
     pub use super::bound_cast as cast;
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
+    pub use super::bound_compare_with_mode as compare_with_mode;
     pub use super::bound_dynamic as dynamic;
     pub use super::bound_dynamic_expression as dynamic_expression;
     pub use super::bound_dynamic_with_options as dynamic_with_options;

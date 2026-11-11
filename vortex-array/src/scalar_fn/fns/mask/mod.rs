@@ -146,7 +146,7 @@ impl ScalarFnVTable for Mask {
     ) -> VortexResult<ReduceNodeValidity<T>> {
         let input_validity = is_not_null_node(&node.child(0))?;
         Ok(ReduceNodeValidity::Reduced(input_validity.new_node(
-            Binary.bind(Operator::And),
+            Binary.bind(Operator::And.into()),
             &[input_validity.clone(), node.child(1)],
         )?))
     }

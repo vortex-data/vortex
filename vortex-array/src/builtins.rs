@@ -111,7 +111,7 @@ impl ExprBuiltins for Expression {
     }
 
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
-        Binary.try_new_expr(op, [self.clone(), rhs])
+        Binary.try_new_expr(op.into(), [self.clone(), rhs])
     }
 }
 

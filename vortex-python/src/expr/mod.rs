@@ -24,7 +24,11 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
+use vortex::scalar_fn::fns::operators::CompareMode;
+use vortex::scalar_fn::fns::operators::CompareOperator;
+use vortex::scalar_fn::fns::operators::NanOrder;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::operators::SignedZeros;
 use vortex::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use vortex::scalar_fn::fns::variant_get::VariantPath;
 use vortex::scalar_fn::fns::variant_get::VariantPathElement;
@@ -64,6 +68,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sub, &m)?)?;
     m.add_function(wrap_pyfunction!(mul, &m)?)?;
     m.add_function(wrap_pyfunction!(div, &m)?)?;
+    m.add_function(wrap_pyfunction!(compare, &m)?)?;
     m.add_function(wrap_pyfunction!(between, &m)?)?;
 
     // Nullability
@@ -182,7 +187,7 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right]),
+            inner: Binary.new_expr(operator.into(), [left.inner.clone(), right]),
         },
     )
 }
@@ -197,7 +202,7 @@ fn py_reflected_operator<'py>(
     Bound::new(
         right.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left, right.inner.clone()]),
+            inner: Binary.new_expr(operator.into(), [left, right.inner.clone()]),
         },
     )
 }
@@ -767,15 +772,88 @@ binary_fn!(mul, mul_expr, "The product of the arguments.");
 binary_fn!(div, div_expr, "`left` divided by `right`.");
 
 fn sub_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Sub, [left, right])
+    Binary.new_expr(Operator::Sub.into(), [left, right])
 }
 
 fn mul_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Mul, [left, right])
+    Binary.new_expr(Operator::Mul.into(), [left, right])
 }
 
 fn div_expr(left: Expression, right: Expression) -> Expression {
-    Binary.new_expr(Operator::Div, [left, right])
+    Binary.new_expr(Operator::Div.into(), [left, right])
+}
+
+/// Compares the arguments, and orders floats with the given semantics.
+///
+/// The default semantics are the total order of Vortex. Use the other semantics to match the query
+/// engine that gave the predicate. Arguments that do not contain floats ignore these semantics.
+///
+/// Parameters
+/// ----------
+/// operator : :class:`str`
+///     One of ``"eq"``, ``"not_eq"``, ``"gt"``, ``"gt_eq"``, ``"lt"`` or ``"lt_eq"``.
+/// left : :class:`Any`
+/// right : :class:`Any`
+/// signed_zeros : :class:`str`
+///     ``"distinct"`` orders ``-0.0`` below ``+0.0``. ``"equal"`` makes them equal.
+/// nan_order : :class:`str`
+///     ``"total_order"`` orders NaNs by their bits. ``"canonical"`` makes all NaNs equal and
+///     greater than all other values. ``"ieee754"`` makes each comparison with a NaN false,
+///     except ``"not_eq"``, which is true.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+#[pyfunction]
+#[pyo3(signature = (operator, left, right, *, signed_zeros = "distinct", nan_order = "total_order"))]
+pub fn compare(
+    operator: &str,
+    left: PyIntoExpr,
+    right: PyIntoExpr,
+    signed_zeros: &str,
+    nan_order: &str,
+) -> PyResult<PyExpr> {
+    let operator = match operator {
+        "eq" => CompareOperator::Eq,
+        "not_eq" => CompareOperator::NotEq,
+        "gt" => CompareOperator::Gt,
+        "gt_eq" => CompareOperator::Gte,
+        "lt" => CompareOperator::Lt,
+        "lt_eq" => CompareOperator::Lte,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown comparison operator: {other}"
+            )));
+        }
+    };
+
+    let signed_zeros = match signed_zeros {
+        "distinct" => SignedZeros::Distinct,
+        "equal" => SignedZeros::Equal,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "Unknown signed_zeros: {other}"
+            )));
+        }
+    };
+
+    let nan_order = match nan_order {
+        "total_order" => NanOrder::TotalOrder,
+        "canonical" => NanOrder::Canonical,
+        "ieee754" => NanOrder::Ieee754,
+        other => {
+            return Err(PyValueError::new_err(format!("Unknown nan_order: {other}")));
+        }
+    };
+
+    Ok(PyExpr {
+        inner: expr::compare_with_mode(
+            operator,
+            CompareMode::new(signed_zeros, nan_order),
+            left.into_inner(),
+            right.into_inner(),
+        ),
+    })
 }
 
 /// True where `child` lies between `lower` and `upper`.

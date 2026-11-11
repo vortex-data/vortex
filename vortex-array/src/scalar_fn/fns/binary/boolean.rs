@@ -76,7 +76,7 @@ where
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let op = *parent.options;
+        let op = parent.options.operator();
         if !is_boolean_operator(op) {
             return Ok(None);
         }

@@ -26,6 +26,7 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::binary::BinaryOptions;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
@@ -495,7 +496,7 @@ impl LayoutReader for StructReader {
                 // AND/OR compose conservative "may match" masks, even for nullable predicates;
                 // other multi-field operators cannot generally combine these masks (e.g. NOT).
                 let Some(operator @ (Operator::And | Operator::Or)) =
-                    expr.as_opt::<Binary>().copied()
+                    expr.as_opt::<Binary>().map(BinaryOptions::operator)
                 else {
                     return Ok(MaskFuture::ready(mask));
                 };

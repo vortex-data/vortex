@@ -75,7 +75,7 @@ pub fn union_child_validities<T: ReduceNode>(node: &T) -> VortexResult<T> {
     let parts = parts
         .into_iter()
         .try_reduce_balanced(|lhs, rhs| {
-            lhs.new_node(Binary.bind(Operator::And), &[lhs.clone(), rhs])
+            lhs.new_node(Binary.bind(Operator::And.into()), &[lhs.clone(), rhs])
         })?
         .unwrap_or_else(|| node.new_constant(true.into()));
     Ok(parts)

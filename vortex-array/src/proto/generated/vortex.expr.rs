@@ -93,9 +93,90 @@ pub struct ShreddingSpecField {
 pub struct BinaryOpts {
     #[prost(enumeration = "binary_opts::BinaryOp", tag = "1")]
     pub op: i32,
+    /// How a comparison treats signed float zeros. Other operators always use `Distinct`.
+    #[prost(enumeration = "binary_opts::SignedZeros", tag = "2")]
+    pub signed_zeros: i32,
+    /// How a comparison treats float NaN values. Other operators always use `TotalOrder`.
+    #[prost(enumeration = "binary_opts::NanOrder", tag = "3")]
+    pub nan_order: i32,
 }
 /// Nested message and enum types in `BinaryOpts`.
 pub mod binary_opts {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum SignedZeros {
+        Distinct = 0,
+        Equal = 1,
+    }
+    impl SignedZeros {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Distinct => "Distinct",
+                Self::Equal => "Equal",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "Distinct" => Some(Self::Distinct),
+                "Equal" => Some(Self::Equal),
+                _ => None,
+            }
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum NanOrder {
+        TotalOrder = 0,
+        Canonical = 1,
+        Ieee754 = 2,
+    }
+    impl NanOrder {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::TotalOrder => "TotalOrder",
+                Self::Canonical => "Canonical",
+                Self::Ieee754 => "Ieee754",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "TotalOrder" => Some(Self::TotalOrder),
+                "Canonical" => Some(Self::Canonical),
+                "Ieee754" => Some(Self::Ieee754),
+                _ => None,
+            }
+        }
+    }
     #[derive(
         Clone,
         Copy,

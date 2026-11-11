@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import operator
 from collections.abc import Callable, Iterator
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import polars as pl
 import pyarrow as pa
@@ -15,6 +16,7 @@ import pyarrow as pa
 import vortex.expr as ve
 
 from ._lib import dtype as _dtype
+from ._lib import expr as _expr
 from ._lib.arrays import Array
 
 
@@ -22,6 +24,8 @@ def polars_to_vortex(expr: pl.Expr) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
     data = json.loads(expr.meta.serialize(format="json"))
     assert isinstance(data, dict)
+    if not _restore_lost_floats(data, expr):
+        raise NotImplementedError(f"Cannot restore the NaN or infinite float literals of {expr}")
     return _polars_to_vortex(data)
 
 
@@ -48,16 +52,109 @@ def decompose_predicate(predicate: pl.Expr, scope: Array | None = None) -> tuple
     data = json.loads(predicate.meta.serialize(format="json"))
     assert isinstance(data, dict)
 
+    lost_floats = _has_lost_float(data)
+    if lost_floats and not _restore_lost_floats(data, predicate):
+        return None, predicate
+
     pushed: ve.Expr | None = None
-    residual: pl.Expr | None = None
+    inexact: list[dict[str, Any]] = []
     for conjunct in _conjuncts(data):
         exact, implied = _implied_predicate(conjunct, scope)
         if implied is not None:
             pushed = implied if pushed is None else pushed & implied
         if not exact:
-            expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
-            residual = expr if residual is None else residual & expr
+            inexact.append(conjunct)
+
+    if not inexact:
+        return pushed, None
+
+    # Polars cannot read back a NaN or an infinite float from JSON, so the residual is then the
+    # original predicate. Rows that pass it also pass the pushed predicate.
+    if lost_floats:
+        return pushed, predicate
+
+    residual: pl.Expr | None = None
+    for conjunct in inexact:
+        expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
+        residual = expr if residual is None else residual & expr
     return pushed, residual
+
+
+def _has_lost_float(expr: object) -> bool:
+    """True if the JSON form of a Polars expression has lost a float literal.
+
+    The JSON form writes NaN and the infinities as ``null``, and writes a null literal as a
+    ``Null`` scalar. So a float literal of ``null`` is one of the lost values. Neither Vortex nor
+    an expression that Polars reads back from this JSON can then evaluate the predicate.
+    """
+    if isinstance(expr, dict):
+        for key, value in expr.items():
+            if key in _FLOAT_LITERAL_TYPES and value is None:
+                return True
+            if _has_lost_float(value):
+                return True
+    elif isinstance(expr, list):
+        return any(_has_lost_float(value) for value in expr)
+    return False
+
+
+_FLOAT_LITERAL_TYPES = ("Float", "Float32", "Float64")
+
+
+def _restore_lost_floats(data: dict[str, Any], expr: pl.Expr) -> bool:
+    """Put the NaN and infinite float literals of ``expr`` back into its JSON form ``data``.
+
+    The JSON form writes these literals as ``null``. Walk ``data`` together with ``expr``, and
+    evaluate each lost literal from the expression itself. Polars gives the inputs of an expression
+    in reverse order, and each input writes the same JSON as its subtree in ``data``, which locates
+    the input in ``data``. Returns false, with ``data`` partly restored, if the walk fails.
+    """
+    if not _has_lost_float(data):
+        return True
+
+    literal = _lost_float_literal(data)
+    if literal is not None:
+        holder, key = literal
+        value = pl.select(expr).item()
+        if not isinstance(value, float) or math.isfinite(value):
+            return False
+        holder[key] = value
+        return True
+
+    inputs = list(reversed(expr.meta.pop()))
+    targets = [json.loads(child.meta.serialize(format="json")) for child in inputs]
+    subtrees: list[dict[str, Any]] = []
+    _find_subtrees(data, targets, subtrees)
+    if len(subtrees) != len(inputs):
+        return False
+
+    return all(_restore_lost_floats(subtree, child) for subtree, child in zip(subtrees, inputs, strict=True))
+
+
+def _lost_float_literal(data: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+    """The holder and key of the value of a lost float literal, if ``data`` is one."""
+    literal = data.get("Literal")
+    if not isinstance(literal, dict):
+        return None
+
+    scalar = literal.get("Scalar", literal.get("Dyn"))
+    if not isinstance(scalar, dict) or len(scalar) != 1:
+        return None
+
+    key, value = next(iter(scalar.items()))
+    if key not in _FLOAT_LITERAL_TYPES or value is not None:
+        return None
+    return scalar, key
+
+
+def _find_subtrees(data: object, targets: list[Any], found: list[dict[str, Any]]) -> None:
+    """Append the subtrees below ``data`` that equal ``targets``, in order, to ``found``."""
+    children = data.values() if isinstance(data, dict) else data if isinstance(data, list) else []
+    for child in children:
+        if len(found) < len(targets) and child == targets[len(found)] and isinstance(child, dict):
+            found.append(child)
+        elif isinstance(child, dict | list):
+            _find_subtrees(child, targets, found)
 
 
 def _conjuncts(expr: dict[str, Any]) -> Iterator[dict[str, Any]]:
@@ -114,13 +211,34 @@ def _bool_op(expr: dict[str, Any]) -> Literal["and", "or"] | None:
     return None
 
 
-_OPS = {
-    "Eq": operator.eq,
-    "NotEq": operator.ne,
-    "Lt": operator.lt,
-    "LtEq": operator.le,
-    "Gt": operator.gt,
-    "GtEq": operator.ge,
+def _comparison(
+    op: Literal["eq", "not_eq", "gt", "gt_eq", "lt", "lt_eq"],
+) -> Callable[[ve.Expr, ve.Expr], ve.Expr]:
+    """A comparison that orders floats as Polars does.
+
+    Polars makes ``-0.0`` equal to ``+0.0``, and makes all NaNs equal and greater than all other
+    values.
+    """
+
+    def compare(left: ve.Expr, right: ve.Expr) -> ve.Expr:
+        return _expr.compare(op, left, right, signed_zeros="equal", nan_order="canonical")
+
+    return compare
+
+
+_EQ = _comparison("eq")
+_GT = _comparison("gt")
+_GT_EQ = _comparison("gt_eq")
+_LT = _comparison("lt")
+_LT_EQ = _comparison("lt_eq")
+
+_OPS: dict[str, Callable[[ve.Expr, ve.Expr], ve.Expr]] = {
+    "Eq": _EQ,
+    "NotEq": _comparison("not_eq"),
+    "Lt": _LT,
+    "LtEq": _LT_EQ,
+    "Gt": _GT,
+    "GtEq": _GT_EQ,
     "And": operator.and_,
     "Or": operator.or_,
     "LogicalAnd": operator.and_,
@@ -157,7 +275,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
         if op not in _OPS:
             raise NotImplementedError(f"Unsupported Polars binary operator: {op}")
-        return cast(ve.Expr, _OPS[op](lhs, rhs))
+        return _OPS[op](lhs, rhs)
 
     if "Ternary" in expr:
         node = expr["Ternary"]
@@ -279,9 +397,9 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
             if "IsBetween" in fn:
                 closed = fn["IsBetween"]["closed"]
-                lower = operator.ge if closed in ("Both", "Left") else operator.gt
-                upper = operator.le if closed in ("Both", "Right") else operator.lt
-                return cast(ve.Expr, lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2]))
+                lower = _GT_EQ if closed in ("Both", "Left") else _GT
+                upper = _LT_EQ if closed in ("Both", "Right") else _LT
+                return lower(_inputs[0], _inputs[1]) & upper(_inputs[0], _inputs[2])
 
             if fn == "IsNotNull":
                 return ve.is_not_null(_inputs[0])
@@ -312,12 +430,34 @@ def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve
     """
     values = _literal_list(members)
     has_null = values.null_count > 0
+
+    if pa.types.is_floating(values.type) and len(values) > values.null_count:
+        return _float_is_in(needle, values, nulls_equal=nulls_equal, has_null=has_null)
+
     dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
     members_expr = ve.literal(dtype, values.to_pylist())
 
     if nulls_equal:
         return ve.fill_null(ve.list_contains(members_expr, needle), has_null)
     return ve.list_contains(members_expr, needle, sql_null_semantics=not has_null)
+
+
+def _float_is_in(needle: ve.Expr, values: pa.Array[pa.Scalar[Any]], *, nulls_equal: bool, has_null: bool) -> ve.Expr:
+    """``needle.is_in(values)`` for floats, as an OR of equalities that order floats as Polars does.
+
+    A set compares the bits of floats, but Polars makes ``-0.0`` equal to ``+0.0`` and makes all NaNs
+    equal. A null needle makes each equality null, as Polars requires. With nulls equal, a null
+    needle is a member exactly when the list holds a null.
+    """
+    element = _dtype.DType.from_arrow(values.type)
+    equalities = [_EQ(needle, ve.literal(element, value)) for value in values.to_pylist() if value is not None]
+    contains = ve.or_collect(equalities)
+    if contains is None:
+        raise ValueError("A float is_in list without a value")
+
+    if nulls_equal:
+        return ve.fill_null(contains, has_null)
+    return contains
 
 
 def _literal_list(expr: dict[str, Any]) -> pa.Array[pa.Scalar[Any]]:

@@ -61,6 +61,7 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
 use vortex::expr::between;
+use vortex::expr::compare_with_mode;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::BetweenOptions;
@@ -68,6 +69,10 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::cast::Cast;
 use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::fns::operators::CompareMode;
+use vortex::scalar_fn::fns::operators::CompareOperator;
+use vortex::scalar_fn::fns::operators::NanOrder;
+use vortex::scalar_fn::fns::operators::SignedZeros;
 use vortex_array::assert_arrays_eq;
 
 use super::*;
@@ -909,6 +914,47 @@ fn test_expr_from_df_binary() -> DFResult<()> {
     Ok(())
 }
 
+/// DataFusion compares floats in total order after it replaces `-0.0` with `+0.0`.
+#[test]
+fn test_float_comparison_uses_datafusion_compare_mode() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("value", DataType::Float64, false)]);
+    let expr = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        DFOperator::Lt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(0.0)))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert_eq!(
+        convert(expr, &schema)?,
+        compare_with_mode(
+            CompareOperator::Lt,
+            CompareMode::new(SignedZeros::Equal, NanOrder::TotalOrder),
+            get_item("value", root()),
+            lit(0.0f64),
+        ),
+    );
+    Ok(())
+}
+
+/// DataFusion does not replace `-0.0` in the values of a dictionary, so the comparison stays in
+/// DataFusion.
+#[test]
+fn test_dictionary_float_comparison_is_unsupported() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new(
+        "value",
+        DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Float64)),
+        false,
+    )]);
+    let expr = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("value", 0)),
+        DFOperator::Eq,
+        Arc::new(df_expr::Literal::new(ScalarValue::Float64(Some(0.0)))),
+    )) as Arc<dyn PhysicalExpr>;
+
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
 #[rstest]
 #[case::like_normal(false, false)]
 #[case::like_negated(true, false)]
@@ -1080,7 +1126,7 @@ fn test_unsupported_field_is_declined_only_when_referenced(
         ));
         assert_eq!(
             convert(expr, &schema)?,
-            Binary.new_expr(Operator::Eq, [get_item("id", root()), lit(42i32)]),
+            Binary.new_expr(Operator::Eq.into(), [get_item("id", root()), lit(42i32)]),
         );
     }
     Ok(())
@@ -1135,8 +1181,8 @@ fn test_projection_ignores_unreferenced_unsupported_field() -> DFResult<()> {
             [(
                 "sum",
                 Binary.new_expr(
-                    Operator::Add,
-                    [b.clone(), Binary.new_expr(Operator::Add, [a, b])]
+                    Operator::Add.into(),
+                    [b.clone(), Binary.new_expr(Operator::Add.into(), [a, b])]
                 )
             )],
             Nullability::NonNullable,

@@ -7,8 +7,10 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexError;
 
+use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::proto::expr::binary_opts::BinaryOp;
+use crate::scalar::Scalar;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
@@ -252,6 +254,166 @@ impl CompareOperator {
             CompareOperator::Lt => T::is_lt,
             CompareOperator::Lte => T::is_le,
         }
+    }
+}
+
+/// How a comparison treats the two signed zeros of a float.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum SignedZeros {
+    /// `-0.0 < +0.0`. Apache Iceberg and Apache Paimon use this order.
+    #[default]
+    Distinct,
+    /// `-0.0 = +0.0`. DataFusion, Spark, DuckDB, ClickHouse, and NumPy use this order.
+    Equal,
+}
+
+/// How a comparison treats `NaN` values of a float.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum NanOrder {
+    /// `NaN` values are ordered by sign and payload, as in [`f64::total_cmp`]: a `NaN` with the
+    /// sign bit set is less than `-inf`, and a `NaN` with the sign bit clear is greater than
+    /// `+inf`. Equality is bitwise. DataFusion uses this order.
+    #[default]
+    TotalOrder,
+    /// All `NaN` values are equal to each other and greater than all other values, whatever their
+    /// sign and payload. Spark, DuckDB, Apache Iceberg, and Apache Paimon use this order.
+    Canonical,
+    /// `NaN` is unordered, as in IEEE 754: each comparison with `NaN` is false, except `!=`, which
+    /// is true. ClickHouse and NumPy use this order.
+    Ieee754,
+}
+
+/// How a comparison orders floating-point values.
+///
+/// The mode changes only floating-point operands. Integer, decimal, boolean, and byte comparisons
+/// give the same result in each mode. The default mode is [`CompareMode::TOTAL_ORDER`].
+///
+/// | Engine            | [`SignedZeros`] | [`NanOrder`]  |
+/// |-------------------|-----------------|---------------|
+/// | Vortex (default)  | `Distinct`      | `TotalOrder`  |
+/// | DataFusion        | `Equal`         | `TotalOrder`  |
+/// | Spark, DuckDB     | `Equal`         | `Canonical`   |
+/// | Iceberg, Paimon   | `Distinct`      | `Canonical`   |
+/// | ClickHouse, NumPy | `Equal`         | `Ieee754`     |
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CompareMode {
+    signed_zeros: SignedZeros,
+    nan_order: NanOrder,
+}
+
+impl CompareMode {
+    /// The total order over the bit patterns of floats, as in [`f64::total_cmp`].
+    ///
+    /// This is the order of [`Scalar`] values and of Vortex statistics.
+    pub const TOTAL_ORDER: Self = Self::new(SignedZeros::Distinct, NanOrder::TotalOrder);
+
+    /// Returns the mode with the given treatment of signed zeros and `NaN` values.
+    pub const fn new(signed_zeros: SignedZeros, nan_order: NanOrder) -> Self {
+        Self {
+            signed_zeros,
+            nan_order,
+        }
+    }
+
+    /// Returns how the mode treats signed zeros.
+    pub fn signed_zeros(self) -> SignedZeros {
+        self.signed_zeros
+    }
+
+    /// Returns how the mode treats `NaN` values.
+    pub fn nan_order(self) -> NanOrder {
+        self.nan_order
+    }
+
+    /// Returns whether this mode is [`CompareMode::TOTAL_ORDER`].
+    pub fn is_total_order(self) -> bool {
+        self == Self::TOTAL_ORDER
+    }
+
+    /// Returns whether comparing values of `dtype` with `operator` in this mode always gives the
+    /// same result as in [`CompareMode::TOTAL_ORDER`].
+    ///
+    /// `constant` is the right-hand side when it is a known constant. Total-order kernels,
+    /// statistics, and indexes can evaluate or prune a comparison that agrees.
+    ///
+    /// - With [`SignedZeros::Equal`], the constant must not be zero, so that both zeros are on the
+    ///   same side of it.
+    /// - With a [`NanOrder`] other than [`NanOrder::TotalOrder`], the operator must be `=` or `!=`
+    ///   and the constant must not be `NaN`. A `NaN` on the left is then unequal in each mode.
+    pub fn agrees_with_total_order(
+        self,
+        operator: CompareOperator,
+        dtype: &DType,
+        constant: Option<&Scalar>,
+    ) -> bool {
+        if self.is_total_order() || !contains_float(dtype) {
+            return true;
+        }
+
+        let Some(value) = constant.and_then(float_value) else {
+            return false;
+        };
+
+        let zeros_agree = self.signed_zeros == SignedZeros::Distinct || value != 0.0;
+        let nans_agree = self.nan_order == NanOrder::TotalOrder
+            || (matches!(operator, CompareOperator::Eq | CompareOperator::NotEq)
+                && !value.is_nan());
+
+        zeros_agree && nans_agree
+    }
+}
+
+impl Display for CompareMode {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let zeros = match self.signed_zeros {
+            SignedZeros::Distinct => "distinct",
+            SignedZeros::Equal => "equal",
+        };
+        let nan = match self.nan_order {
+            NanOrder::TotalOrder => "total_order",
+            NanOrder::Canonical => "canonical",
+            NanOrder::Ieee754 => "ieee754",
+        };
+
+        write!(f, "zeros={zeros}, nan={nan}")
+    }
+}
+
+/// Returns whether values of `dtype` contain floats, so that their comparison depends on the
+/// [`CompareMode`].
+pub(crate) fn contains_float(dtype: &DType) -> bool {
+    match dtype {
+        DType::Primitive(ptype, _) => ptype.is_float(),
+        DType::Extension(ext) => contains_float(ext.storage_dtype()),
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => contains_float(element),
+        DType::Struct(fields, _) => fields.fields().any(|field| contains_float(&field)),
+        DType::Map(map, _) => {
+            contains_float(&map.key_dtype()) || contains_float(&map.value_dtype())
+        }
+        DType::Null
+        | DType::Bool(_)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_)
+        | DType::Union(..)
+        | DType::Variant(_) => false,
+    }
+}
+
+/// Returns the value of a non-null float scalar, or of an extension scalar with float storage, as
+/// an `f64`.
+///
+/// The conversion keeps zeros and `NaN` values, so it can classify the scalar.
+fn float_value(scalar: &Scalar) -> Option<f64> {
+    match scalar.dtype() {
+        DType::Primitive(ptype, _) if ptype.is_float() => {
+            scalar.as_primitive().pvalue()?.cast::<f64>().ok()
+        }
+        DType::Extension(_) => float_value(&scalar.as_extension().to_storage_scalar()),
+        _ => None,
     }
 }
 
