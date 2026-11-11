@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The TPC-H tables at scale factor 1, each as a whole-table compression dataset.
+//! The three largest TPC-H tables at scale factor 1, each as a whole-table compression dataset.
 //!
-//! `nation` (25 rows) and `region` (5 rows) are left out: at that size their files are mostly
-//! format overhead, which says little about compression.
+//! `lineitem`, `orders`, and `partsupp` hold almost all of the TPC-H data. The other tables are
+//! left out of the compression suite.
 
 use std::path::PathBuf;
 
@@ -25,34 +25,21 @@ use crate::utils::split;
 /// One TPC-H table at scale factor 1, read in full.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TpchSf1Table {
-    Customer,
     LineItem,
     Orders,
-    Part,
     PartSupp,
-    Supplier,
 }
 
 impl TpchSf1Table {
     /// Every TPC-H table this suite measures.
-    pub const ALL: [Self; 6] = [
-        Self::Customer,
-        Self::LineItem,
-        Self::Orders,
-        Self::Part,
-        Self::PartSupp,
-        Self::Supplier,
-    ];
+    pub const ALL: [Self; 3] = [Self::LineItem, Self::Orders, Self::PartSupp];
 
     /// The TPC-H table name, as the generator writes it.
     pub fn table_name(self) -> &'static str {
         match self {
-            Self::Customer => "customer",
             Self::LineItem => "lineitem",
             Self::Orders => "orders",
-            Self::Part => "part",
             Self::PartSupp => "partsupp",
-            Self::Supplier => "supplier",
         }
     }
 
@@ -85,12 +72,9 @@ impl TpchSf1Table {
 impl Dataset for TpchSf1Table {
     fn name(&self) -> &str {
         match self {
-            Self::Customer => "TPC-H SF1 customer",
             Self::LineItem => "TPC-H SF1 lineitem",
             Self::Orders => "TPC-H SF1 orders",
-            Self::Part => "TPC-H SF1 part",
             Self::PartSupp => "TPC-H SF1 partsupp",
-            Self::Supplier => "TPC-H SF1 supplier",
         }
     }
 
