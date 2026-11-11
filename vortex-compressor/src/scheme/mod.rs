@@ -173,6 +173,20 @@ pub trait Scheme: AsDynScheme + Debug + Send + Sync {
         Vec::new()
     }
 
+    /// The bytes of `compressed` whose size does not grow with the number of rows, such as a
+    /// trained symbol table or token dictionary.
+    ///
+    /// `compressed` is this scheme's own output for a sample. Compressing a sample pays for these
+    /// bytes in full, while the full array spreads them over many more rows. The compressor
+    /// therefore charges a sampled estimate only the share of these bytes that the sample makes up
+    /// of the full array, so that a scheme with a large table is not ranked by a cost that
+    /// vanishes at full size.
+    ///
+    /// The default is `0`, which charges the sample for every byte it produced.
+    fn fixed_nbytes(&self, _compressed: &ArrayRef) -> u64 {
+        0
+    }
+
     /// Cheaply estimate the compression ratio for this scheme on the given array.
     ///
     /// This method should be fast and infallible. Any expensive or fallible work should be

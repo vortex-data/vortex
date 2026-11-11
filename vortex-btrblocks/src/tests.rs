@@ -9,6 +9,7 @@
 use std::iter;
 
 use rand::Rng;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
@@ -47,6 +48,7 @@ use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
+use vortex_onpair::OnPair;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
@@ -241,6 +243,59 @@ fn test_cuda_binary_zstd_follows_editions(
         .build();
     let compressed = assert_roundtrip(&compressor, &input)?;
     assert_eq!(compressed.encoding_id(), expected);
+
+    Ok(())
+}
+
+/// Unique text cut at random offsets from a pool of prose, like the comment columns of TPC-H.
+fn unique_prose(rows: usize, seed: u64) -> ArrayRef {
+    const SYLLABLES: &[&str] = &[
+        "ac", "count", "pack", "age", "re", "quest", "de", "pos", "it", "in", "struct", "ion",
+        "the", "od", "ol", "ite", "pin", "to", "bean", "fox", "id", "ea", "pend", "enc", "ex",
+        "cuse", "plate", "let", "asym", "ptote", "court", "dol", "phin", "mul", "ti", "pli", "er",
+        "saut", "erne", "wart", "hog", "fret", "din", "os", "at", "tain", "ment", "som", "as",
+        "braid", "hock", "ey", "play", "fur", "ious", "ly", "care", "ful", "quick", "sly",
+    ];
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let words: Vec<String> = (0..300)
+        .map(|_| {
+            (0..rng.random_range(1..4))
+                .map(|_| SYLLABLES[rng.random_range(0..SYLLABLES.len())])
+                .collect()
+        })
+        .collect();
+
+    let mut pool = String::new();
+    while pool.len() < 1 << 20 {
+        pool.push_str(&words[rng.random_range(0..words.len())]);
+        pool.push(' ');
+    }
+
+    let values = (0..rows).map(|_| {
+        let len = rng.random_range(19..79);
+        let start = rng.random_range(0..pool.len() - len);
+        &pool[start..start + len]
+    });
+    VarBinViewArray::from_iter_str(values).into_array()
+}
+
+/// The sampled estimates used to flip between FSST and OnPair from chunk to chunk on unique text,
+/// although OnPair is clearly smaller on every one of them at full size.
+#[test]
+fn test_unique_text_selects_onpair_on_every_chunk() -> VortexResult<()> {
+    let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
+        .unrestricted()
+        .build();
+
+    for seed in 0..8 {
+        let compressed = assert_roundtrip(&compressor, &unique_prose(16_384, seed))?;
+        assert!(
+            compressed.is::<OnPair>(),
+            "chunk {seed} compressed to {}",
+            compressed.encoding_id()
+        );
+    }
 
     Ok(())
 }

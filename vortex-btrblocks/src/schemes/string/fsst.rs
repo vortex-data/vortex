@@ -59,6 +59,13 @@ impl Scheme for FSSTScheme {
         2
     }
 
+    /// The symbol table: at most 255 symbols, however many rows it serves.
+    fn fixed_nbytes(&self, compressed: &ArrayRef) -> u64 {
+        compressed.as_opt::<FSST>().map_or(0, |fsst| {
+            (size_of_val(fsst.symbols()) + size_of_val(fsst.symbol_lengths())) as u64
+        })
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
