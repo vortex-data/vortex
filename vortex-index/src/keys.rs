@@ -16,7 +16,7 @@ use vortex_error::vortex_err;
 use vortex_layout::layouts::indexed::IndexVTable;
 
 use crate::rows::IndexRows;
-use crate::rows::collect;
+use crate::rows::IndexStep;
 
 /// A key type an index sorts its rows by: the first field of its rows.
 pub(crate) trait IndexKey: Ord + Send + Sync + 'static {
@@ -110,13 +110,13 @@ impl KeyColumn<String> for Strings {
 
 impl<V: IndexVTable> IndexRows<V> {
     /// The index's key column, read on first use and then kept.
-    async fn key_column<K: IndexKey>(&self) -> VortexResult<Arc<K::Column>> {
+    fn key_column_step<K: IndexKey>(self: &Arc<Self>) -> VortexResult<IndexStep<Arc<K::Column>>> {
         if let Some(keys) = self
             .memo
             .get()
             .and_then(|memo| Arc::clone(memo).downcast::<K::Column>().ok())
         {
-            return Ok(keys);
+            return Ok(IndexStep::Done(keys));
         }
         let key_field = self
             .index_dtype
@@ -124,30 +124,37 @@ impl<V: IndexVTable> IndexRows<V> {
             .and_then(|fields| fields.names().iter().next().cloned())
             .ok_or_else(|| vortex_err!("Index rows have no key field"))?;
         let projection = col(key_field).bind(&self.index_dtype)?;
-        let arrays = collect(self.scan().with_projection(projection)).await?;
-        let mut ctx = self.session.create_execution_ctx();
-        let keys = Arc::new(K::Column::load(arrays, &mut ctx)?);
-        // A concurrent first lookup may have set it already; both read the same column.
-        drop(
-            self.memo
-                .set(Arc::clone(&keys) as Arc<dyn Any + Send + Sync>),
-        );
-        Ok(keys)
+        let this = Arc::clone(self);
+        Ok(IndexStep::Read(
+            Box::new(self.scan().with_projection(projection)),
+            Box::new(move |arrays| {
+                let mut ctx = this.session.create_execution_ctx();
+                let keys = Arc::new(K::Column::load(arrays, &mut ctx)?);
+                // A concurrent first lookup may have set it already; both read the same column.
+                drop(
+                    this.memo
+                        .set(Arc::clone(&keys) as Arc<dyn Any + Send + Sync>),
+                );
+                Ok(IndexStep::Done(keys))
+            }),
+        ))
     }
 
     /// Decode the rows holding `keys`, found through the cached key column. Absent keys are
     /// skipped.
-    pub(crate) async fn chunks_for_keys<K: IndexKey>(
-        &self,
-        keys: &[K],
-    ) -> VortexResult<Vec<Arc<V::Chunk>>> {
-        let column = self.key_column::<K>().await?;
-        let mut rows: Vec<u64> = keys.iter().filter_map(|key| column.position(key)).collect();
-        if rows.is_empty() {
-            return Ok(Vec::new());
-        }
-        rows.sort_unstable();
-        rows.dedup();
-        self.chunks_at(rows).await
+    pub(crate) fn chunks_for_keys_step<K: IndexKey>(
+        self: &Arc<Self>,
+        keys: Vec<K>,
+    ) -> VortexResult<IndexStep<Vec<Arc<V::Chunk>>>> {
+        let this = Arc::clone(self);
+        self.key_column_step::<K>()?.and_then(move |column| {
+            let mut rows: Vec<u64> = keys.iter().filter_map(|key| column.position(key)).collect();
+            if rows.is_empty() {
+                return Ok(IndexStep::Done(Vec::new()));
+            }
+            rows.sort_unstable();
+            rows.dedup();
+            this.chunks_at_step(rows)
+        })
     }
 }

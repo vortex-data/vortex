@@ -29,7 +29,7 @@ pub fn open_in_file_index<V: IndexVTable>(
     vtable: V,
     file: &VortexFile,
     column: &str,
-) -> VortexResult<Option<IndexRows<V>>> {
+) -> VortexResult<Option<Arc<IndexRows<V>>>> {
     let Some(indexed) = find_indexed(file.footer().layout(), column, false)? else {
         return Ok(None);
     };
@@ -59,7 +59,7 @@ pub fn open_in_file_index<V: IndexVTable>(
         cache: Some(ScanCache::with_retained_bytes(0)),
         ..file.scan_file()
     };
-    Ok(Some(IndexRows {
+    Ok(Some(Arc::new(IndexRows {
         vtable: Arc::new(vtable),
         options,
         source_dtype,
@@ -68,7 +68,7 @@ pub fn open_in_file_index<V: IndexVTable>(
         file: scan_file,
         session: file.session().clone(),
         memo: OnceLock::new(),
-    }))
+    })))
 }
 
 /// The first `vortex.indexed` layout under top-level field `column`.

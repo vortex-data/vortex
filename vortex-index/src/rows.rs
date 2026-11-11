@@ -33,10 +33,62 @@ pub async fn collect(builder: ScanBuilder) -> VortexResult<Vec<ArrayRef>> {
     vortex_file::v2::collect(builder).await
 }
 
+/// One step of an index search: a scan of index rows to read next, or the answer.
+///
+/// A search is a chain of steps, so it can run anywhere reads can be done: awaited here through
+/// [`IndexStep::run`], or as planners whose reads the plan's driver performs, with each `Read`
+/// becoming a gathering planner over the index file.
+pub enum IndexStep<T> {
+    /// Scan these index rows, then continue with their batches, in row order.
+    Read(Box<ScanBuilder>, StepFn<T>),
+    /// The search's answer.
+    Done(T),
+}
+
+/// What a lookup found, and how exactly: `None` when the index makes no claim on the predicate.
+pub type Located<T> = Option<(IndexExactness, T)>;
+
+/// What a search does with the batches of one [`IndexStep::Read`].
+pub type StepFn<T> = Box<dyn FnOnce(Vec<ArrayRef>) -> VortexResult<IndexStep<T>> + Send>;
+
+impl<T: Send + 'static> IndexStep<T> {
+    /// Run every step to the answer, reading on the calling task.
+    pub async fn run(self) -> VortexResult<T> {
+        let mut step = self;
+        loop {
+            match step {
+                Self::Done(answer) => return Ok(answer),
+                Self::Read(scan, then) => step = then(collect(*scan).await?)?,
+            }
+        }
+    }
+
+    /// Continue with `f` once this search has its answer.
+    pub fn and_then<U: Send + 'static>(
+        self,
+        f: impl FnOnce(T) -> VortexResult<IndexStep<U>> + Send + 'static,
+    ) -> VortexResult<IndexStep<U>> {
+        Ok(match self {
+            Self::Done(answer) => f(answer)?,
+            Self::Read(scan, then) => {
+                IndexStep::Read(scan, Box::new(move |batches| then(batches)?.and_then(f)))
+            }
+        })
+    }
+
+    /// Transform this search's answer with `f`.
+    pub fn map<U: Send + 'static>(
+        self,
+        f: impl FnOnce(T) -> VortexResult<U> + Send + 'static,
+    ) -> VortexResult<IndexStep<U>> {
+        self.and_then(move |answer| Ok(IndexStep::Done(f(answer)?)))
+    }
+}
+
 /// The keys a plan reads, by key type.
-enum PlanKeys<'a> {
-    Strings(&'a [String]),
-    U32s(&'a [u32]),
+enum PlanKeys {
+    Strings(Vec<String>),
+    U32s(Vec<u32>),
 }
 
 /// A scored row returned by a ranked search, in the index's row space.
@@ -104,21 +156,47 @@ impl<V: IndexVTable> IndexRows<V> {
     /// Index content is an ordinary layout, so the filter is pruned by its zone maps before any
     /// segment is fetched. The index kinds in this crate keep each index row self-contained, so
     /// decoding any subset of rows is valid.
-    pub async fn chunks(&self, filter: Option<Expression>) -> VortexResult<Vec<Arc<V::Chunk>>> {
+    pub async fn chunks(
+        self: &Arc<Self>,
+        filter: Option<Expression>,
+    ) -> VortexResult<Vec<Arc<V::Chunk>>> {
+        self.chunks_step(filter)?.run().await
+    }
+
+    /// [`chunks`](Self::chunks) as a step.
+    pub fn chunks_step(
+        self: &Arc<Self>,
+        filter: Option<Expression>,
+    ) -> VortexResult<IndexStep<Vec<Arc<V::Chunk>>>> {
         let filter = filter.map(|f| f.bind(&self.index_dtype)).transpose()?;
-        self.bound_chunks(filter).await
+        Ok(self.bound_chunks_step(filter))
     }
 
     /// Read the index rows at `rows`, strictly ascending, without evaluating a filter.
     ///
     /// For kinds whose key is the row position, so a lookup needs no key column read.
-    pub(crate) async fn chunks_at(&self, rows: Vec<u64>) -> VortexResult<Vec<Arc<V::Chunk>>> {
+    pub(crate) fn chunks_at_step(
+        self: &Arc<Self>,
+        rows: Vec<u64>,
+    ) -> VortexResult<IndexStep<Vec<Arc<V::Chunk>>>> {
         let indices = StrictSortedBuffer::try_new(Buffer::from(rows))?;
-        let arrays = collect(
-            ScanBuilder::new(self.session.clone(), self.file.clone()).with_row_indices(indices),
+        Ok(self.decode_step(self.scan().with_row_indices(indices)))
+    }
+
+    fn bound_chunks_step(
+        self: &Arc<Self>,
+        filter: Option<BoundExpression>,
+    ) -> IndexStep<Vec<Arc<V::Chunk>>> {
+        self.decode_step(self.scan().with_some_filter(filter))
+    }
+
+    /// Read `scan` and decode its rows.
+    fn decode_step(self: &Arc<Self>, scan: ScanBuilder) -> IndexStep<Vec<Arc<V::Chunk>>> {
+        let this = Arc::clone(self);
+        IndexStep::Read(
+            Box::new(scan),
+            Box::new(move |arrays| Ok(IndexStep::Done(this.decode_all(arrays)?))),
         )
-        .await?;
-        self.decode_all(arrays)
     }
 
     fn decode_all(&self, arrays: Vec<ArrayRef>) -> VortexResult<Vec<Arc<V::Chunk>>> {
@@ -134,26 +212,20 @@ impl<V: IndexVTable> IndexRows<V> {
             .collect()
     }
 
-    async fn bound_chunks(
-        &self,
-        filter: Option<BoundExpression>,
-    ) -> VortexResult<Vec<Arc<V::Chunk>>> {
-        let arrays = collect(self.scan().with_some_filter(filter)).await?;
-        self.decode_all(arrays)
-    }
-
     /// The keys a plan of this crate's keyed kinds reads: its query is exactly the sorted keys
     /// its filter matches, so the rows can be found through the cached key column instead.
-    fn plan_keys<'a>(&self, query: &'a V::Query) -> Option<PlanKeys<'a>> {
+    fn plan_keys(&self, query: &V::Query) -> Option<PlanKeys> {
         let kind: &dyn Any = self.vtable.as_ref();
         let query: &dyn Any = query;
         if kind.is::<InvertedIndex>() {
             return query
                 .downcast_ref::<Vec<String>>()
-                .map(|k| PlanKeys::Strings(k));
+                .map(|k| PlanKeys::Strings(k.clone()));
         }
         if kind.is::<TrigramIndex>() {
-            return query.downcast_ref::<Vec<u32>>().map(|k| PlanKeys::U32s(k));
+            return query
+                .downcast_ref::<Vec<u32>>()
+                .map(|k| PlanKeys::U32s(k.clone()));
         }
         None
     }
@@ -162,30 +234,40 @@ impl<V: IndexVTable> IndexRows<V> {
     ///
     /// `expr` is scoped to the column, so `root()` is the indexed value. Returns `None` when the
     /// index makes no claim on it, in which case the caller scans the data instead.
-    pub async fn locate(
-        &self,
+    pub async fn locate(self: &Arc<Self>, expr: &Expression) -> VortexResult<Located<RowLocator>> {
+        self.locate_steps(expr)?.run().await
+    }
+
+    /// [`locate`](Self::locate) as steps.
+    pub fn locate_steps(
+        self: &Arc<Self>,
         expr: &Expression,
-    ) -> VortexResult<Option<(IndexExactness, RowLocator)>> {
+    ) -> VortexResult<IndexStep<Located<RowLocator>>> {
         let bound = expr.bind(&self.source_dtype)?;
         let Some(plan) =
             self.vtable
                 .plan(&bound, &self.source_dtype, &self.index_dtype, &self.options)?
         else {
-            return Ok(None);
+            return Ok(IndexStep::Done(None));
         };
         let chunks = match self.plan_keys(&plan.query) {
-            Some(PlanKeys::Strings(keys)) => self.chunks_for_keys(keys).await?,
-            Some(PlanKeys::U32s(keys)) => self.chunks_for_keys(keys).await?,
-            None => self.bound_chunks(Some(plan.filter)).await?,
+            Some(PlanKeys::Strings(keys)) => self.chunks_for_keys_step(keys)?,
+            Some(PlanKeys::U32s(keys)) => self.chunks_for_keys_step(keys)?,
+            None => self.bound_chunks_step(Some(plan.filter)),
         };
-        let mut ctx = self.session.create_execution_ctx();
-        let locator = self.vtable.resolve(
-            &plan.query,
-            &chunks,
-            self.data_row_count,
-            &self.options,
-            &mut ctx,
-        )?;
-        Ok(Some((plan.exactness, locator)))
+        let this = Arc::clone(self);
+        let exactness = plan.exactness;
+        let query = plan.query;
+        chunks.map(move |chunks| {
+            let mut ctx = this.session.create_execution_ctx();
+            let locator = this.vtable.resolve(
+                &query,
+                &chunks,
+                this.data_row_count,
+                &this.options,
+                &mut ctx,
+            )?;
+            Ok(Some((exactness, locator)))
+        })
     }
 }

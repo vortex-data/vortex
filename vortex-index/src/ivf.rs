@@ -60,6 +60,7 @@ use crate::postings::f32s_from_bytes;
 use crate::postings::f32s_to_bytes;
 use crate::rows::Hit;
 use crate::rows::IndexRows;
+use crate::rows::IndexStep;
 use crate::rows::top_k;
 
 /// Stable registry id of the IVF vector index.
@@ -422,50 +423,48 @@ impl IndexRows<IvfIndex> {
     /// The `k` rows whose vectors are most cosine-similar to `query`, best first, searching the
     /// `nprobe` lists whose centroids are closest to it.
     pub async fn search_vectors(
-        &self,
+        self: &Arc<Self>,
         query: &[f32],
         k: usize,
         nprobe: usize,
     ) -> VortexResult<Vec<Hit>> {
+        self.search_vectors_steps(query, k, nprobe)?.run().await
+    }
+
+    /// [`search_vectors`](Self::search_vectors) as steps: the directory on the first search,
+    /// then the probed lists.
+    pub fn search_vectors_steps(
+        self: &Arc<Self>,
+        query: &[f32],
+        k: usize,
+        nprobe: usize,
+    ) -> VortexResult<IndexStep<Vec<Hit>>> {
         let dim = self.options.dim as usize;
         vortex_ensure_eq!(query.len(), dim, "Query vector has the wrong dimension");
         if k == 0 {
-            return Ok(Vec::new());
+            return Ok(IndexStep::Done(Vec::new()));
         }
         let mut query = query.to_vec();
         normalize(&mut query);
 
-        let centroids = self.centroids().await?;
-        if centroids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut probes: Vec<(u32, f32)> = centroids
-            .chunks_exact(dim)
-            .enumerate()
-            .map(|(list, centroid)| Ok((u32::try_from(list)?, dot(&query, centroid))))
-            .collect::<VortexResult<_>>()?;
-        probes.sort_by(|a, b| b.1.total_cmp(&a.1));
-        probes.truncate(nprobe.max(1));
-
-        let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
-        wanted.sort_unstable();
-        let lists = self.read_lists(&wanted).await?;
-
-        let quantized = QuantizedQuery::new(&query);
-        let code_len = 4 + dim;
-        let mut hits = Vec::new();
-        for entries in &lists {
-            for (rows, codes) in entries.rows.iter().zip(&entries.codes) {
-                for (row, code) in rows.iter().zip(codes.chunks_exact(code_len)) {
-                    hits.push(Hit {
-                        row: u64::from(row),
-                        score: quantized.dot(code),
-                    });
-                }
+        let this = Arc::clone(self);
+        self.centroids_step()?.and_then(move |centroids| {
+            if centroids.is_empty() {
+                return Ok(IndexStep::Done(Vec::new()));
             }
-        }
-        Ok(top_k(hits, k))
+            let mut probes: Vec<(u32, f32)> = centroids
+                .chunks_exact(dim)
+                .enumerate()
+                .map(|(list, centroid)| Ok((u32::try_from(list)?, dot(&query, centroid))))
+                .collect::<VortexResult<_>>()?;
+            probes.sort_by(|a, b| b.1.total_cmp(&a.1));
+            probes.truncate(nprobe.max(1));
+
+            let mut wanted: Vec<u32> = probes.iter().map(|(list, _)| *list).collect();
+            wanted.sort_unstable();
+            this.read_lists_step(wanted)?
+                .map(move |lists| Ok(score_lists(&lists, &query, dim, k)))
+        })
     }
 
     /// The entries of `lists`, sorted ascending.
@@ -473,7 +472,10 @@ impl IndexRows<IvfIndex> {
     /// The builder writes list `i` at row `i` and the directory row after the last list, so the
     /// rows are read by position, with no filter over the list column. An index whose rows don't
     /// line up that way is read through a filter instead.
-    async fn read_lists(&self, lists: &[u32]) -> VortexResult<Vec<Arc<IvfEntries>>> {
+    fn read_lists_step(
+        self: &Arc<Self>,
+        lists: Vec<u32>,
+    ) -> VortexResult<IndexStep<Vec<Arc<IvfEntries>>>> {
         let position = |list: u32| {
             u64::from(if list == DIRECTORY_LIST {
                 self.options.lists
@@ -486,43 +488,76 @@ impl IndexRows<IvfIndex> {
         rows.dedup();
         if rows
             .last()
-            .is_some_and(|&last| last < self.file.layout.row_count())
+            .is_none_or(|&last| last >= self.file.layout.row_count())
         {
-            let entries = self.chunks_at(rows).await?;
+            return self.lists_by_filter(&lists);
+        }
+        let this = Arc::clone(self);
+        self.chunks_at_step(rows)?.and_then(move |entries| {
             let found = entries.iter().flat_map(|e| e.lists.iter().copied());
             if found.eq(lists.iter().copied()) {
-                return Ok(entries);
+                Ok(IndexStep::Done(entries))
+            } else {
+                this.lists_by_filter(&lists)
             }
-        }
+        })
+    }
+
+    fn lists_by_filter(
+        self: &Arc<Self>,
+        lists: &[u32],
+    ) -> VortexResult<IndexStep<Vec<Arc<IvfEntries>>>> {
         let Some(filter) = or_collect(lists.iter().map(|&list| eq(col(LIST_FIELD), lit(list))))
         else {
-            return Ok(Vec::new());
+            return Ok(IndexStep::Done(Vec::new()));
         };
-        self.chunks(Some(filter)).await
+        self.chunks_step(Some(filter))
     }
 
     /// Every centroid, flattened: read from the directory row on the first search, then reused.
-    async fn centroids(&self) -> VortexResult<Arc<Vec<f32>>> {
+    fn centroids_step(self: &Arc<Self>) -> VortexResult<IndexStep<Arc<Vec<f32>>>> {
         if let Some(centroids) = self
             .memo
             .get()
             .and_then(|memo| Arc::clone(memo).downcast::<Vec<f32>>().ok())
         {
-            return Ok(centroids);
+            return Ok(IndexStep::Done(centroids));
         }
-        let directory = self.read_lists(&[DIRECTORY_LIST]).await?;
-        let centroids = Arc::new(
-            directory
-                .iter()
-                .flat_map(|entries| entries.centroids.iter())
-                .find(|centroids| !centroids.is_empty())
-                .cloned()
-                .unwrap_or_default(),
-        );
-        // A concurrent first search may have set it already; both read the same centroids.
-        drop(self.memo.set(Arc::clone(&centroids) as _));
-        Ok(centroids)
+        let this = Arc::clone(self);
+        self.read_lists_step(vec![DIRECTORY_LIST])?
+            .map(move |directory| {
+                let centroids = Arc::new(
+                    directory
+                        .iter()
+                        .flat_map(|entries| entries.centroids.iter())
+                        .find(|centroids| !centroids.is_empty())
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                // A concurrent first search may have set it already; both read the same
+                // centroids.
+                drop(this.memo.set(Arc::clone(&centroids) as _));
+                Ok(centroids)
+            })
     }
+}
+
+/// The `k` best rows of `lists` for the unit vector `query`, by their quantized vectors.
+fn score_lists(lists: &[Arc<IvfEntries>], query: &[f32], dim: usize, k: usize) -> Vec<Hit> {
+    let quantized = QuantizedQuery::new(query);
+    let code_len = 4 + dim;
+    let mut hits = Vec::new();
+    for entries in lists {
+        for (rows, codes) in entries.rows.iter().zip(&entries.codes) {
+            for (row, code) in rows.iter().zip(codes.chunks_exact(code_len)) {
+                hits.push(Hit {
+                    row: u64::from(row),
+                    score: quantized.dot(code),
+                });
+            }
+        }
+    }
+    top_k(hits, k)
 }
 
 /// Buffers every vector, then clusters and quantizes them on finish.
