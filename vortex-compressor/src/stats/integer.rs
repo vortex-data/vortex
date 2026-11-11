@@ -599,8 +599,9 @@ struct ScanState<T> {
 ///
 /// Every value is loaded once per chunk of 64, whose validity is one word. Nulls in a chunk are
 /// filled with the last valid value before them, which changes neither the bounds nor the runs, so
-/// that the bounds and runs take the same vectorized kernel with and without nulls. Counting skips
-/// the nulls instead.
+/// that the bounds and runs take the same vectorized kernel with and without nulls. Where the runs
+/// do not need the fill, the bounds of values of at most 32 bits read each null as the identity of
+/// the bound instead. Counting skips the nulls.
 ///
 /// Not inlined: in the caller, which covers every integer type, the vectorizer gives up on the
 /// lanes.
@@ -723,7 +724,7 @@ impl<T: PrimInt> ScanState<T> {
     ) {
         if C::COUNTS {
             if MIN_MAX {
-                bounds.fold(&forward_fill(values, valid, self.prev));
+                self.fold_partial_bounds(values, valid, bounds);
             }
             let mut valid = valid;
             while valid != 0 {
@@ -737,12 +738,31 @@ impl<T: PrimInt> ScanState<T> {
                 self.pending += 1;
                 valid &= valid - 1;
             }
+        } else if !RUNS {
+            if MIN_MAX {
+                self.fold_partial_bounds(values, valid, bounds);
+            }
         } else {
             self.chunk::<C, MIN_MAX, RUNS>(
                 &forward_fill(values, valid, self.prev),
                 bounds,
                 counter,
             );
+        }
+    }
+
+    /// Folds the valid values of a chunk, whose bits are set in `valid`, into the bounds, when the
+    /// runs do not need the nulls filled.
+    ///
+    /// Values of at most 32 bits read each null as the identity of each bound, which is cheaper
+    /// than the fill. 64-bit values use few lanes, and with those the fill is cheaper.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn fold_partial_bounds(&self, values: &[T; CHUNK], valid: u64, bounds: &mut Bounds<T>) {
+        if size_of::<T>() <= 4 {
+            bounds.fold_masked(values, valid);
+        } else {
+            bounds.fold(&forward_fill(values, valid, self.prev));
         }
     }
 }
@@ -779,45 +799,113 @@ impl<T: PrimInt> Bounds<T> {
     }
 
     /// Folds a chunk into the bounds of each lane.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn fold(&mut self, values: &[T; CHUNK]) {
+        self.fold_valid::<false>(values, u64::MAX);
+    }
+
+    /// Folds the valid values of a chunk, whose bits are set in `valid`, into the bounds of each
+    /// lane.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn fold_masked(&mut self, values: &[T; CHUNK], valid: u64) {
+        self.fold_valid::<true>(values, valid);
+    }
+
+    /// Folds a chunk into the bounds of each lane, reading the values whose bit is unset in
+    /// `valid` as the identity of each bound if `MASKED`.
     ///
     /// The lane count depends on the width and the instruction set, and was chosen by
     /// measurement. With too few lanes for the vector width, the vectorizer packs lanes across
     /// groups and loads them one by one: 16-bit values use a whole chunk, and so do 32-bit values
-    /// with 256-bit vectors. Without 64-bit vector compares in the baseline instruction set,
-    /// 64-bit values use only a few lanes. `size_of` and `cfg!` are constants, so the dispatch
-    /// folds.
+    /// with 256-bit vectors. On NEON, 32 lanes of 32-bit values are twice as fast as 16. Without
+    /// 64-bit vector compares in the baseline instruction set, 64-bit values use only a few lanes.
+    /// `size_of` and `cfg!` are constants, so the dispatch folds.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    fn fold(&mut self, values: &[T; CHUNK]) {
+    fn fold_valid<const MASKED: bool>(&mut self, values: &[T; CHUNK], valid: u64) {
         let avx2 = cfg!(target_feature = "avx2");
         match size_of::<T>() {
-            1 => self.lanes::<32>(values),
-            2 => self.lanes::<CHUNK>(values),
-            4 if avx2 => self.lanes::<CHUNK>(values),
-            4 => self.lanes::<16>(values),
-            _ if avx2 => self.lanes::<8>(values),
-            _ => self.lanes::<4>(values),
+            1 => self.lanes::<32, MASKED>(values, valid),
+            2 => self.lanes::<CHUNK, MASKED>(values, valid),
+            4 if avx2 => self.lanes::<CHUNK, MASKED>(values, valid),
+            4 => self.lanes::<32, MASKED>(values, valid),
+            _ if avx2 => self.lanes::<8, MASKED>(values, valid),
+            _ => self.lanes::<4, MASKED>(values, valid),
         }
     }
 
-    /// Folds a chunk into the bounds of the first `L` lanes.
+    /// Folds a chunk into the bounds of the first `L` lanes, reading the values whose bit is unset
+    /// in `valid` as the identity of each bound if `MASKED`.
+    ///
+    /// Each value is selected with a mask of all ones or all zeros rather than with an `if`: as
+    /// an `if`, LLVM branches on each validity bit and leaves the lanes scalar. A constant bit per
+    /// lane, rather than a shift of the word by the lane index, needs no per-lane variable shift.
+    /// Values of at most 32 bits test 32 bits of the word, so the mask is as wide as the value.
     #[allow(clippy::inline_always)]
     #[inline(always)]
-    fn lanes<const L: usize>(&mut self, values: &[T; CHUNK]) {
+    fn lanes<const L: usize, const MASKED: bool>(&mut self, values: &[T; CHUNK], valid: u64) {
         let (Some(min), Some(max)) = (
             self.min.first_chunk_mut::<L>(),
             self.max.first_chunk_mut::<L>(),
         ) else {
             unreachable!("L is at most CHUNK")
         };
-        for group in values.as_chunks::<L>().0 {
+
+        let narrow = L <= 32 && size_of::<T>() <= 4;
+        for (row, group) in values.as_chunks::<L>().0.iter().enumerate() {
+            let bits = valid >> (row * L);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "rows of at most 32 lanes keep their low 32 bits"
+            )]
+            let narrow_bits = bits as u32;
+
             for i in 0..L {
-                min[i] = if group[i] < min[i] { group[i] } else { min[i] };
-                max[i] = if group[i] > max[i] { group[i] } else { max[i] };
+                let (low, high) = if MASKED {
+                    let is_valid = if narrow {
+                        narrow_bits & LANE_BITS[i % 32] != 0
+                    } else {
+                        bits & WIDE_LANE_BITS[i] != 0
+                    };
+                    let mask = if is_valid { !T::zero() } else { T::zero() };
+                    (
+                        (group[i] & mask) | (T::max_value() & !mask),
+                        (group[i] & mask) | (T::min_value() & !mask),
+                    )
+                } else {
+                    (group[i], group[i])
+                };
+
+                min[i] = if low < min[i] { low } else { min[i] };
+                max[i] = if high > max[i] { high } else { max[i] };
             }
         }
     }
 }
+
+/// `LANE_BITS[i]` selects lane `i` of 32 bits of a validity word.
+const LANE_BITS: [u32; 32] = {
+    let mut bits = [0; 32];
+    let mut lane = 0;
+    while lane < 32 {
+        bits[lane] = 1 << lane;
+        lane += 1;
+    }
+    bits
+};
+
+/// `WIDE_LANE_BITS[i]` selects lane `i` of a validity word.
+const WIDE_LANE_BITS: [u64; CHUNK] = {
+    let mut bits = [0; CHUNK];
+    let mut lane = 0;
+    while lane < CHUNK {
+        bits[lane] = 1 << lane;
+        lane += 1;
+    }
+    bits
+};
 
 /// Returns `values` with each null, whose bit is unset in `valid`, replaced by the closest valid
 /// value before it, or by `prev`, the last valid value before the chunk.
