@@ -27,10 +27,12 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
+use vortex::expr::and;
 use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::col;
+use vortex::expr::eq;
 use vortex::expr::get_item;
 use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
@@ -38,6 +40,7 @@ use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::not;
+use vortex::expr::or;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::layout::layouts::row_idx::row_idx;
@@ -423,6 +426,16 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
     children.len() == 1 && returns_a_list(children[0])
 }
 
+/// Lower `IS NOT DISTINCT FROM`, which unlike `=` is never NULL.
+fn not_distinct_from(left: Expression, right: Expression) -> Expression {
+    let both_null = and(is_null(left.clone()), is_null(right.clone()));
+    let both_equal = and(
+        and(is_not_null(left.clone()), is_not_null(right.clone())),
+        eq(left, right),
+    );
+    or(both_null, both_equal)
+}
+
 // We limit casting to Primitive types, because some conversions yield an error
 // like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
 // push down the cast, we don't have access to column's dtype, so we need to
@@ -683,8 +696,6 @@ fn try_from_expression_inner(
         }
         BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         BoundComparison(compare) => {
-            let operator: Operator = compare.op.try_into()?;
-
             let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
                 return Ok(None);
             };
@@ -692,7 +703,15 @@ fn try_from_expression_inner(
                 return Ok(None);
             };
 
-            Binary.new_expr(operator, [left, right])
+            match compare.op {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_DISTINCT_FROM => {
+                    not_distinct_from(left, right)
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_DISTINCT_FROM => {
+                    not(not_distinct_from(left, right))
+                }
+                op => Binary.new_expr(Operator::try_from(op)?, [left, right]),
+            }
         }
         BoundBetween(between) => {
             let Some(array) = try_from_expression_inner(between.input, ctx)? else {
