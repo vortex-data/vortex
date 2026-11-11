@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -70,28 +71,34 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
             .shredded()
             .map(|shredded| {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
-                    .map(|typed| {
+                    .map(|(typed, remaining)| {
                         let len = typed.len();
-                        typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)
+                        let typed = typed.mask(core_validity.to_array(len))?.optimize_ctx(ctx)?;
+                        Ok::<_, VortexError>((typed, remaining))
                     })
                     .transpose()
             })
             .transpose()?
             .flatten();
 
-        let Some(typed) = typed else {
+        let Some((typed, remaining)) = typed else {
             return make_fallback(ctx).map(Some);
         };
-        // A shredded Variant child still needs VariantGet at the root to produce a
-        // concrete requested dtype.
+        // A shredded Variant child holds the rest of the path, in its own shredded tree or in
+        // its residual value. It also still needs VariantGet at its root to produce a concrete
+        // requested dtype.
         if typed.dtype().is_variant()
-            && parent
-                .options
-                .dtype()
-                .is_some_and(|dtype| !dtype.is_variant())
+            && (!remaining.is_empty()
+                || parent
+                    .options
+                    .dtype()
+                    .is_some_and(|dtype| !dtype.is_variant()))
         {
             return execute_fallback_variant_get(
-                VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
+                VariantGetOptions::new(
+                    VariantPath::new(remaining.iter().cloned()),
+                    parent.options.dtype().cloned(),
+                ),
                 typed,
                 ctx,
             )
@@ -145,13 +152,21 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
     }
 }
 
-fn typed_shredded_path(
+/// Walks `path` through the shredded tree, returning the array it reaches and the elements of
+/// `path` that are left.
+///
+/// The walk stops early at a shredded Variant child, which holds the rest of the path itself.
+/// Returns `None` if the shredded tree does not represent the path.
+fn typed_shredded_path<'a>(
     shredded: &ArrayRef,
-    path: &[VariantPathElement],
+    path: &'a [VariantPathElement],
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
+) -> VortexResult<Option<(ArrayRef, &'a [VariantPathElement])>> {
     let mut current = shredded.clone();
-    for element in path {
+    for (idx, element) in path.iter().enumerate() {
+        if current.dtype().is_variant() {
+            return Ok(Some((current, &path[idx..])));
+        }
         let VariantPathElement::Field(name) = element else {
             return Ok(None);
         };
@@ -168,7 +183,7 @@ fn typed_shredded_path(
         current = field.clone().mask(current_validity.clone())?;
     }
 
-    Ok(Some(current))
+    Ok(Some((current, &[])))
 }
 
 fn merge_typed_as_variant(

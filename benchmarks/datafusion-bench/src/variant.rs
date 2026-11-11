@@ -16,6 +16,7 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::datatypes::Field;
 use datafusion::arrow::datatypes::FieldRef;
 use datafusion::logical_expr::ColumnarValue;
+use datafusion::logical_expr::ExpressionPlacement;
 use datafusion::logical_expr::ReturnFieldArgs;
 use datafusion::logical_expr::ScalarFunctionArgs;
 use datafusion::logical_expr::ScalarUDF;
@@ -73,6 +74,19 @@ impl ScalarUDFImpl for VariantGetUdf {
         };
         let data_type = sql_type(string_literal("type", type_name)?)?;
         Ok(Arc::new(Field::new(self.name(), data_type, true)))
+    }
+
+    /// Extraction is cheap next to reading a whole Variant, so DataFusion moves it into a
+    /// projection above the scan, which a source that understands `variant_get` can absorb.
+    fn placement(&self, args: &[ExpressionPlacement]) -> ExpressionPlacement {
+        match args {
+            [
+                ExpressionPlacement::Column,
+                ExpressionPlacement::Literal,
+                ExpressionPlacement::Literal,
+            ] => ExpressionPlacement::MoveTowardsLeafNodes,
+            _ => ExpressionPlacement::KeepInPlace,
+        }
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> DFResult<ColumnarValue> {

@@ -17,10 +17,14 @@ use vortex_utils::aliases::StringEscape;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::Variant;
 use crate::arrays::VariantArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -143,6 +147,30 @@ impl ScalarFnVTable for VariantGet {
         let dtype = options
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
+
+        // The kernels that extract in bulk are keyed on the Variant encodings. A lazy input, such
+        // as a filtered or chunked Variant read from a file, reaches this point without one, so
+        // bring it to those encodings before falling back to extracting row by row.
+        if let Some(chunked) = input.as_opt::<Chunked>() {
+            let chunks = chunked
+                .iter_chunks()
+                .map(|chunk| {
+                    VariantGet::try_new(chunk.clone(), options.clone())?
+                        .into_array()
+                        .execute::<ArrayRef>(ctx)
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
+        }
+        if !input.is::<Variant>() {
+            let canonical = input.clone().execute::<VariantArray>(ctx)?;
+            // Canonicalizing must unwrap the input, or re-dispatching would not terminate.
+            if canonical.core_storage().encoding_id() != input.encoding_id() {
+                return VariantGet::try_new(canonical.into_array(), options.clone())?
+                    .into_array()
+                    .execute::<ArrayRef>(ctx);
+            }
+        }
 
         if !dtype.is_variant() {
             let mut builder = builder_with_capacity_in(&dtype, input.len(), ctx.allocator());
