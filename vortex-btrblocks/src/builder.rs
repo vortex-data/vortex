@@ -31,7 +31,8 @@ use crate::schemes::string;
 pub(crate) enum CompressionMode {
     /// Excludes nothing. Set by [`empty`](BtrBlocksCompressorBuilder::empty).
     All,
-    /// Excludes Zstd and Pco. Set by [`from_session`](BtrBlocksCompressorBuilder::from_session).
+    /// Excludes Zstd and Pco, except that Zstd stays for the binary storage of Variant arrays.
+    /// Set by [`from_session`](BtrBlocksCompressorBuilder::from_session).
     Default,
     /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics.
     /// Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
@@ -91,6 +92,20 @@ impl CompressionMode {
             }
         }
         excluded
+    }
+
+    /// Returns the schemes of [`excluded_schemes`](Self::excluded_schemes) that
+    /// [`build`](BtrBlocksCompressorBuilder::build) keeps for the storage children of Variant
+    /// arrays.
+    ///
+    /// An unshredded Variant value is an opaque binary blob that the lightweight schemes cannot
+    /// compress, so the default preset would otherwise store it raw.
+    fn variant_storage_schemes(self) -> Vec<SchemeId> {
+        match self {
+            #[cfg(feature = "zstd")]
+            Self::Default => vec![binary::ZstdScheme.id()],
+            _ => Vec::new(),
+        }
     }
 
     /// Returns the serialized IDs [`build`](BtrBlocksCompressorBuilder::build) disallows in this
@@ -231,11 +246,32 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+        let compressor = CascadingCompressor::new(self.allowed_schemes());
+        // A second compressor is only needed when the storage keeps a scheme the preset drops.
+        let compressor = if self.mode.variant_storage_schemes().is_empty() {
+            compressor
+        } else {
+            compressor.with_variant_storage_compressor(CascadingCompressor::new(
+                self.variant_storage_schemes(),
+            ))
+        };
+        BtrBlocksCompressor(compressor)
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
-        let excluded: HashSet<SchemeId> = self.mode.excluded_schemes().into_iter().collect();
+        self.schemes_without(self.mode.excluded_schemes())
+    }
+
+    /// The schemes that compress the storage children of Variant arrays.
+    fn variant_storage_schemes(&self) -> Vec<&'static dyn Scheme> {
+        let kept = self.mode.variant_storage_schemes();
+        let mut excluded = self.mode.excluded_schemes();
+        excluded.retain(|id| !kept.contains(id));
+        self.schemes_without(excluded)
+    }
+
+    fn schemes_without(&self, excluded: Vec<SchemeId>) -> Vec<&'static dyn Scheme> {
+        let excluded: HashSet<SchemeId> = excluded.into_iter().collect();
         let excluded_ids: HashSet<ArrayId> = self.mode.excluded_encodings().into_iter().collect();
         let allowed = |id: &ArrayId| self.allowed.is_allowed(id) && !excluded_ids.contains(id);
         self.schemes
@@ -307,6 +343,33 @@ mod tests {
         builder.allowed.editions = Some(allowed.into_iter().collect());
 
         assert_eq!(!builder.allowed_schemes().is_empty(), retained);
+    }
+
+    #[cfg(feature = "zstd")]
+    #[test]
+    fn default_keeps_binary_zstd_only_for_variant_storage() {
+        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
+        let has_zstd = |schemes: Vec<&'static dyn Scheme>, id: SchemeId| {
+            schemes.iter().any(|scheme| scheme.id() == id)
+        };
+
+        assert!(!has_zstd(
+            builder.allowed_schemes(),
+            binary::ZstdScheme.id()
+        ));
+        assert!(has_zstd(
+            builder.variant_storage_schemes(),
+            binary::ZstdScheme.id()
+        ));
+        // Strings inside a Variant are not storage, and buffer-level Zstd stays opt-in.
+        assert!(!has_zstd(
+            builder.variant_storage_schemes(),
+            string::ZstdScheme.id()
+        ));
+        assert!(!has_zstd(
+            builder.variant_storage_schemes(),
+            binary::ZstdBuffersScheme.id()
+        ));
     }
 
     #[test]

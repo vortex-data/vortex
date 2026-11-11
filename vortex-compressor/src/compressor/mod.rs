@@ -9,6 +9,8 @@ mod sample;
 mod select;
 mod structural;
 
+use std::sync::Arc;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
@@ -46,6 +48,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Compresses the storage children of Variant arrays in place of this compressor, if set.
+    variant_storage: Option<Arc<CascadingCompressor>>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +68,18 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            variant_storage: None,
         }
+    }
+
+    /// Compresses the storage children of Variant arrays with `compressor` instead of this one.
+    ///
+    /// The storage of a Variant holds opaque binary values, such as its unshredded value, which
+    /// can warrant other schemes than the binary columns of a table. Shredded children are still
+    /// compressed by this compressor.
+    pub fn with_variant_storage_compressor(mut self, compressor: CascadingCompressor) -> Self {
+        self.variant_storage = Some(Arc::new(compressor));
+        self
     }
 }
 

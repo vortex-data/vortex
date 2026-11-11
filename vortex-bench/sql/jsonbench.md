@@ -61,10 +61,9 @@ function down. For a shredded Vortex file, the scan therefore merges the typed f
 into the binary Variant value before DataFusion reads it, which makes the shredded layouts
 slower than `none` on Vortex.
 
-An unshredded Variant value is an opaque binary blob, which the default Vortex preset stores
-without general-purpose compression. Vortex Compact compresses it with zstd, which roughly
-halves the file and brings it level with zstd Parquet, so include `vortex-compact` when
-comparing sizes or scan times against Parquet.
+An unshredded Variant value is an opaque binary blob that the lightweight encodings cannot
+compress. The default Vortex preset therefore compresses the binary storage of a Variant with
+zstd, as Vortex Compact does, which keeps the unshredded file level with zstd Parquet.
 
 ## Running locally
 

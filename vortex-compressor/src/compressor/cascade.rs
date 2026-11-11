@@ -252,8 +252,11 @@ impl CascadingCompressor {
                 }
             }
             Canonical::Variant(variant_array) => {
-                let core_storage =
-                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
+                let core_storage = self
+                    .variant_storage
+                    .as_deref()
+                    .unwrap_or(self)
+                    .compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
                     .map(|arr| {
