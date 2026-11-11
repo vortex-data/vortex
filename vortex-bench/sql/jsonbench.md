@@ -93,6 +93,14 @@ and the V2 scan (lower is better):
 In absolute terms, the `inferred` Vortex file answers the five queries in 12, 70, 32, 19 and
 22 ms, where the `none` Vortex file takes 173, 283, 240, 228 and 226 ms.
 
+The ratio holds as the dataset grows. With `inferred`, Vortex time relative to Parquet:
+
+| Rows | Q0 | Q1 | Q2 | Q3 | Q4 | Vortex file | Parquet file |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 million | 0.04 | 0.09 | 0.03 | 0.03 | 0.02 | 163 MB | 129 MB |
+| 5 million | 0.03 | 0.08 | 0.03 | 0.01 | 0.02 | 782 MB | 614 MB |
+| 20 million | 0.03 | 0.10 | 0.03 | 0.02 | 0.02 | 3.1 GB | 2.4 GB |
+
 The `inferred` file is larger because the default preset has no zstd for the shredded string
 columns, which hold content hashes and record keys that the lightweight encodings barely
 compress. Vortex Compact writes the same shredding in 133.1 MB, and answers the queries in 14,
