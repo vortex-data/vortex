@@ -6,13 +6,14 @@
 //! Omnigraph (<https://github.com/ModernRelay/omnigraph>) stores every node type and edge type of
 //! a graph as its own Lance dataset (`node_<Type>`, `edge_<Type>`). This tool:
 //!
-//! 1. `convert`: opens the current state of each of those datasets in a graph that Omnigraph wrote,
-//!    and rewrites the same rows as a freshly compacted Lance dataset (Lance V2_2, the version
-//!    Omnigraph writes), a Parquet file (zstd level 3) and a Vortex file. It reports on-disk sizes.
-//! 2. `query`: runs Omnigraph's benchmark query shapes (scan, filter, lookup, top-k, group-by,
-//!    count, 1-3 hop traversal) as SQL over the Lance tables and over the Vortex tables, in
-//!    DataFusion, and reports their runtimes. Both formats return identical results; the tool
-//!    checks this before it reports timings.
+//! 1. `convert`: reads the current version of each of those datasets in a graph that Omnigraph
+//!    wrote and writes the same rows as a Vortex file with Vortex's default write options. The
+//!    Lance baseline is Omnigraph's own data files, untouched. For reference it also writes a
+//!    Parquet file (zstd level 3) and a Lance copy with zstd forced on every column. It reports
+//!    on-disk sizes.
+//! 2. `query`: runs Omnigraph's benchmark queries, translated to SQL, in DataFusion over
+//!    Omnigraph's Lance tables, the zstd Lance copy and the Vortex files, and reports runtimes. All
+//!    formats must return identical results before the tool reports timings.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -360,7 +361,6 @@ struct SizeRow {
     table: String,
     rows: usize,
     omnigraph_dir_bytes: u64,
-    omnigraph_data_bytes: u64,
     lance_bytes: u64,
     lance_zstd_bytes: u64,
     parquet_zstd3_bytes: u64,
@@ -369,13 +369,15 @@ struct SizeRow {
 
 async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
     let tables = find_tables(graph)?;
-    for sub in ["lance", "lance_zstd", "parquet", "vortex"] {
+    for sub in ["lance_zstd", "parquet", "vortex"] {
         fs::create_dir_all(out.join(sub))?;
     }
 
     let mut rows = Vec::new();
+    let mut lance_tables = BTreeMap::new();
     for (table, path) in &tables {
         let name = sql_table_name(table);
+        lance_tables.insert(name.clone(), fs::canonicalize(path)?);
         let uri = path.to_str().context("non UTF-8 path")?;
         let dataset = LanceDataset::open(uri)
             .await
@@ -396,12 +398,7 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
                 .join(", ")
         );
 
-        // A freshly written, single-version Lance dataset with the file version Omnigraph writes
-        // (V2_2): the same rows without Omnigraph's history, deletions or indexes.
-        let lance_path = out.join("lance").join(format!("{name}.lance"));
-        write_lance(&lance_path, &batches, Arc::clone(&schema)).await?;
-
-        // The same, recompressed with zstd on every column (Lance's strongest general compression).
+        // Secondary comparison: the same rows rewritten as Lance with zstd forced on every column.
         let zstd_schema = zstd_schema(&schema);
         let zstd_batches = batches
             .iter()
@@ -427,8 +424,7 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
             table: table.clone(),
             rows: num_rows,
             omnigraph_dir_bytes: dir_size(path)?,
-            omnigraph_data_bytes: lance_data_size(path)?,
-            lance_bytes: lance_data_size(&lance_path)?,
+            lance_bytes: lance_data_size(path)?,
             lance_zstd_bytes: lance_data_size(&lance_zstd_path)?,
             parquet_zstd3_bytes: dir_size(&parquet_path)?,
             vortex_bytes: dir_size(&vortex_path)?,
@@ -437,7 +433,7 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
 
     println!();
     println!(
-        "| table | rows | Omnigraph table dir | Lance V2_2 (fresh) | Lance V2_2 + zstd | Parquet zstd(3) | Vortex | Vortex vs Lance | Vortex vs Lance+zstd |"
+        "| table | rows | Omnigraph table dir (data + manifests + indexes) | Omnigraph Lance data files (as written) | Lance + forced zstd | Parquet zstd(3) | Vortex (default) | Vortex vs Omnigraph Lance | Vortex vs Lance+zstd |"
     );
     println!("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
     let mut totals = [0u64; 5];
@@ -468,6 +464,10 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
     }
     print_row("**total**", String::new(), totals);
     fs::write(out.join("sizes.json"), serde_json::to_string_pretty(&rows)?)?;
+    fs::write(
+        out.join("lance_tables.json"),
+        serde_json::to_string_pretty(&lance_tables)?,
+    )?;
     Ok(())
 }
 
@@ -488,9 +488,9 @@ fn table_files(dir: &Path, ext: &str) -> anyhow::Result<Vec<(String, PathBuf)>> 
     Ok(files)
 }
 
-async fn lance_context(dir: &Path) -> anyhow::Result<df54::prelude::SessionContext> {
+async fn lance_context(tables: Vec<(String, PathBuf)>) -> anyhow::Result<df54::prelude::SessionContext> {
     let ctx = df54::prelude::SessionContext::new();
-    for (name, path) in table_files(dir, "lance")? {
+    for (name, path) in tables {
         let dataset = LanceDataset::open(path.to_str().context("non UTF-8 path")?).await?;
         ctx.register_table(
             name.as_str(),
@@ -599,12 +599,16 @@ struct QueryRow {
     min_ms: Vec<f64>,
 }
 
-const FORMATS: [&str; 3] = ["lance", "lance_zstd", "vortex"];
+const FORMATS: [&str; 3] = ["omnigraph_lance", "lance_zstd", "vortex"];
 
 async fn query(data: &Path, iterations: usize, json: Option<&Path>) -> anyhow::Result<()> {
+    let omnigraph_tables: BTreeMap<String, PathBuf> =
+        serde_json::from_str(&fs::read_to_string(data.join("lance_tables.json"))?)?;
+    let omnigraph_tables = omnigraph_tables.into_iter().collect();
     let engines = [
-        Engine::Lance(lance_context(&data.join("lance")).await?),
-        Engine::Lance(lance_context(&data.join("lance_zstd")).await?),
+        // The tables exactly as Omnigraph wrote them, opened at their current version.
+        Engine::Lance(lance_context(omnigraph_tables).await?),
+        Engine::Lance(lance_context(table_files(&data.join("lance_zstd"), "lance")?).await?),
         Engine::Vortex(vortex_context(&data.join("vortex")).await?),
     ];
 
@@ -637,7 +641,7 @@ async fn query(data: &Path, iterations: usize, json: Option<&Path>) -> anyhow::R
             min_ms: times.iter().map(|t| ms(t[0])).collect(),
         };
         eprintln!(
-            "{name} ({} rows): lance {:.2} ms, lance_zstd {:.2} ms, vortex {:.2} ms",
+            "{name} ({} rows): omnigraph lance {:.2} ms, lance+zstd {:.2} ms, vortex {:.2} ms",
             row.result_rows, row.median_ms[0], row.median_ms[1], row.median_ms[2]
         );
         results.push(row);
@@ -645,7 +649,7 @@ async fn query(data: &Path, iterations: usize, json: Option<&Path>) -> anyhow::R
 
     println!();
     println!(
-        "| Omnigraph query | rows | Lance (ms) | Lance+zstd (ms) | Vortex (ms) | Vortex speedup vs Lance | vs Lance+zstd |"
+        "| Omnigraph query | rows | Omnigraph Lance (ms) | Lance+zstd (ms) | Vortex default (ms) | Vortex speedup vs Omnigraph Lance | vs Lance+zstd |"
     );
     println!("|---|---:|---:|---:|---:|---:|---:|");
     for r in &results {
