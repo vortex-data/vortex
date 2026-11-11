@@ -202,6 +202,17 @@ pub struct IndexFileBuilder<V: IndexVTable> {
 /// segments, found through the zone map on the index's sorted key column.
 pub const DEFAULT_INDEX_CHUNK_ROWS: usize = 256;
 
+/// Rough upper bound on an index chunk's bytes. Kinds with large rows, such as an IVF list's
+/// codes, get fewer rows per chunk, down to one, so a lookup reads only the rows it matched.
+const INDEX_CHUNK_TARGET_BYTES: u64 = 1 << 20;
+
+/// Rows per index chunk for rows averaging `row_bytes`.
+fn chunk_rows(row_bytes: u64) -> usize {
+    usize::try_from(INDEX_CHUNK_TARGET_BYTES / row_bytes.max(1))
+        .unwrap_or(usize::MAX)
+        .clamp(1, DEFAULT_INDEX_CHUNK_ROWS)
+}
+
 impl<V: IndexVTable> IndexFileBuilder<V> {
     /// Start an index of kind `vtable` over `column`, whose values have `source_dtype`.
     pub fn new(
@@ -326,12 +337,18 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         let mut ctx = session.create_execution_ctx();
         // Hand the writer small slices, so each index chunk, and so each lookup's read, stays
         // small even when a kind emits its whole content as one chunk.
+        let encoded = chunks
+            .iter()
+            .map(|chunk| vtable.encode(chunk, &options, &mut ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let rows: u64 = encoded.iter().map(|e| e.len() as u64).sum();
+        let bytes: u64 = encoded.iter().map(|e| e.nbytes()).sum();
+        let piece = chunk_rows(bytes / rows.max(1));
         let mut arrays = Vec::new();
-        for chunk in &chunks {
-            let encoded = vtable.encode(chunk, &options, &mut ctx)?;
+        for encoded in encoded {
             let len = encoded.len();
-            for start in (0..len).step_by(DEFAULT_INDEX_CHUNK_ROWS) {
-                let slice = encoded.slice(start..(start + DEFAULT_INDEX_CHUNK_ROWS).min(len))?;
+            for start in (0..len).step_by(piece) {
+                let slice = encoded.slice(start..(start + piece).min(len))?;
                 arrays.push(compact(slice, &mut ctx)?);
             }
         }
@@ -355,7 +372,7 @@ impl<V: IndexVTable> IndexFileBuilder<V> {
         session
             .write_options()
             .with_strategy(
-                strategy.unwrap_or_else(|| default_index_strategy(&session, &index_dtype)),
+                strategy.unwrap_or_else(|| default_index_strategy(&session, &index_dtype, piece)),
             )
             .with_metadata_segment(INDEX_FILE_METADATA_KEY, metadata.encode_to_vec())
             .write(
@@ -397,9 +414,13 @@ fn compact(slice: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
 ///
 /// Payloads are already compact, and leaving them out of dictionary encoding keeps each chunk's
 /// payload in its own small segment, so a lookup reads only the payloads of the keys it matched.
-fn default_index_strategy(session: &VortexSession, index_dtype: &DType) -> Arc<dyn LayoutStrategy> {
+fn default_index_strategy(
+    session: &VortexSession,
+    index_dtype: &DType,
+    chunk_rows: usize,
+) -> Arc<dyn LayoutStrategy> {
     let mut builder = WriteStrategyBuilder::from_session(session)
-        .with_row_block_size(DEFAULT_INDEX_CHUNK_ROWS)
+        .with_row_block_size(chunk_rows)
         .with_data_block_target_bytes(None);
     if let Some(fields) = index_dtype.as_struct_fields_opt() {
         for (name, dtype) in fields.names().iter().zip(fields.fields()) {
@@ -408,7 +429,7 @@ fn default_index_strategy(session: &VortexSession, index_dtype: &DType) -> Arc<d
                     ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
                     RepartitionWriterOptions {
                         block_size_minimum: 0,
-                        block_len_multiple: DEFAULT_INDEX_CHUNK_ROWS,
+                        block_len_multiple: chunk_rows,
                         block_size_target: None,
                         canonicalize: true,
                     },
