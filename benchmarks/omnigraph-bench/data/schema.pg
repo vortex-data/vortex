@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+// The schema of Omnigraph's e2e_query_shapes benchmark fixture.
 node Person {
     name: String @key
     age: I64

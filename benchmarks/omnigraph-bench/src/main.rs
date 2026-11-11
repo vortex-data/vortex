@@ -4,7 +4,7 @@
 //! Compare Omnigraph's Lance-backed graph storage against Vortex.
 //!
 //! Omnigraph (<https://github.com/ModernRelay/omnigraph>) stores every node type and edge type of
-//! a graph as its own Lance dataset (`node_<Type>`, `edge_<Type>`). This tool:
+//! a graph as its own Lance dataset (`<graph>/nodes/<id>`, `<graph>/edges/<id>`). This tool:
 //!
 //! 1. `convert`: reads the current version of each of those datasets in a graph that Omnigraph
 //!    wrote and writes the same rows as a Vortex file with Vortex's default write options. The
@@ -24,17 +24,17 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Context;
+use anyhow::bail;
+use clap::Parser;
+use clap::Subcommand;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
-use anyhow::bail;
-use clap::Parser;
-use clap::Subcommand;
 use futures::TryStreamExt;
+use lance::datafusion::LanceTableProvider;
 use lance::dataset::Dataset as LanceDataset;
 use lance::dataset::WriteParams;
-use lance::datafusion::LanceTableProvider;
 use lance::deps::arrow_array::RecordBatch as LanceRecordBatch;
 use lance::deps::arrow_array::RecordBatchIterator;
 use lance::deps::arrow_schema::Schema;
@@ -66,9 +66,11 @@ struct Args {
 enum Command {
     /// Export the node and edge tables of an Omnigraph graph to Lance, Parquet and Vortex.
     Convert {
-        /// The Omnigraph graph directory (for example `graph.omni`).
-        #[arg(long)]
-        graph: PathBuf,
+        /// An Omnigraph table to export, as `<sql name>=<dataset directory>`, for example
+        /// `person=graph.omni/nodes/0000000000000001-0000000000000008`. Omnigraph keeps each node
+        /// type's Lance dataset under `nodes/` and each edge type's under `edges/`.
+        #[arg(long = "table", required = true, value_parser = parse_table)]
+        tables: Vec<(String, PathBuf)>,
         /// Output directory; gets `lance/`, `parquet/` and `vortex/` subdirectories.
         #[arg(long)]
         out: PathBuf,
@@ -87,19 +89,21 @@ enum Command {
     },
 }
 
-/// Omnigraph table directory name (`node_Person`) to the SQL table name used by the queries.
-fn sql_table_name(table: &str) -> String {
-    table
-        .strip_prefix("node_")
-        .or_else(|| table.strip_prefix("edge_"))
-        .unwrap_or(table)
-        .to_lowercase()
+fn parse_table(arg: &str) -> Result<(String, PathBuf), String> {
+    let (name, path) = arg
+        .split_once('=')
+        .ok_or_else(|| format!("expected <name>=<path>, got {arg}"))?;
+    let path = PathBuf::from(path);
+    if !path.join("_versions").is_dir() {
+        return Err(format!("{} is not a Lance dataset", path.display()));
+    }
+    Ok((name.to_string(), path))
 }
 
 /// Omnigraph's own benchmark queries (`benchmarks/workloads/e2e_query_*.gqt` and
 /// `e2e_traversal_*.gqt` for the `Person`/`Knows` schema), translated from GQ to SQL. Each entry
 /// is `(Omnigraph scenario, GQ query, SQL)`. A `$a knows $b` edge pattern joins the edge table on
-/// its `src`/`dst` node keys and requires both endpoints to exist, as Omnigraph does.
+/// its `__src`/`__dst` node keys and requires both endpoints to exist, as Omnigraph does.
 ///
 /// Workloads that need a Lance vector or full-text index (`nearest`, `rrf`, `search`) have no
 /// Vortex equivalent and are left out, except `destination_search`, which runs as a substring
@@ -149,7 +153,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "friends",
             "match { $p: Person $p knows $q } return { $p.name, $q.name }",
             format!(
-                "SELECT p.name AS p, q.name AS q FROM knows k {} = k.src {} = k.dst",
+                "SELECT p.name AS p, q.name AS q FROM knows k {} = k.__src {} = k.__dst",
                 person("p"),
                 person("q")
             ),
@@ -158,7 +162,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "destination_projection",
             "match { $p: Person $p knows $q } return { $q.name }",
             format!(
-                "SELECT q.name FROM knows k {} = k.src {} = k.dst",
+                "SELECT q.name FROM knows k {} = k.__src {} = k.__dst",
                 person("p"),
                 person("q")
             ),
@@ -167,7 +171,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "filtered_friends",
             "match { $p: Person $p.age >= 90 $p knows $q } return { $p.name, $q.name }",
             format!(
-                "SELECT p.name AS p, q.name AS q FROM knows k {} = k.src {} = k.dst \
+                "SELECT p.name AS p, q.name AS q FROM knows k {} = k.__src {} = k.__dst \
                  WHERE p.age >= 90",
                 person("p"),
                 person("q")
@@ -177,7 +181,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "grouped_fanout",
             "match { $p: Person $p knows $q } return { $p.team, count($q) as n }",
             format!(
-                "SELECT p.team, count(q.name) AS n FROM knows k {} = k.src {} = k.dst \
+                "SELECT p.team, count(q.name) AS n FROM knows k {} = k.__src {} = k.__dst \
                  GROUP BY p.team",
                 person("p"),
                 person("q")
@@ -187,14 +191,14 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "no_friends",
             "match { $p: Person not { $p knows $q } } return { $p.name }",
             "SELECT p.name FROM person p WHERE NOT EXISTS (SELECT 1 FROM knows k \
-             JOIN person q ON q.name = k.dst WHERE k.src = p.name)"
+             JOIN person q ON q.name = k.__dst WHERE k.__src = p.name)"
                 .into(),
         ),
         (
             "destination_search",
             "match { $p: Person $p knows $q search($q.bio, \"vector search\") } return { $q.name }",
             format!(
-                "SELECT q.name FROM knows k {} = k.src {} = k.dst \
+                "SELECT q.name FROM knows k {} = k.__src {} = k.__dst \
                  WHERE q.bio LIKE '%vector search%'",
                 person("p"),
                 person("q")
@@ -204,7 +208,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "hop1",
             "$a knows $b return { $a.name, $b.name }",
             format!(
-                "SELECT a.name AS a, b.name AS b FROM knows k1 {} = k1.src {} = k1.dst",
+                "SELECT a.name AS a, b.name AS b FROM knows k1 {} = k1.__src {} = k1.__dst",
                 person("a"),
                 person("b")
             ),
@@ -213,8 +217,8 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "hop2",
             "$a knows $b $b knows $c return { $a.name, $c.name } (as count)",
             format!(
-                "SELECT count(*) AS paths FROM knows k1 {} = k1.src {} = k1.dst \
-                 JOIN knows k2 ON k2.src = b.name {} = k2.dst",
+                "SELECT count(*) AS paths FROM knows k1 {} = k1.__src {} = k1.__dst \
+                 JOIN knows k2 ON k2.__src = b.name {} = k2.__dst",
                 person("a"),
                 person("b"),
                 person("c")
@@ -224,9 +228,9 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "hop3",
             "$a knows $b $b knows $c $c knows $d return { $a.name, $d.name } (as count)",
             format!(
-                "SELECT count(*) AS paths FROM knows k1 {} = k1.src {} = k1.dst \
-                 JOIN knows k2 ON k2.src = b.name {} = k2.dst \
-                 JOIN knows k3 ON k3.src = c.name {} = k3.dst",
+                "SELECT count(*) AS paths FROM knows k1 {} = k1.__src {} = k1.__dst \
+                 JOIN knows k2 ON k2.__src = b.name {} = k2.__dst \
+                 JOIN knows k3 ON k3.__src = c.name {} = k3.__dst",
                 person("a"),
                 person("b"),
                 person("c"),
@@ -237,10 +241,10 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
             "selective",
             "match { $a: Person { name: \"p42\" } $a knows{1,2} $b } return { $b.name }",
             format!(
-                "SELECT b.name FROM knows k1 {} = k1.dst WHERE k1.src = 'p42' \
+                "SELECT b.name FROM knows k1 {} = k1.__dst WHERE k1.__src = 'p42' \
                  UNION ALL \
-                 SELECT c.name FROM knows k1 {} = k1.dst JOIN knows k2 ON k2.src = b.name \
-                 {} = k2.dst WHERE k1.src = 'p42'",
+                 SELECT c.name FROM knows k1 {} = k1.__dst JOIN knows k2 ON k2.__src = b.name \
+                 {} = k2.__dst WHERE k1.__src = 'p42'",
                 person("b"),
                 person("b"),
                 person("c")
@@ -252,7 +256,7 @@ fn queries() -> Vec<(&'static str, &'static str, String)> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match Args::parse().command {
-        Command::Convert { graph, out } => convert(&graph, &out).await,
+        Command::Convert { tables, out } => convert(tables, &out).await,
         Command::Query {
             data,
             iterations,
@@ -261,41 +265,36 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Find the Omnigraph node and edge tables: directories named `node_*` or `edge_*` that hold a
-/// Lance dataset (`_versions/`).
-fn find_tables(graph: &Path) -> anyhow::Result<BTreeMap<String, PathBuf>> {
-    let mut tables = BTreeMap::new();
-    let mut stack = vec![graph.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or_default()
-                .to_string();
-            if (name.starts_with("node_") || name.starts_with("edge_"))
-                && path.join("_versions").is_dir()
-            {
-                if let Some(previous) = tables.insert(name.clone(), path.clone()) {
-                    bail!(
-                        "table {name} found twice: {} and {}",
-                        previous.display(),
-                        path.display()
-                    );
-                }
-            } else {
-                stack.push(path);
-            }
+/// Open the version of an Omnigraph table that its graph commit points at.
+///
+/// Omnigraph commits each table version as a Lance *detached* version (`_versions/d<N>.manifest`)
+/// and records it in the graph's own `__manifest`, so the dataset's regular latest version is the
+/// empty one `init` created. After `omnigraph cleanup --keep 1` exactly one detached version
+/// remains: the current one.
+async fn open_omnigraph_table(path: &Path) -> anyhow::Result<LanceDataset> {
+    let uri = path.to_str().context("non UTF-8 path")?;
+    let mut detached = Vec::new();
+    for entry in fs::read_dir(path.join("_versions"))? {
+        let file = entry?.file_name();
+        let file = file.to_string_lossy();
+        if let Some(version) = file
+            .strip_prefix('d')
+            .and_then(|f| f.strip_suffix(".manifest"))
+        {
+            detached.push(version.parse::<u64>()?);
         }
     }
-    if tables.is_empty() {
-        bail!("no Omnigraph node_*/edge_* Lance tables under {}", graph.display());
+    let dataset = LanceDataset::open(uri)
+        .await
+        .with_context(|| format!("opening {uri}"))?;
+    match detached.as_slice() {
+        [] => Ok(dataset),
+        [version] => Ok(dataset.checkout_version(*version).await?),
+        _ => bail!(
+            "{uri} has {} detached versions; run `omnigraph cleanup --keep 1` first",
+            detached.len()
+        ),
     }
-    Ok(tables)
 }
 
 fn dir_size(path: &Path) -> anyhow::Result<u64> {
@@ -367,8 +366,7 @@ struct SizeRow {
     vortex_bytes: u64,
 }
 
-async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
-    let tables = find_tables(graph)?;
+async fn convert(tables: Vec<(String, PathBuf)>, out: &Path) -> anyhow::Result<()> {
     for sub in ["lance_zstd", "parquet", "vortex"] {
         fs::create_dir_all(out.join(sub))?;
     }
@@ -376,13 +374,15 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
     let mut rows = Vec::new();
     let mut lance_tables = BTreeMap::new();
     for (table, path) in &tables {
-        let name = sql_table_name(table);
+        let name = table.clone();
         lance_tables.insert(name.clone(), fs::canonicalize(path)?);
-        let uri = path.to_str().context("non UTF-8 path")?;
-        let dataset = LanceDataset::open(uri)
-            .await
-            .with_context(|| format!("opening {uri}"))?;
-        let batches: Vec<LanceRecordBatch> = dataset.scan().try_into_stream().await?.try_collect().await?;
+        let dataset = open_omnigraph_table(path).await?;
+        let batches: Vec<LanceRecordBatch> = dataset
+            .scan()
+            .try_into_stream()
+            .await?
+            .try_collect()
+            .await?;
         let schema = match batches.first() {
             Some(batch) => batch.schema(),
             None => Arc::new(dataset.schema().into()),
@@ -411,14 +411,19 @@ async fn convert(graph: &Path, out: &Path) -> anyhow::Result<()> {
         let props = WriterProperties::builder()
             .set_compression(Compression::ZSTD(ZstdLevel::try_new(3)?))
             .build();
-        let mut writer = ArrowWriter::try_new(fs::File::create(&parquet_path)?, Arc::clone(&schema), Some(props))?;
+        let mut writer = ArrowWriter::try_new(
+            fs::File::create(&parquet_path)?,
+            Arc::clone(&schema),
+            Some(props),
+        )?;
         for batch in &batches {
             writer.write(batch)?;
         }
         writer.close()?;
 
         let vortex_path = out.join("vortex").join(format!("{name}.vortex"));
-        convert_parquet_file_to_vortex(&parquet_path, &vortex_path, CompactionStrategy::Default).await?;
+        convert_parquet_file_to_vortex(&parquet_path, &vortex_path, CompactionStrategy::Default)
+            .await?;
 
         rows.push(SizeRow {
             table: table.clone(),
@@ -488,10 +493,12 @@ fn table_files(dir: &Path, ext: &str) -> anyhow::Result<Vec<(String, PathBuf)>> 
     Ok(files)
 }
 
-async fn lance_context(tables: Vec<(String, PathBuf)>) -> anyhow::Result<df54::prelude::SessionContext> {
+async fn lance_context(
+    tables: Vec<(String, PathBuf)>,
+) -> anyhow::Result<df54::prelude::SessionContext> {
     let ctx = df54::prelude::SessionContext::new();
     for (name, path) in tables {
-        let dataset = LanceDataset::open(path.to_str().context("non UTF-8 path")?).await?;
+        let dataset = open_omnigraph_table(&path).await?;
         ctx.register_table(
             name.as_str(),
             Arc::new(LanceTableProvider::new(Arc::new(dataset), false, false)),
@@ -558,7 +565,10 @@ impl Engine {
                 let batches = ctx.sql(sql).await?.collect().await?;
                 let rows = batches.iter().map(|b| b.num_rows()).sum();
                 answer(rows, || {
-                    Ok(datafusion::arrow::util::pretty::pretty_format_batches(&batches)?.to_string())
+                    Ok(
+                        datafusion::arrow::util::pretty::pretty_format_batches(&batches)?
+                            .to_string(),
+                    )
                 })
             }
         }
@@ -617,11 +627,19 @@ async fn query(data: &Path, iterations: usize, json: Option<&Path>) -> anyhow::R
         // Warm-up, and check every format returns the same answer.
         let mut answers = Vec::new();
         for (format, engine) in FORMATS.iter().zip(&engines) {
-            answers.push(engine.run(&sql).await.with_context(|| format!("{format} {name}"))?);
+            answers.push(
+                engine
+                    .run(&sql)
+                    .await
+                    .with_context(|| format!("{format} {name}"))?,
+            );
         }
         for (format, answer) in FORMATS.iter().zip(&answers).skip(1) {
             if answer != &answers[0] {
-                bail!("{name}: {format} returned a different result from lance\n{answer:?}\n{:?}", answers[0]);
+                bail!(
+                    "{name}: {format} returned a different result from lance\n{answer:?}\n{:?}",
+                    answers[0]
+                );
             }
         }
 
@@ -666,11 +684,18 @@ async fn query(data: &Path, iterations: usize, json: Option<&Path>) -> anyhow::R
         );
     }
     let geo = |i: usize| {
-        (results.iter().map(|r| (r.median_ms[i] / r.median_ms[2]).ln()).sum::<f64>()
+        (results
+            .iter()
+            .map(|r| (r.median_ms[i] / r.median_ms[2]).ln())
+            .sum::<f64>()
             / results.len() as f64)
             .exp()
     };
-    println!("| **geomean speedup** | | | | | {:.2}x | {:.2}x |", geo(0), geo(1));
+    println!(
+        "| **geomean speedup** | | | | | {:.2}x | {:.2}x |",
+        geo(0),
+        geo(1)
+    );
     if let Some(path) = json {
         fs::write(path, serde_json::to_string_pretty(&results)?)?;
     }
