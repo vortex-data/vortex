@@ -297,12 +297,21 @@ impl FileOpener for VortexOpener {
                         .file_metadata
                         .as_any()
                         .downcast_ref::<CachedVortexMetadata>()
-                        .map(|vortex_metadata| vortex_metadata.footer().clone())
+                        .map(|vortex_metadata| {
+                            (
+                                vortex_metadata.footer().clone(),
+                                vortex_metadata.segment_cache(),
+                            )
+                        })
                 });
             let footer_cache_hit = cached_footer.is_some();
 
-            if let Some(footer) = cached_footer {
+            if let Some((footer, segment_cache)) = cached_footer {
                 open_opts = open_opts.with_footer(footer);
+                // Segments planning already read, such as zone maps, are served from memory.
+                if let Some(segment_cache) = segment_cache {
+                    open_opts = open_opts.with_segment_cache(segment_cache);
+                }
             }
 
             let vxf = open_opts

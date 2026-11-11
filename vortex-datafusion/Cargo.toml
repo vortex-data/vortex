@@ -12,6 +12,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+# A table provider over a `vortex-table` manifest.
+table = ["dep:vortex-table"]
+
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
@@ -37,6 +41,7 @@ tokio-stream = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-arrow = { workspace = true }
+vortex-table = { workspace = true, optional = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
