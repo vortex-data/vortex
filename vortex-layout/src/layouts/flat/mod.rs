@@ -31,6 +31,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SharePlan;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -134,8 +135,15 @@ impl VTable for Flat {
             layout.array_ctx().clone(),
             layout.array_tree().cloned(),
         );
+        // A filter and a projection that both extract from a Variant each scan its segment. Under
+        // a share, the split decodes the segment once, and with it the storage of the Variant.
+        let scan = if layout.dtype().is_variant() {
+            SharePlan::new(scan.into_plan()).into_plan()
+        } else {
+            scan.into_plan()
+        };
         // TODO(ji): remove the Filter from the flat layout plan and return the segment scan.
-        Ok(FilterPlan::new(scan.into_plan()).into_plan())
+        Ok(FilterPlan::new(scan).into_plan())
     }
 }
 

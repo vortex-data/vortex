@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::Cell;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -26,7 +27,6 @@ use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -43,6 +43,14 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::mask::Mask;
+
+/// How many lazy layers `variant_get` unwraps from its input before it extracts row by row.
+const MAX_CANONICALIZE_DEPTH: usize = 8;
+
+thread_local! {
+    /// How many inputs the executions of `variant_get` on this thread's stack have canonicalized.
+    static CANONICALIZE_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
 
 /// Extracts a field/index path from Variant values.
 ///
@@ -176,14 +184,16 @@ impl ScalarFnVTable for VariantGet {
                 .mask(masked.child_at(1).clone())?
                 .execute::<ArrayRef>(ctx);
         }
-        if !input.is::<Variant>() {
+        // Each canonicalization unwraps one lazy layer, such as a filter over a slice over a
+        // shared array. An input that canonicalizes to itself, such as a constant, would recurse
+        // forever, so the depth is bounded.
+        if !input.is::<Variant>() && CANONICALIZE_DEPTH.get() < MAX_CANONICALIZE_DEPTH {
             let canonical = input.clone().execute::<VariantArray>(ctx)?;
-            // Canonicalizing must unwrap the input, or re-dispatching would not terminate.
-            if canonical.core_storage().encoding_id() != input.encoding_id() {
-                return VariantGet::try_new(canonical.into_array(), options.clone())?
-                    .into_array()
-                    .execute::<ArrayRef>(ctx);
-            }
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() + 1);
+            let result = VariantGet::try_new(canonical.into_array(), options.clone())
+                .and_then(|array| array.into_array().execute::<ArrayRef>(ctx));
+            CANONICALIZE_DEPTH.set(CANONICALIZE_DEPTH.get() - 1);
+            return result;
         }
 
         if !dtype.is_variant() {

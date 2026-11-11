@@ -10,6 +10,7 @@ from bench_orchestrator.config import (
     parse_formats_json,
     parse_targets_json,
     resolve_axis_targets,
+    uses_scan_v2,
     validate_targets,
 )
 
@@ -154,3 +155,8 @@ def test_validate_targets_rejects_jsonbench_vortex_on_duckdb() -> None:
     )
 
     assert errors == ["Benchmark jsonbench does not support format vortex on engine duckdb"]
+
+
+def test_jsonbench_runs_on_the_v2_scan() -> None:
+    # The split-wide sharing of decoded Variant storage is part of the V2 scan.
+    assert uses_scan_v2(Benchmark.JSONBENCH)

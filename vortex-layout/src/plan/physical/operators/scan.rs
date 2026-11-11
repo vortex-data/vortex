@@ -6,6 +6,11 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
@@ -13,6 +18,7 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::arrays::shared::Shared;
 use crate::plan::physical::SegmentScanPlan;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::Input;
@@ -33,12 +39,43 @@ fn decode(
         Some(tree) => SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?,
         None => SerializedArray::try_from(segment)?,
     };
-    serialized.decode(
+    let array = serialized.decode(
         plan.dtype(),
         usize::try_from(plan.row_count())?,
         plan.array_ctx(),
         session,
-    )
+    )?;
+    if array.dtype().is_variant() {
+        return share_variant_storage(array, session);
+    }
+    Ok(array)
+}
+
+/// Shares the children of a Variant's core storage, so that each is decoded at most once however
+/// many `variant_get` calls read it.
+///
+/// Every extraction from an unshredded path decodes the metadata and the value of the storage.
+/// Sharing keeps that lazy: a query that only reads shredded children never decodes them.
+fn share_variant_storage(array: ArrayRef, session: &VortexSession) -> VortexResult<ArrayRef> {
+    let variant = array.execute::<VariantArray>(&mut session.create_execution_ctx())?;
+    let core_storage = variant.core_storage();
+    let slots = core_storage
+        .slots()
+        .iter()
+        .map(|slot| {
+            slot.as_ref().map(|child| {
+                // A Variant child is storage of its own, not a child that decodes.
+                if child.dtype().is_variant() {
+                    child.clone()
+                } else {
+                    Shared::new(child.clone()).into_array()
+                }
+            })
+        })
+        .collect::<ArraySlots>();
+    // SAFETY: a shared array has the logical values of its source.
+    let core_storage = unsafe { core_storage.clone().with_slots(slots) }?;
+    Ok(VariantArray::try_new(core_storage, variant.shredded().cloned())?.into_array())
 }
 
 /// Slices a whole decoded segment to `slice`, then keeps the rows `filter` selects.
